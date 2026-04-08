@@ -8,6 +8,7 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
+    pathname.startsWith('/qualify') ||
     pathname.startsWith('/api/webhooks') ||
     pathname.startsWith('/api/cron') ||
     pathname.startsWith('/api/auth') ||
@@ -67,6 +68,6 @@ export const config = {
     /*
      * Match dashboard routes only — not auth pages, not API, not static
      */
-    '/((?!_next/static|_next/image|favicon.ico|login|signup|api|widget\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|js|css)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|login|signup|qualify|api|widget\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|js|css)$).*)',
   ],
 }

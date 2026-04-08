@@ -60,14 +60,14 @@ export function Topbar() {
 
         <DropdownMenu>
           <DropdownMenuTrigger>
-            <button className="flex items-center gap-2 pl-2 rounded-md px-3 py-2 text-sm hover:bg-accent">
+            <span className="flex items-center gap-2 pl-2 rounded-md px-3 py-2 text-sm hover:bg-accent cursor-pointer">
               <Avatar className="h-7 w-7">
                 <AvatarFallback className="text-xs">{initials}</AvatarFallback>
               </Avatar>
               <span className="text-sm font-medium hidden sm:inline">
                 {userProfile?.full_name || 'User'}
               </span>
-            </button>
+            </span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5">
