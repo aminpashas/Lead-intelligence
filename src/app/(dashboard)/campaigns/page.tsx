@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Megaphone, Plus, Mail, MessageSquare } from 'lucide-react'
 import { format } from 'date-fns'
+import { CampaignBuilder } from '@/components/crm/campaign-builder'
 
 const statusColors: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
@@ -38,10 +39,7 @@ export default async function CampaignsPage() {
             SMS and email drip campaigns for lead nurturing
           </p>
         </div>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          New Campaign
-        </Button>
+        <CampaignBuilder />
       </div>
 
       {(!campaigns || campaigns.length === 0) ? (

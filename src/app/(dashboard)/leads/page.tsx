@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { LeadsTable } from '@/components/crm/leads-table'
+import { LeadCSVImport } from '@/components/crm/lead-csv-import'
+import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 
 export default async function LeadsPage({
   searchParams,
@@ -56,6 +58,10 @@ export default async function LeadsPage({
           <p className="text-muted-foreground">
             {count || 0} total leads
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <LeadCSVImport />
+          <NewLeadDialog />
         </div>
       </div>
 

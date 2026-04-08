@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { LeadMessaging } from './lead-messaging'
+import { ScheduleAppointment } from './schedule-appointment'
 import {
   ArrowLeft,
   Brain,
@@ -143,6 +145,9 @@ export function LeadDetail({
             {lead.ai_qualification}
           </p>
         </div>
+
+        <LeadMessaging lead={lead} />
+        <ScheduleAppointment lead={lead} />
 
         <Button onClick={scoreLead} disabled={scoring} variant="outline" size="sm">
           {scoring ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
