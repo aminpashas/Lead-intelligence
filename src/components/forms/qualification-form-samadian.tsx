@@ -8,9 +8,9 @@ type FormData = {
   teeth_count_lower: string
   previous_consults: string
   previous_consult_locations: string
-  what_held_back: string
+  what_held_back: string[]
   urgency: string
-  pain_level: string
+  pain_level: string[]
   credit_score_range: string
   monthly_payment_range: string
   has_cosigner: string
@@ -31,13 +31,13 @@ const STEPS: StepConfig[] = [
   { type: 'h', ok: () => true },                                               // 2: hype — same day 3D printed
   { type: 'q', ok: (d) => !!d.previous_consults },                            // 3: prev consults
   { type: 'h', ok: () => true },                                               // 4: hype — not clearchoice / bone regen
-  { type: 'q', ok: (d) => !!d.pain_level },                                   // 5: pain / what bothers you
+  { type: 'q', ok: (d) => d.pain_level.length > 0 },                            // 5: pain / what bothers you (multi)
   { type: 'h', ok: () => true },                                               // 6: hype — 1500 cases / FP1 cosmetic
   { type: 'q', ok: (d) => !!d.urgency },                                      // 7: urgency / ready?
   { type: 'h', ok: () => true },                                               // 8: hype — financing / 85% approved
   { type: 'q', ok: (d) => !!d.credit_score_range && !!d.monthly_payment_range }, // 9: credit + payments
   { type: 'h', ok: () => true },                                               // 10: hype — FREE consult value stack
-  { type: 'q', ok: (d) => !!d.first_name && !!d.phone && d.phone.replace(/\D/g, '').length >= 7 }, // 11: contact
+  { type: 'q', ok: (d) => !!d.first_name && !!d.phone && d.phone.replace(/\D/g, '').length >= 7 && !!d.email && d.email.includes('@') }, // 11: contact (email required)
 ]
 
 // ── Shared ────────────────────────────────────────
@@ -59,6 +59,24 @@ function Pill({ sel, click, children, tag }: { sel: boolean; click: () => void; 
     </button>
   )
 }
+function MultiPill({ sel, click, children, tag }: { sel: boolean; click: () => void; children: React.ReactNode; tag?: string }) {
+  return (
+    <button type="button" onClick={click} style={{
+      width: '100%', display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 18px',
+      borderRadius: '14px', border: `3px solid ${sel ? '#d97706' : '#e5e0d8'}`,
+      background: sel ? '#fffbeb' : '#fff', cursor: 'pointer', transition: 'all .15s',
+      boxShadow: sel ? '0 0 0 1px #d97706' : 'none', textAlign: 'left' as const,
+    }}>
+      <span style={{ width: '24px', height: '24px', borderRadius: '6px', border: `3px solid ${sel ? '#d97706' : '#ccc'}`,
+        background: sel ? '#d97706' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {sel && <svg width="12" height="12" viewBox="0 0 12 12" fill="#fff"><path d="M10.28 2.28L3.989 8.575 1.695 6.28A1 1 0 00.28 7.695l3 3a1 1 0 001.414 0l7-7A1 1 0 0010.28 2.28z"/></svg>}
+      </span>
+      <span style={{ fontSize: '16px', fontWeight: 600, color: '#1f1a15', lineHeight: 1.4, flex: 1 }}>{children}</span>
+      {tag && <span style={{ background: '#dc2626', color: '#fff', fontSize: '10px', fontWeight: 800, padding: '2px 7px', borderRadius: '5px', textTransform: 'uppercase' as const, letterSpacing: '.5px', whiteSpace: 'nowrap' as const }}>{tag}</span>}
+    </button>
+  )
+}
+
 function H({ children }: { children: React.ReactNode }) { return <h2 style={{ fontSize: '24px', fontWeight: 800, color: '#1f1a15', lineHeight: 1.3, marginBottom: '6px' }}>{children}</h2> }
 function P({ children }: { children: React.ReactNode }) { return <p style={{ fontSize: '15px', color: '#78716c', marginBottom: '22px', lineHeight: 1.5 }}>{children}</p> }
 function L({ children }: { children: React.ReactNode }) { return <p style={{ fontSize: '15px', fontWeight: 700, color: '#1f1a15', marginBottom: '14px', marginTop: '24px' }}>{children}</p> }
@@ -148,7 +166,7 @@ function H2() {
 
 // ── Step 3: Previous Consults ──────────────────────
 
-function Q3({ d, u }: { d: FormData; u: (f: keyof FormData, v: string) => void }) {
+function Q3({ d, u, toggle }: { d: FormData; u: (f: keyof FormData, v: string) => void; toggle: (f: 'pain_level' | 'what_held_back', v: string) => void }) {
   return (
     <div>
       <H>Have you looked into implants before?</H>
@@ -162,14 +180,14 @@ function Q3({ d, u }: { d: FormData; u: (f: keyof FormData, v: string) => void }
         <L>Where did you go?</L>
         <input value={d.previous_consult_locations} onChange={(e) => u('previous_consult_locations',e.target.value)} placeholder="ClearChoice, Aspen, local dentist..."
           style={{ width: '100%', padding: '15px 18px', fontSize: '17px', border: '3px solid #e5e0d8', borderRadius: '14px', outline: 'none', background: '#fff', color: '#1f1a15', boxSizing: 'border-box' as const }} />
-        <L>What stopped you?</L>
+        <L>What stopped you? (select all that apply)</L>
         <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
-          <Pill sel={d.what_held_back==='price'} click={() => u('what_held_back','price')} tag="WE CAN BEAT IT">Too expensive</Pill>
-          <Pill sel={d.what_held_back==='denied'} click={() => u('what_held_back','denied')}>Couldn&apos;t get financed</Pill>
-          <Pill sel={d.what_held_back==='bone'} click={() => u('what_held_back','bone')} tag="WE FIX THIS">They said not enough bone</Pill>
-          <Pill sel={d.what_held_back==='trust'} click={() => u('what_held_back','trust')}>Didn&apos;t trust the doctor</Pill>
-          <Pill sel={d.what_held_back==='scared'} click={() => u('what_held_back','scared')}>Too scared</Pill>
-          <Pill sel={d.what_held_back==='time'} click={() => u('what_held_back','time')}>Needed time</Pill>
+          <MultiPill sel={d.what_held_back.includes('price')} click={() => toggle('what_held_back','price')} tag="WE CAN BEAT IT">Too expensive</MultiPill>
+          <MultiPill sel={d.what_held_back.includes('denied')} click={() => toggle('what_held_back','denied')}>Couldn&apos;t get financed</MultiPill>
+          <MultiPill sel={d.what_held_back.includes('bone')} click={() => toggle('what_held_back','bone')} tag="WE FIX THIS">They said not enough bone</MultiPill>
+          <MultiPill sel={d.what_held_back.includes('trust')} click={() => toggle('what_held_back','trust')}>Didn&apos;t trust the doctor</MultiPill>
+          <MultiPill sel={d.what_held_back.includes('scared')} click={() => toggle('what_held_back','scared')}>Too scared</MultiPill>
+          <MultiPill sel={d.what_held_back.includes('time')} click={() => toggle('what_held_back','time')}>Needed time</MultiPill>
         </div>
       </>}
     </div>
@@ -192,17 +210,18 @@ function H4() {
 
 // ── Step 5: Pain / What Bothers You ───────────────
 
-function Q5({ d, u }: { d: FormData; u: (f: keyof FormData, v: string) => void }) {
+function Q5({ d, toggle }: { d: FormData; toggle: (f: 'pain_level' | 'what_held_back', v: string) => void }) {
   return (
     <div>
       <H>What bothers you the most right now?</H>
-      <P>No judgment. We&apos;ve heard it all.</P>
+      <P>Select ALL that apply — be honest.</P>
       <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '10px' }}>
-        <Pill sel={d.pain_level==='pain'} click={() => u('pain_level','pain')} tag="URGENT">I&apos;m in pain every day</Pill>
-        <Pill sel={d.pain_level==='eat'} click={() => u('pain_level','eat')}>I can&apos;t eat the foods I love</Pill>
-        <Pill sel={d.pain_level==='embarrassed'} click={() => u('pain_level','embarrassed')}>I don&apos;t smile anymore</Pill>
-        <Pill sel={d.pain_level==='dentures'} click={() => u('pain_level','dentures')}>My dentures make me miserable</Pill>
-        <Pill sel={d.pain_level==='all'} click={() => u('pain_level','all')}>Honestly? All of the above</Pill>
+        <MultiPill sel={d.pain_level.includes('pain')} click={() => toggle('pain_level','pain')} tag="URGENT">I&apos;m in pain every day</MultiPill>
+        <MultiPill sel={d.pain_level.includes('eat')} click={() => toggle('pain_level','eat')}>I can&apos;t eat the foods I love</MultiPill>
+        <MultiPill sel={d.pain_level.includes('embarrassed')} click={() => toggle('pain_level','embarrassed')}>I don&apos;t smile or take photos</MultiPill>
+        <MultiPill sel={d.pain_level.includes('dentures')} click={() => toggle('pain_level','dentures')}>My dentures are miserable</MultiPill>
+        <MultiPill sel={d.pain_level.includes('social')} click={() => toggle('pain_level','social')}>I avoid going out or dating</MultiPill>
+        <MultiPill sel={d.pain_level.includes('health')} click={() => toggle('pain_level','health')}>It&apos;s affecting my health (can&apos;t chew properly)</MultiPill>
       </div>
     </div>
   )
@@ -350,8 +369,8 @@ function Q11({ d, u }: { d: FormData; u: (f: keyof FormData, v: string) => void 
           <p style={{ fontSize: '13px', color: '#78716c', marginTop: '6px' }}>We&apos;ll call or text to schedule your FREE consultation</p>
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '14px', fontWeight: 700, color: '#1f1a15', marginBottom: '6px' }}>Email (optional)</label>
-          <input value={d.email} onChange={(e) => u('email',e.target.value)} type="email" placeholder="your@email.com" style={inputStyle} />
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 700, color: '#1f1a15', marginBottom: '6px' }}>Email *</label>
+          <input value={d.email} onChange={(e) => u('email',e.target.value)} type="email" placeholder="your@email.com" required style={{ ...inputStyle, border: d.email && d.email.includes('@') ? '3px solid #16a34a' : inputStyle.border }} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <div>
@@ -428,11 +447,17 @@ export function QualificationFormSamadian({ orgId, orgName, apiBase = '', utmPar
   const [score, setScore] = useState<ScoreResult>(null)
   const [d, setD] = useState<FormData>({
     teeth_situation:'', teeth_count_upper:'', teeth_count_lower:'',
-    previous_consults:'', previous_consult_locations:'', what_held_back:'',
-    urgency:'', pain_level:'', credit_score_range:'', monthly_payment_range:'', has_cosigner:'',
+    previous_consults:'', previous_consult_locations:'', what_held_back:[] as string[],
+    urgency:'', pain_level:[] as string[], credit_score_range:'', monthly_payment_range:'', has_cosigner:'',
     first_name:'', last_name:'', phone:'', email:'', city:'', state:'',
   })
   const u = useCallback((f: keyof FormData, v: string) => setD((p) => ({...p,[f]:v})), [])
+  const toggle = useCallback((f: 'pain_level' | 'what_held_back', v: string) => {
+    setD((p) => {
+      const arr = p[f] as string[]
+      return { ...p, [f]: arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v] }
+    })
+  }, [])
   const cfg = STEPS[step-1]
   const ok = cfg?.ok(d) ?? false
 
@@ -445,8 +470,8 @@ export function QualificationFormSamadian({ orgId, orgName, apiBase = '', utmPar
         city: d.city||undefined, state: d.state||undefined,
         dental_condition: map[d.teeth_situation]||'other',
         dental_condition_details: [`Teeth:${d.teeth_situation}`,`Upper:${d.teeth_count_upper}`,`Lower:${d.teeth_count_lower}`,
-          d.previous_consults!=='no'?`Prev:${d.previous_consult_locations||d.previous_consults}`:'',d.what_held_back?`Block:${d.what_held_back}`:'',
-          `Pain:${d.pain_level}`,`Credit:${d.credit_score_range}`,`Mo:${d.monthly_payment_range}`,`Cosign:${d.has_cosigner}`].filter(Boolean).join('|'),
+          d.previous_consults!=='no'?`Prev:${d.previous_consult_locations||d.previous_consults}`:'',d.what_held_back.length?`Block:${d.what_held_back.join(',')}`:'',
+          `Pain:${d.pain_level.join(',')}`,`Credit:${d.credit_score_range}`,`Mo:${d.monthly_payment_range}`,`Cosign:${d.has_cosigner}`].filter(Boolean).join('|'),
         has_dentures: d.teeth_situation==='dentures', urgency: d.urgency,
         financing_interest: d.has_cosigner==='cash'?'cash_pay':'financing_needed', has_dental_insurance: false,
         budget_range: d.monthly_payment_range==='500'?'over_30k':d.monthly_payment_range==='350'?'20k_25k':d.monthly_payment_range==='200'?'15k_20k':'10k_15k',
@@ -470,9 +495,9 @@ export function QualificationFormSamadian({ orgId, orgName, apiBase = '', utmPar
       <div style={{ minHeight:'400px' }}>
         {step===1&&<Q1 d={d} u={u}/>}
         {step===2&&<H2/>}
-        {step===3&&<Q3 d={d} u={u}/>}
+        {step===3&&<Q3 d={d} u={u} toggle={toggle}/>}
         {step===4&&<H4/>}
-        {step===5&&<Q5 d={d} u={u}/>}
+        {step===5&&<Q5 d={d} toggle={toggle}/>}
         {step===6&&<H6/>}
         {step===7&&<Q7 d={d} u={u}/>}
         {step===8&&<H8/>}
