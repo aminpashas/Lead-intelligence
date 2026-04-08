@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { autoEnrollLeads } from '@/lib/campaigns/enrollments'
 import { executeCampaignSteps } from '@/lib/campaigns/executor'
+import { runDisqualificationRules } from '@/lib/ai/disqualification'
 
-// POST /api/cron/campaigns — Runs every 5 minutes via Vercel Cron
-// 1. Auto-enrolls leads matching active campaign criteria
-// 2. Executes due campaign steps (sends SMS/email)
+// POST /api/cron/campaigns — Daily cron (9 AM UTC) or manual trigger
+// Runs: auto-enrollment, step execution, and lead disqualification
 export async function POST(request: NextRequest) {
-  // Verify cron secret
+  // Verify cron secret (Vercel sends this) or allow empty for dev
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.WEBHOOK_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -63,11 +63,28 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // PHASE 3: Run disqualification rules
+  let disqualified = 0
+  for (const org of orgs) {
+    try {
+      const result = await runDisqualificationRules(org.id)
+      disqualified += result.actions.length
+    } catch (err) {
+      errors.push(`Disqualify error (org ${org.id}): ${err instanceof Error ? err.message : 'unknown'}`)
+    }
+  }
+
   return NextResponse.json({
     success: true,
     enrollments: totalEnrolled,
     executions: totalExecuted,
+    disqualified,
     errors: errors.length > 0 ? errors : undefined,
     timestamp: new Date().toISOString(),
   })
+}
+
+// Vercel Cron sends GET requests
+export async function GET(request: NextRequest) {
+  return POST(request)
 }
