@@ -17,21 +17,36 @@ export default async function DashboardLayout({
     redirect('/login')
   }
 
-  // Fetch user profile and organization
-  const { data: profile } = await supabase
+  // First get the user's own profile
+  const { data: profile, error: profileError } = await supabase
     .from('user_profiles')
-    .select('*, organization:organizations(*)')
+    .select('*')
     .eq('id', user.id)
     .single()
 
-  if (!profile) {
+  if (profileError || !profile) {
+    console.error('Dashboard layout - profile fetch failed:', profileError?.message)
+    console.error('User ID:', user.id)
+    redirect('/login')
+  }
+
+  // Then get their organization separately
+  const { data: organization, error: orgError } = await supabase
+    .from('organizations')
+    .select('*')
+    .eq('id', profile.organization_id)
+    .single()
+
+  if (orgError || !organization) {
+    console.error('Dashboard layout - org fetch failed:', orgError?.message)
+    console.error('Org ID:', profile.organization_id)
     redirect('/login')
   }
 
   return (
     <DashboardShell
       userProfile={profile}
-      organization={profile.organization}
+      organization={organization}
     >
       {children}
     </DashboardShell>

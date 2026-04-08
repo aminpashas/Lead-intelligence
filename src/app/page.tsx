@@ -1,7 +1,18 @@
-export const dynamic = 'force-dynamic'
+'use client'
 
-import { redirect } from 'next/navigation'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
 export default function Home() {
-  redirect('/pipeline')
+  const router = useRouter()
+
+  useEffect(() => {
+    router.replace('/pipeline')
+  }, [router])
+
+  return (
+    <div className="flex h-screen items-center justify-center">
+      <div className="animate-pulse text-muted-foreground">Loading...</div>
+    </div>
+  )
 }

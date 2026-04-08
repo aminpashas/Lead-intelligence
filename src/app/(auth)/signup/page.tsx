@@ -47,22 +47,16 @@ export default function SignupPage() {
       return
     }
 
-    // 2. Create organization and user profile via API
-    const res = await fetch('/api/auth/setup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: authData.user.id,
-        full_name: fullName,
-        email,
-        practice_name: practiceName,
-      }),
-    })
+    // Organization + user profile are created automatically via
+    // the on_auth_user_created trigger on auth.users.
+    // The trigger reads full_name and practice_name from raw_user_meta_data.
 
-    if (!res.ok) {
-      const data = await res.json()
-      setError(data.error || 'Failed to set up account')
+    // If email confirmation is enabled, show a message instead of redirecting
+    if (!authData.session) {
+      setError(null)
       setLoading(false)
+      alert('Check your email to confirm your account, then sign in.')
+      router.push('/login')
       return
     }
 
