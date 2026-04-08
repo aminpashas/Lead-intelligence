@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
@@ -30,7 +30,10 @@ export function PipelineBoard({
 }) {
   const [leads, setLeads] = useState(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
   const router = useRouter()
+
+  useEffect(() => { setMounted(true) }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -85,6 +88,20 @@ export function PipelineBoard({
     },
     [leads, router]
   )
+
+  // Prevent hydration mismatch — DnD-kit generates unique IDs at runtime
+  if (!mounted) {
+    return (
+      <div className="flex gap-4 overflow-x-auto pb-4 h-[calc(100vh-13rem)]">
+        {stages.filter((s) => !s.is_lost).map((stage) => {
+          const stageLeads = leads.filter((l) => l.stage_id === stage.id)
+          return (
+            <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} onLeadClick={(id) => router.push(`/leads/${id}`)} />
+          )
+        })}
+      </div>
+    )
+  }
 
   return (
     <DndContext
