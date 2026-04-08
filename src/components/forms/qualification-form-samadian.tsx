@@ -433,7 +433,7 @@ function Progress({ current, total }: { current: number; total: number }) {
 
 // ── Main Export ─────────────────────────────────────
 
-export function QualificationForm({ orgId, orgName, apiBase = '', utmParams = {} }: { orgId: string; orgName?: string; apiBase?: string; utmParams?: Record<string, string> }) {
+export function QualificationFormSamadian({ orgId, orgName, apiBase = '', utmParams = {} }: { orgId: string; orgName?: string; apiBase?: string; utmParams?: Record<string, string> }) {
   const [step, setStep] = useState(1)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
