@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 
 const navigation = [
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Conversations', href: '/conversations', icon: MessageSquare },

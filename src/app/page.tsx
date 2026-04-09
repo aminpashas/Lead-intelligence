@@ -7,7 +7,7 @@ export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
-    router.replace('/pipeline')
+    router.replace('/dashboard')
   }, [router])
 
   return (
