@@ -13,11 +13,13 @@ import {
   Settings,
   Brain,
   Calendar,
+  Target,
 } from 'lucide-react'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
+  { name: 'Funnel Playbook', href: '/funnel', icon: Target },
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Conversations', href: '/conversations', icon: MessageSquare },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
