@@ -308,3 +308,119 @@ export type LeadActivity = {
   metadata: Record<string, unknown>
   created_at: string
 }
+
+// ── Patient Intelligence (AI Agents) ────────────────────────
+
+export type PatientProfile = {
+  id: string
+  organization_id: string
+  lead_id: string
+
+  personality_type: string | null
+  communication_style: string | null
+  decision_making_style: string | null
+  trust_level: string
+
+  emotional_state: string
+  anxiety_level: number
+  confidence_level: number
+  motivation_level: number
+
+  pain_points: Array<{ point: string; severity: number; mentioned_count: number }>
+  desires: Array<{ desire: string; importance: number; mentioned_count: number }>
+  objections: Array<{ objection: string; severity: number; addressed: boolean; approach_used: string | null }>
+
+  price_sensitivity: number
+  urgency_perception: number
+  negotiation_style: string | null
+  influence_factors: string[]
+
+  rapport_score: number
+  personal_details: Record<string, string>
+  preferred_contact_time: string | null
+  preferred_channel: string | null
+  humor_receptivity: string
+
+  total_conversations_analyzed: number
+  key_moments: Array<{ date: string; type: string; description: string }>
+
+  ai_summary: string | null
+  next_best_action: string | null
+  recommended_tone: string | null
+  topics_to_avoid: string[]
+  topics_to_emphasize: string[]
+
+  last_analyzed_at: string | null
+  analysis_version: number
+  created_at: string
+  updated_at: string
+}
+
+export type ConversationAnalysis = {
+  id: string
+  organization_id: string
+  conversation_id: string
+  lead_id: string
+
+  emotional_score: number | null
+  engagement_score: number | null
+  trust_score: number | null
+  urgency_score: number | null
+
+  patient_tone: string | null
+  staff_tone: string | null
+  tone_alignment: string | null
+
+  sales_pressure_level: number | null
+  empathy_level: number | null
+  active_listening_score: number | null
+  objection_handling_quality: number | null
+  rapport_building_score: number | null
+
+  patient_openness: number | null
+  patient_buying_signals: number | null
+  patient_resistance: number | null
+  response_enthusiasm: string | null
+
+  message_count: number | null
+  avg_response_time_seconds: number | null
+  longest_message_by: string | null
+  conversation_flow: string | null
+  turning_points: Array<{ message_index: number; type: string; description: string }>
+
+  red_flags: Array<{ flag: string; severity: string; message_index: number }>
+  opportunities: Array<{ opportunity: string; type: string; message_index: number }>
+
+  coaching_notes: string | null
+  improvement_areas: string[]
+  things_done_well: string[]
+
+  phi_detected: boolean
+  phi_details: Array<{ category: string; message_index: number; remediation: string }>
+  compliance_score: number | null
+  compliance_issues: Array<{ issue: string; severity: string }>
+
+  analyzed_at: string
+  model_used: string | null
+  analysis_version: number
+  created_at: string
+}
+
+export type HIPAAAuditLog = {
+  id: string
+  organization_id: string
+  event_type: string
+  severity: 'info' | 'warning' | 'violation' | 'critical'
+  actor_type: string
+  actor_id: string | null
+  resource_type: string | null
+  resource_id: string | null
+  description: string
+  phi_categories: string[]
+  remediation_action: string | null
+  remediation_status: string
+  ip_address: string | null
+  user_agent: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
