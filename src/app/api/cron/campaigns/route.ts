@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { autoEnrollLeads } from '@/lib/campaigns/enrollments'
 import { executeCampaignSteps } from '@/lib/campaigns/executor'
 import { runDisqualificationRules } from '@/lib/ai/disqualification'
+import { sendAppointmentReminders } from '@/lib/campaigns/reminders'
 
 // POST /api/cron/campaigns — Daily cron (9 AM UTC) or manual trigger
 // Runs: auto-enrollment, step execution, and lead disqualification
@@ -74,11 +75,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // PHASE 4: Send appointment reminders (24h + 1h)
+  let remindersSent = 0
+  for (const org of orgs) {
+    try {
+      const results = await sendAppointmentReminders(supabase, org.id)
+      remindersSent += results.filter((r) => r.status === 'sent').length
+      results.filter((r) => r.status === 'error').forEach((r) => {
+        errors.push(`Reminder error (apt ${r.appointment_id}): ${r.detail}`)
+      })
+    } catch (err) {
+      errors.push(`Reminder error (org ${org.id}): ${err instanceof Error ? err.message : 'unknown'}`)
+    }
+  }
+
   return NextResponse.json({
     success: true,
     enrollments: totalEnrolled,
     executions: totalExecuted,
     disqualified,
+    remindersSent,
     errors: errors.length > 0 ? errors : undefined,
     timestamp: new Date().toISOString(),
   })

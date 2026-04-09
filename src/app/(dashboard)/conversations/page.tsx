@@ -47,7 +47,7 @@ export default async function ConversationsPage() {
           </Card>
         ) : (
           conversations.map((convo) => (
-            <Link key={convo.id} href={`/leads/${convo.lead_id}`}>
+            <Link key={convo.id} href={`/conversations/${convo.id}`}>
               <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
                 <CardContent className="py-3 flex items-center justify-between">
                   <div className="flex items-center gap-3">

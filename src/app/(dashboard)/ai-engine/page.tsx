@@ -25,8 +25,8 @@ export default function AIEnginePage() {
     {
       icon: Shield,
       title: 'Auto-Disqualification',
-      description: 'Automatically remove unresponsive leads, no-shows, and poor-fit prospects from active pipeline.',
-      status: 'coming_soon',
+      description: 'Automatically remove unresponsive leads (14+ days no reply), repeat no-shows, and low-score prospects from the active pipeline. Runs daily.',
+      status: 'active',
     },
     {
       icon: Zap,
