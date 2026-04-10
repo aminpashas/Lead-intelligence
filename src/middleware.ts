@@ -9,6 +9,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/qualify') ||
+    pathname.startsWith('/book') ||
+    pathname.startsWith('/api/booking') ||
     pathname.startsWith('/api/webhooks') ||
     pathname.startsWith('/api/cron') ||
     pathname.startsWith('/api/auth') ||

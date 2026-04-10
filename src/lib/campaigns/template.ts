@@ -17,6 +17,7 @@ const VARIABLE_MAP: Record<string, (ctx: TemplateContext) => string> = {
   state: (ctx) => ctx.lead.state || '',
   practice_name: (ctx) => ctx.practice_name,
   consultation_link: (ctx) => `${ctx.app_url}/qualify/${ctx.org_id}`,
+  booking_link: (ctx) => `${ctx.app_url}/book/${ctx.org_id}`,
   score: (ctx) => String(ctx.lead.ai_score || 0),
   qualification: (ctx) => ctx.lead.ai_qualification || 'unscored',
 }

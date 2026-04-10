@@ -110,6 +110,45 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Booking Link */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Online Booking</CardTitle>
+            <CardDescription>
+              Share this link with leads so they can self-book consultations
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Public Booking Page</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={typeof window !== 'undefined' ? `${window.location.origin}/book/${organization?.id}` : ''}
+                  readOnly
+                  className="font-mono text-xs"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => copyToClipboard(
+                    typeof window !== 'undefined' ? `${window.location.origin}/book/${organization?.id}` : '',
+                    'booking'
+                  )}
+                >
+                  {copied === 'booking' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Leads can book directly from this page. Use <code className="bg-muted px-1 rounded">{'{{booking_link}}'}</code> in campaign templates.
+              </p>
+            </div>
+            <Separator />
+            <p className="text-xs text-muted-foreground">
+              To configure availability (office hours, slot duration, blocked dates), update the <code className="bg-muted px-1 rounded">booking_settings</code> table in your Supabase dashboard. Default: Mon-Fri 9am-5pm, 60-minute slots, 15-minute buffer.
+            </p>
+          </CardContent>
+        </Card>
+
         {/* Financing Lenders */}
         <FinancingLendersSettings />
 
