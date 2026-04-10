@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
       .from('leads')
       .select('id, status, ai_qualification, ai_score, source_type, treatment_value, actual_revenue, created_at, converted_at, total_messages_sent, total_messages_received, total_emails_sent, total_sms_sent, no_show_count, consultation_date, financing_interest, budget_range')
       .eq('organization_id', orgId)
+      .limit(10000)
     leads = data || []
   }
 

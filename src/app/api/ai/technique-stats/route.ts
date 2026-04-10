@@ -22,12 +22,14 @@ export async function GET(request: NextRequest) {
         .from('message_technique_tracking')
         .select('*')
         .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true }),
+        .order('created_at', { ascending: true })
+        .limit(200),
       supabase
         .from('lead_engagement_assessments')
         .select('*')
         .eq('conversation_id', conversationId)
-        .order('message_index', { ascending: true }),
+        .order('message_index', { ascending: true })
+        .limit(100),
     ])
 
     return NextResponse.json({
@@ -44,17 +46,20 @@ export async function GET(request: NextRequest) {
         .from('message_technique_tracking')
         .select('*')
         .eq('lead_id', leadId)
-        .order('created_at', { ascending: true }),
+        .order('created_at', { ascending: true })
+        .limit(200),
       supabase
         .from('lead_engagement_assessments')
         .select('*')
         .eq('lead_id', leadId)
-        .order('created_at', { ascending: true }),
+        .order('created_at', { ascending: true })
+        .limit(100),
       supabase
         .from('conversation_technique_summaries')
         .select('*')
         .eq('lead_id', leadId)
-        .order('created_at', { ascending: false }),
+        .order('created_at', { ascending: false })
+        .limit(50),
     ])
 
     return NextResponse.json({

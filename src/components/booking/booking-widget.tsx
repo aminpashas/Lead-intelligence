@@ -60,7 +60,10 @@ export function BookingWidget({ orgId }: { orgId: string }) {
         setData(d)
         setStep('date')
       })
-      .catch(() => setStep('loading'))
+      .catch(() => {
+        setData(null)
+        setStep('date') // Will trigger the "not available" UI since data is null
+      })
   }, [orgId])
 
   function handleDateSelect(day: SlotDay) {
@@ -127,7 +130,7 @@ export function BookingWidget({ orgId }: { orgId: string }) {
     }
   }
 
-  if (step === 'loading' && !data) {
+  if (step === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />

@@ -155,7 +155,14 @@ export async function POST(
     .select('id')
     .single()
 
-  if (apptError || !appointment) {
+  if (apptError) {
+    // Handle unique constraint violation (double-booking)
+    if (apptError.code === '23505') {
+      return NextResponse.json({ error: 'This time slot was just booked by someone else. Please select another time.' }, { status: 409 })
+    }
+    return NextResponse.json({ error: 'Failed to create appointment' }, { status: 500 })
+  }
+  if (!appointment) {
     return NextResponse.json({ error: 'Failed to create appointment' }, { status: 500 })
   }
 
@@ -174,8 +181,15 @@ export async function POST(
 
   try {
     await sendSMS(phone, `Hi ${first_name}! Your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}. We look forward to seeing you! Reply STOP to opt out.`)
-  } catch {
-    // SMS failure is non-critical
+  } catch (err) {
+    // Log SMS failure for visibility
+    await supabase.from('lead_activities').insert({
+      organization_id: orgId,
+      lead_id: leadId,
+      activity_type: 'notification_failed',
+      title: 'Booking confirmation SMS failed',
+      metadata: { error: err instanceof Error ? err.message : 'unknown', channel: 'sms' },
+    })
   }
 
   // Send confirmation email
@@ -202,8 +216,15 @@ export async function POST(
       `,
       text: `Hi ${first_name}, your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}. ${settings.location ? `Location: ${settings.location}. ` : ''}We look forward to seeing you!`,
     })
-  } catch {
-    // Email failure is non-critical
+  } catch (err) {
+    // Log email failure for visibility
+    await supabase.from('lead_activities').insert({
+      organization_id: orgId,
+      lead_id: leadId,
+      activity_type: 'notification_failed',
+      title: 'Booking confirmation email failed',
+      metadata: { error: err instanceof Error ? err.message : 'unknown', channel: 'email' },
+    })
   }
 
   return NextResponse.json({

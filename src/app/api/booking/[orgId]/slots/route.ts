@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
+import { applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
 
 // GET /api/booking/[orgId]/slots — Public: get available booking slots
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ orgId: string }> }
 ) {
+  const rlError = applyRateLimit(request, RATE_LIMITS.publicForm)
+  if (rlError) return rlError
+
   const { orgId } = await params
   const supabase = createServiceClient()
 

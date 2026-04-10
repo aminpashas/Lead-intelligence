@@ -64,7 +64,7 @@ export function ChatPlayground() {
       const data = await res.json()
       setSavedConversations(data.conversations || [])
     } catch {
-      // silently fail
+      toast.error('Failed to load saved conversations')
     }
   }
 

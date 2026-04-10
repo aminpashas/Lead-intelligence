@@ -23,18 +23,22 @@ export async function exitCampaignsOnReply(
 
   if (!activeEnrollments || activeEnrollments.length === 0) return 0
 
-  let exited = 0
+  // Batch load ALL campaign steps for all relevant campaigns in ONE query (fixes N+1)
+  const campaignIds = [...new Set(activeEnrollments.map((e) => e.campaign_id))]
+  const { data: allSteps } = await supabase
+    .from('campaign_steps')
+    .select('campaign_id, step_number, exit_condition')
+    .in('campaign_id', campaignIds)
+
+  // Find enrollments whose campaigns have if_replied exit conditions
+  const enrollmentIdsToExit: string[] = []
 
   for (const enrollment of activeEnrollments) {
-    // Check if current or next step has if_replied exit condition
-    const { data: steps } = await supabase
-      .from('campaign_steps')
-      .select('exit_condition')
-      .eq('campaign_id', enrollment.campaign_id)
-      .gte('step_number', enrollment.current_step || 0)
-      .limit(3)
+    const relevantSteps = (allSteps || []).filter(
+      (s) => s.campaign_id === enrollment.campaign_id && s.step_number >= (enrollment.current_step || 0)
+    )
 
-    const hasReplyExit = steps?.some((s) => {
+    const hasReplyExit = relevantSteps.some((s) => {
       if (!s.exit_condition) return false
       const condition = typeof s.exit_condition === 'string'
         ? s.exit_condition
@@ -43,16 +47,23 @@ export async function exitCampaignsOnReply(
     })
 
     if (hasReplyExit) {
-      await supabase
-        .from('campaign_enrollments')
-        .update({
-          status: 'exited',
-          completed_at: new Date().toISOString(),
-          exit_reason: 'Lead replied to conversation',
-        })
-        .eq('id', enrollment.id)
-      exited++
+      enrollmentIdsToExit.push(enrollment.id)
     }
+  }
+
+  // Batch exit all matching enrollments in ONE query
+  let exited = 0
+  if (enrollmentIdsToExit.length > 0) {
+    const { data } = await supabase
+      .from('campaign_enrollments')
+      .update({
+        status: 'exited',
+        completed_at: new Date().toISOString(),
+        exit_reason: 'Lead replied to conversation',
+      })
+      .in('id', enrollmentIdsToExit)
+      .select('id')
+    exited = data?.length || 0
   }
 
   // Update lead engagement stats

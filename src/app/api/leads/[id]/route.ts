@@ -136,7 +136,18 @@ export async function PATCH(
     if (parsed.data.status === 'lost' || parsed.data.status === 'disqualified') {
       const { exitAllCampaigns } = await import('@/lib/campaigns/enrollments')
       exitAllCampaigns(supabase, id, `Lead status changed to ${parsed.data.status}`)
-        .catch((err) => console.error('Campaign exit error:', err))
+        .catch(async (err) => {
+          console.error('Campaign exit error:', err)
+          try {
+            await supabase.from('lead_activities').insert({
+              organization_id: currentLead.organization_id,
+              lead_id: id,
+              activity_type: 'automation_error',
+              title: 'Campaign exit failed',
+              metadata: { error: err instanceof Error ? err.message : 'unknown', trigger: 'status_change' },
+            })
+          } catch { /* best effort */ }
+        })
     }
   }
 
@@ -166,7 +177,16 @@ export async function PATCH(
         lead: lead as Record<string, unknown>,
         fromStageSlug: fromStage?.slug || null,
         toStageSlug: toStage.slug,
-      }).catch((err) => console.error('Automation execution error:', err))
+      }).catch(async (err) => {
+        console.error('Automation execution error:', err)
+        try {
+          await supabase.from('lead_activities').insert({
+            organization_id: currentLead.organization_id, lead_id: id,
+            activity_type: 'automation_error', title: 'Funnel automation failed',
+            metadata: { error: err instanceof Error ? err.message : 'unknown', trigger: 'stage_transition' },
+          })
+        } catch { /* best effort */ }
+      })
 
       // Campaign stage automation: trigger campaigns, exit old campaigns (non-blocking)
       onStageChange(
@@ -175,7 +195,16 @@ export async function PATCH(
         fromStage?.slug || 'unknown',
         toStage.slug,
         currentLead.organization_id
-      ).catch((err) => console.error('Campaign stage automation error:', err))
+      ).catch(async (err) => {
+        console.error('Campaign stage automation error:', err)
+        try {
+          await supabase.from('lead_activities').insert({
+            organization_id: currentLead.organization_id, lead_id: id,
+            activity_type: 'automation_error', title: 'Campaign stage automation failed',
+            metadata: { error: err instanceof Error ? err.message : 'unknown', trigger: 'stage_change' },
+          })
+        } catch { /* best effort */ }
+      })
     }
   }
 
