@@ -11,6 +11,7 @@ export const ENRICHMENT_TYPES = [
   'ip_geolocation',
   'google_ads_keyword',
   'website_behavior',
+  'credit_prequal',
 ] as const
 
 export type EnrichmentType = (typeof ENRICHMENT_TYPES)[number]
@@ -21,6 +22,7 @@ export const ENRICHMENT_SOURCES: Record<EnrichmentType, string> = {
   ip_geolocation: 'maxmind',
   google_ads_keyword: 'google_ads_api',
   website_behavior: 'client_js',
+  credit_prequal: 'internal_model',
 }
 
 // Database row type
@@ -132,6 +134,7 @@ export const DEFAULT_ENRICHMENT_CONFIG: EnrichmentConfig = {
   ip_geolocation: { enabled: true },
   google_ads_keyword: { enabled: true },
   website_behavior: { enabled: true },
+  credit_prequal: { enabled: true },
 }
 
 export const ENRICHMENT_TTL_DAYS = 30

@@ -11,7 +11,7 @@ create table if not exists public.lead_enrichment (
 
   enrichment_type text not null check (enrichment_type in (
     'email_validation', 'phone_validation', 'ip_geolocation',
-    'google_ads_keyword', 'website_behavior'
+    'google_ads_keyword', 'website_behavior', 'credit_prequal'
   )),
   enrichment_source text not null,
   status text not null default 'pending' check (status in ('pending', 'success', 'failed', 'skipped')),

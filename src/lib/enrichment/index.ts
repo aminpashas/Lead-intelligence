@@ -20,6 +20,7 @@ import { validatePhone, phoneValidationConfidence } from './phone-validator'
 import { geolocateIP, ipGeolocationConfidence } from './ip-geolocation'
 import { extractGoogleAdsKeyword, googleAdsKeywordConfidence } from './google-ads-keyword'
 import { parseWebsiteBehavior, websiteBehaviorConfidence } from './website-behavior'
+import { autoPreQualify, preQualConfidence } from './credit-prequal'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 
 type EnrichmentResult = {
@@ -205,11 +206,62 @@ export async function enrichLead(
     }
   }
 
-  // Run all enrichment tasks in parallel
+  // Run all enrichment tasks in parallel (except credit prequal which runs after)
   const settled = await Promise.allSettled(tasks.map((t) => t()))
   for (const result of settled) {
     if (result.status === 'fulfilled') {
       results.push(result.value)
+    }
+  }
+
+  // Credit pre-qualification runs AFTER other enrichments
+  // so it can use email_valid, phone_valid, etc. as inputs
+  if (mergedConfig.credit_prequal.enabled) {
+    const shouldRun = await shouldEnrich(supabase, lead.id, 'credit_prequal')
+    if (shouldRun) {
+      try {
+        // Gather enrichment signals from results we just ran
+        const emailResult = results.find(r => r.type === 'email_validation' && r.status === 'success')
+        const phoneResult = results.find(r => r.type === 'phone_validation' && r.status === 'success')
+        const ipResult = results.find(r => r.type === 'ip_geolocation' && r.status === 'success')
+
+        const prequalResult = await autoPreQualify(supabase, lead.organization_id, lead.id, {
+          first_name: lead.first_name,
+          last_name: lead.last_name,
+          age: lead.age,
+          city: lead.city,
+          state: lead.state,
+          zip_code: lead.zip_code,
+          date_of_birth: lead.date_of_birth,
+          email: lead.email,
+          phone: lead.phone,
+          has_dental_insurance: lead.has_dental_insurance,
+          financing_interest: lead.financing_interest,
+          budget_range: lead.budget_range,
+          treatment_value: lead.treatment_value,
+          email_valid: emailResult ? emailResult.data.status === 'valid' : lead.email_valid,
+          email_disposable: emailResult ? emailResult.data.disposable === true : null,
+          phone_valid: phoneResult ? phoneResult.data.valid === true : lead.phone_valid,
+          phone_line_type: (phoneResult?.data.line_type as string) || lead.phone_line_type,
+          ip_is_proxy: ipResult ? (ipResult.data.is_proxy === true || ipResult.data.is_vpn === true) : null,
+          distance_to_practice_miles: ipResult ? (ipResult.data.distance_to_practice_miles as number) : lead.distance_to_practice_miles,
+        })
+
+        results.push({
+          type: 'credit_prequal',
+          status: 'success',
+          data: prequalResult as unknown as Record<string, unknown>,
+          confidence: preQualConfidence(prequalResult),
+        })
+      } catch (err) {
+        results.push({
+          type: 'credit_prequal',
+          status: 'failed',
+          data: {},
+          confidence: 0,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        })
+      }
     }
   }
 
