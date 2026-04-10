@@ -4,6 +4,7 @@ import { updateLeadSchema } from '@/lib/validators/lead'
 import { executeStageTransition } from '@/lib/funnel/executor'
 import { decryptLeadPII, encryptLeadPII } from '@/lib/encryption'
 import { auditPHIRead, auditPHIWrite, auditPHIDeletion } from '@/lib/hipaa-audit'
+import { onStageChange } from '@/lib/campaigns/stage-automation'
 
 // GET /api/leads/[id] - Get lead details
 export async function GET(
@@ -130,6 +131,13 @@ export async function PATCH(
       title: `Status changed to ${parsed.data.status}`,
       metadata: { from: currentLead.status, to: parsed.data.status },
     })
+
+    // Exit all campaigns when lead is lost or disqualified
+    if (parsed.data.status === 'lost' || parsed.data.status === 'disqualified') {
+      const { exitAllCampaigns } = await import('@/lib/campaigns/enrollments')
+      exitAllCampaigns(supabase, id, `Lead status changed to ${parsed.data.status}`)
+        .catch((err) => console.error('Campaign exit error:', err))
+    }
   }
 
   // Log stage changes and trigger funnel automations
@@ -159,6 +167,15 @@ export async function PATCH(
         fromStageSlug: fromStage?.slug || null,
         toStageSlug: toStage.slug,
       }).catch((err) => console.error('Automation execution error:', err))
+
+      // Campaign stage automation: trigger campaigns, exit old campaigns (non-blocking)
+      onStageChange(
+        supabase,
+        id,
+        fromStage?.slug || 'unknown',
+        toStage.slug,
+        currentLead.organization_id
+      ).catch((err) => console.error('Campaign stage automation error:', err))
     }
   }
 

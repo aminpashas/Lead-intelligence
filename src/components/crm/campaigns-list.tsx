@@ -7,10 +7,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Megaphone, Plus, Mail, MessageSquare, Play, Pause, Zap, Users,
-  Loader2,
+  Loader2, BarChart3,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignBuilder } from './campaign-builder'
+import { CampaignAnalytics } from './campaign-analytics'
 import { CAMPAIGN_TEMPLATES } from '@/lib/campaigns/templates'
 import type { Campaign } from '@/types/database'
 
@@ -25,6 +26,7 @@ export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] })
   const [campaigns, setCampaigns] = useState(initial)
   const [deploying, setDeploying] = useState<string | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
+  const [viewingAnalytics, setViewingAnalytics] = useState<string | null>(null)
   const router = useRouter()
 
   async function deployTemplate(templateId: string) {
@@ -70,6 +72,16 @@ export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] })
     } finally {
       setToggling(null)
     }
+  }
+
+  // Show analytics view for a specific campaign
+  if (viewingAnalytics) {
+    return (
+      <CampaignAnalytics
+        campaignId={viewingAnalytics}
+        onBack={() => setViewingAnalytics(null)}
+      />
+    )
   }
 
   return (
@@ -159,6 +171,16 @@ export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] })
                       {campaign.total_completed} completed &bull; {campaign.total_converted} converted
                     </p>
                   </div>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="gap-1.5"
+                    onClick={() => setViewingAnalytics(campaign.id)}
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    Analytics
+                  </Button>
 
                   {campaign.status === 'draft' || campaign.status === 'paused' ? (
                     <Button

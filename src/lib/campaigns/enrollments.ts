@@ -1,5 +1,97 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// ════════════════════════════════════════════════════════════════
+// CAMPAIGN EXIT ON REPLY
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * When a lead replies via SMS/email, exit any active campaign enrollments
+ * that have an if_replied exit condition. Also updates lead engagement stats.
+ */
+export async function exitCampaignsOnReply(
+  supabase: SupabaseClient,
+  leadId: string,
+  organizationId: string
+): Promise<number> {
+  // Get all active enrollments for this lead
+  const { data: activeEnrollments } = await supabase
+    .from('campaign_enrollments')
+    .select('id, campaign_id, current_step')
+    .eq('lead_id', leadId)
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+
+  if (!activeEnrollments || activeEnrollments.length === 0) return 0
+
+  let exited = 0
+
+  for (const enrollment of activeEnrollments) {
+    // Check if current or next step has if_replied exit condition
+    const { data: steps } = await supabase
+      .from('campaign_steps')
+      .select('exit_condition')
+      .eq('campaign_id', enrollment.campaign_id)
+      .gte('step_number', enrollment.current_step || 0)
+      .limit(3)
+
+    const hasReplyExit = steps?.some((s) => {
+      if (!s.exit_condition) return false
+      const condition = typeof s.exit_condition === 'string'
+        ? s.exit_condition
+        : (s.exit_condition as Record<string, unknown>)?.type
+      return condition === 'if_replied'
+    })
+
+    if (hasReplyExit) {
+      await supabase
+        .from('campaign_enrollments')
+        .update({
+          status: 'exited',
+          completed_at: new Date().toISOString(),
+          exit_reason: 'Lead replied to conversation',
+        })
+        .eq('id', enrollment.id)
+      exited++
+    }
+  }
+
+  // Update lead engagement stats
+  await supabase
+    .from('leads')
+    .update({
+      last_responded_at: new Date().toISOString(),
+    })
+    .eq('id', leadId)
+
+  return exited
+}
+
+/**
+ * Exit ALL active campaign enrollments for a lead (used on disqualify/lost).
+ */
+export async function exitAllCampaigns(
+  supabase: SupabaseClient,
+  leadId: string,
+  reason: string
+): Promise<number> {
+  const { data } = await supabase
+    .from('campaign_enrollments')
+    .update({
+      status: 'exited',
+      completed_at: new Date().toISOString(),
+      exit_reason: reason,
+    })
+    .eq('lead_id', leadId)
+    .eq('status', 'active')
+    .select('id')
+
+  return data?.length || 0
+}
+
+// ════════════════════════════════════════════════════════════════
+// AUTO-ENROLLMENT
+// ════════════════════════════════════════════════════════════════
+
 /**
  * Match leads against a campaign's target_criteria and create enrollments.
  * Returns the number of newly enrolled leads.

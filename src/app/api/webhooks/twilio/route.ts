@@ -6,6 +6,7 @@ import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { detectPromptInjection, wrapUserContent } from '@/lib/ai/prompt-guard'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
+import { exitCampaignsOnReply } from '@/lib/campaigns/enrollments'
 import { searchHash } from '@/lib/encryption'
 import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
 import { getPatientProfile } from '@/lib/ai/patient-psychology'
@@ -175,6 +176,23 @@ export async function POST(request: NextRequest) {
     title: 'SMS received',
     description: body.substring(0, 200),
   })
+
+  // Update lead engagement stats
+  await supabase.from('leads').update({
+    last_responded_at: new Date().toISOString(),
+    total_sms_received: (lead.total_sms_received || 0) + 1,
+  }).eq('id', lead.id)
+
+  // Update conversation stats
+  await supabase.from('conversations').update({
+    last_message_at: new Date().toISOString(),
+    last_message_preview: body.substring(0, 100),
+    unread_count: (conversation.unread_count || 0) + 1,
+    message_count: (conversation.message_count || 0) + 1,
+  }).eq('id', conversation.id)
+
+  // Exit campaigns with if_replied exit condition
+  await exitCampaignsOnReply(supabase, lead.id, lead.organization_id)
 
   // Auto-respond with AI agent system if enabled
   if (conversation.ai_enabled && conversation.ai_mode === 'auto') {

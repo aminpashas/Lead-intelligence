@@ -2,7 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/campaigns",
-      "schedule": "0 9 * * *"
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/triggers",
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/financing",
