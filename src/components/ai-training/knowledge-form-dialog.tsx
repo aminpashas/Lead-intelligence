@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -56,6 +56,16 @@ export function KnowledgeFormDialog({ open, onOpenChange, article, onSave }: Kno
   const [saving, setSaving] = useState(false)
 
   const isEditing = !!article
+
+  // Sync form state when the article prop changes
+  useEffect(() => {
+    setTitle(article?.title || '')
+    setCategory(article?.category || 'general')
+    setContent(article?.content || '')
+    setTags(article?.tags || [])
+    setTagInput('')
+    setIsEnabled(article?.is_enabled ?? true)
+  }, [article])
 
   function addTag() {
     const tag = tagInput.trim().toLowerCase()

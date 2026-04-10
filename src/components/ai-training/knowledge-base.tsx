@@ -90,21 +90,31 @@ export function KnowledgeBase() {
   }
 
   async function handleToggle(article: AIKnowledgeArticle) {
-    await fetch(`/api/ai/training/knowledge/${article.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_enabled: !article.is_enabled }),
-    })
-    setArticles((prev) =>
-      prev.map((a) => (a.id === article.id ? { ...a, is_enabled: !a.is_enabled } : a))
-    )
+    try {
+      const res = await fetch(`/api/ai/training/knowledge/${article.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: !article.is_enabled }),
+      })
+      if (!res.ok) throw new Error('Failed to update')
+      setArticles((prev) =>
+        prev.map((a) => (a.id === article.id ? { ...a, is_enabled: !a.is_enabled } : a))
+      )
+    } catch {
+      toast.error('Failed to update article')
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this article? This cannot be undone.')) return
-    await fetch(`/api/ai/training/knowledge/${id}`, { method: 'DELETE' })
-    toast.success('Article deleted')
-    fetchArticles()
+    try {
+      const res = await fetch(`/api/ai/training/knowledge/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete')
+      toast.success('Article deleted')
+      fetchArticles()
+    } catch {
+      toast.error('Failed to delete article')
+    }
   }
 
   async function handleSeedFAQs() {

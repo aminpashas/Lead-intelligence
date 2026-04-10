@@ -86,21 +86,31 @@ export function MemoryManager() {
   }
 
   async function handleToggle(memory: AIMemory) {
-    await fetch(`/api/ai/training/memories/${memory.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_enabled: !memory.is_enabled }),
-    })
-    setMemories((prev) =>
-      prev.map((m) => (m.id === memory.id ? { ...m, is_enabled: !m.is_enabled } : m))
-    )
+    try {
+      const res = await fetch(`/api/ai/training/memories/${memory.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_enabled: !memory.is_enabled }),
+      })
+      if (!res.ok) throw new Error('Failed to update')
+      setMemories((prev) =>
+        prev.map((m) => (m.id === memory.id ? { ...m, is_enabled: !m.is_enabled } : m))
+      )
+    } catch {
+      toast.error('Failed to update memory')
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this memory? This cannot be undone.')) return
-    await fetch(`/api/ai/training/memories/${id}`, { method: 'DELETE' })
-    toast.success('Memory deleted')
-    fetchMemories()
+    try {
+      const res = await fetch(`/api/ai/training/memories/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete')
+      toast.success('Memory deleted')
+      fetchMemories()
+    } catch {
+      toast.error('Failed to delete memory')
+    }
   }
 
   const activeCount = memories.filter((m) => m.is_enabled).length

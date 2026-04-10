@@ -153,9 +153,12 @@ export function AnalyticsDashboard() {
     setLoading(true)
     const { start, end } = getDateRange(dateRange)
     fetch(`/api/analytics?start_date=${start}&end_date=${end}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed to load analytics')
+        return r.json()
+      })
       .then(setData)
-      .catch(console.error)
+      .catch(() => setData(null))
       .finally(() => setLoading(false))
   }, [dateRange])
 

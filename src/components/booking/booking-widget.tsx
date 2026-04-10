@@ -99,7 +99,20 @@ export function BookingWidget({ orgId }: { orgId: string }) {
       if (!res.ok) {
         setError(result.error || 'Booking failed. Please try again.')
         if (res.status === 409) {
-          // Slot taken — go back to time selection
+          // Slot taken — clear time, refresh slots, go back to time selection
+          setSelectedTime(null)
+          // Refresh slot data to show updated availability
+          fetch(`/api/booking/${orgId}/slots`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((d) => {
+              if (d) {
+                setData(d)
+                // Update the selected date with fresh slot data
+                const freshDay = d.slots.find((s: { date: string }) => s.date === selectedDate?.date)
+                if (freshDay) setSelectedDate(freshDay)
+              }
+            })
+            .catch(() => {})
           setStep('time')
         }
         return
