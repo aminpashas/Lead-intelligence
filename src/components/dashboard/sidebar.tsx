@@ -14,6 +14,8 @@ import {
   Brain,
   Calendar,
   Target,
+  GraduationCap,
+  Shield,
 } from 'lucide-react'
 
 const navigation = [
@@ -26,6 +28,8 @@ const navigation = [
   { name: 'Appointments', href: '/appointments', icon: Calendar },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'AI Engine', href: '/ai-engine', icon: Brain },
+  { name: 'AI Training', href: '/ai-training', icon: GraduationCap },
+  { name: 'AI Audit', href: '/ai-audit', icon: Shield },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 

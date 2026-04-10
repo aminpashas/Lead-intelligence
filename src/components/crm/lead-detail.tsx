@@ -18,6 +18,8 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { LeadMessaging } from './lead-messaging'
 import { ScheduleAppointment } from './schedule-appointment'
+import { LeadFinancingCard } from './lead-financing-card'
+import { PatientSummaryCard } from './patient-summary-card'
 import {
   ArrowLeft,
   Brain,
@@ -316,6 +318,9 @@ export function LeadDetail({
 
         {/* Right Column — Actions & Status */}
         <div className="space-y-4">
+          {/* Patient AI Summary */}
+          <PatientSummaryCard leadId={lead.id} lead={lead} />
+
           {/* Pipeline Stage */}
           <Card>
             <CardHeader className="pb-2">
@@ -406,34 +411,8 @@ export function LeadDetail({
             </CardContent>
           </Card>
 
-          {/* Financial */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <DollarSign className="h-4 w-4" /> Financial
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Budget Range</span>
-                <span className="font-medium capitalize">
-                  {lead.budget_range?.replace(/_/g, ' ') || '—'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Treatment Value</span>
-                <span className="font-medium text-green-600">
-                  {lead.treatment_value ? `$${lead.treatment_value.toLocaleString()}` : '—'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Financing</span>
-                <span className="font-medium capitalize">
-                  {lead.financing_interest?.replace(/_/g, ' ') || '—'}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Financial + Financing Waterfall */}
+          <LeadFinancingCard lead={lead} />
 
           {/* Source */}
           <Card>

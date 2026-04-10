@@ -7,6 +7,10 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { detectPromptInjection, wrapUserContent } from '@/lib/ai/prompt-guard'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
 import { searchHash } from '@/lib/encryption'
+import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
+import { getPatientProfile } from '@/lib/ai/patient-psychology'
+import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
+import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
 
 // POST /api/webhooks/twilio - Incoming SMS from Twilio
 export async function POST(request: NextRequest) {
@@ -172,7 +176,7 @@ export async function POST(request: NextRequest) {
     description: body.substring(0, 200),
   })
 
-  // Auto-respond with AI if enabled
+  // Auto-respond with AI agent system if enabled
   if (conversation.ai_enabled && conversation.ai_mode === 'auto') {
     // Get conversation history
     const { data: messages } = await supabase
@@ -182,15 +186,14 @@ export async function POST(request: NextRequest) {
       .order('created_at', { ascending: true })
       .limit(20)
 
-    const history = (messages || []).map((m: { direction: string; body: string; sender_type: string }) => ({
-      role: m.direction === 'inbound' ? 'user' : 'assistant',
+    const history: ConversationMessage[] = (messages || []).map((m: { direction: string; body: string; sender_type: string }) => ({
+      role: (m.direction === 'inbound' ? 'user' : 'assistant') as 'user' | 'assistant',
       content: m.body,
     }))
 
     // Detect prompt injection in the incoming SMS before sending to AI
     const injectionCheck = detectPromptInjection(body)
     if (!injectionCheck.isClean) {
-      // Log the attempt
       await logHIPAAEvent(supabase, {
         organization_id: lead.organization_id,
         event_type: 'prompt_injection_detected',
@@ -208,31 +211,77 @@ export async function POST(request: NextRequest) {
     history.push({ role: 'user', content: wrapUserContent(safeContent) })
 
     try {
-      const aiResponse = await generateLeadEngagement(lead, history, {
-        mode: 'education',
-        channel: 'sms',
-      }, supabase)
+      // Fetch patient profile and handoff history for agent context
+      const patientProfileRaw = await getPatientProfile(supabase, lead.id)
+      const patientProfile = patientProfileRaw as PatientProfile | null
+      const handoffHistory = await getHandoffHistory(supabase, conversation.id)
+
+      // Build agent context
+      const agentContext: AgentContext = {
+        lead,
+        conversation_id: conversation.id,
+        organization_id: lead.organization_id,
+        channel: (conversation.channel || 'sms') as ConversationChannel,
+        lead_status: lead.status as LeadStatus,
+        patient_profile: patientProfile,
+        conversation_history: history,
+        handoff_history: handoffHistory,
+        message_count: conversation.message_count || messages?.length || 0,
+      }
+
+      // Route to the appropriate agent (Setter or Closer)
+      const agentResponse = await routeToAgent(supabase, agentContext)
 
       // Send AI response via Twilio
-      const smsResult = await sendSMS(from, aiResponse.message)
+      const smsResult = await sendSMS(from, agentResponse.message)
 
-      // Store outbound message
+      // Store outbound message with agent metadata
       await supabase.from('messages').insert({
         organization_id: lead.organization_id,
         conversation_id: conversation.id,
         lead_id: lead.id,
         direction: 'outbound',
         channel: 'sms',
-        body: aiResponse.message,
+        body: agentResponse.message,
         sender_type: 'ai',
         status: 'sent',
         external_id: smsResult.sid,
         ai_generated: true,
-        ai_confidence: aiResponse.confidence,
+        ai_confidence: agentResponse.confidence,
         ai_model: 'claude-sonnet-4-20250514',
+        metadata: {
+          agent: agentResponse.agent,
+          action_taken: agentResponse.action_taken,
+        },
       })
     } catch {
-      // AI response failure shouldn't cause webhook failure
+      // Fallback to legacy engagement generator if agent system fails
+      try {
+        const fallbackResponse = await generateLeadEngagement(lead, history, {
+          mode: 'education',
+          channel: 'sms',
+        }, supabase)
+
+        const smsResult = await sendSMS(from, fallbackResponse.message)
+
+        await supabase.from('messages').insert({
+          organization_id: lead.organization_id,
+          conversation_id: conversation.id,
+          lead_id: lead.id,
+          direction: 'outbound',
+          channel: 'sms',
+          body: fallbackResponse.message,
+          sender_type: 'ai',
+          status: 'sent',
+          external_id: smsResult.sid,
+          ai_generated: true,
+          ai_confidence: fallbackResponse.confidence,
+          ai_model: 'claude-sonnet-4-20250514',
+          metadata: { agent: 'fallback' },
+        })
+      } catch {
+        // Complete failure — don't crash the webhook
+      }
     }
   }
 

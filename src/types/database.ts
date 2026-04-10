@@ -173,6 +173,19 @@ export type Lead = {
   email_opt_out: boolean
   email_opt_out_at: string | null
 
+  // Enrichment
+  enrichment_score: number
+  enrichment_status: 'pending' | 'partial' | 'complete' | 'failed'
+  enriched_at: string | null
+  email_valid: boolean | null
+  phone_valid: boolean | null
+  phone_line_type: string | null
+  ip_address: string | null
+  ip_city: string | null
+  ip_region: string | null
+  ip_country: string | null
+  distance_to_practice_miles: number | null
+
   // Disqualification
   disqualified_reason: string | null
   lost_reason: string | null
@@ -186,6 +199,9 @@ export type Lead = {
   created_at: string
   updated_at: string
 
+  // Financing
+  financing_application_id: string | null
+
   // Joined relations (optional)
   pipeline_stage?: PipelineStage
   source?: LeadSource
@@ -194,6 +210,7 @@ export type Lead = {
 
 export type ConversationChannel = 'sms' | 'email' | 'web_chat' | 'whatsapp'
 export type AIMode = 'auto' | 'assist' | 'off'
+export type AgentType = 'setter' | 'closer' | 'none'
 
 export type Conversation = {
   id: string
@@ -211,6 +228,12 @@ export type Conversation = {
   unread_count: number
   message_count: number
   metadata: Record<string, unknown>
+
+  // Agent system
+  active_agent: AgentType
+  agent_assigned_at: string | null
+  agent_handoff_count: number
+
   created_at: string
   updated_at: string
 
@@ -437,4 +460,100 @@ export type HIPAAAuditLog = {
   user_agent: string | null
   metadata: Record<string, unknown>
   created_at: string
+}
+
+// ── AI Training Center ────────────────────────────────────
+
+export type AIMemoryCategory = 'tone_and_style' | 'product_knowledge' | 'objection_handling' | 'pricing_rules' | 'compliance_rules' | 'general'
+
+export type AIMemory = {
+  id: string
+  organization_id: string
+  created_by: string | null
+  title: string
+  category: AIMemoryCategory
+  content: string
+  is_enabled: boolean
+  priority: number
+  created_at: string
+  updated_at: string
+}
+
+export type AIKnowledgeCategory = 'procedures' | 'pricing' | 'faqs' | 'aftercare' | 'financing' | 'general'
+
+export type AIKnowledgeArticle = {
+  id: string
+  organization_id: string
+  created_by: string | null
+  title: string
+  category: AIKnowledgeCategory
+  content: string
+  tags: string[]
+  is_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type AITestMessage = {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  timestamp: string
+}
+
+export type AITestConversation = {
+  id: string
+  organization_id: string
+  created_by: string | null
+  title: string
+  mode: string
+  messages: AITestMessage[]
+  system_prompt_snapshot: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Financing (re-exported from lib/financing/types) ────────────
+
+// Note: Full financing types are in src/lib/financing/types.ts
+// These re-exports provide convenience access from the central types file
+export type {
+  LenderSlug,
+  FinancingLenderConfig,
+  FinancingApplication,
+  FinancingSubmission,
+  FinancingApplicationStatus,
+  FinancingSubmissionStatus,
+  ApprovedTerms,
+  WaterfallConfig,
+} from '@/lib/financing/types'
+
+// ── Agent Handoffs ──────────────────────────────────────────
+
+export type AgentHandoff = {
+  id: string
+  organization_id: string
+  conversation_id: string
+  lead_id: string
+  from_agent: AgentType | 'manual'
+  to_agent: AgentType | 'manual'
+  trigger_reason: string
+  context_snapshot: Record<string, unknown>
+  initiated_by: 'system' | 'user' | 'ai'
+  initiated_by_user_id: string | null
+  created_at: string
+}
+
+// ── AI Conversation Ratings (Admin Audit) ───────────────────
+
+export type AIConversationRating = {
+  id: string
+  organization_id: string
+  conversation_id: string
+  lead_id: string
+  rated_by: string
+  rating: number
+  notes: string | null
+  flagged: boolean
+  created_at: string
+  updated_at: string
 }

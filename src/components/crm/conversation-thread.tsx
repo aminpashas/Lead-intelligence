@@ -27,7 +27,8 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Conversation, Message, Lead } from '@/types/database'
+import type { Conversation, Message, Lead, AgentType } from '@/types/database'
+import { AgentIndicator, AgentMessageLabel } from './agent-indicator'
 
 export function ConversationThread({
   lead,
@@ -48,6 +49,8 @@ export function ConversationThread({
   const [analysisResult, setAnalysisResult] = useState<Record<string, unknown> | null>(null)
   const [followUpResult, setFollowUpResult] = useState<Record<string, unknown> | null>(null)
   const [showInsights, setShowInsights] = useState(false)
+  const [activeAgent, setActiveAgent] = useState<AgentType>(conversation.active_agent || 'setter')
+  const [agentNotes, setAgentNotes] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -87,25 +90,47 @@ export function ConversationThread({
 
   async function generateAIMessage() {
     setGenerating(true)
+    setAgentNotes(null)
     try {
-      const res = await fetch('/api/ai/engage', {
+      // Use agent system for smart routing between Setter/Closer
+      const res = await fetch('/api/ai/agent-respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          lead_id: lead.id,
           conversation_id: conversation.id,
-          mode: aiMode,
-          channel: conversation.channel,
         }),
       })
 
       if (!res.ok) throw new Error('AI generation failed')
 
-      const { message } = await res.json()
-      setDraft(message)
-      toast.success('AI draft generated — review and send')
+      const data = await res.json()
+      setDraft(data.message)
+      if (data.agent) setActiveAgent(data.agent)
+      if (data.internal_notes) setAgentNotes(data.internal_notes)
+      toast.success(`${data.agent === 'closer' ? 'Closer' : 'Setter'} agent draft — review and send`)
     } catch {
-      toast.error('Failed to generate AI message')
+      // Fallback to legacy engage endpoint
+      try {
+        const res = await fetch('/api/ai/engage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lead_id: lead.id,
+            conversation_id: conversation.id,
+            mode: aiMode,
+            channel: conversation.channel,
+          }),
+        })
+        if (res.ok) {
+          const { message } = await res.json()
+          setDraft(message)
+          toast.success('AI draft generated (fallback) — review and send')
+        } else {
+          throw new Error('Fallback also failed')
+        }
+      } catch {
+        toast.error('Failed to generate AI message')
+      }
     } finally {
       setGenerating(false)
     }
@@ -186,6 +211,12 @@ export function ConversationThread({
               <Badge variant="secondary">{conversation.sentiment}</Badge>
             )}
             <span>{messages.length} messages</span>
+            <AgentIndicator
+              activeAgent={activeAgent}
+              conversationId={conversation.id}
+              handoffCount={conversation.agent_handoff_count}
+              onAgentChange={setActiveAgent}
+            />
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -252,6 +283,9 @@ export function ConversationThread({
                 <span className="text-xs opacity-70">
                   {msg.sender_type === 'ai' ? 'AI' : msg.sender_name || (msg.direction === 'inbound' ? 'Lead' : 'You')}
                 </span>
+                {msg.sender_type === 'ai' && msg.metadata && (
+                  <AgentMessageLabel agent={(msg.metadata as Record<string, string>).agent} />
+                )}
               </div>
 
               <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
@@ -280,19 +314,19 @@ export function ConversationThread({
 
       {/* Compose */}
       <div className="border-t p-4 space-y-3">
+        {/* Agent notes (staff-visible reasoning from the AI) */}
+        {agentNotes && (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-sm">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <span className="font-medium text-amber-800 text-xs">Agent Notes:</span>
+              <p className="text-amber-700 text-xs mt-0.5">{agentNotes}</p>
+            </div>
+          </div>
+        )}
+
         {/* AI Generate */}
         <div className="flex items-center gap-2">
-          <Select value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="education">Educate about All-on-4</SelectItem>
-              <SelectItem value="objection_handling">Handle Objections</SelectItem>
-              <SelectItem value="appointment_scheduling">Schedule Consultation</SelectItem>
-              <SelectItem value="follow_up">Follow Up</SelectItem>
-            </SelectContent>
-          </Select>
           <Button
             variant="outline"
             size="sm"
@@ -305,8 +339,23 @@ export function ConversationThread({
             ) : (
               <Brain className="h-3 w-3" />
             )}
-            Generate AI Draft
+            AI Agent Draft
           </Button>
+          <span className="text-xs text-muted-foreground">
+            Auto-selects {activeAgent === 'closer' ? 'Closer' : 'Setter'} based on lead stage
+          </span>
+          {/* Legacy mode selector as fallback */}
+          <Select value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
+            <SelectTrigger className="w-40 h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="education">Educate</SelectItem>
+              <SelectItem value="objection_handling">Objections</SelectItem>
+              <SelectItem value="appointment_scheduling">Schedule</SelectItem>
+              <SelectItem value="follow_up">Follow Up</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Message input */}
