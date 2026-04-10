@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { webhookLeadSchema } from '@/lib/validators/lead'
 import { scoreLead } from '@/lib/ai/scoring'
+import { enrichLead } from '@/lib/enrichment'
 import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
@@ -100,6 +101,11 @@ export async function POST(request: NextRequest) {
     phoneFormatted = cleaned.startsWith('1') ? `+${cleaned}` : `+1${cleaned}`
   }
 
+  // Capture IP address for geolocation enrichment
+  const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    null
+
   // Create lead with PII encryption
   const leadData = encryptLeadPII({
     organization_id: orgResult.orgId,
@@ -108,6 +114,7 @@ export async function POST(request: NextRequest) {
     email: parsed.data.email,
     phone: parsed.data.phone,
     phone_formatted: phoneFormatted,
+    ip_address: ipAddress,
     source_type: parsed.data.source_type || 'website_form',
     utm_source: parsed.data.utm_source,
     utm_medium: parsed.data.utm_medium,
@@ -156,9 +163,16 @@ export async function POST(request: NextRequest) {
     'PHI ingested via form webhook (encrypted at rest)',
   )
 
-  // Auto-score the lead asynchronously
+  // Auto-enrich the lead asynchronously (before scoring for better data)
   try {
-    const scoreResult = await scoreLead(lead)
+    await enrichLead(supabase, lead)
+  } catch {
+    // Enrichment failure shouldn't block lead creation
+  }
+
+  // Auto-score the lead asynchronously (now with enrichment data available)
+  try {
+    const scoreResult = await scoreLead(lead, supabase)
     await supabase
       .from('leads')
       .update({

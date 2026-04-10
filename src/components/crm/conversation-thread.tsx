@@ -51,6 +51,8 @@ export function ConversationThread({
   const [showInsights, setShowInsights] = useState(false)
   const [activeAgent, setActiveAgent] = useState<AgentType>(conversation.active_agent || 'setter')
   const [agentNotes, setAgentNotes] = useState<string | null>(null)
+  const [techniquesUsed, setTechniquesUsed] = useState<Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>>([])
+  const [leadAssessment, setLeadAssessment] = useState<{ engagement_temperature: number; resistance_level: number; buying_readiness: number; emotional_state: string } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -107,6 +109,8 @@ export function ConversationThread({
       setDraft(data.message)
       if (data.agent) setActiveAgent(data.agent)
       if (data.internal_notes) setAgentNotes(data.internal_notes)
+      if (data.techniques_used) setTechniquesUsed(data.techniques_used)
+      if (data.lead_assessment) setLeadAssessment(data.lead_assessment)
       toast.success(`${data.agent === 'closer' ? 'Closer' : 'Setter'} agent draft — review and send`)
     } catch {
       // Fallback to legacy engage endpoint
@@ -322,6 +326,42 @@ export function ConversationThread({
               <span className="font-medium text-amber-800 text-xs">Agent Notes:</span>
               <p className="text-amber-700 text-xs mt-0.5">{agentNotes}</p>
             </div>
+          </div>
+        )}
+
+        {/* Sales technique tracking display */}
+        {(techniquesUsed.length > 0 || leadAssessment) && (
+          <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-xs space-y-2">
+            {techniquesUsed.length > 0 && (
+              <div>
+                <span className="font-medium text-blue-800">Techniques Used:</span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {techniquesUsed.map((t, i) => (
+                    <span
+                      key={i}
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                        t.effectiveness === 'effective'
+                          ? 'bg-green-100 text-green-700'
+                          : t.effectiveness === 'backfired'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-gray-100 text-gray-700'
+                      }`}
+                      title={t.context_note}
+                    >
+                      {t.technique_id.replace(/_/g, ' ').replace(/^[a-z]+\s/, '')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {leadAssessment && (
+              <div className="flex items-center gap-3 text-blue-700">
+                <span>Engagement: <strong>{leadAssessment.engagement_temperature}/10</strong></span>
+                <span>Resistance: <strong>{leadAssessment.resistance_level}/10</strong></span>
+                <span>Buying Ready: <strong>{leadAssessment.buying_readiness}/10</strong></span>
+                <span>State: <strong>{leadAssessment.emotional_state}</strong></span>
+              </div>
+            )}
           </div>
         )}
 

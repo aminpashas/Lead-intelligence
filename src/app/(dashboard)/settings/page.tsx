@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Copy, Check } from 'lucide-react'
 import { useState } from 'react'
+import { FinancingLendersSettings } from '@/components/settings/financing-lenders-settings'
 
 export default function SettingsPage() {
   const { organization } = useOrgStore()
@@ -108,6 +109,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Financing Lenders */}
+        <FinancingLendersSettings />
 
         {/* API Keys status */}
         <Card>

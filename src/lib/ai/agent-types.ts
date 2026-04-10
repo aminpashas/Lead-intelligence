@@ -10,6 +10,7 @@
  */
 
 import type { Lead, LeadStatus, PatientProfile, ConversationChannel } from '@/types/database'
+import type { TechniqueUsage, LeadEngagementAssessment } from './sales-techniques'
 
 // ════════════════════════════════════════════════════════════════
 // AGENT TYPES
@@ -42,6 +43,8 @@ export type AgentResponse = {
   should_handoff: boolean
   handoff_reason?: string
   internal_notes?: string
+  techniques_used?: TechniqueUsage[]
+  lead_assessment?: LeadEngagementAssessment
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -71,6 +74,8 @@ export type AgentContext = {
   conversation_history: ConversationMessage[]
   handoff_history: HandoffRecord[]
   message_count: number
+  previous_assessment?: LeadEngagementAssessment | null
+  technique_history?: Array<{ technique_id: string; predicted_effectiveness: string }>
 }
 
 export type HandoffContextSnapshot = {

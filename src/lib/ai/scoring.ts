@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { Lead } from '@/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildSafeLeadContext, buildSafeConversationHistory, checkResponseCompliance, logHIPAAEvent, scrubPHI } from './hipaa'
+import { getEnrichmentSummary } from '@/lib/enrichment'
+import type { EnrichmentSummary } from '@/lib/enrichment/types'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -28,7 +30,7 @@ Your job is to evaluate dental implant leads and assign scores that predict conv
 
 ## Scoring Dimensions (weights sum to 1.0)
 
-1. **Dental Condition Severity** (weight: 0.25)
+1. **Dental Condition Severity** (weight: 0.22)
    - Missing all teeth (upper/lower/both) = 80-100
    - Failing teeth / extensive decay = 60-80
    - Denture problems seeking permanent solution = 70-90
@@ -36,7 +38,7 @@ Your job is to evaluate dental implant leads and assign scores that predict conv
    - Unknown/vague condition = 20-40
    - No clear need = 0-20
 
-2. **Financial Readiness** (weight: 0.20)
+2. **Financial Readiness** (weight: 0.18)
    - Cash pay ready = 90-100
    - Financing pre-approved = 80-95
    - Has dental insurance + open to financing = 60-80
@@ -44,31 +46,47 @@ Your job is to evaluate dental implant leads and assign scores that predict conv
    - Insurance only, no financing interest = 20-40
    - No financial info = 10-30
 
-3. **Urgency & Timeline** (weight: 0.20)
+3. **Urgency & Timeline** (weight: 0.18)
    - Wants treatment ASAP / in pain = 85-100
    - Looking within 1-3 months = 60-85
    - Within 6 months = 40-60
    - Just researching / no timeline = 20-40
    - Indicated distant future = 0-20
 
-4. **Engagement Level** (weight: 0.15)
+4. **Engagement Level** (weight: 0.12)
    - Responded quickly, multiple interactions = 80-100
    - Responded to messages, some engagement = 50-80
    - Slow to respond, minimal engagement = 20-50
    - No response yet = 0-20
 
-5. **Demographics & Fit** (weight: 0.10)
+5. **Demographics & Fit** (weight: 0.08)
    - Matches ideal patient profile (age 45-75, local area) = 70-100
    - Partially matches = 40-70
    - Unknown demographics = 20-40
    - Poor fit (too young, too far) = 0-20
 
-6. **Source Quality** (weight: 0.10)
+6. **Source Quality** (weight: 0.07)
    - Direct referral from existing patient = 90-100
    - Google Ads (high-intent keywords) = 70-90
    - Website organic form submission = 60-80
    - Meta/Facebook ads = 40-60
    - General marketing campaign = 20-40
+
+7. **Identity Confidence** (weight: 0.08)
+   Based on enrichment/verification data. Score 30 (neutral) if no data available.
+   - Valid email + valid mobile phone + IP matches area = 90-100
+   - Valid email + valid phone (any type) = 70-90
+   - Valid email OR valid phone, not both verified = 40-70
+   - Email disposable or invalid = 10-30
+   - No verification data available = 30
+
+8. **Behavioral Intent Signals** (weight: 0.07)
+   Based on website behavior and search keywords. Score 30 (neutral) if no data available.
+   - High-intent search keyword + pricing page viewed + financing page = 85-100
+   - Pricing page viewed + extended time on site (>2 min) = 60-85
+   - Multiple sessions + some browsing = 40-60
+   - Minimal site engagement = 10-30
+   - No behavioral data available = 30
 
 ## Qualification Thresholds
 - Hot (75-100): Ready for immediate consultation scheduling
@@ -80,12 +98,14 @@ Your job is to evaluate dental implant leads and assign scores that predict conv
 Respond ONLY with valid JSON matching this structure:
 {
   "dimensions": [
-    {"name": "dental_condition", "score": <0-100>, "weight": 0.25, "reasoning": "<brief reasoning>"},
-    {"name": "financial_readiness", "score": <0-100>, "weight": 0.20, "reasoning": "<brief reasoning>"},
-    {"name": "urgency", "score": <0-100>, "weight": 0.20, "reasoning": "<brief reasoning>"},
-    {"name": "engagement", "score": <0-100>, "weight": 0.15, "reasoning": "<brief reasoning>"},
-    {"name": "demographics", "score": <0-100>, "weight": 0.10, "reasoning": "<brief reasoning>"},
-    {"name": "source_quality", "score": <0-100>, "weight": 0.10, "reasoning": "<brief reasoning>"}
+    {"name": "dental_condition", "score": <0-100>, "weight": 0.22, "reasoning": "<brief reasoning>"},
+    {"name": "financial_readiness", "score": <0-100>, "weight": 0.18, "reasoning": "<brief reasoning>"},
+    {"name": "urgency", "score": <0-100>, "weight": 0.18, "reasoning": "<brief reasoning>"},
+    {"name": "engagement", "score": <0-100>, "weight": 0.12, "reasoning": "<brief reasoning>"},
+    {"name": "demographics", "score": <0-100>, "weight": 0.08, "reasoning": "<brief reasoning>"},
+    {"name": "source_quality", "score": <0-100>, "weight": 0.07, "reasoning": "<brief reasoning>"},
+    {"name": "identity_confidence", "score": <0-100>, "weight": 0.08, "reasoning": "<brief reasoning>"},
+    {"name": "behavioral_intent", "score": <0-100>, "weight": 0.07, "reasoning": "<brief reasoning>"}
   ],
   "summary": "<2-3 sentence lead summary for the practice team>",
   "recommended_action": "<specific next step recommendation>",
@@ -132,12 +152,72 @@ function buildLeadContext(lead: Partial<Lead>): string {
   return parts.join('\n')
 }
 
+/**
+ * Build enrichment context for AI scoring.
+ * Contains NO PHI — only aggregated boolean/categorical signals.
+ */
+function buildEnrichmentContext(enrichment: EnrichmentSummary): string {
+  const parts: string[] = ['\n--- Enrichment Data (Verified Signals) ---']
+
+  if (enrichment.email_valid !== null) {
+    parts.push(`Email Verified: ${enrichment.email_valid ? 'Yes' : 'No'}`)
+    if (enrichment.email_disposable) parts.push('Email Type: Disposable/temporary')
+    if (enrichment.email_free) parts.push('Email Provider: Free (Gmail, Yahoo, etc.)')
+  }
+
+  if (enrichment.phone_valid !== null) {
+    parts.push(`Phone Verified: ${enrichment.phone_valid ? 'Yes' : 'No'}`)
+    if (enrichment.phone_line_type) parts.push(`Phone Type: ${enrichment.phone_line_type}`)
+  }
+
+  if (enrichment.ip_location_match !== null) {
+    parts.push(`Location Match (IP vs Practice): ${enrichment.ip_location_match ? 'Yes (within 100 miles)' : 'No (distant)'}`)
+  }
+  if (enrichment.distance_to_practice_miles !== null) {
+    parts.push(`Distance to Practice: ${enrichment.distance_to_practice_miles} miles`)
+  }
+  if (enrichment.ip_is_proxy) {
+    parts.push('Connection: Proxy/VPN detected (may indicate privacy concern or fraud)')
+  }
+
+  if (enrichment.search_keyword) {
+    parts.push(`Search Keyword: "${enrichment.search_keyword}"`)
+  }
+
+  if (enrichment.pricing_page_viewed !== null) {
+    parts.push(`Viewed Pricing Page: ${enrichment.pricing_page_viewed ? 'Yes' : 'No'}`)
+  }
+  if (enrichment.financing_page_viewed) {
+    parts.push('Viewed Financing Page: Yes')
+  }
+  if (enrichment.time_on_site_seconds && enrichment.time_on_site_seconds > 0) {
+    parts.push(`Time on Site: ${Math.round(enrichment.time_on_site_seconds / 60)} minutes`)
+  }
+  if (enrichment.session_count && enrichment.session_count > 1) {
+    parts.push(`Return Visits: ${enrichment.session_count} sessions`)
+  }
+
+  parts.push(`Identity Confidence Score: ${enrichment.identity_confidence}/100`)
+  parts.push(`Enrichment Score: ${enrichment.enrichment_score}/100`)
+
+  return parts.join('\n')
+}
+
 export async function scoreLead(
   lead: Partial<Lead>,
   supabase?: SupabaseClient
 ): Promise<ScoreResult> {
   // Use HIPAA-safe context — no email, phone, full name, or address sent to AI
-  const leadContext = buildSafeLeadContext(lead as Record<string, unknown>)
+  let leadContext = buildSafeLeadContext(lead as Record<string, unknown>)
+
+  // Fetch enrichment data if available (no PHI — only aggregated signals)
+  let enrichment: EnrichmentSummary | null = null
+  if (supabase && lead.id) {
+    enrichment = await getEnrichmentSummary(supabase, lead.id)
+  }
+  if (enrichment) {
+    leadContext += '\n' + buildEnrichmentContext(enrichment)
+  }
 
   // Log AI access if supabase client available
   if (supabase && lead.organization_id && lead.id) {

@@ -22,6 +22,8 @@ import {
   formatQualificationForPrompt,
   formatPatientPsychologyForPrompt,
 } from './agent-types'
+import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
+import { formatAssessmentForPrompt } from './technique-tracker'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -206,6 +208,22 @@ If ANY of these are true, include "should_handoff": true in your response:
 - Patient asks about post-consultation financing details
 - The lead status indicates they're past your stage (consultation_completed, treatment_presented, etc.)
 
+═══ SALES TECHNIQUE LIBRARY ═══
+
+Use these techniques strategically based on the patient's state. You MUST report which ones you used.
+
+${formatTechniquesForPrompt(getTechniquesForAgent('setter'))}
+
+═══ PREVIOUS ASSESSMENT & TECHNIQUE HISTORY ═══
+
+${formatAssessmentForPrompt(context.previous_assessment || null, context.technique_history || [])}
+
+═══ TECHNIQUE SELF-REPORTING ═══
+
+After composing your response, analyze which techniques from the library you employed.
+Report each with: technique_id (exact ID), confidence (0-1), effectiveness prediction, and context_note.
+Also assess the lead's CURRENT state in lead_assessment — this feeds into your next interaction.
+
 ═══ OUTPUT FORMAT ═══
 
 Respond with ONLY valid JSON (no markdown, no code blocks):
@@ -214,7 +232,19 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   "action_taken": "${skill === 'speed_to_lead' ? 'greeted' : skill === 'natural_qualification' ? 'asked_qualifying_question' : skill === 'rapport_building' ? 'built_rapport' : skill === 'appointment_scheduling' ? 'attempted_scheduling' : 'responded'}",
   "should_handoff": false,
   "handoff_reason": null,
-  "internal_notes": "brief note about your reasoning and what to do next (staff-visible only)"
+  "internal_notes": "brief note about your reasoning and what to do next (staff-visible only)",
+  "techniques_used": [
+    {"technique_id": "engagement_open_questions", "confidence": 0.9, "effectiveness": "effective", "context_note": "why you chose this"}
+  ],
+  "lead_assessment": {
+    "engagement_temperature": 7,
+    "resistance_level": 3,
+    "buying_readiness": 4,
+    "emotional_state": "curious",
+    "recommended_approach": "what to do next time",
+    "techniques_to_try_next": ["technique_id_1"],
+    "techniques_to_avoid": ["technique_id_2"]
+  }
 }`
 }
 
@@ -250,6 +280,16 @@ export async function setterAgentRespond(
     should_handoff: boolean
     handoff_reason: string | null
     internal_notes: string | null
+    techniques_used?: Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>
+    lead_assessment?: {
+      engagement_temperature: number
+      resistance_level: number
+      buying_readiness: number
+      emotional_state: string
+      recommended_approach: string
+      techniques_to_try_next: string[]
+      techniques_to_avoid: string[]
+    }
   }
 
   try {
@@ -306,5 +346,20 @@ export async function setterAgentRespond(
     should_handoff: parsed.should_handoff || false,
     handoff_reason: parsed.handoff_reason || undefined,
     internal_notes: parsed.internal_notes || undefined,
+    techniques_used: parsed.techniques_used?.map((t) => ({
+      technique_id: t.technique_id,
+      confidence: t.confidence,
+      effectiveness: t.effectiveness as 'effective' | 'neutral' | 'backfired' | 'too_early',
+      context_note: t.context_note,
+    })),
+    lead_assessment: parsed.lead_assessment ? {
+      engagement_temperature: parsed.lead_assessment.engagement_temperature,
+      resistance_level: parsed.lead_assessment.resistance_level,
+      buying_readiness: parsed.lead_assessment.buying_readiness,
+      emotional_state: parsed.lead_assessment.emotional_state,
+      recommended_approach: parsed.lead_assessment.recommended_approach,
+      techniques_to_try_next: parsed.lead_assessment.techniques_to_try_next || [],
+      techniques_to_avoid: parsed.lead_assessment.techniques_to_avoid || [],
+    } : undefined,
   }
 }

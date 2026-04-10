@@ -100,4 +100,6 @@ export const RETRY_CONFIGS = {
   resend: { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 10_000 },
   /** Anthropic AI: retry 2x with longer backoff (expensive calls) */
   anthropic: { maxAttempts: 2, baseDelayMs: 2000, maxDelayMs: 15_000 },
+  /** Financing lender APIs: retry 2x with moderate backoff */
+  financing: { maxAttempts: 2, baseDelayMs: 2000, maxDelayMs: 15_000 },
 } as const

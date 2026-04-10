@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/campaigns",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/financing",
+      "schedule": "0 * * * *"
     }
   ]
 }

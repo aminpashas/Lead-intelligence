@@ -7,6 +7,7 @@ import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
 import { getPatientProfile } from '@/lib/ai/patient-psychology'
 import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { Lead, Conversation, PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
+import { storeTechniqueUsage, storeLeadAssessment, updateConversationSummary, getLatestAssessment, getRecentTechniqueHistory } from '@/lib/ai/technique-tracker'
 
 const agentRespondSchema = z.object({
   conversation_id: z.string().uuid(),
@@ -76,6 +77,12 @@ export async function POST(request: NextRequest) {
   // Fetch handoff history
   const handoffHistory = await getHandoffHistory(supabase, parsed.data.conversation_id)
 
+  // Fetch previous assessment and technique history for feedback loop
+  const [previousAssessment, techniqueHistory] = await Promise.all([
+    getLatestAssessment(supabase, lead.id),
+    getRecentTechniqueHistory(supabase, lead.id),
+  ])
+
   // Build agent context
   const context: AgentContext = {
     lead,
@@ -87,10 +94,45 @@ export async function POST(request: NextRequest) {
     conversation_history: conversationHistory,
     handoff_history: handoffHistory,
     message_count: conv.message_count || messages?.length || 0,
+    previous_assessment: previousAssessment,
+    technique_history: techniqueHistory,
   }
 
   try {
     const result = await routeToAgent(supabase, context)
+
+    // Store technique tracking data (non-blocking)
+    const messageIndex = conv.message_count || messages?.length || 0
+    if (result.techniques_used && result.techniques_used.length > 0) {
+      storeTechniqueUsage(supabase, {
+        organization_id: profile.organization_id,
+        conversation_id: parsed.data.conversation_id,
+        lead_id: lead.id,
+        message_index: messageIndex,
+        agent_type: result.agent as 'setter' | 'closer',
+        techniques: result.techniques_used,
+      }).catch(() => {}) // Non-critical
+    }
+
+    if (result.lead_assessment) {
+      storeLeadAssessment(supabase, {
+        organization_id: profile.organization_id,
+        conversation_id: parsed.data.conversation_id,
+        lead_id: lead.id,
+        message_index: messageIndex,
+        assessment: result.lead_assessment,
+      }).catch(() => {}) // Non-critical
+    }
+
+    // Update conversation summary (non-blocking)
+    if (result.techniques_used && result.techniques_used.length > 0) {
+      updateConversationSummary(
+        supabase,
+        parsed.data.conversation_id,
+        profile.organization_id,
+        lead.id
+      ).catch(() => {}) // Non-critical
+    }
 
     return NextResponse.json({
       message: result.message,
@@ -99,6 +141,8 @@ export async function POST(request: NextRequest) {
       action_taken: result.action_taken,
       should_handoff: result.should_handoff,
       internal_notes: result.internal_notes,
+      techniques_used: result.techniques_used,
+      lead_assessment: result.lead_assessment,
     })
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Agent response failed'
