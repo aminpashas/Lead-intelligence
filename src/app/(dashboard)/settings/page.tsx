@@ -107,6 +107,32 @@ export default function SettingsPage() {
                 Set this as your Twilio phone number&apos;s SMS webhook URL
               </p>
             </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <Label>Resend Email Webhook</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/resend` : ''}
+                  readOnly
+                  className="font-mono text-xs"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => copyToClipboard(
+                    typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/resend` : '',
+                    'resend'
+                  )}
+                >
+                  {copied === 'resend' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Set this in Resend dashboard &gt; Webhooks. Tracks email opens, clicks, bounces, and complaints.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
