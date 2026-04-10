@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { sendSMS } from '@/lib/messaging/twilio'
 import { z } from 'zod'
+import { applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
+import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
+import { decryptField } from '@/lib/encryption'
+import { auditPHITransmission } from '@/lib/hipaa-audit'
 
 const sendSMSSchema = z.object({
   lead_id: z.string().uuid(),
@@ -10,6 +15,9 @@ const sendSMSSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
+  const rlError = applyRateLimit(request, RATE_LIMITS.api)
+  if (rlError) return rlError
+
   const supabase = await createClient()
   const body = await request.json()
   const parsed = sendSMSSchema.safeParse(body)
@@ -38,6 +46,9 @@ export async function POST(request: NextRequest) {
   if (!lead || !lead.phone_formatted) {
     return NextResponse.json({ error: 'Lead not found or has no phone number' }, { status: 404 })
   }
+
+  // Decrypt PII fields
+  lead.phone_formatted = decryptField(lead.phone_formatted) || lead.phone_formatted
 
   // Find or create conversation
   let conversation
@@ -73,8 +84,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // HIPAA audit: PHI transmitted to Twilio
+    auditPHITransmission(
+      { supabase, organizationId: lead.organization_id, actorId: profile.id },
+      'lead',
+      lead.id,
+      'Twilio SMS',
+      ['phone'],
+    )
+
     // Send via Twilio
-    const result = await sendSMS(lead.phone_formatted, parsed.data.message)
+    const result = await withRetry(
+      () => sendSMS(lead.phone_formatted, parsed.data.message),
+      RETRY_CONFIGS.twilio
+    )
 
     // Store message
     const { data: message } = await supabase

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { scoreLead } from '@/lib/ai/scoring'
-import crypto from 'crypto'
+import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
 
 // GET /api/webhooks/meta - Meta webhook verification (required for setup)
 export async function GET(request: NextRequest) {
@@ -19,31 +20,30 @@ export async function GET(request: NextRequest) {
 
 // POST /api/webhooks/meta - Meta Lead Ads webhook
 export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const orgId = new URL(request.url).searchParams.get('org')
+  // Rate limit
+  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  if (rlError) return rlError
 
-  if (!orgId) {
-    return NextResponse.json({ error: 'Organization ID required (?org=...)' }, { status: 400 })
-  }
+  // Read raw body for signature verification
+  const { rawBody, parsed: body } = await getRawBodyAndParsed(request)
 
-  // Verify signature from Meta
-  const signature = request.headers.get('x-hub-signature-256')
-  if (process.env.WEBHOOK_SECRET && signature) {
-    const rawBody = JSON.stringify(body)
-    const expected = 'sha256=' + crypto
-      .createHmac('sha256', process.env.WEBHOOK_SECRET)
-      .update(rawBody)
-      .digest('hex')
+  // Validate organization exists
+  const orgResult = await validateOrgId(new URL(request.url).searchParams.get('org'))
+  if (orgResult instanceof NextResponse) return orgResult
 
-    if (signature !== expected) {
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
-    }
-  }
+  // Verify Meta signature — MANDATORY (uses sha256= prefix)
+  const sigError = verifyWebhookSignature(
+    rawBody,
+    request.headers.get('x-hub-signature-256'),
+    { prefix: 'sha256=' }
+  )
+  if (sigError) return sigError
 
   const supabase = createServiceClient()
 
   // Meta Lead Ads webhook sends events in the `entry` array
-  const entries = body.entry || []
+  const payload = body as Record<string, any>
+  const entries = payload.entry || []
 
   for (const entry of entries) {
     const changes = entry.changes || []
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
         const { data: existing } = await supabase
           .from('leads')
           .select('id')
-          .eq('organization_id', orgId)
+          .eq('organization_id', orgResult.orgId)
           .or(filters)
           .limit(1)
 
@@ -90,14 +90,14 @@ export async function POST(request: NextRequest) {
       const { data: defaultStage } = await supabase
         .from('pipeline_stages')
         .select('id')
-        .eq('organization_id', orgId)
+        .eq('organization_id', orgResult.orgId)
         .eq('is_default', true)
         .single()
 
       const { data: lead } = await supabase
         .from('leads')
         .insert({
-          organization_id: orgId,
+          organization_id: orgResult.orgId,
           first_name: firstName,
           last_name: lastName,
           email,
@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
 
       if (lead) {
         await supabase.from('lead_activities').insert({
-          organization_id: orgId,
+          organization_id: orgResult.orgId,
           lead_id: lead.id,
           activity_type: 'created',
           title: 'Lead captured from Meta/Facebook Ads',

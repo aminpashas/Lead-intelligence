@@ -1,23 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceClient } from '@/lib/supabase/server'
 import { autoEnrollLeads } from '@/lib/campaigns/enrollments'
 import { executeCampaignSteps } from '@/lib/campaigns/executor'
 import { runDisqualificationRules } from '@/lib/ai/disqualification'
 import { sendAppointmentReminders } from '@/lib/campaigns/reminders'
+import { logger } from '@/lib/logger'
 
 // POST /api/cron/campaigns — Daily cron (9 AM UTC) or manual trigger
 // Runs: auto-enrollment, step execution, and lead disqualification
 export async function POST(request: NextRequest) {
-  // Verify cron secret (Vercel sends this) or allow empty for dev
+  // Verify cron secret (Vercel sends this)
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.WEBHOOK_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const startTime = Date.now()
+
+  // Use service role client for admin access (not anon key)
+  const supabase = createServiceClient()
 
   // Get all active organizations
   const { data: orgs } = await supabase
@@ -89,15 +90,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({
+  const duration = Date.now() - startTime
+  const summary = {
     success: true,
     enrollments: totalEnrolled,
     executions: totalExecuted,
     disqualified,
     remindersSent,
     errors: errors.length > 0 ? errors : undefined,
+    durationMs: duration,
+    orgsProcessed: orgs.length,
     timestamp: new Date().toISOString(),
-  })
+  }
+
+  logger.info('Campaign cron completed', summary)
+
+  if (errors.length > 0) {
+    logger.warn('Campaign cron had errors', { errorCount: errors.length, errors: errors.slice(0, 10) })
+  }
+
+  return NextResponse.json(summary)
 }
 
 // Vercel Cron sends GET requests

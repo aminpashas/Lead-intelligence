@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { updateLeadSchema } from '@/lib/validators/lead'
+import { executeStageTransition } from '@/lib/funnel/executor'
+import { decryptLeadPII, encryptLeadPII } from '@/lib/encryption'
+import { auditPHIRead, auditPHIWrite, auditPHIDeletion } from '@/lib/hipaa-audit'
 
 // GET /api/leads/[id] - Get lead details
 export async function GET(
@@ -25,6 +28,15 @@ export async function GET(
     return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
   }
 
+  // HIPAA audit: log PHI access
+  auditPHIRead(
+    { supabase, organizationId: lead.organization_id },
+    'lead',
+    id,
+    `Accessed lead detail record`,
+    ['name', 'phone', 'email', 'medical_record', 'insurance_id', 'dob'],
+  )
+
   // Fetch recent activities
   const { data: activities } = await supabase
     .from('lead_activities')
@@ -48,7 +60,7 @@ export async function GET(
     .order('scheduled_at', { ascending: false })
 
   return NextResponse.json({
-    lead,
+    lead: decryptLeadPII(lead as any),
     activities: activities || [],
     conversations: conversations || [],
     appointments: appointments || [],
@@ -84,15 +96,29 @@ export async function PATCH(
     return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
   }
 
+  const updateData = encryptLeadPII(parsed.data as Record<string, unknown>)
+
   const { data: lead, error } = await supabase
     .from('leads')
-    .update(parsed.data)
+    .update(updateData)
     .eq('id', id)
     .select('*, pipeline_stage:pipeline_stages(*)')
     .single()
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // HIPAA audit: log PHI update
+  const updatedFields = Object.keys(parsed.data)
+  const piiUpdated = updatedFields.some(f => ['email', 'phone', 'date_of_birth', 'insurance_provider', 'insurance_details'].includes(f))
+  if (piiUpdated) {
+    auditPHIWrite(
+      { supabase, organizationId: currentLead.organization_id },
+      'lead',
+      id,
+      `Updated lead PII fields: ${updatedFields.filter(f => ['email', 'phone', 'date_of_birth', 'insurance_provider'].includes(f)).join(', ')}`,
+    )
   }
 
   // Log status changes
@@ -106,8 +132,16 @@ export async function PATCH(
     })
   }
 
-  // Log stage changes
+  // Log stage changes and trigger funnel automations
   if (parsed.data.stage_id && parsed.data.stage_id !== currentLead.stage_id) {
+    // Get stage slugs for automation matching
+    const [{ data: fromStage }, { data: toStage }] = await Promise.all([
+      currentLead.stage_id
+        ? supabase.from('pipeline_stages').select('slug').eq('id', currentLead.stage_id).single()
+        : Promise.resolve({ data: null }),
+      supabase.from('pipeline_stages').select('slug').eq('id', parsed.data.stage_id).single(),
+    ])
+
     await supabase.from('lead_activities').insert({
       organization_id: currentLead.organization_id,
       lead_id: id,
@@ -115,9 +149,20 @@ export async function PATCH(
       title: 'Pipeline stage changed',
       metadata: { from_stage: currentLead.stage_id, to_stage: parsed.data.stage_id },
     })
+
+    // Execute funnel automations for this transition (non-blocking)
+    if (toStage?.slug) {
+      executeStageTransition(supabase, {
+        organizationId: currentLead.organization_id,
+        leadId: id,
+        lead: lead as Record<string, unknown>,
+        fromStageSlug: fromStage?.slug || null,
+        toStageSlug: toStage.slug,
+      }).catch((err) => console.error('Automation execution error:', err))
+    }
   }
 
-  return NextResponse.json({ lead })
+  return NextResponse.json({ lead: decryptLeadPII(lead as any) })
 }
 
 // DELETE /api/leads/[id] - Delete a lead
@@ -128,10 +173,26 @@ export async function DELETE(
   const { id } = await params
   const supabase = await createClient()
 
+  // Get org before deletion for audit
+  const { data: deleteLead } = await supabase
+    .from('leads')
+    .select('organization_id')
+    .eq('id', id)
+    .single()
+
   const { error } = await supabase.from('leads').delete().eq('id', id)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  if (deleteLead) {
+    auditPHIDeletion(
+      { supabase, organizationId: deleteLead.organization_id },
+      'lead',
+      id,
+      'Lead record and associated PHI permanently deleted',
+    )
   }
 
   return NextResponse.json({ success: true })

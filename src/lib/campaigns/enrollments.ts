@@ -64,6 +64,16 @@ export async function autoEnrollLeads(
   // Exclude already disqualified/lost
   query = query.not('status', 'in', '("disqualified","lost","completed")')
 
+  // TCPA/CAN-SPAM: Only enroll leads with proper consent
+  if (criteria.has_phone === true) {
+    // SMS campaigns require explicit SMS consent and no opt-out
+    query = query.eq('sms_consent', true).eq('sms_opt_out', false)
+  }
+  if (criteria.has_email === true) {
+    // Email campaigns require email consent and no opt-out
+    query = query.eq('email_consent', true).eq('email_opt_out', false)
+  }
+
   const { data: matchingLeads } = await query.limit(500)
   if (!matchingLeads || matchingLeads.length === 0) return 0
 

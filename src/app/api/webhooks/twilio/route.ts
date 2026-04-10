@@ -1,15 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { generateLeadEngagement } from '@/lib/ai/scoring'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMS, validateTwilioWebhook } from '@/lib/messaging/twilio'
+import { applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
+import { detectPromptInjection, wrapUserContent } from '@/lib/ai/prompt-guard'
+import { logHIPAAEvent } from '@/lib/ai/hipaa'
+import { searchHash } from '@/lib/encryption'
 
 // POST /api/webhooks/twilio - Incoming SMS from Twilio
 export async function POST(request: NextRequest) {
-  const formData = await request.formData()
-  const from = formData.get('From') as string
-  const to = formData.get('To') as string
-  const body = formData.get('Body') as string
-  const messageSid = formData.get('MessageSid') as string
+  // Rate limit
+  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  if (rlError) return rlError
+
+  // Twilio sends form-encoded data — read raw body first for signature validation
+  const rawBody = await request.text()
+  const params = Object.fromEntries(new URLSearchParams(rawBody))
+
+  // Validate Twilio signature — MANDATORY
+  const twilioSignature = request.headers.get('x-twilio-signature')
+  if (!twilioSignature) {
+    return new NextResponse('Missing Twilio signature', { status: 401 })
+  }
+
+  // Build the full URL Twilio used to sign the request
+  const url = request.url
+  if (!validateTwilioWebhook(twilioSignature, url, params)) {
+    return new NextResponse('Invalid Twilio signature', { status: 401 })
+  }
+
+  const from = params.From
+  const to = params.To
+  const body = params.Body
+  const messageSid = params.MessageSid
 
   if (!from || !body) {
     return new NextResponse('Missing required fields', { status: 400 })
@@ -17,18 +41,77 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // Find lead by phone number
-  const { data: lead } = await supabase
-    .from('leads')
-    .select('*, organization_id')
-    .or(`phone_formatted.eq.${from},phone.eq.${from}`)
-    .limit(1)
-    .single()
+  // Find lead by phone hash (encrypted lookup) or plaintext fallback
+  const phoneHashValue = searchHash(from)
+  let lead: any = null
+  if (phoneHashValue) {
+    const { data } = await supabase
+      .from('leads')
+      .select('*, organization_id')
+      .eq('phone_hash', phoneHashValue)
+      .limit(1)
+      .single()
+    lead = data
+  }
+  // Fallback for pre-encryption leads (plaintext phone)
+  if (!lead) {
+    const { data } = await supabase
+      .from('leads')
+      .select('*, organization_id')
+      .or(`phone_formatted.eq.${from},phone.eq.${from}`)
+      .limit(1)
+      .single()
+    lead = data
+  }
 
   if (!lead) {
     // Unknown sender — return empty TwiML
     return new NextResponse(
       '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+      { headers: { 'Content-Type': 'text/xml' } }
+    )
+  }
+
+  // TCPA: Handle opt-out keywords (STOP, UNSUBSCRIBE, CANCEL, END, QUIT)
+  const optOutKeywords = /^\s*(stop|unsubscribe|cancel|end|quit)\s*$/i
+  if (optOutKeywords.test(body)) {
+    await supabase
+      .from('leads')
+      .update({
+        sms_opt_out: true,
+        sms_opt_out_at: new Date().toISOString(),
+      })
+      .eq('id', lead.id)
+
+    // Also exit any active campaign enrollments
+    await supabase
+      .from('campaign_enrollments')
+      .update({ status: 'exited', completed_at: new Date().toISOString() })
+      .eq('lead_id', lead.id)
+      .eq('status', 'active')
+
+    // Return confirmation TwiML
+    return new NextResponse(
+      '<?xml version="1.0" encoding="UTF-8"?><Response><Message>You have been unsubscribed and will no longer receive automated messages from us. Reply START to re-subscribe.</Message></Response>',
+      { headers: { 'Content-Type': 'text/xml' } }
+    )
+  }
+
+  // TCPA: Handle re-subscribe (START)
+  const optInKeywords = /^\s*(start|subscribe|yes)\s*$/i
+  if (optInKeywords.test(body)) {
+    await supabase
+      .from('leads')
+      .update({
+        sms_opt_out: false,
+        sms_consent: true,
+        sms_consent_at: new Date().toISOString(),
+        sms_consent_source: 'sms_keyword',
+      })
+      .eq('id', lead.id)
+
+    return new NextResponse(
+      '<?xml version="1.0" encoding="UTF-8"?><Response><Message>You have been re-subscribed to our messages. Reply STOP at any time to unsubscribe.</Message></Response>',
       { headers: { 'Content-Type': 'text/xml' } }
     )
   }
@@ -104,14 +187,31 @@ export async function POST(request: NextRequest) {
       content: m.body,
     }))
 
-    // Add the new message
-    history.push({ role: 'user', content: body })
+    // Detect prompt injection in the incoming SMS before sending to AI
+    const injectionCheck = detectPromptInjection(body)
+    if (!injectionCheck.isClean) {
+      // Log the attempt
+      await logHIPAAEvent(supabase, {
+        organization_id: lead.organization_id,
+        event_type: 'prompt_injection_detected',
+        severity: injectionCheck.detections.some(d => d.severity === 'high') ? 'warning' : 'info',
+        actor_type: 'webhook',
+        resource_type: 'lead',
+        resource_id: lead.id,
+        description: `Prompt injection attempt detected in SMS: ${injectionCheck.detections.map(d => d.pattern).join(', ')}`,
+        metadata: { detections: injectionCheck.detections },
+      })
+    }
+
+    // Add the new message with sanitized content wrapped in user content tags
+    const safeContent = injectionCheck.isClean ? body : injectionCheck.sanitizedText
+    history.push({ role: 'user', content: wrapUserContent(safeContent) })
 
     try {
       const aiResponse = await generateLeadEngagement(lead, history, {
         mode: 'education',
         channel: 'sms',
-      })
+      }, supabase)
 
       // Send AI response via Twilio
       const smsResult = await sendSMS(from, aiResponse.message)

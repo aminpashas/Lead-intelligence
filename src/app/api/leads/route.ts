@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createLeadSchema } from '@/lib/validators/lead'
+import { encryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
+import { auditPHIRead, auditPHIWrite } from '@/lib/hipaa-audit'
 
 // GET /api/leads - List leads with filters
 export async function GET(request: NextRequest) {
@@ -57,8 +59,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // Get org for audit logging
+  const { data: auditProfile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (auditProfile && data && data.length > 0) {
+    auditPHIRead(
+      { supabase, organizationId: auditProfile.organization_id, actorId: auditProfile.id },
+      'lead',
+      `batch:${data.length}`,
+      `Accessed ${data.length} lead records (page ${page})`,
+    )
+  }
+
   return NextResponse.json({
-    leads: data,
+    leads: decryptLeadsPII(data || []),
     pagination: {
       page,
       per_page,
@@ -107,15 +124,17 @@ export async function POST(request: NextRequest) {
     phoneFormatted = cleaned.startsWith('1') ? `+${cleaned}` : `+1${cleaned}`
   }
 
+  const insertData = encryptLeadPII({
+    ...parsed.data,
+    organization_id: profile.organization_id,
+    stage_id: defaultStage?.id,
+    phone_formatted: phoneFormatted,
+    email: parsed.data.email || null,
+  })
+
   const { data: lead, error } = await supabase
     .from('leads')
-    .insert({
-      ...parsed.data,
-      organization_id: profile.organization_id,
-      stage_id: defaultStage?.id,
-      phone_formatted: phoneFormatted,
-      email: parsed.data.email || null,
-    })
+    .insert(insertData)
     .select('*, pipeline_stage:pipeline_stages(*)')
     .single()
 
@@ -123,7 +142,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Log activity
+  // Log activity + HIPAA audit
   await supabase.from('lead_activities').insert({
     organization_id: profile.organization_id,
     lead_id: lead.id,
@@ -132,5 +151,12 @@ export async function POST(request: NextRequest) {
     description: `${lead.first_name} ${lead.last_name || ''} added to pipeline`,
   })
 
-  return NextResponse.json({ lead }, { status: 201 })
+  auditPHIWrite(
+    { supabase, organizationId: profile.organization_id },
+    'lead',
+    lead.id,
+    'New lead created with PII (encrypted at rest)',
+  )
+
+  return NextResponse.json({ lead: decryptLeadsPII([lead as any])[0] }, { status: 201 })
 }

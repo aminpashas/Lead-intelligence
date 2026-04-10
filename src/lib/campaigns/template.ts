@@ -1,6 +1,6 @@
 import type { Lead } from '@/types/database'
 
-type TemplateContext = {
+export type TemplateContext = {
   lead: Partial<Lead>
   practice_name: string
   org_id: string

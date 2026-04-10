@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/messaging/resend'
 import { z } from 'zod'
+import { applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
+import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
+import { decryptField } from '@/lib/encryption'
+import { auditPHITransmission } from '@/lib/hipaa-audit'
 
 const sendEmailSchema = z.object({
   lead_id: z.string().uuid(),
@@ -12,6 +17,9 @@ const sendEmailSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
+  const rlError = applyRateLimit(request, RATE_LIMITS.api)
+  if (rlError) return rlError
+
   const supabase = await createClient()
   const body = await request.json()
   const parsed = sendEmailSchema.safeParse(body)
@@ -38,6 +46,9 @@ export async function POST(request: NextRequest) {
   if (!lead || !lead.email) {
     return NextResponse.json({ error: 'Lead not found or has no email' }, { status: 404 })
   }
+
+  // Decrypt PII fields
+  lead.email = decryptField(lead.email) || lead.email
 
   // Find or create email conversation
   let conversation
@@ -72,15 +83,27 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // HIPAA audit: PHI transmitted to Resend
+    auditPHITransmission(
+      { supabase, organizationId: lead.organization_id, actorId: profile.id },
+      'lead',
+      lead.id,
+      'Resend Email',
+      ['email'],
+    )
+
     const htmlBody = parsed.data.html_body || `<p>${parsed.data.body.replace(/\n/g, '<br>')}</p>`
 
-    const result = await sendEmail({
-      to: lead.email,
-      subject: parsed.data.subject,
-      html: htmlBody,
-      text: parsed.data.body,
-      replyTo: profile.email,
-    })
+    const result = await withRetry(
+      () => sendEmail({
+        to: lead.email,
+        subject: parsed.data.subject,
+        html: htmlBody,
+        text: parsed.data.body,
+        replyTo: profile.email,
+      }),
+      RETRY_CONFIGS.resend
+    )
 
     const { data: message } = await supabase
       .from('messages')

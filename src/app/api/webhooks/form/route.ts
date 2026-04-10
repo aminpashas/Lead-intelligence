@@ -2,35 +2,36 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { webhookLeadSchema } from '@/lib/validators/lead'
 import { scoreLead } from '@/lib/ai/scoring'
-import crypto from 'crypto'
+import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
+import { encryptLeadPII, searchHash } from '@/lib/encryption'
+import { auditPHIWrite } from '@/lib/hipaa-audit'
 
 // POST /api/webhooks/form - Universal form webhook
 // Supports: Custom forms, Typeform, JotForm, Google Forms, landing pages
 export async function POST(request: NextRequest) {
-  const body = await request.json()
+  // Rate limit
+  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  if (rlError) return rlError
 
-  // Verify webhook signature if provided
-  const signature = request.headers.get('x-webhook-signature')
-  if (process.env.WEBHOOK_SECRET && signature) {
-    const expected = crypto
-      .createHmac('sha256', process.env.WEBHOOK_SECRET)
-      .update(JSON.stringify(body))
-      .digest('hex')
+  // Read raw body for signature verification (must be before .json())
+  const { rawBody, parsed: body } = await getRawBodyAndParsed(request)
 
-    if (signature !== expected) {
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
-    }
-  }
+  // Verify webhook signature — MANDATORY
+  const sigError = verifyWebhookSignature(
+    rawBody,
+    request.headers.get('x-webhook-signature')
+  )
+  if (sigError) return sigError
 
-  // Extract organization ID from query param or header
-  const orgId = new URL(request.url).searchParams.get('org') ||
+  // Validate organization exists
+  const orgResult = await validateOrgId(
+    new URL(request.url).searchParams.get('org') ||
     request.headers.get('x-organization-id')
+  )
+  if (orgResult instanceof NextResponse) return orgResult
 
-  if (!orgId) {
-    return NextResponse.json({ error: 'Organization ID required' }, { status: 400 })
-  }
-
-  const parsed = webhookLeadSchema.safeParse(body)
+  const parsed = webhookLeadSchema.safeParse(body as Record<string, unknown>)
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'Invalid lead data', details: parsed.error.flatten() },
@@ -38,16 +39,26 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Validate custom_fields size
+  const cfError = validateCustomFields(parsed.data.custom_fields as Record<string, unknown> | undefined)
+  if (cfError) return cfError
+
   const supabase = createServiceClient()
 
-  // Check for duplicate (same email or phone in org)
+  // Check for duplicate (same email or phone in org) using search hashes
   if (parsed.data.email || parsed.data.phone) {
+    const emailHash = parsed.data.email ? searchHash(parsed.data.email) : null
+    const phoneHash = parsed.data.phone ? searchHash(parsed.data.phone) : null
+
     const { data: existing } = await supabase
       .from('leads')
       .select('id')
-      .eq('organization_id', orgId)
+      .eq('organization_id', orgResult.orgId)
       .or(
         [
+          emailHash ? `email_hash.eq.${emailHash}` : null,
+          phoneHash ? `phone_hash.eq.${phoneHash}` : null,
+          // Fallback for pre-encryption leads
           parsed.data.email ? `email.eq.${parsed.data.email}` : null,
           parsed.data.phone ? `phone.eq.${parsed.data.phone}` : null,
         ]
@@ -60,10 +71,10 @@ export async function POST(request: NextRequest) {
       // Update existing lead instead of creating duplicate
       await supabase
         .from('leads')
-        .update({
+        .update(encryptLeadPII({
           ...parsed.data,
           updated_at: new Date().toISOString(),
-        })
+        }))
         .eq('id', existing[0].id)
 
       return NextResponse.json({
@@ -78,7 +89,7 @@ export async function POST(request: NextRequest) {
   const { data: defaultStage } = await supabase
     .from('pipeline_stages')
     .select('id')
-    .eq('organization_id', orgId)
+    .eq('organization_id', orgResult.orgId)
     .eq('is_default', true)
     .single()
 
@@ -89,31 +100,39 @@ export async function POST(request: NextRequest) {
     phoneFormatted = cleaned.startsWith('1') ? `+${cleaned}` : `+1${cleaned}`
   }
 
-  // Create lead
+  // Create lead with PII encryption
+  const leadData = encryptLeadPII({
+    organization_id: orgResult.orgId,
+    first_name: parsed.data.first_name || 'Unknown',
+    last_name: parsed.data.last_name,
+    email: parsed.data.email,
+    phone: parsed.data.phone,
+    phone_formatted: phoneFormatted,
+    source_type: parsed.data.source_type || 'website_form',
+    utm_source: parsed.data.utm_source,
+    utm_medium: parsed.data.utm_medium,
+    utm_campaign: parsed.data.utm_campaign,
+    utm_content: parsed.data.utm_content,
+    utm_term: parsed.data.utm_term,
+    gclid: parsed.data.gclid,
+    fbclid: parsed.data.fbclid,
+    landing_page_url: parsed.data.landing_page_url,
+    dental_condition: parsed.data.dental_condition as any,
+    notes: parsed.data.notes,
+    custom_fields: parsed.data.custom_fields || {},
+    stage_id: defaultStage?.id,
+    status: 'new',
+    sms_consent: !!parsed.data.phone,
+    sms_consent_at: parsed.data.phone ? new Date().toISOString() : null,
+    sms_consent_source: 'form',
+    email_consent: !!parsed.data.email,
+    email_consent_at: parsed.data.email ? new Date().toISOString() : null,
+    email_consent_source: 'form',
+  })
+
   const { data: lead, error } = await supabase
     .from('leads')
-    .insert({
-      organization_id: orgId,
-      first_name: parsed.data.first_name || 'Unknown',
-      last_name: parsed.data.last_name,
-      email: parsed.data.email,
-      phone: parsed.data.phone,
-      phone_formatted: phoneFormatted,
-      source_type: parsed.data.source_type || 'website_form',
-      utm_source: parsed.data.utm_source,
-      utm_medium: parsed.data.utm_medium,
-      utm_campaign: parsed.data.utm_campaign,
-      utm_content: parsed.data.utm_content,
-      utm_term: parsed.data.utm_term,
-      gclid: parsed.data.gclid,
-      fbclid: parsed.data.fbclid,
-      landing_page_url: parsed.data.landing_page_url,
-      dental_condition: parsed.data.dental_condition as any,
-      notes: parsed.data.notes,
-      custom_fields: parsed.data.custom_fields || {},
-      stage_id: defaultStage?.id,
-      status: 'new',
-    })
+    .insert(leadData)
     .select()
     .single()
 
@@ -121,14 +140,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Log activity
+  // Log activity + HIPAA audit
   await supabase.from('lead_activities').insert({
-    organization_id: orgId,
+    organization_id: orgResult.orgId,
     lead_id: lead.id,
     activity_type: 'created',
     title: 'Lead captured via form webhook',
     metadata: { source_type: parsed.data.source_type, utm_source: parsed.data.utm_source },
   })
+
+  auditPHIWrite(
+    { supabase, organizationId: orgResult.orgId, actorType: 'webhook' },
+    'lead',
+    lead.id,
+    'PHI ingested via form webhook (encrypted at rest)',
+  )
 
   // Auto-score the lead asynchronously
   try {

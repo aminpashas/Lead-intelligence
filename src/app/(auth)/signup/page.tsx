@@ -60,7 +60,7 @@ export default function SignupPage() {
       return
     }
 
-    router.push('/pipeline')
+    router.push('/dashboard')
     router.refresh()
   }
 

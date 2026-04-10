@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateLeadEngagement } from '@/lib/ai/scoring'
 import { z } from 'zod'
+import { applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
 
 const engageSchema = z.object({
   lead_id: z.string().uuid(),
@@ -12,6 +14,9 @@ const engageSchema = z.object({
 
 // POST /api/ai/engage - Generate AI engagement message for a lead
 export async function POST(request: NextRequest) {
+  const rlError = applyRateLimit(request, RATE_LIMITS.ai)
+  if (rlError) return rlError
+
   const supabase = await createClient()
   const body = await request.json()
   const parsed = engageSchema.safeParse(body)
@@ -60,7 +65,7 @@ export async function POST(request: NextRequest) {
     const result = await generateLeadEngagement(lead, history, {
       mode: parsed.data.mode,
       channel: parsed.data.channel,
-    })
+    }, supabase)
 
     // Log AI interaction
     await supabase.from('ai_interactions').insert({

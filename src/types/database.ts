@@ -76,6 +76,8 @@ export type Lead = {
   email: string | null
   phone: string | null
   phone_formatted: string | null
+  email_hash: string | null
+  phone_hash: string | null
   avatar_url: string | null
 
   // Demographics
@@ -158,6 +160,18 @@ export type Lead = {
   tags: string[]
   custom_fields: Record<string, unknown>
   notes: string | null
+
+  // Consent (TCPA/CAN-SPAM)
+  sms_consent: boolean
+  sms_consent_at: string | null
+  sms_consent_source: string | null
+  email_consent: boolean
+  email_consent_at: string | null
+  email_consent_source: string | null
+  sms_opt_out: boolean
+  sms_opt_out_at: string | null
+  email_opt_out: boolean
+  email_opt_out_at: string | null
 
   // Disqualification
   disqualified_reason: string | null

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateTailoredFollowUp, getPatientProfile } from '@/lib/ai/patient-psychology'
+import { applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
  * POST /api/ai/follow-up
@@ -11,6 +13,9 @@ import { generateTailoredFollowUp, getPatientProfile } from '@/lib/ai/patient-ps
  * Body: { lead_id: string, channel: 'sms' | 'email' | 'call', context?: string }
  */
 export async function POST(request: NextRequest) {
+  const rlError = applyRateLimit(request, RATE_LIMITS.ai)
+  if (rlError) return rlError
+
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()

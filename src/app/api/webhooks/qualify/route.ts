@@ -1,45 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
+import { validateOrgId, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
+import { encryptField } from '@/lib/encryption'
 
 const qualifySchema = z.object({
-  first_name: z.string().min(1),
-  last_name: z.string().optional(),
-  phone: z.string().min(7),
-  email: z.string().email(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  dental_condition: z.string(),
-  dental_condition_details: z.string().optional(),
+  first_name: z.string().min(1).max(100),
+  last_name: z.string().max(100).optional(),
+  phone: z.string().min(7).max(20),
+  email: z.string().email().max(255),
+  city: z.string().max(100).optional(),
+  state: z.string().max(50).optional(),
+  dental_condition: z.string().max(100),
+  dental_condition_details: z.string().max(1000).optional(),
   has_dentures: z.boolean().optional(),
-  urgency: z.string(),
-  financing_interest: z.string().optional(),
+  urgency: z.string().max(50),
+  financing_interest: z.string().max(50).optional(),
   has_dental_insurance: z.boolean().optional(),
-  budget_range: z.string().optional(),
-  source_type: z.string().optional(),
-  utm_source: z.string().optional(),
-  utm_medium: z.string().optional(),
-  utm_campaign: z.string().optional(),
-  utm_content: z.string().optional(),
-  utm_term: z.string().optional(),
-  gclid: z.string().optional(),
-  fbclid: z.string().optional(),
-  landing_page_url: z.string().optional(),
+  budget_range: z.string().max(50).optional(),
+  source_type: z.string().max(50).optional(),
+  utm_source: z.string().max(200).optional(),
+  utm_medium: z.string().max(200).optional(),
+  utm_campaign: z.string().max(200).optional(),
+  utm_content: z.string().max(200).optional(),
+  utm_term: z.string().max(200).optional(),
+  gclid: z.string().max(200).optional(),
+  fbclid: z.string().max(200).optional(),
+  landing_page_url: z.string().max(2000).optional(),
   custom_fields: z.record(z.string(), z.unknown()).optional(),
 })
 
 export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const orgId = new URL(request.url).searchParams.get('org')
+  // Rate limit — stricter for public form (10 req/min)
+  const rlError = applyRateLimit(request, RATE_LIMITS.publicForm)
+  if (rlError) return rlError
 
-  if (!orgId) {
-    return NextResponse.json({ error: 'Organization ID required' }, { status: 400 })
-  }
+  const body = await request.json()
+
+  // Validate organization exists (UUID format + DB lookup)
+  const orgResult = await validateOrgId(new URL(request.url).searchParams.get('org'))
+  if (orgResult instanceof NextResponse) return orgResult
 
   const parsed = qualifySchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
+
+  // Validate custom_fields size
+  const cfError = validateCustomFields(parsed.data.custom_fields)
+  if (cfError) return cfError
 
   // Use anon client — the RPC function is SECURITY DEFINER
   const supabase = createClient(
@@ -56,12 +66,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const { data: result, error } = await supabase.rpc('insert_qualified_lead', {
-      p_org_id: orgId,
+      p_org_id: orgResult.orgId,
       p_first_name: parsed.data.first_name,
       p_last_name: parsed.data.last_name || null,
-      p_phone: parsed.data.phone,
-      p_phone_formatted: phoneFormatted,
-      p_email: parsed.data.email || null,
+      p_phone: encryptField(parsed.data.phone) || parsed.data.phone,
+      p_phone_formatted: encryptField(phoneFormatted) || phoneFormatted,
+      p_email: encryptField(parsed.data.email || null),
       p_city: parsed.data.city || null,
       p_state: parsed.data.state || null,
       p_dental_condition: parsed.data.dental_condition,

@@ -4,6 +4,9 @@ import { checkSendWindow } from './send-window'
 import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { generateLeadEngagement } from '@/lib/ai/scoring'
+import { appendEmailFooter } from '@/lib/messaging/email-footer'
+import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
+import { decryptField } from '@/lib/encryption'
 
 type ExecutionResult = {
   enrollment_id: string
@@ -57,13 +60,36 @@ async function executeOneStep(
   supabase: SupabaseClient,
   enrollment: any
 ): Promise<ExecutionResult> {
-  const { campaign, lead } = enrollment
+  const { campaign } = enrollment
+  const lead = enrollment.lead ? { ...enrollment.lead } : null
   if (!campaign || !lead) {
     return { enrollment_id: enrollment.id, lead_id: enrollment.lead_id, action: 'error', detail: 'Missing campaign or lead' }
   }
 
-  // Get the current step
+  // Decrypt PII fields for sending
+  lead.phone_formatted = decryptField(lead.phone_formatted) || lead.phone_formatted
+  lead.phone = decryptField(lead.phone) || lead.phone
+  lead.email = decryptField(lead.email) || lead.email
+
+  // Idempotency: Atomically claim this execution by setting next_step_at far in the future.
+  // If another cron already claimed it, this update won't match (0 rows updated).
   const nextStepNumber = (enrollment.current_step || 0) + 1
+  const idempotencyLock = new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 min lock
+  const { data: claimed } = await supabase
+    .from('campaign_enrollments')
+    .update({ next_step_at: idempotencyLock })
+    .eq('id', enrollment.id)
+    .eq('current_step', enrollment.current_step) // Only if step hasn't changed
+    .lte('next_step_at', new Date().toISOString()) // Only if still due
+    .select('id')
+    .single()
+
+  if (!claimed) {
+    // Another process already claimed this enrollment
+    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'skipped', detail: 'Already being processed (idempotency)' }
+  }
+
+  // Get the current step
   const { data: step } = await supabase
     .from('campaign_steps')
     .select('*')
@@ -141,11 +167,29 @@ async function executeOneStep(
       const aiResult = await generateLeadEngagement(lead, [], {
         mode: mode as any,
         channel: step.channel,
-      })
+      }, supabase)
       messageBody = aiResult.message
     } catch {
       // Fall back to template if AI fails
     }
+  }
+
+  // TCPA/CAN-SPAM: Verify consent before sending
+  if (step.channel === 'sms' && (!lead.sms_consent || lead.sms_opt_out)) {
+    await supabase.from('campaign_enrollments').update({
+      status: 'exited',
+      exited_at: new Date().toISOString(),
+      exit_reason: 'No SMS consent or opted out',
+    }).eq('id', enrollment.id)
+    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: 'No SMS consent' }
+  }
+  if (step.channel === 'email' && (!lead.email_consent || lead.email_opt_out)) {
+    await supabase.from('campaign_enrollments').update({
+      status: 'exited',
+      exited_at: new Date().toISOString(),
+      exit_reason: 'No email consent or opted out',
+    }).eq('id', enrollment.id)
+    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: 'No email consent' }
   }
 
   // Send the message
@@ -157,7 +201,10 @@ async function executeOneStep(
       return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'error', detail: 'No phone number' }
     }
     try {
-      const result = await sendSMS(lead.phone_formatted, messageBody)
+      const result = await withRetry(
+        () => sendSMS(lead.phone_formatted, messageBody),
+        RETRY_CONFIGS.twilio
+      )
       externalId = result.sid
       sendSuccess = true
     } catch (err) {
@@ -168,20 +215,32 @@ async function executeOneStep(
       return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'error', detail: 'No email' }
     }
     try {
-      const htmlBody = `<div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+      const orgName = org?.name || 'Our Practice'
+      let htmlBody = `<div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
         ${messageBody.replace(/\n/g, '<br>')}
         <br><br>
         <p style="color: #888; font-size: 12px;">
-          ${org?.name || 'Our Practice'}<br>
+          ${orgName}<br>
           <a href="${process.env.NEXT_PUBLIC_APP_URL}/qualify/${campaign.organization_id}" style="color: #d97706;">Schedule Your Free Consultation</a>
         </p>
       </div>`
-      const result = await sendEmail({
-        to: lead.email,
-        subject: subject || `A message from ${org?.name || 'us'}`,
-        html: htmlBody,
-        text: messageBody,
+
+      // CAN-SPAM: Append unsubscribe footer to all campaign emails
+      htmlBody = appendEmailFooter(htmlBody, {
+        leadId: lead.id,
+        orgId: campaign.organization_id,
+        orgName,
       })
+
+      const result = await withRetry(
+        () => sendEmail({
+          to: lead.email,
+          subject: subject || `A message from ${orgName}`,
+          html: htmlBody,
+          text: messageBody,
+        }),
+        RETRY_CONFIGS.resend
+      )
       externalId = result.id
       sendSuccess = true
     } catch (err) {

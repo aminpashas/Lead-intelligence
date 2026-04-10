@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Lead } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { buildSafeLeadContext, buildSafeConversationHistory, checkResponseCompliance, logHIPAAEvent, scrubPHI } from './hipaa'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -130,8 +132,26 @@ function buildLeadContext(lead: Partial<Lead>): string {
   return parts.join('\n')
 }
 
-export async function scoreLead(lead: Partial<Lead>): Promise<ScoreResult> {
-  const leadContext = buildLeadContext(lead)
+export async function scoreLead(
+  lead: Partial<Lead>,
+  supabase?: SupabaseClient
+): Promise<ScoreResult> {
+  // Use HIPAA-safe context — no email, phone, full name, or address sent to AI
+  const leadContext = buildSafeLeadContext(lead as Record<string, unknown>)
+
+  // Log AI access if supabase client available
+  if (supabase && lead.organization_id && lead.id) {
+    await logHIPAAEvent(supabase, {
+      organization_id: lead.organization_id,
+      event_type: 'ai_scoring',
+      severity: 'info',
+      actor_type: 'ai_agent',
+      actor_id: 'lead_scorer',
+      resource_type: 'lead',
+      resource_id: lead.id,
+      description: 'AI lead scoring initiated with HIPAA-safe context',
+    })
+  }
 
   const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -184,9 +204,17 @@ export async function generateLeadEngagement(
   context: {
     mode: 'education' | 'objection_handling' | 'appointment_scheduling' | 'follow_up'
     channel: 'sms' | 'email'
-  }
+  },
+  supabase?: SupabaseClient
 ): Promise<{ message: string; confidence: number }> {
-  const leadContext = buildLeadContext(lead)
+  // Use HIPAA-safe context — no direct identifiers sent to AI
+  const leadContext = buildSafeLeadContext(lead as Record<string, unknown>)
+
+  // Scrub PHI from conversation history before sending to AI
+  const safeHistory = conversationHistory.map((msg) => ({
+    role: msg.role as 'user' | 'assistant',
+    content: scrubPHI(msg.content),
+  }))
 
   const systemPrompt = `You are an AI assistant for a dental implant practice specializing in All-on-4 full arch implants.
 You are communicating with a potential patient via ${context.channel === 'sms' ? 'text message (keep messages under 160 chars when possible)' : 'email'}.
@@ -212,22 +240,45 @@ Guidelines:
 - For SMS: Keep messages concise and conversational
 - For email: Use a professional but friendly tone
 - If the lead seems disqualified or uninterested, gracefully disengage
-- Never pressure or use aggressive sales tactics`
+- Never pressure or use aggressive sales tactics
+- HIPAA: Never include patient identifiers (full name, phone, email, SSN, DOB) in your response
+- HIPAA: Never ask patients to share sensitive information via text/email`
 
   const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: context.channel === 'sms' ? 256 : 1024,
     system: systemPrompt,
-    messages: conversationHistory.map((msg) => ({
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content,
-    })),
+    messages: safeHistory,
   })
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
 
+  // Check response for HIPAA compliance before returning
+  const complianceIssues = checkResponseCompliance(text)
+  const hasCriticalIssue = complianceIssues.some(
+    (i) => i.severity === 'critical' || i.severity === 'violation'
+  )
+
+  // Log compliance issues if supabase available
+  if (supabase && lead.organization_id && complianceIssues.length > 0) {
+    await logHIPAAEvent(supabase, {
+      organization_id: lead.organization_id,
+      event_type: hasCriticalIssue ? 'ai_compliance_violation' : 'ai_compliance_warning',
+      severity: hasCriticalIssue ? 'warning' : 'info',
+      actor_type: 'ai_agent',
+      actor_id: 'engagement_generator',
+      resource_type: 'lead',
+      resource_id: lead.id,
+      description: `AI response compliance: ${complianceIssues.map((i) => i.category).join(', ')}`,
+      metadata: { issues: complianceIssues, channel: context.channel },
+    })
+  }
+
+  // If critical compliance issue, scrub the response before returning
+  const finalMessage = hasCriticalIssue ? scrubPHI(text) : text
+
   return {
-    message: text,
-    confidence: 0.85, // Could be refined with more context
+    message: finalMessage,
+    confidence: hasCriticalIssue ? 0.5 : 0.85,
   }
 }

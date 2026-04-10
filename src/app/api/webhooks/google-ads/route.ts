@@ -1,16 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { scoreLead } from '@/lib/ai/scoring'
+import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
 
 // POST /api/webhooks/google-ads - Google Ads lead form webhook
 // Google Ads sends lead form extensions data via webhook
 export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const orgId = new URL(request.url).searchParams.get('org')
+  // Rate limit
+  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  if (rlError) return rlError
 
-  if (!orgId) {
-    return NextResponse.json({ error: 'Organization ID required (?org=...)' }, { status: 400 })
-  }
+  // Read raw body for signature verification
+  const { rawBody, parsed } = await getRawBodyAndParsed(request)
+  const body = parsed as Record<string, any>
+
+  // Verify webhook signature — MANDATORY
+  const sigError = verifyWebhookSignature(
+    rawBody,
+    request.headers.get('x-webhook-signature')
+  )
+  if (sigError) return sigError
+
+  // Validate organization exists
+  const orgResult = await validateOrgId(new URL(request.url).searchParams.get('org'))
+  if (orgResult instanceof NextResponse) return orgResult
 
   const supabase = createServiceClient()
 
@@ -43,7 +57,7 @@ export async function POST(request: NextRequest) {
     const { data: existing } = await supabase
       .from('leads')
       .select('id')
-      .eq('organization_id', orgId)
+      .eq('organization_id', orgResult.orgId)
       .or(filters)
       .limit(1)
 
@@ -56,14 +70,14 @@ export async function POST(request: NextRequest) {
   const { data: defaultStage } = await supabase
     .from('pipeline_stages')
     .select('id')
-    .eq('organization_id', orgId)
+    .eq('organization_id', orgResult.orgId)
     .eq('is_default', true)
     .single()
 
   const { data: lead, error } = await supabase
     .from('leads')
     .insert({
-      organization_id: orgId,
+      organization_id: orgResult.orgId,
       first_name: leadData.first_name,
       last_name: leadData.last_name,
       email: leadData.email,
@@ -93,7 +107,7 @@ export async function POST(request: NextRequest) {
 
   // Log & auto-score
   await supabase.from('lead_activities').insert({
-    organization_id: orgId,
+    organization_id: orgResult.orgId,
     lead_id: lead.id,
     activity_type: 'created',
     title: 'Lead captured from Google Ads',
