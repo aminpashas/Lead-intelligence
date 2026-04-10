@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Users, Brain, DollarSign, TrendingUp, Calendar, MessageSquare,
   Flame, Thermometer, Target, Mail, Phone, Bot, Loader2,
+  Clock, Zap, Timer,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -45,6 +47,25 @@ type AnalyticsData = {
   }
   financingBreakdown: Array<{ type: string; count: number }>
   budgetBreakdown: Array<{ range: string; count: number }>
+  responseTime?: {
+    avg_first_contact_minutes: number
+    avg_response_minutes: number
+    contacted_within_5min_pct: number
+    distribution: Array<{ bucket: string; count: number }>
+  }
+  sourceRoi?: Array<{
+    source: string; lead_count: number; conversions: number
+    conversion_rate: number; total_revenue: number; avg_deal_size: number; avg_score: number
+  }>
+  pipelineVelocity?: Array<{ stage: string; transitions: number; avg_days_in_stage: number }>
+  forecasting?: {
+    hot: { count: number; probability: number; projected: number }
+    warm: { count: number; probability: number; projected: number }
+    cold: { count: number; probability: number; projected: number }
+    total_projected: number
+    avg_deal_size: number
+  }
+  dateRange?: { start: string; end: string }
 }
 
 const COLORS = ['#2563eb', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
@@ -108,17 +129,39 @@ function formatDate(dateStr: unknown) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+type DateRange = '7d' | '30d' | '90d' | 'ytd' | '1y'
+
+function getDateRange(range: DateRange): { start: string; end: string } {
+  const end = new Date()
+  let start: Date
+  switch (range) {
+    case '7d': start = new Date(end.getTime() - 7 * 86400000); break
+    case '30d': start = new Date(end.getTime() - 30 * 86400000); break
+    case '90d': start = new Date(end.getTime() - 90 * 86400000); break
+    case 'ytd': start = new Date(end.getFullYear(), 0, 1); break
+    case '1y': start = new Date(end.getTime() - 365 * 86400000); break
+  }
+  return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] }
+}
+
 export function AnalyticsDashboard() {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [dateRange, setDateRange] = useState<DateRange>('30d')
 
-  useEffect(() => {
-    fetch('/api/analytics')
+  const fetchData = useCallback(() => {
+    setLoading(true)
+    const { start, end } = getDateRange(dateRange)
+    fetch(`/api/analytics?start_date=${start}&end_date=${end}`)
       .then((r) => r.json())
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [])
+  }, [dateRange])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -136,6 +179,24 @@ export function AnalyticsDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Date Range Picker */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Analytics</h1>
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+          {([['7d', '7D'], ['30d', '30D'], ['90d', '90D'], ['ytd', 'YTD'], ['1y', '1Y']] as [DateRange, string][]).map(([key, label]) => (
+            <Button
+              key={key}
+              variant={dateRange === key ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 px-3 text-xs"
+              onClick={() => setDateRange(key)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <KPICard icon={Users} label="Total Leads" value={kpis.totalLeads} color="text-blue-600" />
@@ -156,7 +217,7 @@ export function AnalyticsDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Lead Trend (30 Days)</CardTitle>
+            <CardTitle className="text-base">Lead Trend</CardTitle>
             <CardDescription>New leads and conversions per day</CardDescription>
           </CardHeader>
           <CardContent>
@@ -505,6 +566,169 @@ export function AnalyticsDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ═══ NEW: Response Time Metrics ═══ */}
+      {data.responseTime && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-blue-500" />
+            Response Time
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <KPICard
+              icon={Timer}
+              label="Avg First Contact"
+              value={`${Math.round(data.responseTime.avg_first_contact_minutes)} min`}
+              color={data.responseTime.avg_first_contact_minutes <= 5 ? 'text-green-600' : data.responseTime.avg_first_contact_minutes <= 15 ? 'text-amber-600' : 'text-red-600'}
+              subtitle={data.responseTime.avg_first_contact_minutes <= 5 ? 'Excellent' : data.responseTime.avg_first_contact_minutes <= 15 ? 'Good' : 'Needs improvement'}
+            />
+            <KPICard
+              icon={Zap}
+              label="Avg Response Time"
+              value={`${Math.round(data.responseTime.avg_response_minutes)} min`}
+              color="text-blue-600"
+            />
+            <KPICard
+              icon={Target}
+              label="Under 5 Min"
+              value={`${data.responseTime.contacted_within_5min_pct}%`}
+              color={data.responseTime.contacted_within_5min_pct >= 80 ? 'text-green-600' : 'text-amber-600'}
+              subtitle="of leads contacted within 5 min"
+            />
+          </div>
+          {data.responseTime.distribution && data.responseTime.distribution.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Response Time Distribution</CardTitle>
+              </CardHeader>
+              <CardContent className="h-[250px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data.responseTime.distribution}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Leads" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ═══ NEW: Revenue Forecasting ═══ */}
+      {data.forecasting && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-emerald-500" />
+              Revenue Forecast
+            </CardTitle>
+            <CardDescription>Projected revenue from current pipeline (weighted by probability)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center mb-6">
+              <p className="text-4xl font-bold text-emerald-600">{formatCurrency(data.forecasting.total_projected)}</p>
+              <p className="text-sm text-muted-foreground mt-1">Total Projected Revenue</p>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="text-center p-4 rounded-lg bg-red-50">
+                <p className="text-sm font-medium text-red-800">Hot Leads</p>
+                <p className="text-2xl font-bold text-red-600">{data.forecasting.hot.count}</p>
+                <p className="text-xs text-red-600">{(data.forecasting.hot.probability * 100)}% probability</p>
+                <p className="text-sm font-semibold mt-1">{formatCurrency(data.forecasting.hot.projected)}</p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-amber-50">
+                <p className="text-sm font-medium text-amber-800">Warm Leads</p>
+                <p className="text-2xl font-bold text-amber-600">{data.forecasting.warm.count}</p>
+                <p className="text-xs text-amber-600">{(data.forecasting.warm.probability * 100)}% probability</p>
+                <p className="text-sm font-semibold mt-1">{formatCurrency(data.forecasting.warm.projected)}</p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-blue-50">
+                <p className="text-sm font-medium text-blue-800">Cold Leads</p>
+                <p className="text-2xl font-bold text-blue-600">{data.forecasting.cold.count}</p>
+                <p className="text-xs text-blue-600">{(data.forecasting.cold.probability * 100)}% probability</p>
+                <p className="text-sm font-semibold mt-1">{formatCurrency(data.forecasting.cold.projected)}</p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground text-center mt-3">
+              Based on avg deal size of {formatCurrency(data.forecasting.avg_deal_size)}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══ NEW: Source ROI ═══ */}
+      {data.sourceRoi && data.sourceRoi.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Lead Source ROI</CardTitle>
+            <CardDescription>Revenue and conversion performance by lead source</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="pb-2 font-medium">Source</th>
+                    <th className="pb-2 font-medium text-right">Leads</th>
+                    <th className="pb-2 font-medium text-right">Conversions</th>
+                    <th className="pb-2 font-medium text-right">Conv. Rate</th>
+                    <th className="pb-2 font-medium text-right">Revenue</th>
+                    <th className="pb-2 font-medium text-right">Avg Deal</th>
+                    <th className="pb-2 font-medium text-right">Avg Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.sourceRoi.map((s) => (
+                    <tr key={s.source} className="border-b last:border-0">
+                      <td className="py-2 font-medium">{SOURCE_LABELS[s.source] || s.source}</td>
+                      <td className="py-2 text-right">{s.lead_count}</td>
+                      <td className="py-2 text-right">{s.conversions}</td>
+                      <td className="py-2 text-right">
+                        <Badge variant={s.conversion_rate > 20 ? 'default' : 'secondary'} className="text-xs">
+                          {s.conversion_rate}%
+                        </Badge>
+                      </td>
+                      <td className="py-2 text-right font-medium">{formatCurrency(s.total_revenue)}</td>
+                      <td className="py-2 text-right">{formatCurrency(s.avg_deal_size)}</td>
+                      <td className="py-2 text-right">{s.avg_score}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══ NEW: Pipeline Velocity ═══ */}
+      {data.pipelineVelocity && data.pipelineVelocity.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Pipeline Velocity</CardTitle>
+            <CardDescription>Average days leads spend in each pipeline stage</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={data.pipelineVelocity.map((v) => ({
+                  ...v,
+                  stage: STATUS_LABELS[v.stage] || v.stage,
+                }))}
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" tick={{ fontSize: 12 }} label={{ value: 'Days', position: 'insideBottom', offset: -5 }} />
+                <YAxis dataKey="stage" type="category" tick={{ fontSize: 11 }} width={120} />
+                <Tooltip formatter={(v) => [`${v} days`, 'Avg Duration']} />
+                <Bar dataKey="avg_days_in_stage" fill="#8b5cf6" radius={[0, 4, 4, 0]} name="Avg Days" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

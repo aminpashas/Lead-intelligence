@@ -22,6 +22,16 @@ export async function GET(request: NextRequest) {
 
   const orgId = profile.organization_id
 
+  // Date range params (default 30 days)
+  const startParam = request.nextUrl.searchParams.get('start_date')
+  const endParam = request.nextUrl.searchParams.get('end_date')
+  const startDate = startParam
+    ? new Date(startParam).toISOString()
+    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const endDate = endParam
+    ? new Date(endParam).toISOString()
+    : new Date().toISOString()
+
   // Try to use pre-aggregated RPC functions first (faster)
   // Falls back to client-side aggregation if RPC not available
   const [
@@ -240,6 +250,45 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // --- New analytics: response time, source ROI, pipeline velocity, forecasting ---
+  const [responseTimeRpc, sourceRoiRpc, velocityRpc] = await Promise.allSettled([
+    supabase.rpc('get_response_time_metrics', { p_org_id: orgId, p_start: startDate, p_end: endDate }),
+    supabase.rpc('get_source_roi', { p_org_id: orgId, p_start: startDate, p_end: endDate }),
+    supabase.rpc('get_pipeline_velocity', { p_org_id: orgId, p_start: startDate, p_end: endDate }),
+  ])
+
+  const responseTime = responseTimeRpc.status === 'fulfilled' && !responseTimeRpc.value.error
+    ? responseTimeRpc.value.data
+    : { avg_first_contact_minutes: 0, avg_response_minutes: 0, contacted_within_5min_pct: 0, distribution: [] }
+
+  const sourceRoi = sourceRoiRpc.status === 'fulfilled' && !sourceRoiRpc.value.error
+    ? sourceRoiRpc.value.data
+    : []
+
+  const pipelineVelocity = velocityRpc.status === 'fulfilled' && !velocityRpc.value.error
+    ? velocityRpc.value.data
+    : []
+
+  // Revenue forecasting from current pipeline
+  const hotLeadCount = kpis.hot_leads ?? kpis.hotLeads ?? 0
+  const warmLeadCount = kpis.warm_leads ?? kpis.warmLeads ?? 0
+  const coldLeadCount = kpis.cold_leads ?? kpis.coldLeads ?? 0
+  const avgDealSize = leads.length > 0
+    ? leads.reduce((s: number, l: { treatment_value?: number }) => s + (l.treatment_value || 0), 0) / Math.max(1, leads.filter((l: { treatment_value?: number }) => l.treatment_value && l.treatment_value > 0).length)
+    : 25000 // default assumption
+
+  const forecasting = {
+    hot: { count: hotLeadCount, probability: 0.8, projected: Math.round(hotLeadCount * avgDealSize * 0.8) },
+    warm: { count: warmLeadCount, probability: 0.4, projected: Math.round(warmLeadCount * avgDealSize * 0.4) },
+    cold: { count: coldLeadCount, probability: 0.1, projected: Math.round(coldLeadCount * avgDealSize * 0.1) },
+    total_projected: Math.round(
+      hotLeadCount * avgDealSize * 0.8 +
+      warmLeadCount * avgDealSize * 0.4 +
+      coldLeadCount * avgDealSize * 0.1
+    ),
+    avg_deal_size: Math.round(avgDealSize),
+  }
+
   // Normalize KPI field names
   const totalLeads = kpis.total_leads ?? kpis.totalLeads ?? 0
   const convertedLeads = kpis.converted_leads ?? kpis.convertedLeads ?? 0
@@ -279,5 +328,10 @@ export async function GET(request: NextRequest) {
     },
     financingBreakdown: Object.entries(financingMap).map(([type, count]) => ({ type, count })),
     budgetBreakdown: Object.entries(budgetMap).map(([range, count]) => ({ range, count })),
+    responseTime,
+    sourceRoi,
+    pipelineVelocity,
+    forecasting,
+    dateRange: { start: startDate, end: endDate },
   })
 }
