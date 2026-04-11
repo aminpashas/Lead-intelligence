@@ -12,10 +12,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Bell, Search, Menu } from 'lucide-react'
+import { Search, Menu } from 'lucide-react'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import { Input } from '@/components/ui/input'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
+import { NotificationDropdown } from './notification-dropdown'
 
 export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter()
@@ -61,12 +62,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
         <ThemeToggle />
 
-        <Button variant="ghost" size="icon" className="relative h-9 w-9">
-          <Bell className="h-4 w-4" />
-          <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground flex items-center justify-center">
-            3
-          </span>
-        </Button>
+        <NotificationDropdown />
 
         <DropdownMenu>
           <DropdownMenuTrigger>

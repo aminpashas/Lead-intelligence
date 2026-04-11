@@ -6,7 +6,7 @@ import { Topbar } from './topbar'
 import { useOrgStore } from '@/lib/store/use-org'
 import type { Organization, UserProfile } from '@/types/database'
 import { Toaster } from '@/components/ui/sonner'
-import { useRealtimeLeads, useRealtimeConversations } from '@/lib/hooks/use-realtime-leads'
+import { useRealtimeNotifications } from '@/lib/hooks/use-realtime-notifications'
 
 export function DashboardShell({
   children,
@@ -25,9 +25,8 @@ export function DashboardShell({
     setUserProfile(userProfile)
   }, [organization, userProfile, setOrganization, setUserProfile])
 
-  // Real-time subscriptions
-  useRealtimeLeads()
-  useRealtimeConversations()
+  // Real-time notifications (leads, messages, appointments, campaigns)
+  useRealtimeNotifications()
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
