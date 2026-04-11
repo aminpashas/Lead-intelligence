@@ -9,6 +9,7 @@ import {
   Flame, Thermometer, Target, Mail, Phone, Bot, Loader2,
   Clock, Zap, Timer,
 } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -168,8 +169,21 @@ export function AnalyticsDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6 animate-in fade-in-0 duration-300">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-8 w-64" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-lg" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Skeleton className="h-72 rounded-lg" />
+          <Skeleton className="h-72 rounded-lg" />
+        </div>
+        <Skeleton className="h-64 rounded-lg" />
       </div>
     )
   }
@@ -181,7 +195,7 @@ export function AnalyticsDashboard() {
   const { kpis } = data
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in-0 duration-500">
       {/* Date Range Picker */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Analytics</h1>

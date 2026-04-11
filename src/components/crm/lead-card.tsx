@@ -25,7 +25,7 @@ export function LeadCard({
 
   return (
     <div
-      className="rounded-lg border bg-card p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+      className="rounded-lg border bg-card p-3 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
       onClick={onClick}
     >
       <div className="flex items-start gap-3">

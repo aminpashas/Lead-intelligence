@@ -69,7 +69,7 @@ export function DashboardHome({
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in-0 duration-500">
       {/* Greeting + Quick Stats */}
       <div>
         <h1 className="text-2xl font-bold">{greeting}, {userName}</h1>
@@ -431,7 +431,7 @@ function MiniKPI({
   color?: string
 }) {
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
       <CardContent className="pt-3 pb-2 px-3">
         <div className="flex items-center gap-1.5 mb-0.5">
           <Icon className={`h-3.5 w-3.5 ${color}`} />

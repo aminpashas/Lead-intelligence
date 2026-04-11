@@ -12,11 +12,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Bell, Search } from 'lucide-react'
+import { Bell, Search, Menu } from 'lucide-react'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import { Input } from '@/components/ui/input'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 
-export function Topbar() {
+export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter()
   const supabase = createClient()
   const { userProfile, organization } = useOrgStore()
@@ -35,10 +36,15 @@ export function Topbar() {
     .slice(0, 2) || 'U'
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-card px-6">
-      {/* Search */}
-      <div className="flex items-center gap-4 flex-1 max-w-md">
-        <div className="relative flex-1">
+    <header className="flex h-16 items-center justify-between border-b bg-card px-4 lg:px-6">
+      {/* Left: Hamburger + Search */}
+      <div className="flex items-center gap-3 flex-1 max-w-md">
+        {onMenuClick && (
+          <Button variant="ghost" size="icon" className="lg:hidden h-9 w-9" onClick={onMenuClick}>
+            <Menu className="h-5 w-5" />
+          </Button>
+        )}
+        <div className="relative flex-1 hidden sm:block">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search leads, conversations..."
@@ -47,11 +53,15 @@ export function Topbar() {
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-3">
-        <NewLeadDialog />
+      {/* Right: Actions */}
+      <div className="flex items-center gap-2">
+        <div className="hidden sm:block">
+          <NewLeadDialog />
+        </div>
 
-        <Button variant="ghost" size="icon" className="relative">
+        <ThemeToggle />
+
+        <Button variant="ghost" size="icon" className="relative h-9 w-9">
           <Bell className="h-4 w-4" />
           <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground flex items-center justify-center">
             3
@@ -60,11 +70,11 @@ export function Topbar() {
 
         <DropdownMenu>
           <DropdownMenuTrigger>
-            <span className="flex items-center gap-2 pl-2 rounded-md px-3 py-2 text-sm hover:bg-accent cursor-pointer">
+            <span className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent cursor-pointer">
               <Avatar className="h-7 w-7">
                 <AvatarFallback className="text-xs">{initials}</AvatarFallback>
               </Avatar>
-              <span className="text-sm font-medium hidden sm:inline">
+              <span className="text-sm font-medium hidden md:inline">
                 {userProfile?.full_name || 'User'}
               </span>
             </span>

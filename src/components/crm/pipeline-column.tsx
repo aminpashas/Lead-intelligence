@@ -98,8 +98,8 @@ export function PipelineColumn({
         </SortableContext>
 
         {leads.length === 0 && (
-          <div className="flex items-center justify-center h-20 text-xs text-muted-foreground">
-            No leads
+          <div className="flex flex-col items-center justify-center h-24 text-xs text-muted-foreground border-2 border-dashed border-muted rounded-lg">
+            <span>Drop leads here</span>
           </div>
         )}
       </div>
