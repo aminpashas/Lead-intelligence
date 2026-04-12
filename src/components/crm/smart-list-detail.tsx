@@ -174,7 +174,7 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
                 <TableHeader>
                   <TableRow>
                     <TableHead>Lead</TableHead>
-                    <TableHead>Score</TableHead>
+                    <TableHead>Engagement</TableHead>
                     <TableHead>Stage</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Source</TableHead>

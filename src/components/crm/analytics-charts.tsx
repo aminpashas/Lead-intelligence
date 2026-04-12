@@ -243,7 +243,7 @@ export function AnalyticsDashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KPICard icon={DollarSign} label="Pipeline Value" value={formatCurrency(kpis.totalPipeline)} color="text-emerald-600" />
         <KPICard icon={DollarSign} label="Revenue" value={formatCurrency(kpis.totalRevenue)} color="text-green-700" />
-        <KPICard icon={Brain} label="Avg AI Score" value={kpis.avgScore} color="text-indigo-600" subtitle="out of 100" />
+        <KPICard icon={Brain} label="Avg AI Engagement" value={kpis.avgScore} color="text-indigo-600" subtitle="out of 100" />
         <KPICard icon={Calendar} label="Appointments" value={data.appointments.scheduled + data.appointments.completed} color="text-orange-600" subtitle={`${data.appointments.showRate.toFixed(0)}% show rate`} />
       </div>
 
@@ -701,7 +701,7 @@ export function AnalyticsDashboard() {
                     <th className="pb-2 font-medium text-right">Conv. Rate</th>
                     <th className="pb-2 font-medium text-right">Revenue</th>
                     <th className="pb-2 font-medium text-right">Avg Deal</th>
-                    <th className="pb-2 font-medium text-right">Avg Score</th>
+                    <th className="pb-2 font-medium text-right">Avg Engagement</th>
                   </tr>
                 </thead>
                 <tbody>

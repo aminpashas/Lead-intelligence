@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Copy, Check } from 'lucide-react'
 import { useState } from 'react'
-import { FinancingLendersSettings } from '@/components/settings/financing-lenders-settings'
 
 export default function SettingsPage() {
   const { organization } = useOrgStore()
@@ -175,8 +174,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Financing Lenders */}
-        <FinancingLendersSettings />
+        {/* Financing Lenders section temporarily removed pending live integrations */}
 
         {/* API Keys status */}
         <Card>

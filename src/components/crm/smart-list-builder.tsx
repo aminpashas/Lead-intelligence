@@ -297,7 +297,7 @@ export function SmartListBuilder({
             {/* Score Range */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-sm">AI Score Range</Label>
+                <Label className="text-sm">AI Engagement Range</Label>
                 <span className="text-xs text-muted-foreground">{scoreRange[0]} – {scoreRange[1]}</span>
               </div>
               <Slider

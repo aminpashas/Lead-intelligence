@@ -95,7 +95,7 @@ export function LeadsTable({
             <SelectValue placeholder="Qualification" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Scores</SelectItem>
+            <SelectItem value="all">Any Engagement</SelectItem>
             <SelectItem value="hot">Hot</SelectItem>
             <SelectItem value="warm">Warm</SelectItem>
             <SelectItem value="cold">Cold</SelectItem>
@@ -156,7 +156,7 @@ export function LeadsTable({
           <TableHeader>
             <TableRow>
               <TableHead>Lead</TableHead>
-              <TableHead>Score</TableHead>
+              <TableHead>Engagement</TableHead>
               <TableHead>Stage</TableHead>
               <TableHead>Tags</TableHead>
               <TableHead>Condition</TableHead>

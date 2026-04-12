@@ -18,7 +18,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { LeadMessaging } from './lead-messaging'
 import { ScheduleAppointment } from './schedule-appointment'
-import { LeadFinancingCard } from './lead-financing-card'
+// LeadFinancingCard import removed pending live integrations
 import { PatientSummaryCard } from './patient-summary-card'
 import { LeadAIOverrideToggle } from './ai-mode-toggle'
 import { TagBadge } from './tag-badge'
@@ -187,7 +187,7 @@ export function LeadDetail({
           </div>
         </div>
 
-        {/* AI Score */}
+        {/* AI Engagement Score */}
         <div className="text-center">
           <Badge className={`text-lg px-3 py-1 ${qualificationColors[lead.ai_qualification]}`}>
             <Brain className="h-4 w-4 mr-1" />
@@ -509,8 +509,7 @@ export function LeadDetail({
             </CardContent>
           </Card>
 
-          {/* Financial + Financing Waterfall */}
-          <LeadFinancingCard lead={lead} />
+          {/* Financing panel temporarily removed until live integrations are available */}
 
           {/* Source */}
           <Card>

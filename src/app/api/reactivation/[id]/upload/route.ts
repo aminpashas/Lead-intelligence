@@ -184,7 +184,7 @@ export async function POST(
       }
 
       enrolled++
-      results.push({ row: i + 1, success: true, action: leadId ? 'enrolled' : 'created', lead_id: leadId })
+      results.push({ row: i + 1, success: true, action: leadId ? 'enrolled' : 'created', lead_id: leadId || undefined })
     } catch (err) {
       results.push({
         row: i + 1,
