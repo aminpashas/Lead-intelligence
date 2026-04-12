@@ -385,7 +385,7 @@ export async function autoPreQualify(
       await auditPHITransmission(
         { supabase, organizationId, actorType: 'system' },
         'lead', leadId, 'experian_consumerview', ['name', 'address', 'email', 'phone']
-      ).catch(() => {})
+      ).catch((err: unknown) => console.warn('[credit-prequal] Experian PHI audit failed:', err instanceof Error ? err.message : err))
 
       experianData = await enrichWithExperian({
         first_name: leadData.first_name,
@@ -413,7 +413,7 @@ export async function autoPreQualify(
   await auditPHITransmission(
     { supabase, organizationId, actorType: 'system' },
     'lead', leadId, 'credit_prequal_model', ['financial']
-  ).catch(() => {})
+  ).catch((err: unknown) => console.warn('[credit-prequal] Prequal model PHI audit failed:', err instanceof Error ? err.message : err))
 
   // Layer 2: Lender-specific pre-quals
   const lenderPrequals = await runLenderPreQual(

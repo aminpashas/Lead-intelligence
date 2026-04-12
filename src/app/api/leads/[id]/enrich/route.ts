@@ -10,10 +10,21 @@ export async function POST(
   const { id } = await params
   const supabase = await createClient()
 
+  // Auth + org scoping
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { data: lead, error } = await supabase
     .from('leads')
     .select('*')
     .eq('id', id)
+    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
     .single()
 
   if (error || !lead) {
@@ -59,6 +70,28 @@ export async function GET(
   const { id } = await params
   const supabase = await createClient()
 
+  // Auth + org scoping
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Verify lead belongs to user's org before returning enrichment data
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('id')
+    .eq('id', id)
+    .eq('organization_id', profile.organization_id)
+    .single()
+
+  if (!lead) {
+    return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+  }
+
   const { data: enrichments, error } = await supabase
     .from('lead_enrichment')
     .select('*')
@@ -71,3 +104,4 @@ export async function GET(
 
   return NextResponse.json({ enrichments: enrichments || [] })
 }
+

@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
     .from('leads')
     .select('id, email, first_name, last_name, organization_id')
     .eq('id', parsed.data.lead_id)
+    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
     .single()
 
   if (!lead || !lead.email) {

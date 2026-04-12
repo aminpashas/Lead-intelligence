@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
             description: 'Application exceeded 24-hour time limit',
             metadata: { application_id: app.id },
           })
-          .catch(() => {})
+          .catch((err: unknown) => console.warn('[cron/financing] Activity logging failed:', err instanceof Error ? err.message : err))
 
         // Audit log
         await auditPHIWrite(

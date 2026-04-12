@@ -10,6 +10,28 @@ export async function GET(
   const { id } = await params
   const supabase = await createClient()
 
+  // Auth + org scoping
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Verify conversation belongs to user's org
+  const { data: convo } = await supabase
+    .from('conversations')
+    .select('id, organization_id, lead_id')
+    .eq('id', id)
+    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
+    .single()
+
+  if (!convo) {
+    return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
+  }
+
   const { data: messages, error } = await supabase
     .from('messages')
     .select('*')
@@ -22,21 +44,13 @@ export async function GET(
 
   // HIPAA audit: log message content access (may contain PHI)
   if (messages && messages.length > 0) {
-    const { data: convo } = await supabase
-      .from('conversations')
-      .select('organization_id, lead_id')
-      .eq('id', id)
-      .single()
-
-    if (convo) {
-      auditPHIRead(
-        { supabase, organizationId: convo.organization_id },
-        'conversation',
-        id,
-        `Accessed ${messages.length} messages (may contain PHI)`,
-        ['diagnosis', 'phone', 'email'],
-      )
-    }
+    auditPHIRead(
+      { supabase, organizationId: convo.organization_id, actorId: profile.id },
+      'conversation',
+      id,
+      `Accessed ${messages.length} messages (may contain PHI)`,
+      ['diagnosis', 'phone', 'email'],
+    )
   }
 
   // Mark conversation as read

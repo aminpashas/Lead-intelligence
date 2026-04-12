@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
         message_index: messageIndex,
         agent_type: result.agent as 'setter' | 'closer',
         techniques: result.techniques_used,
-      }).catch(() => {}) // Non-critical
+      }).catch((err: unknown) => console.warn('[agent-respond] Technique tracking failed:', err instanceof Error ? err.message : err)) // Non-critical
     }
 
     if (result.lead_assessment) {
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
         lead_id: lead.id,
         message_index: messageIndex,
         assessment: result.lead_assessment,
-      }).catch(() => {}) // Non-critical
+      }).catch((err: unknown) => console.warn('[agent-respond] Lead assessment storage failed:', err instanceof Error ? err.message : err)) // Non-critical
     }
 
     // Update conversation summary (non-blocking)
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
         parsed.data.conversation_id,
         profile.organization_id,
         lead.id
-      ).catch(() => {}) // Non-critical
+      ).catch((err: unknown) => console.warn('[agent-respond] Conversation summary update failed:', err instanceof Error ? err.message : err)) // Non-critical
     }
 
     return NextResponse.json({

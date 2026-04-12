@@ -3,6 +3,10 @@
  *
  * Lightweight wrappers around logHIPAAEvent for common access patterns.
  * All PHI access must be logged per HIPAA Security Rule §164.312(b).
+ *
+ * IMPORTANT: Audit logging failures are logged to console.error as a fallback.
+ * In production, these console errors should be routed to an alerting system
+ * (e.g., Sentry, Datadog) to ensure no PHI access goes unrecorded.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -13,6 +17,18 @@ type AuditContext = {
   organizationId: string
   actorId?: string
   actorType?: 'user' | 'system' | 'ai_agent' | 'cron' | 'webhook'
+}
+
+/**
+ * Fallback handler for audit logging failures.
+ * Ensures that failed audit events are still visible in logs
+ * per HIPAA §164.312(b) requirements.
+ */
+function handleAuditFailure(eventType: string, resourceType: string, resourceId: string, error: unknown): void {
+  console.error(
+    `[HIPAA_AUDIT_FAILURE] Failed to log ${eventType} for ${resourceType}:${resourceId}. ` +
+    `This is a HIPAA compliance concern. Error: ${error instanceof Error ? error.message : String(error)}`
+  )
 }
 
 /**
@@ -35,8 +51,8 @@ export async function auditPHIRead(
     resource_id: resourceId,
     description,
     phi_categories: phiCategories,
-  }).catch(() => {
-    // Audit logging failure should not break the request
+  }).catch((err) => {
+    handleAuditFailure('phi_access', resourceType, resourceId, err)
   })
 }
 
@@ -60,7 +76,9 @@ export async function auditPHIWrite(
     resource_id: resourceId,
     description,
     phi_categories: phiCategories,
-  }).catch(() => {})
+  }).catch((err) => {
+    handleAuditFailure('phi_stored', resourceType, resourceId, err)
+  })
 }
 
 /**
@@ -82,7 +100,9 @@ export async function auditPHIDeletion(
     resource_id: resourceId,
     description,
     phi_categories: ['name', 'phone', 'email', 'medical_record', 'financial', 'insurance_id'],
-  }).catch(() => {})
+  }).catch((err) => {
+    handleAuditFailure('phi_deleted', resourceType, resourceId, err)
+  })
 }
 
 /**
@@ -105,5 +125,7 @@ export async function auditPHITransmission(
     resource_id: resourceId,
     description: `PHI transmitted to ${destination}`,
     phi_categories: phiCategories,
-  }).catch(() => {})
+  }).catch((err) => {
+    handleAuditFailure('phi_transmitted', resourceType, resourceId, err)
+  })
 }

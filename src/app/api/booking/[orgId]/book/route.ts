@@ -6,6 +6,8 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment, formatTimeDisplay } from '@/lib/booking/availability'
+import { encryptLeadPII } from '@/lib/encryption'
+import { escapeHtml } from '@/lib/utils'
 
 const bookingSchema = z.object({
   slot_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -97,8 +99,8 @@ export async function POST(
 
   if (existingLead) {
     leadId = existingLead.id
-    // Update lead info
-    await supabase.from('leads').update({
+    // Update lead info — encrypt PII fields
+    await supabase.from('leads').update(encryptLeadPII({
       first_name,
       last_name,
       phone,
@@ -110,11 +112,11 @@ export async function POST(
       email_consent: true,
       email_consent_at: new Date().toISOString(),
       email_consent_source: 'booking_form',
-    }).eq('id', leadId)
+    })).eq('id', leadId)
   } else {
     const { data: newLead, error: leadError } = await supabase
       .from('leads')
-      .insert({
+      .insert(encryptLeadPII({
         organization_id: orgId,
         first_name,
         last_name,
@@ -129,7 +131,7 @@ export async function POST(
         email_consent: true,
         email_consent_at: new Date().toISOString(),
         email_consent_source: 'booking_form',
-      })
+      }))
       .select('id')
       .single()
 
@@ -196,19 +198,19 @@ export async function POST(
   try {
     await sendEmail({
       to: email,
-      subject: `Consultation Confirmed — ${orgName}`,
+      subject: `Consultation Confirmed — ${escapeHtml(orgName)}`,
       html: `
         <div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
           <h2 style="color: #111;">Your Consultation is Confirmed!</h2>
-          <p>Hi ${first_name},</p>
-          <p>You're all set for your consultation at <strong>${orgName}</strong>.</p>
+          <p>Hi ${escapeHtml(first_name)},</p>
+          <p>You're all set for your consultation at <strong>${escapeHtml(orgName)}</strong>.</p>
           <div style="background: #f9f9f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 4px 0;"><strong>Date:</strong> ${dateDisplay}</p>
-            <p style="margin: 4px 0;"><strong>Time:</strong> ${timeDisplay}</p>
+            <p style="margin: 4px 0;"><strong>Date:</strong> ${escapeHtml(dateDisplay)}</p>
+            <p style="margin: 4px 0;"><strong>Time:</strong> ${escapeHtml(timeDisplay)}</p>
             <p style="margin: 4px 0;"><strong>Duration:</strong> ${settings.slot_duration_minutes} minutes</p>
-            ${settings.location ? `<p style="margin: 4px 0;"><strong>Location:</strong> ${settings.location}</p>` : ''}
+            ${settings.location ? `<p style="margin: 4px 0;"><strong>Location:</strong> ${escapeHtml(settings.location)}</p>` : ''}
           </div>
-          <p>${settings.booking_message || 'We look forward to seeing you!'}</p>
+          <p>${escapeHtml(settings.booking_message || 'We look forward to seeing you!')}</p>
           <p style="color: #666; font-size: 12px; margin-top: 24px;">
             Need to reschedule? Reply to this email or call us.
           </p>

@@ -27,8 +27,8 @@ const ENV_VARS: EnvVar[] = [
   { key: 'RESEND_FROM_EMAIL', required: false, description: 'Resend sender email address' },
 
   // Security
-  { key: 'WEBHOOK_SECRET', required: false, description: 'HMAC secret for webhook signature verification' },
-  { key: 'ENCRYPTION_KEY', required: false, description: 'AES-256 key (64 hex chars) for PII field encryption' },
+  { key: 'WEBHOOK_SECRET', required: true, description: 'HMAC secret for webhook signature verification' },
+  { key: 'ENCRYPTION_KEY', required: true, description: 'AES-256 key (64 hex chars) for PII field encryption — HIPAA requirement' },
 
   // App
   { key: 'NEXT_PUBLIC_APP_URL', required: false, description: 'Public app URL' },

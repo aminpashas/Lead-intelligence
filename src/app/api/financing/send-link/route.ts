@@ -5,6 +5,7 @@ import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { buildFinancingBreakdown } from '@/lib/financing/calculator'
+import { escapeHtml } from '@/lib/utils'
 import { z } from 'zod'
 import crypto from 'crypto'
 
@@ -31,11 +32,22 @@ export async function POST(request: NextRequest) {
 
   const { lead_id, channel, treatment_value, custom_message } = parsed.data
 
-  // Fetch lead
+  // Auth + org scoping
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Fetch lead — scoped to org
   const { data: lead, error } = await supabase
     .from('leads')
     .select('*')
     .eq('id', lead_id)
+    .eq('organization_id', profile.organization_id)
     .single()
 
   if (error || !lead) {
@@ -134,14 +146,15 @@ export async function POST(request: NextRequest) {
   ].filter(Boolean).join(' ')
 
   const emailSubject = `Your Personalized Dental Financing Options`
+  const safeFirstName = escapeHtml(firstName)
   const emailBody = `
-    <h2>Hi ${firstName},</h2>
+    <h2>Hi ${safeFirstName},</h2>
     <p>We've prepared a personalized financing breakdown for your dental treatment.</p>
     <p><strong>Treatment Value:</strong> $${effectiveTreatmentValue.toLocaleString()}</p>
     ${lowestMonthly ? `<p><strong>Monthly payments as low as:</strong> $${Math.round(lowestMonthly.monthly_payment)}/mo</p>` : ''}
     ${zeroInterest ? `<p>🎉 <strong>0% interest options available!</strong></p>` : ''}
     <p>We've partnered with multiple lenders to give you the best rates. View all your options and apply in just 2 minutes:</p>
-    <p><a href="${appUrl}" style="background:#10b981;color:white;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;font-weight:bold;">View My Financing Options</a></p>
+    <p><a href="${escapeHtml(appUrl)}" style="background:#10b981;color:white;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;font-weight:bold;">View My Financing Options</a></p>
     <p>The application uses a soft credit check that won't affect your credit score.</p>
     <p>Questions? Reply to this email or call us anytime.</p>
   `

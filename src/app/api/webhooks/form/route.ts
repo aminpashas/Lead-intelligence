@@ -129,12 +129,13 @@ export async function POST(request: NextRequest) {
     custom_fields: parsed.data.custom_fields || {},
     stage_id: defaultStage?.id,
     status: 'new',
-    sms_consent: !!parsed.data.phone,
-    sms_consent_at: parsed.data.phone ? new Date().toISOString() : null,
-    sms_consent_source: 'form',
-    email_consent: !!parsed.data.email,
-    email_consent_at: parsed.data.email ? new Date().toISOString() : null,
-    email_consent_source: 'form',
+    // TCPA: Consent must be explicitly granted via form checkbox, not implied by providing contact info
+    sms_consent: parsed.data.sms_consent === true,
+    sms_consent_at: parsed.data.sms_consent ? new Date().toISOString() : null,
+    sms_consent_source: parsed.data.sms_consent ? 'form' : null,
+    email_consent: parsed.data.email_consent === true,
+    email_consent_at: parsed.data.email_consent ? new Date().toISOString() : null,
+    email_consent_source: parsed.data.email_consent ? 'form' : null,
   })
 
   const { data: lead, error } = await supabase

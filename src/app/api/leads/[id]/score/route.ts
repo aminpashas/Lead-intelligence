@@ -10,11 +10,22 @@ export async function POST(
   const { id } = await params
   const supabase = await createClient()
 
-  // Get lead data
+  // Auth + org scoping
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Get lead data — scoped to org
   const { data: lead, error } = await supabase
     .from('leads')
     .select('*')
     .eq('id', id)
+    .eq('organization_id', profile.organization_id)
     .single()
 
   if (error || !lead) {

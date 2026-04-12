@@ -124,19 +124,14 @@ export async function POST(request: NextRequest) {
     metadata: { in_reply_to },
   })
 
-  // Update lead engagement stats
-  await supabase.from('leads').update({
-    last_responded_at: new Date().toISOString(),
-    total_messages_received: ((lead.total_messages_received as number) || 0) + 1,
-  }).eq('id', leadId)
+  // Update lead engagement stats (atomic increment to prevent race conditions)
+  await supabase.rpc('increment_lead_messages_received', { p_lead_id: leadId })
 
-  // Update conversation stats
-  await supabase.from('conversations').update({
-    last_message_at: new Date().toISOString(),
-    last_message_preview: emailBody.substring(0, 100),
-    unread_count: ((conversation.unread_count as number) || 0) + 1,
-    message_count: ((conversation.message_count as number) || 0) + 1,
-  }).eq('id', convoId)
+  // Update conversation stats (atomic increment)
+  await supabase.rpc('increment_conversation_counters', {
+    p_conversation_id: convoId,
+    p_last_message_preview: emailBody.substring(0, 100),
+  })
 
   // Exit campaigns with if_replied exit condition
   await exitCampaignsOnReply(supabase, leadId, orgId)

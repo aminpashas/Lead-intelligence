@@ -115,7 +115,7 @@ export function BookingWidget({ orgId }: { orgId: string }) {
                 if (freshDay) setSelectedDate(freshDay)
               }
             })
-            .catch(() => {})
+            .catch((err: unknown) => console.warn('[booking] Slot refresh failed:', err))
           setStep('time')
         }
         return

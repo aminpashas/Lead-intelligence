@@ -14,6 +14,16 @@ export async function GET(
   const { id } = await params
   const supabase = await createClient()
 
+  // Auth + org scoping: verify user belongs to an org
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { data: lead, error } = await supabase
     .from('leads')
     .select(`
@@ -23,6 +33,7 @@ export async function GET(
       assigned_user:user_profiles!leads_assigned_to_fkey(*)
     `)
     .eq('id', id)
+    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
     .single()
 
   if (error || !lead) {
@@ -86,11 +97,22 @@ export async function PATCH(
     )
   }
 
-  // Get current lead state for activity logging
+  // Auth + org scoping
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Get current lead state for activity logging — scoped to org
   const { data: currentLead } = await supabase
     .from('leads')
     .select('status, stage_id, ai_score, assigned_to, organization_id')
     .eq('id', id)
+    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
     .single()
 
   if (!currentLead) {
@@ -219,14 +241,29 @@ export async function DELETE(
   const { id } = await params
   const supabase = await createClient()
 
-  // Get org before deletion for audit
+  // Auth + org scoping
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Get org before deletion for audit — scoped to org
   const { data: deleteLead } = await supabase
     .from('leads')
     .select('organization_id')
     .eq('id', id)
+    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
     .single()
 
-  const { error } = await supabase.from('leads').delete().eq('id', id)
+  if (!deleteLead) {
+    return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+  }
+
+  const { error } = await supabase.from('leads').delete().eq('id', id).eq('organization_id', profile.organization_id)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

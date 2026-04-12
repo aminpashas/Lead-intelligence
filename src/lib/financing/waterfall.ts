@@ -177,7 +177,7 @@ export async function executeWaterfall(
             response.approved_amount || application.requested_amount || 0,
             response.terms?.monthly_payment || 0,
             adapter.displayName
-          ).catch(() => { /* Non-blocking */ })
+          ).catch((err: unknown) => console.warn('[waterfall] Follow-up approved failed:', err instanceof Error ? err.message : err))
 
           return result
         }
@@ -190,7 +190,7 @@ export async function executeWaterfall(
           followUpPending(
             { supabase, leadId: application.lead_id, organizationId },
             adapter.displayName
-          ).catch(() => { /* Non-blocking */ })
+          ).catch((err: unknown) => console.warn('[waterfall] Follow-up pending failed:', err instanceof Error ? err.message : err))
 
           return {
             application_id: applicationId,
@@ -282,7 +282,7 @@ export async function executeWaterfall(
   // Auto follow-up: offer alternative options to patient
   followUpDenied(
     { supabase, leadId: application.lead_id, organizationId }
-  ).catch(() => { /* Non-blocking */ })
+  ).catch((err: unknown) => console.warn('[waterfall] Follow-up denied failed:', err instanceof Error ? err.message : err))
 
   return {
     application_id: applicationId,
@@ -385,7 +385,7 @@ async function logFinancingActivity(
         description: getActivityDescription(activityType, metadata),
         metadata,
       })
-  } catch { /* Non-blocking */ }
+  } catch (err) { console.warn('[waterfall] Activity logging failed:', err instanceof Error ? err.message : (err as string)) }
 }
 
 function getActivityTitle(type: string, meta: Record<string, unknown>): string {

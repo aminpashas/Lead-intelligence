@@ -86,7 +86,7 @@ export function NewLeadDialog() {
       toast.success(`Lead created: ${lead.first_name} ${lead.last_name || ''}`)
 
       // Auto-score the new lead
-      fetch(`/api/leads/${lead.id}/score`, { method: 'POST' }).catch(() => {})
+      fetch(`/api/leads/${lead.id}/score`, { method: 'POST' }).catch((err: unknown) => console.warn('[new-lead] Auto-score failed:', err))
 
       setOpen(false)
       setForm({

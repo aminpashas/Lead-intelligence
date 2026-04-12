@@ -77,6 +77,9 @@ export const webhookLeadSchema = z.object({
   dental_condition: z.string().optional(),
   notes: z.string().optional(),
   custom_fields: z.record(z.string(), z.unknown()).optional(),
+  // Explicit consent fields — TCPA requires prior express written consent for marketing SMS
+  sms_consent: z.boolean().optional().default(false),
+  email_consent: z.boolean().optional().default(false),
 })
 
 export type CreateLeadInput = z.infer<typeof createLeadSchema>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { scoreLead } from '@/lib/ai/scoring'
 import { z } from 'zod'
+import { safeParseBody } from '@/lib/body-size'
 
 const bulkActionSchema = z.object({
   lead_ids: z.array(z.string().uuid()).min(1).max(100),
@@ -16,7 +17,8 @@ const bulkActionSchema = z.object({
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
-  const body = await request.json()
+  const { data: body, error: bodyError } = await safeParseBody(request)
+  if (bodyError) return bodyError
   const parsed = bulkActionSchema.safeParse(body)
 
   if (!parsed.success) {
@@ -39,7 +41,7 @@ export async function POST(request: NextRequest) {
     case 'score': {
       for (const id of lead_ids) {
         try {
-          const { data: lead } = await supabase.from('leads').select('*').eq('id', id).single()
+          const { data: lead } = await supabase.from('leads').select('*').eq('id', id).eq('organization_id', profile.organization_id).single()
           if (!lead) { results.push({ lead_id: id, success: false, error: 'Not found' }); continue }
 
           const score = await scoreLead(lead)
@@ -64,6 +66,7 @@ export async function POST(request: NextRequest) {
         .from('leads')
         .update({ assigned_to: parsed.data.assigned_to })
         .in('id', lead_ids)
+        .eq('organization_id', profile.organization_id)
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -77,6 +80,7 @@ export async function POST(request: NextRequest) {
         .from('leads')
         .update({ status: parsed.data.status })
         .in('id', lead_ids)
+        .eq('organization_id', profile.organization_id)
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -90,6 +94,7 @@ export async function POST(request: NextRequest) {
         .from('leads')
         .update({ stage_id: parsed.data.stage_id })
         .in('id', lead_ids)
+        .eq('organization_id', profile.organization_id)
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -127,6 +132,7 @@ export async function POST(request: NextRequest) {
           disqualified_reason: parsed.data.disqualified_reason || 'Bulk disqualified',
         })
         .in('id', lead_ids)
+        .eq('organization_id', profile.organization_id)
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -136,7 +142,7 @@ export async function POST(request: NextRequest) {
     }
 
     case 'delete': {
-      const { error } = await supabase.from('leads').delete().in('id', lead_ids)
+      const { error } = await supabase.from('leads').delete().in('id', lead_ids).eq('organization_id', profile.organization_id)
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 })
       }

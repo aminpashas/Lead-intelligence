@@ -12,6 +12,7 @@ import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
 import { getPatientProfile } from '@/lib/ai/patient-psychology'
 import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
+import { logger } from '@/lib/logger'
 
 // POST /api/webhooks/twilio - Incoming SMS from Twilio
 export async function POST(request: NextRequest) {
@@ -59,14 +60,18 @@ export async function POST(request: NextRequest) {
     lead = data
   }
   // Fallback for pre-encryption leads (plaintext phone)
+  // Sanitize phone input to prevent PostgREST filter injection
   if (!lead) {
-    const { data } = await supabase
-      .from('leads')
-      .select('*, organization_id')
-      .or(`phone_formatted.eq.${from},phone.eq.${from}`)
-      .limit(1)
-      .single()
-    lead = data
+    const sanitizedFrom = from.replace(/[^+0-9]/g, '')
+    if (sanitizedFrom) {
+      const { data } = await supabase
+        .from('leads')
+        .select('*, organization_id')
+        .or(`phone_formatted.eq.${sanitizedFrom},phone.eq.${sanitizedFrom}`)
+        .limit(1)
+        .single()
+      lead = data
+    }
   }
 
   if (!lead) {
@@ -177,19 +182,14 @@ export async function POST(request: NextRequest) {
     description: body.substring(0, 200),
   })
 
-  // Update lead engagement stats
-  await supabase.from('leads').update({
-    last_responded_at: new Date().toISOString(),
-    total_sms_received: (lead.total_sms_received || 0) + 1,
-  }).eq('id', lead.id)
+  // Update lead engagement stats (atomic increment to prevent race conditions)
+  await supabase.rpc('increment_lead_sms_received', { p_lead_id: lead.id })
 
-  // Update conversation stats
-  await supabase.from('conversations').update({
-    last_message_at: new Date().toISOString(),
-    last_message_preview: body.substring(0, 100),
-    unread_count: (conversation.unread_count || 0) + 1,
-    message_count: (conversation.message_count || 0) + 1,
-  }).eq('id', conversation.id)
+  // Update conversation stats (atomic increment)
+  await supabase.rpc('increment_conversation_counters', {
+    p_conversation_id: conversation.id,
+    p_last_message_preview: body.substring(0, 100),
+  })
 
   // Exit campaigns with if_replied exit condition
   await exitCampaignsOnReply(supabase, lead.id, lead.organization_id)
@@ -297,8 +297,12 @@ export async function POST(request: NextRequest) {
           ai_model: 'claude-sonnet-4-20250514',
           metadata: { agent: 'fallback' },
         })
-      } catch {
-        // Complete failure — don't crash the webhook
+      } catch (fallbackErr) {
+        // Complete failure — log so the team knows a patient message went unanswered
+        logger.error('AI auto-response completely failed — patient message went unanswered', {
+          leadId: lead.id,
+          conversationId: conversation.id,
+        }, fallbackErr instanceof Error ? fallbackErr : undefined)
       }
     }
   }
