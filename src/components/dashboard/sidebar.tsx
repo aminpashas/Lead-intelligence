@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Send,
   Mail,
+  ClipboardCheck,
   X,
   Building2,
 } from 'lucide-react'
@@ -36,6 +37,7 @@ const navigation = [
   { name: 'Smart Lists', href: '/smart-lists', icon: ListFilter },
   { name: 'Mass SMS', href: '/mass-sms', icon: Send },
   { name: 'Mass Email', href: '/mass-email', icon: Mail },
+  { name: 'Broadcast Audit', href: '/broadcast-audit', icon: ClipboardCheck },
   { name: 'Appointments', href: '/appointments', icon: Calendar },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'AI Control', href: '/ai-control', icon: ToggleLeft },

@@ -28,6 +28,8 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { previewPersonalize } from '@/lib/campaigns/personalization'
+import { VariablePicker } from './variable-picker'
 
 interface SmartList {
   id: string
@@ -43,11 +45,7 @@ interface MassSMSComposerProps {
   onClose?: () => void
 }
 
-const TEMPLATE_VARS = [
-  { var: '{{first_name}}', label: 'First Name' },
-  { var: '{{last_name}}', label: 'Last Name' },
-  { var: '{{full_name}}', label: 'Full Name' },
-]
+// Template vars are now in the shared VariablePicker component
 
 const TEMPLATES = [
   {
@@ -224,6 +222,9 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
             >
               Send Another
             </Button>
+            <Button variant="outline" onClick={() => window.location.href = '/broadcast-audit'}>
+              View Audit Log
+            </Button>
             {onClose && (
               <Button onClick={onClose}>Done</Button>
             )}
@@ -352,20 +353,10 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
                   maxLength={1600}
                 />
 
-                {/* Variable Buttons */}
-                <div className="flex flex-wrap gap-1.5">
-                  <span className="text-xs text-muted-foreground mt-1 mr-1">Insert:</span>
-                  {TEMPLATE_VARS.map((v) => (
-                    <Button
-                      key={v.var}
-                      variant="outline"
-                      size="sm"
-                      className="h-6 text-[10px] px-2"
-                      onClick={() => insertVariable(v.var)}
-                    >
-                      {v.label}
-                    </Button>
-                  ))}
+                {/* Variable Picker */}
+                <div className="flex items-center gap-2">
+                  <VariablePicker onInsert={insertVariable} label="Insert Variable" />
+                  <span className="text-[10px] text-muted-foreground">20+ personalization fields available</span>
                 </div>
               </div>
             </CardContent>
@@ -484,7 +475,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
             <div className="p-3 rounded-lg bg-muted/50 border">
               <p className="text-xs text-muted-foreground mb-1">Message preview:</p>
               <p className="text-sm whitespace-pre-wrap">
-                {message.replace(/\{\{first_name\}\}/gi, 'John').replace(/\{\{last_name\}\}/gi, 'Smith').replace(/\{\{full_name\}\}/gi, 'John Smith')}
+                {previewPersonalize(message)}
               </p>
             </div>
             <div className="flex items-center gap-2 p-2 rounded bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-400 text-xs">

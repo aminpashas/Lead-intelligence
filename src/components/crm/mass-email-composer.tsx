@@ -29,6 +29,8 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { previewPersonalize } from '@/lib/campaigns/personalization'
+import { VariablePicker } from './variable-picker'
 
 interface SmartList {
   id: string
@@ -42,11 +44,7 @@ interface MassEmailComposerProps {
   onClose?: () => void
 }
 
-const TEMPLATE_VARS = [
-  { var: '{{first_name}}', label: 'First Name' },
-  { var: '{{last_name}}', label: 'Last Name' },
-  { var: '{{full_name}}', label: 'Full Name' },
-]
+// Template vars are now in the shared VariablePicker component
 
 const EMAIL_TEMPLATES = [
   {
@@ -187,12 +185,7 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
     if (!broadcastName) setBroadcastName(template.name)
   }
 
-  function previewPersonalize(text: string) {
-    return text
-      .replace(/\{\{first_name\}\}/gi, 'John')
-      .replace(/\{\{last_name\}\}/gi, 'Smith')
-      .replace(/\{\{full_name\}\}/gi, 'John Smith')
-  }
+  // previewPersonalize is now imported from shared engine
 
   const selectedList = smartLists.find((l) => l.id === selectedListId)
   const canSend = selectedListId && subject.trim().length > 0 && body.trim().length > 0 && status === 'idle'
@@ -267,6 +260,9 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
             <Button variant="outline" onClick={() => {
               setStatus('idle'); setResults(null); setSubject(''); setBody(''); setBroadcastName('')
             }}>Send Another</Button>
+            <Button variant="outline" onClick={() => window.location.href = '/broadcast-audit'}>
+              View Audit Log
+            </Button>
             {onClose && <Button onClick={onClose}>Done</Button>}
           </div>
         </CardContent>
@@ -400,22 +396,13 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
                 />
               </div>
 
-              {/* Variable Buttons */}
-              <div className="flex flex-wrap gap-1.5">
-                <span className="text-xs text-muted-foreground mt-1 mr-1">
-                  Insert into {activeField === 'subject' ? 'subject' : 'body'}:
-                </span>
-                {TEMPLATE_VARS.map((v) => (
-                  <Button
-                    key={v.var}
-                    variant="outline"
-                    size="sm"
-                    className="h-6 text-[10px] px-2"
-                    onClick={() => insertVariable(v.var)}
-                  >
-                    {v.label}
-                  </Button>
-                ))}
+              {/* Variable Picker */}
+              <div className="flex items-center gap-2">
+                <VariablePicker
+                  onInsert={insertVariable}
+                  label={`Insert into ${activeField}`}
+                />
+                <span className="text-[10px] text-muted-foreground">20+ personalization fields</span>
               </div>
             </CardContent>
           </Card>

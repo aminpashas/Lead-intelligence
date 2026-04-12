@@ -275,7 +275,7 @@ export async function setterAgentRespond(
 
   const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: context.channel === 'sms' ? 512 : 1024,
+    max_tokens: context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 1024,
     system: systemPrompt,
     messages: safeHistory,
     tools: SETTER_TOOLS,
@@ -317,7 +317,7 @@ export async function setterAgentRespond(
 
     finalResponse = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: context.channel === 'sms' ? 512 : 1024,
+      max_tokens: context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 1024,
       system: systemPrompt,
       messages: toolMessages,
       tools: SETTER_TOOLS,

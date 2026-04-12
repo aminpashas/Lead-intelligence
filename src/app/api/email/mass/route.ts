@@ -7,6 +7,7 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
+import { personalize, PERSONALIZABLE_LEAD_SELECT, type PersonalizableLead } from '@/lib/campaigns/personalization'
 
 const massEmailSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
@@ -44,7 +45,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Resolve target leads
   let targetLeadIds: string[] = []
 
   if (smart_list_id) {
@@ -74,18 +74,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No matching leads found' }, { status: 400 })
   }
 
-  // Fetch leads with email addresses
-  const { data: leads } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: leadsRaw } = await supabase
     .from('leads')
-    .select('id, email, first_name, last_name, phone, email_opt_out')
+    .select(PERSONALIZABLE_LEAD_SELECT)
     .in('id', targetLeadIds.slice(0, 2000))
     .eq('organization_id', profile.organization_id)
 
-  if (!leads || leads.length === 0) {
+  const leads = (leadsRaw || []) as unknown as PersonalizableLead[]
+
+  if (leads.length === 0) {
     return NextResponse.json({ error: 'No leads found' }, { status: 400 })
   }
 
-  // Filter to leads with valid email & not opted out
   const sendable = leads.filter((l) => {
     const email = decryptField(l.email) || l.email
     return email && !l.email_opt_out
@@ -95,7 +96,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No sendable leads (all opted out or missing email)' }, { status: 400 })
   }
 
-  // Create a broadcast campaign record for tracking
   const { data: campaign } = await supabase
     .from('campaigns')
     .insert({
@@ -111,31 +111,37 @@ export async function POST(request: NextRequest) {
     .select('id')
     .single()
 
+  const deliveryLog: {
+    lead_id: string
+    lead_name: string
+    email: string
+    status: 'sent' | 'failed' | 'skipped'
+    error?: string
+    sent_at?: string
+    subject?: string
+  }[] = []
+
   const results = {
     total: sendable.length,
     sent: 0,
     failed: 0,
+    skipped: 0,
     errors: [] as { lead_id: string; error: string }[],
     campaign_id: campaign?.id || null,
-  }
-
-  function personalize(template: string, lead: typeof sendable[0]) {
-    return template
-      .replace(/\{\{first_name\}\}/gi, lead.first_name || '')
-      .replace(/\{\{last_name\}\}/gi, lead.last_name || '')
-      .replace(/\{\{full_name\}\}/gi, `${lead.first_name || ''} ${lead.last_name || ''}`.trim())
+    delivery_log: deliveryLog,
   }
 
   for (const lead of sendable) {
+    const email = decryptField(lead.email) || lead.email || ''
+    const leadName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'Unknown'
+
     try {
-      const email = decryptField(lead.email) || lead.email
       const subject = personalize(subject_template, lead)
       const bodyText = personalize(body_template, lead)
       const htmlBody = html_body_template
         ? personalize(html_body_template, lead)
         : `<p>${bodyText.replace(/\n/g, '<br>')}</p>`
 
-      // Find or create email conversation
       let conversationId: string
 
       const { data: existingConvo } = await supabase
@@ -167,10 +173,10 @@ export async function POST(request: NextRequest) {
       if (!conversationId) {
         results.failed++
         results.errors.push({ lead_id: lead.id, error: 'Failed to create conversation' })
+        deliveryLog.push({ lead_id: lead.id, lead_name: leadName, email, status: 'failed', error: 'Failed to create conversation' })
         continue
       }
 
-      // Send via Resend
       const resendResult = await withRetry(
         () => sendEmail({
           to: email,
@@ -182,7 +188,6 @@ export async function POST(request: NextRequest) {
         RETRY_CONFIGS.resend
       )
 
-      // Store message
       await supabase.from('messages').insert({
         organization_id: profile.organization_id,
         conversation_id: conversationId,
@@ -204,22 +209,35 @@ export async function POST(request: NextRequest) {
       })
 
       results.sent++
+      deliveryLog.push({
+        lead_id: lead.id,
+        lead_name: leadName,
+        email,
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        subject,
+      })
     } catch (err) {
       results.failed++
-      results.errors.push({
-        lead_id: lead.id,
-        error: err instanceof Error ? err.message : 'Unknown error',
-      })
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      results.errors.push({ lead_id: lead.id, error: errorMsg })
+      deliveryLog.push({ lead_id: lead.id, lead_name: leadName, email, status: 'failed', error: errorMsg })
     }
   }
 
-  // Update campaign
   if (campaign) {
     await supabase
       .from('campaigns')
       .update({
         total_completed: results.sent,
         status: 'completed',
+        metadata: {
+          delivery_log: deliveryLog,
+          subject_template,
+          body_template,
+          broadcast_name,
+          smart_list_id,
+        },
       })
       .eq('id', campaign.id)
   }

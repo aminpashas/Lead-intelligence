@@ -566,7 +566,7 @@ export async function processCallEnd(
       resource_type: 'voice_call_recording',
       resource_id: callId,
       description: 'Voice call recording stored (contains PHI)',
-      phi_categories: ['voice_recording'],
+      phi_categories: ['phone'],
       metadata: { duration_seconds: duration },
     })
   }
@@ -589,29 +589,7 @@ async function updateCampaignStats(
   outcome: VoiceCallOutcome | null,
   durationSeconds: number
 ): Promise<void> {
-  // Increment the appropriate counters
-  const updates: Record<string, unknown> = {}
-
-  switch (outcome) {
-    case 'appointment_booked':
-      updates.total_appointments = supabase.rpc ? undefined : undefined // Use RPC below
-      updates.total_connected = undefined
-      break
-    case 'voicemail_left':
-      updates.total_voicemails = undefined
-      break
-    case 'no_answer':
-      updates.total_no_answer = undefined
-      break
-    case 'do_not_call':
-      updates.total_do_not_call = undefined
-      break
-    default:
-      if (durationSeconds > 0) updates.total_connected = undefined
-      break
-  }
-
-  // Simple approach: fetch current stats and increment
+  // Fetch current stats and increment
   const { data: campaign } = await supabase
     .from('voice_campaigns')
     .select('total_called, total_connected, total_appointments, total_voicemails, total_no_answer, total_do_not_call, avg_call_duration_seconds')

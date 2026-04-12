@@ -7,13 +7,12 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
+import { personalize, PERSONALIZABLE_LEAD_SELECT, type PersonalizableLead } from '@/lib/campaigns/personalization'
 
 const massSMSSchema = z.object({
-  // Provide either smart_list_id or lead_ids
   smart_list_id: z.string().uuid().optional(),
   lead_ids: z.array(z.string().uuid()).optional(),
   message_template: z.string().min(1).max(1600),
-  // Optional: name for tracking this broadcast
   broadcast_name: z.string().optional(),
 })
 
@@ -35,7 +34,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Provide either smart_list_id or lead_ids' }, { status: 400 })
   }
 
-  // Auth
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('id, organization_id, full_name')
@@ -49,7 +47,6 @@ export async function POST(request: NextRequest) {
   let targetLeadIds: string[] = []
 
   if (smart_list_id) {
-    // Fetch smart list and resolve leads
     const { data: smartList } = await supabase
       .from('smart_lists')
       .select('criteria')
@@ -76,15 +73,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No matching leads found' }, { status: 400 })
   }
 
-  // Fetch leads with phone numbers
-  const { data: leads } = await supabase
+  // Fetch leads with full personalizable data
+  const { data: leadsRaw } = await supabase
     .from('leads')
-    .select('id, phone_formatted, phone, first_name, last_name, email, sms_opt_out')
+    .select(PERSONALIZABLE_LEAD_SELECT)
     .in('id', targetLeadIds.slice(0, 2000))
     .eq('organization_id', profile.organization_id)
 
-  if (!leads || leads.length === 0) {
-    return NextResponse.json({ error: 'No leads with phone numbers found' }, { status: 400 })
+  const leads = (leadsRaw || []) as unknown as PersonalizableLead[]
+
+  if (leads.length === 0) {
+    return NextResponse.json({ error: 'No leads found' }, { status: 400 })
   }
 
   // Filter to leads with valid phone & not opted out
@@ -97,7 +96,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No sendable leads (all opted out or missing phone)' }, { status: 400 })
   }
 
-  // Create a broadcast campaign record for tracking
+  // Create broadcast campaign for tracking
   const { data: campaign } = await supabase
     .from('campaigns')
     .insert({
@@ -113,24 +112,34 @@ export async function POST(request: NextRequest) {
     .select('id')
     .single()
 
-  // Send SMS to each lead
+  // Per-lead results for audit trail
+  const deliveryLog: {
+    lead_id: string
+    lead_name: string
+    phone: string
+    status: 'sent' | 'failed' | 'skipped'
+    error?: string
+    sent_at?: string
+    message_preview?: string
+  }[] = []
+
   const results = {
     total: sendable.length,
     sent: 0,
     failed: 0,
+    skipped: 0,
     errors: [] as { lead_id: string; error: string }[],
     campaign_id: campaign?.id || null,
+    delivery_log: deliveryLog,
   }
 
   for (const lead of sendable) {
-    try {
-      const phone = decryptField(lead.phone_formatted) || lead.phone_formatted
+    const phone = decryptField(lead.phone_formatted) || lead.phone_formatted || ''
+    const leadName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'Unknown'
 
-      // Personalize message
-      const personalizedMessage = message_template
-        .replace(/\{\{first_name\}\}/gi, lead.first_name || '')
-        .replace(/\{\{last_name\}\}/gi, lead.last_name || '')
-        .replace(/\{\{full_name\}\}/gi, `${lead.first_name || ''} ${lead.last_name || ''}`.trim())
+    try {
+      // Personalize message using the full engine
+      const personalizedMessage = personalize(message_template, lead)
 
       // Find or create conversation
       let conversationId: string
@@ -159,13 +168,13 @@ export async function POST(request: NextRequest) {
           })
           .select('id')
           .single()
-
         conversationId = newConvo?.id || ''
       }
 
       if (!conversationId) {
         results.failed++
         results.errors.push({ lead_id: lead.id, error: 'Failed to create conversation' })
+        deliveryLog.push({ lead_id: lead.id, lead_name: leadName, phone, status: 'failed', error: 'Failed to create conversation' })
         continue
       }
 
@@ -193,12 +202,19 @@ export async function POST(request: NextRequest) {
       })
 
       results.sent++
+      deliveryLog.push({
+        lead_id: lead.id,
+        lead_name: leadName,
+        phone,
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        message_preview: personalizedMessage.substring(0, 80),
+      })
     } catch (err) {
       results.failed++
-      results.errors.push({
-        lead_id: lead.id,
-        error: err instanceof Error ? err.message : 'Unknown error',
-      })
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      results.errors.push({ lead_id: lead.id, error: errorMsg })
+      deliveryLog.push({ lead_id: lead.id, lead_name: leadName, phone, status: 'failed', error: errorMsg })
     }
   }
 
@@ -209,6 +225,12 @@ export async function POST(request: NextRequest) {
       .update({
         total_completed: results.sent,
         status: 'completed',
+        metadata: {
+          delivery_log: deliveryLog,
+          message_template,
+          broadcast_name,
+          smart_list_id,
+        },
       })
       .eq('id', campaign.id)
   }
