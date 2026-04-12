@@ -17,7 +17,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   ArrowLeft, Users, Megaphone, Brain, Pencil, ChevronLeft,
-  ChevronRight, Loader2, RefreshCw, Tags as TagsIcon, MessageSquare,
+  ChevronRight, Loader2, RefreshCw, Tags as TagsIcon, MessageSquare, Mail,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TagBadgeList } from './tag-badge'
@@ -123,7 +123,16 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
             onClick={() => router.push(`/mass-sms?smart_list_id=${smartList.id}`)}
           >
             <MessageSquare className="h-4 w-4" />
-            Send Mass SMS
+            Mass SMS
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => router.push(`/mass-email?smart_list_id=${smartList.id}`)}
+          >
+            <Mail className="h-4 w-4" />
+            Mass Email
           </Button>
           <Button
             size="sm"

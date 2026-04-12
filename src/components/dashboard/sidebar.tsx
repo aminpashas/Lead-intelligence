@@ -17,6 +17,7 @@ import {
   ListFilter,
   RefreshCw,
   Send,
+  Mail,
   X,
   Building2,
 } from 'lucide-react'
@@ -34,6 +35,7 @@ const navigation = [
   { name: 'Reactivation', href: '/reactivation', icon: RefreshCw },
   { name: 'Smart Lists', href: '/smart-lists', icon: ListFilter },
   { name: 'Mass SMS', href: '/mass-sms', icon: Send },
+  { name: 'Mass Email', href: '/mass-email', icon: Mail },
   { name: 'Appointments', href: '/appointments', icon: Calendar },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'AI Control', href: '/ai-control', icon: ToggleLeft },
