@@ -11,7 +11,7 @@ import { logger } from '@/lib/logger'
 export async function POST(request: NextRequest) {
   // Verify cron secret (Vercel sends this)
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.WEBHOOK_SECRET}`) {
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

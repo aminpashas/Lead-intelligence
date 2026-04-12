@@ -35,9 +35,19 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const status = searchParams.get('status')
 
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   let query = supabase
     .from('campaigns')
     .select('*, steps:campaign_steps(count)')
+    .eq('organization_id', profile.organization_id)
     .order('created_at', { ascending: false })
 
   if (status) {

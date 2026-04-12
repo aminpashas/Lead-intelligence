@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger'
 // POST /api/cron/triggers — Check for trigger events (every 5 minutes)
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.WEBHOOK_SECRET}`) {
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

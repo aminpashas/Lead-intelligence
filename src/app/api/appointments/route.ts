@@ -17,9 +17,19 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { searchParams } = new URL(request.url)
 
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   let query = supabase
     .from('appointments')
     .select('*, lead:leads(id, first_name, last_name, phone, email)')
+    .eq('organization_id', profile.organization_id)
     .order('scheduled_at', { ascending: true })
 
   const status = searchParams.get('status')
@@ -57,6 +67,18 @@ export async function POST(request: NextRequest) {
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Defend against BOLA - assert lead belongs to this organization
+  const { data: verifiedLead, error: leadError } = await supabase
+    .from('leads')
+    .select('id')
+    .eq('id', parsed.data.lead_id)
+    .eq('organization_id', profile.organization_id)
+    .single()
+
+  if (leadError || !verifiedLead) {
+    return NextResponse.json({ error: 'Lead not found or unauthorized' }, { status: 404 })
   }
 
   const { data: appointment, error } = await supabase

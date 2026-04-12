@@ -9,7 +9,7 @@ const MAX_LEADS_PER_ORG = 10
 // Called every 15 minutes by Vercel Cron or external scheduler
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.WEBHOOK_SECRET}`) {
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

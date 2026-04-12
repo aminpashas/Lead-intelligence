@@ -16,10 +16,20 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createClient()
 
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { data: lead, error } = await supabase
     .from('leads')
     .select('*')
     .eq('id', leadId)
+    .eq('organization_id', profile.organization_id)
     .single()
 
   if (error || !lead) {

@@ -55,10 +55,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
 
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('organization_id')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile) {
+        return NextResponse.json({ error: 'User profile not found' }, { status: 403 })
+      }
+
       const { data } = await supabase
         .from('financing_applications')
         .select('*')
         .eq('id', applicationId)
+        .eq('organization_id', profile.organization_id)
         .single()
 
       if (!data) {

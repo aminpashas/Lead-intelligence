@@ -19,6 +19,7 @@ import {
   Crosshair,
   ToggleLeft,
   ListFilter,
+  RefreshCw,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,7 @@ const navigation = [
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Conversations', href: '/conversations', icon: MessageSquare },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
+  { name: 'Reactivation', href: '/reactivation', icon: RefreshCw },
   { name: 'Smart Lists', href: '/smart-lists', icon: ListFilter },
   { name: 'Appointments', href: '/appointments', icon: Calendar },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
