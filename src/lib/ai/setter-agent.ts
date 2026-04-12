@@ -24,6 +24,7 @@ import {
 } from './agent-types'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { formatAssessmentForPrompt } from './technique-tracker'
+import { SETTER_TOOLS, executeAgentTool } from '@/lib/autopilot/agent-tools'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -269,9 +270,54 @@ export async function setterAgentRespond(
     max_tokens: context.channel === 'sms' ? 512 : 1024,
     system: systemPrompt,
     messages: safeHistory,
+    tools: SETTER_TOOLS,
   })
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  // Handle tool use — if Claude wants to call a tool, execute it and continue
+  let finalResponse = response
+  const toolMessages = [...safeHistory]
+
+  if (response.stop_reason === 'tool_use') {
+    // Build assistant message with all content blocks
+    toolMessages.push({ role: 'assistant' as const, content: response.content as unknown as string })
+
+    // Execute each tool call
+    const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = []
+    for (const block of response.content) {
+      if (block.type === 'tool_use') {
+        const result = await executeAgentTool(
+          supabase,
+          block.name,
+          block.input as Record<string, unknown>,
+          {
+            organization_id: context.organization_id,
+            lead_id: context.lead.id!,
+            lead: context.lead as Record<string, unknown>,
+            conversation_id: context.conversation_id,
+          }
+        )
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: result.message,
+        })
+      }
+    }
+
+    // Send tool results back to Claude for final response
+    toolMessages.push({ role: 'user' as const, content: toolResults as unknown as string })
+
+    finalResponse = await getAnthropic().messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: context.channel === 'sms' ? 512 : 1024,
+      system: systemPrompt,
+      messages: toolMessages,
+      tools: SETTER_TOOLS,
+    })
+  }
+
+  const text = finalResponse.content.find(b => b.type === 'text')
+  const responseText = text && text.type === 'text' ? text.text : ''
 
   // Parse JSON response
   let parsed: {
@@ -293,10 +339,10 @@ export async function setterAgentRespond(
   }
 
   try {
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { message: text, action_taken: 'responded', should_handoff: false, handoff_reason: null, internal_notes: null }
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+    parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { message: responseText, action_taken: 'responded', should_handoff: false, handoff_reason: null, internal_notes: null }
   } catch {
-    parsed = { message: text, action_taken: 'responded', should_handoff: false, handoff_reason: null, internal_notes: null }
+    parsed = { message: responseText, action_taken: 'responded', should_handoff: false, handoff_reason: null, internal_notes: null }
   }
 
   // HIPAA compliance check on the output message
@@ -327,8 +373,8 @@ export async function setterAgentRespond(
     lead_id: context.lead.id,
     interaction_type: 'setter_agent_response',
     model: 'claude-sonnet-4-20250514',
-    prompt_tokens: response.usage?.input_tokens || 0,
-    completion_tokens: response.usage?.output_tokens || 0,
+    prompt_tokens: finalResponse.usage?.input_tokens || 0,
+    completion_tokens: finalResponse.usage?.output_tokens || 0,
     success: true,
     metadata: {
       agent: 'setter',

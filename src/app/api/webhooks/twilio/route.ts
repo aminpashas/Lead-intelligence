@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { generateLeadEngagement } from '@/lib/ai/scoring'
 import { sendSMS, validateTwilioWebhook } from '@/lib/messaging/twilio'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
-import { detectPromptInjection, wrapUserContent } from '@/lib/ai/prompt-guard'
-import { logHIPAAEvent } from '@/lib/ai/hipaa'
 import { exitCampaignsOnReply } from '@/lib/campaigns/enrollments'
 import { searchHash } from '@/lib/encryption'
-import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
-import { getPatientProfile } from '@/lib/ai/patient-psychology'
-import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
-import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
 import { logger } from '@/lib/logger'
 
 // POST /api/webhooks/twilio - Incoming SMS from Twilio
@@ -194,117 +187,28 @@ export async function POST(request: NextRequest) {
   // Exit campaigns with if_replied exit condition
   await exitCampaignsOnReply(supabase, lead.id, lead.organization_id)
 
-  // Auto-respond with AI agent system if enabled
-  if (conversation.ai_enabled && conversation.ai_mode === 'auto') {
-    // Get conversation history
-    const { data: messages } = await supabase
-      .from('messages')
-      .select('direction, body, sender_type')
-      .eq('conversation_id', conversation.id)
-      .order('created_at', { ascending: true })
-      .limit(20)
+  // Auto-respond with AI autopilot system
+  if (conversation.ai_enabled) {
+    const { processAutoResponse } = await import('@/lib/autopilot/auto-respond')
 
-    const history: ConversationMessage[] = (messages || []).map((m: { direction: string; body: string; sender_type: string }) => ({
-      role: (m.direction === 'inbound' ? 'user' : 'assistant') as 'user' | 'assistant',
-      content: m.body,
-    }))
+    const result = await processAutoResponse(supabase, {
+      organization_id: lead.organization_id,
+      conversation_id: conversation.id,
+      lead_id: lead.id,
+      lead,
+      conversation,
+      inbound_message: body,
+      channel: 'sms',
+      sender_contact: from,
+    })
 
-    // Detect prompt injection in the incoming SMS before sending to AI
-    const injectionCheck = detectPromptInjection(body)
-    if (!injectionCheck.isClean) {
-      await logHIPAAEvent(supabase, {
-        organization_id: lead.organization_id,
-        event_type: 'prompt_injection_detected',
-        severity: injectionCheck.detections.some(d => d.severity === 'high') ? 'warning' : 'info',
-        actor_type: 'webhook',
-        resource_type: 'lead',
-        resource_id: lead.id,
-        description: `Prompt injection attempt detected in SMS: ${injectionCheck.detections.map(d => d.pattern).join(', ')}`,
-        metadata: { detections: injectionCheck.detections },
-      })
-    }
-
-    // Add the new message with sanitized content wrapped in user content tags
-    const safeContent = injectionCheck.isClean ? body : injectionCheck.sanitizedText
-    history.push({ role: 'user', content: wrapUserContent(safeContent) })
-
-    try {
-      // Fetch patient profile and handoff history for agent context
-      const patientProfileRaw = await getPatientProfile(supabase, lead.id)
-      const patientProfile = patientProfileRaw as PatientProfile | null
-      const handoffHistory = await getHandoffHistory(supabase, conversation.id)
-
-      // Build agent context
-      const agentContext: AgentContext = {
-        lead,
-        conversation_id: conversation.id,
-        organization_id: lead.organization_id,
-        channel: (conversation.channel || 'sms') as ConversationChannel,
-        lead_status: lead.status as LeadStatus,
-        patient_profile: patientProfile,
-        conversation_history: history,
-        handoff_history: handoffHistory,
-        message_count: conversation.message_count || messages?.length || 0,
-      }
-
-      // Route to the appropriate agent (Setter or Closer)
-      const agentResponse = await routeToAgent(supabase, agentContext)
-
-      // Send AI response via Twilio
-      const smsResult = await sendSMS(from, agentResponse.message)
-
-      // Store outbound message with agent metadata
-      await supabase.from('messages').insert({
-        organization_id: lead.organization_id,
-        conversation_id: conversation.id,
-        lead_id: lead.id,
-        direction: 'outbound',
-        channel: 'sms',
-        body: agentResponse.message,
-        sender_type: 'ai',
-        status: 'sent',
-        external_id: smsResult.sid,
-        ai_generated: true,
-        ai_confidence: agentResponse.confidence,
-        ai_model: 'claude-sonnet-4-20250514',
-        metadata: {
-          agent: agentResponse.agent,
-          action_taken: agentResponse.action_taken,
-        },
-      })
-    } catch {
-      // Fallback to legacy engagement generator if agent system fails
-      try {
-        const fallbackResponse = await generateLeadEngagement(lead, history, {
-          mode: 'education',
-          channel: 'sms',
-        }, supabase)
-
-        const smsResult = await sendSMS(from, fallbackResponse.message)
-
-        await supabase.from('messages').insert({
-          organization_id: lead.organization_id,
-          conversation_id: conversation.id,
-          lead_id: lead.id,
-          direction: 'outbound',
-          channel: 'sms',
-          body: fallbackResponse.message,
-          sender_type: 'ai',
-          status: 'sent',
-          external_id: smsResult.sid,
-          ai_generated: true,
-          ai_confidence: fallbackResponse.confidence,
-          ai_model: 'claude-sonnet-4-20250514',
-          metadata: { agent: 'fallback' },
-        })
-      } catch (fallbackErr) {
-        // Complete failure — log so the team knows a patient message went unanswered
-        logger.error('AI auto-response completely failed — patient message went unanswered', {
-          leadId: lead.id,
-          conversationId: conversation.id,
-        }, fallbackErr instanceof Error ? fallbackErr : undefined)
-      }
-    }
+    logger.info('Autopilot auto-response result', {
+      leadId: lead.id,
+      conversationId: conversation.id,
+      action: result.action,
+      reason: result.reason,
+      confidence: result.confidence,
+    })
   }
 
   // Return empty TwiML (we're handling response via API, not TwiML)

@@ -188,6 +188,14 @@ export async function POST(request: NextRequest) {
     // Scoring failure shouldn't block lead creation
   }
 
+  // Speed-to-lead: AI auto-outreach to new leads (non-blocking)
+  try {
+    const { triggerSpeedToLead } = await import('@/lib/autopilot/speed-to-lead')
+    await triggerSpeedToLead(supabase, lead.id, orgResult.orgId)
+  } catch {
+    // Speed-to-lead failure shouldn't block lead creation
+  }
+
   return NextResponse.json({
     success: true,
     lead_id: lead.id,
