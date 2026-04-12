@@ -129,7 +129,7 @@ export async function processAutoResponse(
       organization_id,
       conversation_id,
       lead_id,
-      reason: decision.reason === 'low_confidence' ? 'low_confidence' : 'low_confidence',
+      reason: mapDecisionReasonToEscalation(decision.reason),
       ai_notes: agentResponse.internal_notes || `Auto-response blocked: ${decision.reason}`,
       ai_draft_response: agentResponse.message,
       ai_confidence: agentResponse.confidence,
@@ -203,6 +203,21 @@ async function buildConversationHistory(
 
   // Add the new inbound message with prompt injection protection
   const injectionCheck = detectPromptInjection(newMessage)
+
+  // Log prompt injection attempts (MED-4 fix)
+  if (!injectionCheck.isClean && supabase) {
+    logHIPAAEvent(supabase, {
+      organization_id: 'system',
+      event_type: 'prompt_injection_detected',
+      severity: injectionCheck.detections.some((d: { severity: string }) => d.severity === 'high') ? 'warning' : 'info',
+      actor_type: 'webhook',
+      resource_type: 'conversation',
+      resource_id: conversationId,
+      description: `Prompt injection detected in autopilot: ${injectionCheck.detections.map((d: { pattern: string }) => d.pattern).join(', ')}`,
+      metadata: { detections: injectionCheck.detections },
+    }).catch(() => { /* Non-critical */ })
+  }
+
   const safeContent = injectionCheck.isClean ? newMessage : injectionCheck.sanitizedText
   history.push({ role: 'user', content: wrapUserContent(safeContent) })
 
@@ -258,8 +273,19 @@ async function sendAgentResponse(
     agentResponse: AgentResponse
   }
 ): Promise<void> {
-  const { organization_id, conversation_id, lead_id, channel, sender_contact, agentResponse } = params
+  const { organization_id, conversation_id, lead_id, lead, channel, sender_contact, agentResponse } = params
   let externalId: string | undefined
+
+  // CRIT-1: TCPA consent check before sending
+  if (channel === 'sms') {
+    if (!lead.sms_consent || lead.sms_opt_out) {
+      throw new Error('Cannot send SMS: lead has not given consent or has opted out')
+    }
+  } else {
+    if (!lead.email_consent || lead.email_opt_out) {
+      throw new Error('Cannot send email: lead has not given consent or has opted out')
+    }
+  }
 
   if (channel === 'sms') {
     const result = await sendSMS(sender_contact, agentResponse.message)
@@ -372,4 +398,21 @@ async function handleStopWord(
   })
 
   logger.info('Patient opted out via stop word', { lead_id, channel, stop_word: stopWord })
+}
+
+/**
+ * Map shouldAutoRespond decision reasons to valid escalation reason enums.
+ */
+function mapDecisionReasonToEscalation(reason: string): 'low_confidence' | 'compliance_flag' {
+  switch (reason) {
+    case 'low_confidence':
+      return 'low_confidence'
+    case 'outside_active_hours':
+    case 'review_first_message':
+    case 'review_closer_responses':
+    case 'no_active_agent':
+      return 'compliance_flag'
+    default:
+      return 'low_confidence'
+  }
 }

@@ -1,12 +1,17 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { applyRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
  * POST /api/autopilot/kill-switch — Instantly pause all AI auto-sends
  * This is the emergency stop button.
  */
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const rlError = applyRateLimit(request, RATE_LIMITS.api)
+  if (rlError) return rlError
+
   const supabase = await createClient()
 
   const { data: profile } = await supabase

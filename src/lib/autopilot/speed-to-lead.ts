@@ -42,6 +42,17 @@ export async function triggerSpeedToLead(
     return { action: 'skipped' }
   }
 
+  // HIGH-3: Check active hours (TCPA quiet hours compliance)
+  const currentHour = new Date().getHours()
+  if (currentHour < config.active_hours_start || currentHour >= config.active_hours_end) {
+    logger.info('Speed-to-lead: skipped outside active hours', {
+      leadId,
+      currentHour,
+      activeRange: `${config.active_hours_start}-${config.active_hours_end}`,
+    })
+    return { action: 'skipped' }
+  }
+
   // 2. Fetch the lead
   const { data: lead } = await supabase
     .from('leads')

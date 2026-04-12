@@ -14,6 +14,7 @@ import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type Exi
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendSMS } from '@/lib/messaging/twilio'
 import { decryptField } from '@/lib/encryption'
+import { auditPHIWrite } from '@/lib/hipaa-audit'
 import type Anthropic from '@anthropic-ai/sdk'
 
 // ═══════════════════════════════════════════════════════════
@@ -321,6 +322,14 @@ async function executeCreateBooking(
     },
   })
 
+  // HIPAA audit for PHI-touching booking action
+  auditPHIWrite(
+    { supabase, organizationId: context.organization_id, actorType: 'ai_agent' },
+    'appointment',
+    appointment!.id,
+    'AI agent created appointment booking during conversation',
+  )
+
   // Send confirmation SMS if patient has phone
   const phone = context.lead.phone_formatted
     ? (decryptField(context.lead.phone_formatted as string) || context.lead.phone_formatted)
@@ -430,6 +439,14 @@ async function executeSendFinancingLink(
       title: 'AI sent financing application link via SMS',
       metadata: { treatment_value: treatmentValue, source: 'ai_agent' },
     })
+
+    // HIPAA audit for PHI-touching financing action
+    auditPHIWrite(
+      { supabase, organizationId: context.organization_id, actorType: 'ai_agent' },
+      'financing',
+      context.lead_id,
+      'AI agent sent financing application link via SMS',
+    )
 
     return {
       success: true,

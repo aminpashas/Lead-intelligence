@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { escapeHtml } from '@/lib/utils'
 
 export type EscalationReason =
   | 'low_confidence'
@@ -132,19 +133,19 @@ async function notifyStaff(
         const email = decryptField(admin.email) || admin.email
         await sendEmail({
           to: email,
-          subject: `🚨 AI Escalation: ${leadName} needs attention`,
+          subject: `🚨 AI Escalation: ${escapeHtml(leadName)} needs attention`,
           html: `
             <div style="font-family: -apple-system, sans-serif; max-width: 600px; padding: 24px;">
               <h2 style="color: #dc2626;">AI Escalation Alert</h2>
               <p>The AI has flagged a conversation that needs human attention:</p>
               <div style="background: #fef2f2; padding: 16px; border-radius: 8px; margin: 16px 0;">
-                <p style="margin: 4px 0;"><strong>Patient:</strong> ${leadName}</p>
-                <p style="margin: 4px 0;"><strong>Reason:</strong> ${reasonText}</p>
-                ${input.ai_notes ? `<p style="margin: 4px 0;"><strong>AI Notes:</strong> ${input.ai_notes}</p>` : ''}
+                <p style="margin: 4px 0;"><strong>Patient:</strong> ${escapeHtml(leadName)}</p>
+                <p style="margin: 4px 0;"><strong>Reason:</strong> ${escapeHtml(reasonText)}</p>
+                ${input.ai_notes ? `<p style="margin: 4px 0;"><strong>AI Notes:</strong> ${escapeHtml(input.ai_notes)}</p>` : ''}
                 ${input.ai_confidence !== undefined ? `<p style="margin: 4px 0;"><strong>AI Confidence:</strong> ${Math.round(input.ai_confidence * 100)}%</p>` : ''}
               </div>
-              ${input.ai_draft_response ? `<p><strong>AI's suggested response:</strong></p><blockquote style="border-left: 3px solid #ccc; padding-left: 12px; color: #444;">${input.ai_draft_response}</blockquote>` : ''}
-              <p><a href="${appUrl}/conversations/${input.conversation_id}" style="background: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Review Conversation</a></p>
+              ${input.ai_draft_response ? `<p><strong>AI's suggested response:</strong></p><blockquote style="border-left: 3px solid #ccc; padding-left: 12px; color: #444;">${escapeHtml(input.ai_draft_response)}</blockquote>` : ''}
+              <p><a href="${escapeHtml(appUrl)}/conversations/${escapeHtml(input.conversation_id)}" style="background: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Review Conversation</a></p>
             </div>
           `,
           text: `AI Escalation: ${leadName} needs attention. Reason: ${reasonText}. Review: ${appUrl}/conversations/${input.conversation_id}`,
