@@ -23,6 +23,7 @@ import { PatientSummaryCard } from './patient-summary-card'
 import { LeadAIOverrideToggle } from './ai-mode-toggle'
 import { TagBadge } from './tag-badge'
 import { TagSelector } from './tag-selector'
+import { PersonalityProfileCard } from './personality-profile-card'
 import {
   ArrowLeft,
   Brain,
@@ -402,6 +403,12 @@ export function LeadDetail({
 
           {/* Patient AI Summary */}
           <PatientSummaryCard leadId={lead.id} lead={lead} />
+
+          {/* Personality Profile */}
+          <PersonalityProfileCard
+            leadId={lead.id}
+            initialProfile={lead.personality_profile as any}
+          />
 
           {/* AI Autopilot Control */}
           <Card>

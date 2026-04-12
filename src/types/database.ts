@@ -211,6 +211,9 @@ export type Lead = {
   // Financing
   financing_application_id: string | null
 
+  // Personality Profile (AI-analyzed)
+  personality_profile: Record<string, unknown> | null
+
   // AI Override
   ai_autopilot_override: LeadAIOverride
 

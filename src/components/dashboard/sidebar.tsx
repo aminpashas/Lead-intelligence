@@ -21,6 +21,7 @@ import {
   ClipboardCheck,
   X,
   Building2,
+  Phone,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -32,6 +33,7 @@ const navigation = [
   { name: 'Funnel Playbook', href: '/funnel', icon: Target },
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Conversations', href: '/conversations', icon: MessageSquare },
+  { name: 'Call Center', href: '/call-center', icon: Phone },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
   { name: 'Reactivation', href: '/reactivation', icon: RefreshCw },
   { name: 'Smart Lists', href: '/smart-lists', icon: ListFilter },
