@@ -58,6 +58,7 @@ export const updateLeadSchema = createLeadSchema.partial().extend({
   treatment_value: z.number().optional(),
   consultation_date: z.string().optional(),
   consultation_type: z.enum(['in_person', 'virtual', 'phone']).optional(),
+  ai_autopilot_override: z.enum(['default', 'force_on', 'force_off', 'assist_only']).optional(),
 })
 
 export const webhookLeadSchema = z.object({

@@ -4,6 +4,24 @@ import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 
+// Day schedule schema for per-day-of-week settings
+const dayScheduleSchema = z.object({
+  enabled: z.boolean(),
+  start: z.number().int().min(0).max(23),
+  end: z.number().int().min(1).max(24),
+  mode: z.enum(['full', 'review_first', 'review_closers']).optional(),
+}).refine((d) => d.start < d.end, { message: 'start must be before end' })
+
+const weekScheduleSchema = z.object({
+  sunday: dayScheduleSchema,
+  monday: dayScheduleSchema,
+  tuesday: dayScheduleSchema,
+  wednesday: dayScheduleSchema,
+  thursday: dayScheduleSchema,
+  friday: dayScheduleSchema,
+  saturday: dayScheduleSchema,
+})
+
 // Strict schema for autopilot settings — prevents injection of invalid values
 const autopilotSettingsSchema = z.object({
   autopilot_enabled: z.boolean().optional(),
@@ -17,6 +35,7 @@ const autopilotSettingsSchema = z.object({
   autopilot_active_hours_end: z.number().int().min(1).max(24).optional(),
   autopilot_stop_words: z.array(z.string().min(1).max(50)).max(20).optional(),
   autopilot_speed_to_lead: z.boolean().optional(),
+  autopilot_schedule: weekScheduleSchema.nullable().optional(),
 }).refine(
   (data) => {
     // Ensure delay_min <= delay_max when both provided
@@ -65,7 +84,8 @@ export async function GET(request: NextRequest) {
       autopilot_active_hours_start,
       autopilot_active_hours_end,
       autopilot_stop_words,
-      autopilot_speed_to_lead
+      autopilot_speed_to_lead,
+      autopilot_schedule
     `)
     .eq('id', profile.organization_id)
     .single()

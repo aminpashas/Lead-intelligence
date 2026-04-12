@@ -65,6 +65,7 @@ export type FinancingInterest = 'cash_pay' | 'financing_needed' | 'insurance_onl
 export type BudgetRange = 'under_10k' | '10k_15k' | '15k_20k' | '20k_25k' | '25k_30k' | 'over_30k' | 'unknown'
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'consultation_scheduled' | 'consultation_completed' | 'treatment_presented' | 'financing' | 'contract_sent' | 'contract_signed' | 'scheduled' | 'in_treatment' | 'completed' | 'lost' | 'disqualified' | 'no_show' | 'unresponsive'
 export type AIQualification = 'hot' | 'warm' | 'cold' | 'unqualified' | 'unscored'
+export type LeadAIOverride = 'default' | 'force_on' | 'force_off' | 'assist_only'
 
 export type Lead = {
   id: string
@@ -201,6 +202,9 @@ export type Lead = {
 
   // Financing
   financing_application_id: string | null
+
+  // AI Override
+  ai_autopilot_override: LeadAIOverride
 
   // Joined relations (optional)
   pipeline_stage?: PipelineStage
@@ -512,6 +516,76 @@ export type AITestConversation = {
   updated_at: string
 }
 
+// ── Role Play Training Arena ─────────────────────────────────
+
+export type RolePlayRole = 'patient' | 'treatment_coordinator'
+export type RolePlayAgentTarget = 'setter' | 'closer'
+export type RolePlaySessionStatus = 'active' | 'completed' | 'archived'
+
+export type AIRolePlayMessage = {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+  is_golden_example: boolean
+  rating: 'good' | 'bad' | null
+  coaching_note: string | null
+  acting_as: RolePlayRole  // what role the sender is playing
+}
+
+export type AIRolePlaySession = {
+  id: string
+  organization_id: string
+  created_by: string | null
+  title: string
+  user_role: RolePlayRole         // what role the user plays
+  agent_target: RolePlayAgentTarget // which agent is being trained
+  scenario_id: string | null
+  scenario_description: string | null
+  patient_persona: {
+    name: string
+    personality_type: string
+    dental_condition: string
+    emotional_state: string
+    objections: string[]
+    budget_concern: string
+    custom_notes: string
+  } | null
+  messages: AIRolePlayMessage[]
+  status: RolePlaySessionStatus
+  session_summary: string | null
+  extracted_example_count: number
+  overall_rating: number | null      // 1-5 stars
+  created_at: string
+  updated_at: string
+}
+
+export type AITrainingExample = {
+  id: string
+  organization_id: string
+  session_id: string
+  category: 'ideal_response' | 'objection_handling' | 'rapport_building' | 'closing_technique' | 'patient_education' | 'follow_up' | 'general'
+  scenario_context: string
+  patient_message: string
+  ideal_response: string
+  coaching_notes: string | null
+  agent_target: RolePlayAgentTarget
+  is_approved: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type RolePlayScenario = {
+  id: string
+  name: string
+  description: string
+  category: 'new_patient' | 'objection' | 'follow_up' | 'closing' | 're_engagement' | 'custom'
+  agent_target: RolePlayAgentTarget
+  patient_persona: AIRolePlaySession['patient_persona']
+  difficulty: 'easy' | 'medium' | 'hard'
+  is_built_in: boolean
+}
+
 // ── Financing (re-exported from lib/financing/types) ────────────
 
 // Note: Full financing types are in src/lib/financing/types.ts
@@ -554,6 +628,68 @@ export type AIConversationRating = {
   rating: number
   notes: string | null
   flagged: boolean
+  created_at: string
+  updated_at: string
+}
+
+// ── Tags & Smart Lists ──────────────────────────────────────
+
+export type TagCategory = 'pipeline_stage' | 'score' | 'interest' | 'behavior' | 'custom'
+
+export type Tag = {
+  id: string
+  organization_id: string
+  name: string
+  slug: string
+  color: string
+  category: TagCategory
+  description: string | null
+  lead_count: number
+  created_by: string | null
+  created_at: string
+}
+
+export type LeadTag = {
+  id: string
+  lead_id: string
+  tag_id: string
+  organization_id: string
+  tagged_by: string | null
+  tagged_at: string
+  tag?: Tag
+}
+
+export type SmartListCriteria = {
+  tags?: { ids: string[]; operator: 'and' | 'or' }
+  statuses?: string[]
+  ai_qualifications?: string[]
+  score_min?: number
+  score_max?: number
+  stages?: string[]
+  source_types?: string[]
+  engagement_min?: number
+  engagement_max?: number
+  states?: string[]
+  created_after?: string
+  created_before?: string
+  has_phone?: boolean
+  has_email?: boolean
+  sms_consent?: boolean
+  email_consent?: boolean
+}
+
+export type SmartList = {
+  id: string
+  organization_id: string
+  name: string
+  description: string | null
+  icon: string | null
+  color: string
+  criteria: SmartListCriteria
+  is_pinned: boolean
+  lead_count: number
+  last_refreshed_at: string | null
+  created_by: string | null
   created_at: string
   updated_at: string
 }

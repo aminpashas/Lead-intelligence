@@ -29,6 +29,7 @@ import {
 import { toast } from 'sonner'
 import type { Conversation, Message, Lead, AgentType } from '@/types/database'
 import { AgentIndicator, AgentMessageLabel } from './agent-indicator'
+import { AIModeToggle } from './ai-mode-toggle'
 
 export function ConversationThread({
   lead,
@@ -223,7 +224,15 @@ export function ConversationThread({
             />
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* AI Mode Toggle */}
+          <AIModeToggle
+            conversationId={conversation.id}
+            currentMode={conversation.ai_mode || 'off'}
+            size="sm"
+            showLabel={false}
+          />
+          <div className="h-6 w-px bg-border" />
           <Button
             variant="outline"
             size="sm"

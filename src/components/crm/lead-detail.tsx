@@ -20,6 +20,7 @@ import { LeadMessaging } from './lead-messaging'
 import { ScheduleAppointment } from './schedule-appointment'
 import { LeadFinancingCard } from './lead-financing-card'
 import { PatientSummaryCard } from './patient-summary-card'
+import { LeadAIOverrideToggle } from './ai-mode-toggle'
 import {
   ArrowLeft,
   Brain,
@@ -320,6 +321,22 @@ export function LeadDetail({
         <div className="space-y-4">
           {/* Patient AI Summary */}
           <PatientSummaryCard leadId={lead.id} lead={lead} />
+
+          {/* AI Autopilot Control */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Brain className="h-4 w-4" />
+                AI Autopilot
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <LeadAIOverrideToggle
+                leadId={lead.id}
+                currentOverride={(lead.ai_autopilot_override as any) || 'default'}
+              />
+            </CardContent>
+          </Card>
 
           {/* Pipeline Stage */}
           <Card>

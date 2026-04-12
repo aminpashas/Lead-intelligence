@@ -64,6 +64,20 @@ export async function processAutoResponse(
   // 1. Load autopilot config
   const config = await getAutopilotConfig(supabase, organization_id)
 
+  // 1b. Check per-lead AI override
+  const leadOverride = (lead.ai_autopilot_override as string) || 'default'
+
+  if (leadOverride === 'force_off') {
+    return { action: 'skipped', reason: 'lead_ai_override_off' }
+  }
+
+  // force_on overrides org pause (but NOT kill switch — if enabled is false, that's a kill switch)
+  const isKillSwitched = !config.enabled
+  if (leadOverride === 'force_on' && !isKillSwitched && config.paused) {
+    // Un-pause for this lead only
+    config.paused = false
+  }
+
   if (!config.enabled || config.paused) {
     return { action: 'skipped', reason: 'autopilot_disabled' }
   }
@@ -143,6 +157,29 @@ export async function processAutoResponse(
       agent: agentResponse.agent,
       escalation_id: escalationId,
       reason: decision.reason,
+    }
+  }
+
+  // 7b. Per-lead assist_only override: generate draft but never auto-send
+  if (leadOverride === 'assist_only') {
+    const escalationId = await createEscalation(supabase, {
+      organization_id,
+      conversation_id,
+      lead_id,
+      reason: 'low_confidence',
+      ai_notes: `Lead has assist_only override — AI drafted but not auto-sent.${agentResponse.internal_notes ? ' ' + agentResponse.internal_notes : ''}`,
+      ai_draft_response: agentResponse.message,
+      ai_confidence: agentResponse.confidence,
+      agent_type: agentResponse.agent,
+    })
+
+    return {
+      action: 'escalated',
+      message: agentResponse.message,
+      confidence: agentResponse.confidence,
+      agent: agentResponse.agent,
+      escalation_id: escalationId,
+      reason: 'lead_assist_only_override',
     }
   }
 

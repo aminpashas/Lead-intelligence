@@ -17,6 +17,7 @@ import {
   GraduationCap,
   Shield,
   Crosshair,
+  ToggleLeft,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -31,6 +32,7 @@ const navigation = [
   { name: 'Appointments', href: '/appointments', icon: Calendar },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'AI Engine', href: '/ai-engine', icon: Brain },
+  { name: 'AI Control', href: '/ai-control', icon: ToggleLeft },
   { name: 'Sales Intelligence', href: '/ai-engine/sales-intelligence', icon: Crosshair },
   { name: 'AI Training', href: '/ai-training', icon: GraduationCap },
   { name: 'AI Audit', href: '/ai-audit', icon: Shield },
