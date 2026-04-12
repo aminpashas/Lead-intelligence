@@ -17,7 +17,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   ArrowLeft, Users, Megaphone, Brain, Pencil, ChevronLeft,
-  ChevronRight, Loader2, RefreshCw, Tags as TagsIcon,
+  ChevronRight, Loader2, RefreshCw, Tags as TagsIcon, MessageSquare,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TagBadgeList } from './tag-badge'
@@ -115,6 +115,15 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
           <Button variant="outline" size="sm" onClick={onEdit} className="gap-1.5">
             <Pencil className="h-4 w-4" />
             Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => router.push(`/mass-sms?smart_list_id=${smartList.id}`)}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Send Mass SMS
           </Button>
           <Button
             size="sm"
