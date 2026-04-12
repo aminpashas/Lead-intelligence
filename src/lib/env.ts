@@ -26,6 +26,10 @@ const ENV_VARS: EnvVar[] = [
   { key: 'RESEND_API_KEY', required: false, description: 'Resend API key for email' },
   { key: 'RESEND_FROM_EMAIL', required: false, description: 'Resend sender email address' },
 
+  // Voice (Retell AI)
+  { key: 'RETELL_API_KEY', required: false, description: 'Retell AI API key for voice calling' },
+  { key: 'RETELL_WEBHOOK_SECRET', required: false, description: 'Retell webhook signing secret' },
+
   // Security
   { key: 'WEBHOOK_SECRET', required: true, description: 'HMAC secret for webhook signature verification' },
   { key: 'ENCRYPTION_KEY', required: true, description: 'AES-256 key (64 hex chars) for PII field encryption — HIPAA requirement' },
@@ -63,6 +67,9 @@ export function validateEnv(): EnvValidationResult {
   }
   if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
     warnings.push('Twilio credentials not set — SMS sending and webhook validation will fail')
+  }
+  if (!process.env.RETELL_API_KEY) {
+    warnings.push('RETELL_API_KEY not set — AI voice calling will be unavailable')
   }
   if (!process.env.RESEND_API_KEY) {
     warnings.push('RESEND_API_KEY not set — email sending will fail')

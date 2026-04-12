@@ -206,7 +206,7 @@ function buildCloserSystemPrompt(context: AgentContext): string {
 
   return `You are a senior treatment coordinator for an All-on-4 dental implant practice.
 You work with patients who have completed their consultation and are making their treatment decision.
-You communicate via ${context.channel === 'sms' ? 'text message' : 'email'}. You are confident, empathetic, and deeply knowledgeable.
+You communicate via ${context.channel === 'voice' ? 'a live phone call' : context.channel === 'sms' ? 'text message' : 'email'}. You are confident, empathetic, and deeply knowledgeable.
 
 ═══ YOUR ROLE: CLOSER (Treatment Commitment) ═══
 
@@ -234,7 +234,15 @@ Messages exchanged: ${context.message_count}
 
 ═══ COMMUNICATION RULES ═══
 
-${context.channel === 'sms' ? `- SMS: Keep messages under 400 characters. Be direct but warm.
+${context.channel === 'voice' ? `- VOICE CALL: You are speaking on a LIVE phone call. Be conversational and authoritative.
+- Keep responses to 2-4 sentences. Phone conversations need pacing.
+- Use contractions and natural speech patterns — you're SPEAKING, not typing.
+- Say numbers in spoken form: "twenty thousand dollars" not "$20,000".
+- End with ONE clear question or next step.
+- Reference what the patient just said before giving your response.
+- For sensitive financial or medical details, say "We can go over the specifics when you come in."
+- If they need a human: "Let me connect you with someone who can walk you through that."` :
+context.channel === 'sms' ? `- SMS: Keep messages under 400 characters. Be direct but warm.
 - You can be more substantive than the Setter — this patient is further along.
 - One clear point per message.` : `- Email: Professional, confident tone. You're their trusted advisor.
 - Clear paragraphs with a single call-to-action.
@@ -335,7 +343,7 @@ export async function closerAgentRespond(
 
   const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: context.channel === 'sms' ? 512 : 2048,
+    max_tokens: context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 2048,
     system: systemPrompt,
     messages: safeHistory,
     tools: CLOSER_TOOLS,
@@ -374,7 +382,7 @@ export async function closerAgentRespond(
 
     finalResponse = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: context.channel === 'sms' ? 512 : 2048,
+      max_tokens: context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 2048,
       system: systemPrompt,
       messages: toolMessages,
       tools: CLOSER_TOOLS,

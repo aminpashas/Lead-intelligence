@@ -174,6 +174,14 @@ export type Lead = {
   email_opt_out: boolean
   email_opt_out_at: string | null
 
+  // Voice Consent (TCPA)
+  voice_consent: boolean
+  voice_consent_at: string | null
+  voice_consent_source: string | null
+  voice_opt_out: boolean
+  voice_opt_out_at: string | null
+  do_not_call: boolean
+
   // Enrichment
   enrichment_score: number
   enrichment_status: 'pending' | 'partial' | 'complete' | 'failed'
@@ -212,7 +220,7 @@ export type Lead = {
   assigned_user?: UserProfile
 }
 
-export type ConversationChannel = 'sms' | 'email' | 'web_chat' | 'whatsapp'
+export type ConversationChannel = 'sms' | 'email' | 'web_chat' | 'whatsapp' | 'voice'
 export type AIMode = 'auto' | 'assist' | 'off'
 export type AgentType = 'setter' | 'closer' | 'none'
 
@@ -756,4 +764,138 @@ export type ReactivationOffer = {
   is_active: boolean
   created_at: string
   updated_at: string
+}
+
+// ── Voice Calling ───────────────────────────────────────────
+
+export type VoiceCallStatus = 'initiated' | 'ringing' | 'in_progress' | 'completed' | 'no_answer' | 'busy' | 'failed' | 'voicemail' | 'canceled'
+export type VoiceCallOutcome = 'appointment_booked' | 'callback_requested' | 'interested' | 'not_interested' | 'wrong_number' | 'do_not_call' | 'voicemail_left' | 'no_answer' | 'technical_failure' | 'transferred'
+export type VoiceCampaignStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'archived'
+export type VoiceCampaignLeadStatus = 'queued' | 'calling' | 'completed' | 'skipped' | 'failed' | 'do_not_call'
+
+export type VoiceCallTranscriptEntry = {
+  role: 'agent' | 'lead'
+  content: string
+  timestamp_ms: number
+}
+
+export type VoiceCall = {
+  id: string
+  organization_id: string
+  lead_id: string
+  conversation_id: string | null
+
+  direction: 'inbound' | 'outbound'
+  status: VoiceCallStatus
+
+  // External IDs
+  retell_call_id: string | null
+  twilio_call_sid: string | null
+
+  // Call details
+  from_number: string
+  to_number: string
+  duration_seconds: number
+  started_at: string | null
+  answered_at: string | null
+  ended_at: string | null
+
+  // AI Agent
+  agent_type: AgentType | null
+  ai_confidence_avg: number | null
+
+  // Recording & Transcript
+  recording_url: string | null
+  recording_duration_seconds: number | null
+  transcript: VoiceCallTranscriptEntry[]
+  transcript_summary: string | null
+
+  // Outcome
+  outcome: VoiceCallOutcome | null
+  outcome_notes: string | null
+
+  // Campaign link
+  voice_campaign_id: string | null
+
+  // Compliance
+  consent_verified: boolean
+  recording_disclosure_given: boolean
+  tcpa_compliant: boolean
+
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+
+  // Joined
+  lead?: Lead
+}
+
+export type VoiceCampaign = {
+  id: string
+  organization_id: string
+  created_by: string | null
+
+  name: string
+  description: string | null
+
+  status: VoiceCampaignStatus
+
+  // Targeting
+  smart_list_id: string | null
+  target_criteria: Record<string, unknown>
+
+  // Schedule
+  scheduled_start_at: string | null
+  scheduled_end_at: string | null
+  active_hours_start: number
+  active_hours_end: number
+  active_days: string[]
+  timezone: string
+
+  // Dialing config
+  max_attempts_per_lead: number
+  retry_delay_hours: number
+  concurrent_calls: number
+  calls_per_hour: number
+
+  // AI config
+  agent_type: 'setter' | 'closer'
+  custom_greeting: string | null
+  custom_voicemail: string | null
+
+  // Stats
+  total_leads: number
+  total_called: number
+  total_connected: number
+  total_appointments: number
+  total_voicemails: number
+  total_no_answer: number
+  total_do_not_call: number
+  avg_call_duration_seconds: number
+
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type VoiceCampaignLead = {
+  id: string
+  voice_campaign_id: string
+  lead_id: string
+  organization_id: string
+
+  status: VoiceCampaignLeadStatus
+  attempts: number
+  last_attempt_at: string | null
+  last_call_id: string | null
+  outcome: string | null
+
+  priority: number
+  scheduled_at: string | null
+
+  created_at: string
+  updated_at: string
+
+  // Joined
+  lead?: Lead
 }
