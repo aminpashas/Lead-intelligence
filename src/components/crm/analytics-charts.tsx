@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, type ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,23 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
+
+/**
+ * Wrapper that defers ResponsiveContainer rendering until after mount,
+ * preventing the -1 width/height warning that occurs during SSR hydration.
+ */
+function ChartWrapper({ height, children }: { height: string; children: ReactNode }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  if (!mounted) return <div className={height} />
+  return (
+    <div className={height}>
+      <ResponsiveContainer width="100%" height="100%">
+        {children}
+      </ResponsiveContainer>
+    </div>
+  )
+}
 
 type AnalyticsData = {
   kpis: {
@@ -238,8 +255,7 @@ export function AnalyticsDashboard() {
             <CardDescription>New leads and conversions per day</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%" debounce={1}>
+            <ChartWrapper height="h-[280px]">
                 <AreaChart data={data.leadTrend}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="date" tickFormatter={formatDate} fontSize={11} />
@@ -258,8 +274,7 @@ export function AnalyticsDashboard() {
                     stroke="#10b981" fill="#10b981" fillOpacity={0.15} strokeWidth={2}
                   />
                 </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            </ChartWrapper>
           </CardContent>
         </Card>
 
@@ -272,8 +287,7 @@ export function AnalyticsDashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%" debounce={1}>
+            <ChartWrapper height="h-[280px]">
                 <BarChart data={data.messageTrend}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="date" tickFormatter={formatDate} fontSize={11} />
@@ -286,8 +300,7 @@ export function AnalyticsDashboard() {
                   <Bar dataKey="outbound" name="Sent" fill="#2563eb" radius={[2, 2, 0, 0]} />
                   <Bar dataKey="inbound" name="Received" fill="#10b981" radius={[2, 2, 0, 0]} />
                 </BarChart>
-              </ResponsiveContainer>
-            </div>
+            </ChartWrapper>
           </CardContent>
         </Card>
       </div>
@@ -300,8 +313,7 @@ export function AnalyticsDashboard() {
             <CardDescription>Where your leads come from</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[260px]">
-              <ResponsiveContainer width="100%" height="100%" debounce={1}>
+            <ChartWrapper height="h-[260px]">
                 <PieChart>
                   <Pie
                     data={data.sourceBreakdown}
@@ -326,8 +338,7 @@ export function AnalyticsDashboard() {
                     contentStyle={{ borderRadius: '8px', fontSize: '13px' }}
                   />
                 </PieChart>
-              </ResponsiveContainer>
-            </div>
+            </ChartWrapper>
           </CardContent>
         </Card>
 
@@ -337,8 +348,7 @@ export function AnalyticsDashboard() {
             <CardDescription>Lead quality distribution</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[260px]">
-              <ResponsiveContainer width="100%" height="100%" debounce={1}>
+            <ChartWrapper height="h-[260px]">
                 <BarChart
                   data={data.qualificationDistribution}
                   layout="vertical"
@@ -356,8 +366,7 @@ export function AnalyticsDashboard() {
                     ))}
                   </Bar>
                 </BarChart>
-              </ResponsiveContainer>
-            </div>
+            </ChartWrapper>
           </CardContent>
         </Card>
 
@@ -370,8 +379,7 @@ export function AnalyticsDashboard() {
             {data.financingBreakdown.length === 0 ? (
               <p className="text-sm text-muted-foreground py-10 text-center">No data yet</p>
             ) : (
-              <div className="h-[260px]">
-                <ResponsiveContainer width="100%" height="100%" debounce={1}>
+              <ChartWrapper height="h-[260px]">
                   <PieChart>
                     <Pie
                       data={data.financingBreakdown}
@@ -396,8 +404,7 @@ export function AnalyticsDashboard() {
                       contentStyle={{ borderRadius: '8px', fontSize: '13px' }}
                     />
                   </PieChart>
-                </ResponsiveContainer>
-              </div>
+              </ChartWrapper>
             )}
           </CardContent>
         </Card>
@@ -618,8 +625,8 @@ export function AnalyticsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Response Time Distribution</CardTitle>
               </CardHeader>
-              <CardContent className="h-[250px]">
-                <ResponsiveContainer width="100%" height="100%" debounce={1}>
+              <CardContent>
+                <ChartWrapper height="h-[250px]">
                   <BarChart data={data.responseTime.distribution}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
@@ -627,7 +634,7 @@ export function AnalyticsDashboard() {
                     <Tooltip />
                     <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Leads" />
                   </BarChart>
-                </ResponsiveContainer>
+                </ChartWrapper>
               </CardContent>
             </Card>
           )}
@@ -727,8 +734,8 @@ export function AnalyticsDashboard() {
             <CardTitle className="text-base">Pipeline Velocity</CardTitle>
             <CardDescription>Average days leads spend in each pipeline stage</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%" debounce={1}>
+          <CardContent>
+            <ChartWrapper height="h-[300px]">
               <BarChart
                 data={data.pipelineVelocity.map((v) => ({
                   ...v,
@@ -742,7 +749,7 @@ export function AnalyticsDashboard() {
                 <Tooltip formatter={(v) => [`${v} days`, 'Avg Duration']} />
                 <Bar dataKey="avg_days_in_stage" fill="#8b5cf6" radius={[0, 4, 4, 0]} name="Avg Days" />
               </BarChart>
-            </ResponsiveContainer>
+            </ChartWrapper>
           </CardContent>
         </Card>
       )}
