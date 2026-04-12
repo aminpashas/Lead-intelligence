@@ -239,7 +239,7 @@ export function AnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <AreaChart data={data.leadTrend}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="date" tickFormatter={formatDate} fontSize={11} />
@@ -273,7 +273,7 @@ export function AnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <BarChart data={data.messageTrend}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="date" tickFormatter={formatDate} fontSize={11} />
@@ -301,7 +301,7 @@ export function AnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="h-[260px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <PieChart>
                   <Pie
                     data={data.sourceBreakdown}
@@ -338,7 +338,7 @@ export function AnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="h-[260px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <BarChart
                   data={data.qualificationDistribution}
                   layout="vertical"
@@ -371,7 +371,7 @@ export function AnalyticsDashboard() {
               <p className="text-sm text-muted-foreground py-10 text-center">No data yet</p>
             ) : (
               <div className="h-[260px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                   <PieChart>
                     <Pie
                       data={data.financingBreakdown}
@@ -619,7 +619,7 @@ export function AnalyticsDashboard() {
                 <CardTitle className="text-base">Response Time Distribution</CardTitle>
               </CardHeader>
               <CardContent className="h-[250px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                   <BarChart data={data.responseTime.distribution}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
@@ -728,7 +728,7 @@ export function AnalyticsDashboard() {
             <CardDescription>Average days leads spend in each pipeline stage</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
               <BarChart
                 data={data.pipelineVelocity.map((v) => ({
                   ...v,
