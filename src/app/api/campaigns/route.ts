@@ -7,6 +7,7 @@ const createCampaignSchema = z.object({
   description: z.string().optional(),
   type: z.enum(['drip', 'broadcast', 'trigger']),
   channel: z.enum(['sms', 'email', 'multi']),
+  smart_list_id: z.string().uuid().optional(),
   target_criteria: z.record(z.string(), z.unknown()).optional(),
   send_window: z.object({
     start_hour: z.number().min(0).max(23).optional(),
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { steps, ...campaignData } = parsed.data
+  const { steps, smart_list_id, ...campaignData } = parsed.data
 
   // Create campaign
   const { data: campaign, error: campaignError } = await supabase
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
       ...campaignData,
       organization_id: profile.organization_id,
       created_by: profile.id,
+      smart_list_id: smart_list_id || null,
       status: 'draft',
     })
     .select()

@@ -318,6 +318,85 @@ export async function generateRolePlayResponse(
 }
 
 // ════════════════════════════════════════════════════════════════
+// RETRY WITH COURSE CORRECTION
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Regenerates an AI response, incorporating the user's feedback about
+ * what was wrong with the previous attempt. The AI sees its old response
+ * and the correction instructions, then produces a better version.
+ */
+export async function generateRolePlayRetry(
+  supabase: SupabaseClient,
+  orgId: string,
+  session: Pick<AIRolePlaySession, 'user_role' | 'agent_target' | 'patient_persona' | 'scenario_description' | 'messages'>,
+  previousAttempt: string,
+  feedback: string | null
+): Promise<string> {
+  const anthropic = getAnthropic()
+
+  // Build the base system prompt (same as regular response)
+  let systemPrompt: string
+
+  if (session.user_role === 'treatment_coordinator') {
+    systemPrompt = buildPatientPersonaPrompt(session)
+  } else {
+    const [memories, articles] = await Promise.all([
+      getActiveMemories(supabase, orgId),
+      getRelevantKnowledge(supabase, orgId, session.messages[session.messages.length - 1]?.content || ''),
+    ])
+    systemPrompt = buildTCPrompt(
+      session.agent_target,
+      memories.map(m => ({ title: m.title, content: m.content, category: m.category })),
+      articles.map(a => ({ title: a.title, content: a.content })),
+      session.scenario_description
+    )
+  }
+
+  // Add retry instructions to the system prompt
+  const retryInstructions = feedback
+    ? `\n\n═══ COURSE CORRECTION ═══
+
+Your previous response was rejected by the trainer. Here is what you said:
+
+"${previousAttempt}"
+
+The trainer's feedback on what to change:
+"${feedback}"
+
+Generate a NEW response that addresses the trainer's feedback. Do NOT repeat the same approach. Apply the correction and try a different angle.
+Important: Respond ONLY with the corrected message. No explanations or meta-commentary.`
+    : `\n\n═══ RETRY ═══
+
+Your previous response was rejected by the trainer. Here is what you said:
+
+"${previousAttempt}"
+
+The trainer wants you to try a DIFFERENT approach. Generate a substantially different response — different tone, different angle, different strategy. Don't just rephrase the same thing.
+Important: Respond ONLY with the new message. No explanations or meta-commentary.`
+
+  systemPrompt += retryInstructions
+
+  // Build messages WITHOUT the last assistant message (we're replacing it)
+  const messages = session.messages
+    .filter(m => !(m.role === 'assistant' && m.content === previousAttempt))
+    .map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }))
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages,
+  })
+
+  const text = response.content.find(b => b.type === 'text')
+  return text && text.type === 'text' ? text.text : ''
+}
+
+// ════════════════════════════════════════════════════════════════
 // EXTRACT TRAINING EXAMPLES
 // ════════════════════════════════════════════════════════════════
 

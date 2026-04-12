@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
-import { generateRolePlayResponse } from '@/lib/ai/roleplay-engine'
+import { generateRolePlayResponse, generateRolePlayRetry } from '@/lib/ai/roleplay-engine'
 
 const createSessionSchema = z.object({
   title: z.string().min(1).max(200),
@@ -25,6 +25,13 @@ const createSessionSchema = z.object({
 const sendMessageSchema = z.object({
   session_id: z.string().uuid(),
   content: z.string().min(1),
+})
+
+const retrySchema = z.object({
+  session_id: z.string().uuid(),
+  retry: z.literal(true),
+  message_index: z.number().int().min(0),
+  feedback: z.string().nullable().optional(),
 })
 
 // GET — List role-play sessions
@@ -69,8 +76,86 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
 
-  // Determine if this is a "create session" or "send message" request
-  if (body.session_id) {
+  // Determine request type: create session, send message, or retry
+  if (body.retry) {
+    // ── Retry / Course Correct ──
+    const parsed = retrySchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+    }
+
+    const { session_id, message_index, feedback } = parsed.data
+
+    // Fetch the session
+    const { data: session, error: sessionError } = await supabase
+      .from('ai_roleplay_sessions')
+      .select('*')
+      .eq('id', session_id)
+      .eq('organization_id', profile.organization_id)
+      .single()
+
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+    }
+
+    if (session.status !== 'active') {
+      return NextResponse.json({ error: 'Session is not active' }, { status: 400 })
+    }
+
+    const messages = session.messages || []
+    const targetMsg = messages[message_index]
+    if (!targetMsg || targetMsg.role !== 'assistant') {
+      return NextResponse.json({ error: 'Target message not found or not an AI message' }, { status: 400 })
+    }
+
+    const previousAttempt = targetMsg.content
+
+    try {
+      const aiResponseText = await generateRolePlayRetry(
+        supabase,
+        profile.organization_id,
+        {
+          user_role: session.user_role,
+          agent_target: session.agent_target,
+          patient_persona: session.patient_persona,
+          scenario_description: session.scenario_description,
+          messages: messages.slice(0, message_index), // only messages before the AI response
+        },
+        previousAttempt,
+        feedback || null
+      )
+
+      // Update the message in place: store old content in previous_attempts, replace content
+      const prevAttempts = targetMsg.previous_attempts || []
+      prevAttempts.push(previousAttempt)
+
+      const updatedMessages = [...messages]
+      updatedMessages[message_index] = {
+        ...targetMsg,
+        content: aiResponseText,
+        timestamp: new Date().toISOString(),
+        previous_attempts: prevAttempts,
+        retry_count: (targetMsg.retry_count || 0) + 1,
+        is_finalized: false,
+        rating: null, // reset rating on retry
+      }
+
+      // Save to DB
+      await supabase
+        .from('ai_roleplay_sessions')
+        .update({ messages: updatedMessages })
+        .eq('id', session_id)
+
+      return NextResponse.json({
+        updated_message: updatedMessages[message_index],
+        message_index,
+      })
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Failed to retry'
+      console.error('Role-play retry error:', err)
+      return NextResponse.json({ error: errorMsg }, { status: 500 })
+    }
+  } else if (body.session_id) {
     // ── Send Message ──
     const parsed = sendMessageSchema.safeParse(body)
     if (!parsed.success) {
@@ -105,6 +190,9 @@ export async function POST(request: NextRequest) {
       rating: null,
       coaching_note: null,
       acting_as: userActingAs,
+      is_finalized: false,
+      retry_count: 0,
+      previous_attempts: [] as string[],
     }
 
     const updatedMessages = [...(session.messages || []), userMessage]
@@ -132,6 +220,9 @@ export async function POST(request: NextRequest) {
         rating: null,
         coaching_note: null,
         acting_as: aiActingAs,
+        is_finalized: false,
+        retry_count: 0,
+        previous_attempts: [] as string[],
       }
 
       const finalMessages = [...updatedMessages, aiMessage]

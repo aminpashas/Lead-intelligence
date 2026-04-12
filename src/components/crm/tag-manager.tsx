@@ -189,10 +189,10 @@ export function TagManager() {
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-1.5" onClick={openCreateDialog}>
+          <DialogTrigger>
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer" onClick={openCreateDialog}>
               <Plus className="h-4 w-4" /> New Tag
-            </Button>
+            </span>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
@@ -280,7 +280,7 @@ export function TagManager() {
             className="pl-9"
           />
         </div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+        <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v || 'all')}>
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>

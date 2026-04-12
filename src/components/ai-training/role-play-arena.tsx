@@ -19,6 +19,7 @@ import {
   ThumbsDown,
   Check,
   X,
+  RotateCcw,
 } from 'lucide-react'
 import { RolePlayMessage } from './role-play-message'
 import { RolePlayScenarioPicker } from './role-play-scenario-picker'
@@ -63,6 +64,7 @@ export function RolePlayArena() {
   const [extractedExamples, setExtractedExamples] = useState<ExtractedExample[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [retryingIndex, setRetryingIndex] = useState<number | null>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -133,6 +135,9 @@ export function RolePlayArena() {
       rating: null,
       coaching_note: null,
       acting_as: activeSession.user_role,
+      is_finalized: false,
+      retry_count: 0,
+      previous_attempts: [],
     }
     setMessages((prev) => [...prev, optimisticUserMsg])
 
@@ -214,6 +219,67 @@ export function RolePlayArena() {
     }
   }
 
+  // ── Retry / Course Correct ──
+  async function handleRetry(index: number, feedback: string | null) {
+    if (!activeSession || retryingIndex !== null) return
+
+    setRetryingIndex(index)
+    try {
+      const res = await fetch('/api/ai/training/roleplay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: activeSession.id,
+          retry: true,
+          message_index: index,
+          feedback,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Retry failed')
+      }
+
+      const data = await res.json()
+      // Replace the message at the index
+      setMessages((prev) =>
+        prev.map((m, i) => (i === data.message_index ? data.updated_message : m))
+      )
+      toast.success(
+        feedback ? 'Response regenerated with your feedback!' : 'Response regenerated!'
+      )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to retry')
+    } finally {
+      setRetryingIndex(null)
+    }
+  }
+
+  // ── Finalize / Accept ──
+  function handleFinalize(index: number) {
+    setMessages((prev) =>
+      prev.map((m, i) =>
+        i === index
+          ? { ...m, is_finalized: true, is_golden_example: true, rating: 'good' as const }
+          : m
+      )
+    )
+    if (activeSession) {
+      const updated = messages.map((m, i) =>
+        i === index
+          ? { ...m, is_finalized: true, is_golden_example: true, rating: 'good' as const }
+          : m
+      )
+      fetch(`/api/ai/training/roleplay/${activeSession.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: updated }),
+      })
+    }
+    toast.success('Response accepted and marked as golden example! ✅')
+  }
+
   // ── End session & extract ──
   async function handleEndSession() {
     if (!activeSession) return
@@ -276,6 +342,15 @@ export function RolePlayArena() {
   const goldenCount = messages.filter((m) => m.is_golden_example).length
   const goodCount = messages.filter((m) => m.rating === 'good').length
   const badCount = messages.filter((m) => m.rating === 'bad').length
+  const finalizedCount = messages.filter((m) => m.is_finalized).length
+
+  // Find the last assistant message index
+  const lastAssistantIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return i
+    }
+    return -1
+  })()
 
   // ════════════════════════════════════════════════════════════════
   // RENDER
@@ -473,9 +548,13 @@ export function RolePlayArena() {
                 key={i}
                 message={msg}
                 index={i}
+                isLastAssistantMessage={false}
+                isRetrying={false}
                 onToggleGolden={() => {}}
                 onRate={() => {}}
                 onAddNote={() => {}}
+                onRetry={() => {}}
+                onFinalize={() => {}}
               />
             ))}
           </CardContent>
@@ -544,6 +623,12 @@ export function RolePlayArena() {
 
         <div className="flex items-center gap-2">
           {/* Training stats */}
+          {finalizedCount > 0 && (
+            <Badge variant="secondary" className="gap-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+              <Check className="h-3 w-3" />
+              {finalizedCount} accepted
+            </Badge>
+          )}
           {goldenCount > 0 && (
             <Badge variant="secondary" className="gap-1">
               <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
@@ -598,19 +683,23 @@ export function RolePlayArena() {
                   : 'You\'re the Patient. Send your first message to test the AI agent.'}
               </p>
               <p className="text-xs text-muted-foreground mt-3 max-w-xs">
-                💡 Tip: Star ⭐ great exchanges and rate 👍👎 responses to mark training examples
+                💡 Tip: After each AI response, you can <strong>Accept ✅</strong>, <strong>Retry 🔄</strong>, or <strong>Course Correct 💬</strong> until you&apos;re happy with it!
               </p>
             </div>
           ) : (
             <>
               {messages.map((msg, i) => (
                 <RolePlayMessage
-                  key={i}
+                  key={`${i}-${msg.retry_count || 0}`}
                   message={msg}
                   index={i}
+                  isLastAssistantMessage={i === lastAssistantIndex}
+                  isRetrying={retryingIndex === i}
                   onToggleGolden={handleToggleGolden}
                   onRate={handleRate}
                   onAddNote={handleAddNote}
+                  onRetry={handleRetry}
+                  onFinalize={handleFinalize}
                 />
               ))}
               {loading && (
@@ -672,10 +761,10 @@ export function RolePlayArena() {
             </p>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
-                <Star className="h-3 w-3" /> Star golden examples
+                <Check className="h-3 w-3" /> Accept responses
               </span>
               <span className="flex items-center gap-1">
-                <ThumbsUp className="h-3 w-3" /> Rate responses
+                <RotateCcw className="h-3 w-3" /> Retry or course correct
               </span>
             </div>
           </div>

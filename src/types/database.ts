@@ -530,6 +530,9 @@ export type AIRolePlayMessage = {
   rating: 'good' | 'bad' | null
   coaching_note: string | null
   acting_as: RolePlayRole  // what role the sender is playing
+  is_finalized: boolean         // locked as the accepted version
+  retry_count: number           // how many retries this message went through
+  previous_attempts: string[]   // previous AI versions before the current one
 }
 
 export type AIRolePlaySession = {
@@ -690,6 +693,67 @@ export type SmartList = {
   lead_count: number
   last_refreshed_at: string | null
   created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Reactivation Campaigns ──────────────────────────────
+
+export type ReactivationGoal = 're_engage' | 'win_back' | 'upsell' | 'referral_ask'
+export type ReactivationTone = 'empathetic' | 'urgent' | 'casual' | 'professional'
+export type ReactivationHookStrategy = 'urgency' | 'social_proof' | 'new_technology' | 'special_pricing' | 'empathy' | 'personalized_value'
+
+export type ReactivationCampaign = {
+  id: string
+  organization_id: string
+  campaign_id: string | null
+  created_by: string | null
+  name: string
+  description: string | null
+  goal: ReactivationGoal
+  tone: ReactivationTone
+  ai_hooks: Array<{
+    strategy: ReactivationHookStrategy
+    enabled: boolean
+    custom_text: string | null
+  }>
+  engagement_rules: {
+    max_attempts: number
+    cooldown_days: number
+    escalation_strategy: string
+    stop_on_reply: boolean
+    transition_to_live: boolean
+  }
+  channel: 'sms' | 'email' | 'multi'
+  status: 'draft' | 'active' | 'paused' | 'completed' | 'archived'
+  total_uploaded: number
+  total_reactivated: number
+  total_responded: number
+  total_converted: number
+  last_upload_at: string | null
+  upload_count: number
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  // Joined
+  offers?: ReactivationOffer[]
+  campaign?: Campaign
+}
+
+export type ReactivationOfferType = 'percentage_off' | 'dollar_off' | 'free_addon' | 'financing_special' | 'limited_time'
+
+export type ReactivationOffer = {
+  id: string
+  organization_id: string
+  reactivation_campaign_id: string
+  name: string
+  description: string | null
+  type: ReactivationOfferType
+  value: number | null
+  expiry_date: string | null
+  usage_limit: number | null
+  times_used: number
+  is_active: boolean
   created_at: string
   updated_at: string
 }

@@ -104,10 +104,9 @@ export function TagSelector({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn('justify-start gap-2 font-normal', className)}
+      <PopoverTrigger>
+        <span
+          className={cn('inline-flex items-center justify-start gap-2 font-normal rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer hover:bg-accent/50 transition-colors', className)}
           id="tag-selector-trigger"
         >
           <Tags className="h-4 w-4 text-muted-foreground" />
@@ -126,7 +125,7 @@ export function TagSelector({
           ) : (
             <span className="text-muted-foreground">{placeholder}</span>
           )}
-        </Button>
+        </span>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="start">
         {/* Search */}

@@ -21,8 +21,9 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Brain, ChevronLeft, ChevronRight, Search } from 'lucide-react'
-import type { Lead, PipelineStage } from '@/types/database'
+import { Brain, ChevronLeft, ChevronRight, Search, Tags } from 'lucide-react'
+import { TagBadgeList } from './tag-badge'
+import type { Lead, PipelineStage, Tag } from '@/types/database'
 import { useState } from 'react'
 
 const qualificationColors: Record<string, string> = {
@@ -39,12 +40,16 @@ export function LeadsTable({
   total,
   page,
   perPage,
+  allTags,
+  leadTagsMap,
 }: {
   leads: Lead[]
   stages: PipelineStage[]
   total: number
   page: number
   perPage: number
+  allTags?: Tag[]
+  leadTagsMap?: Record<string, Tag[]>
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -116,6 +121,33 @@ export function LeadsTable({
             <SelectItem value="lost">Lost</SelectItem>
           </SelectContent>
         </Select>
+
+        {/* Tag Filter */}
+        {allTags && allTags.length > 0 && (
+          <Select
+            value={searchParams.get('tag') || 'all'}
+            onValueChange={(v) => updateFilters('tag', v)}
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Filter by tag" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Tags</SelectItem>
+              {allTags.map((tag) => (
+                <SelectItem key={tag.id} value={tag.slug}>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    {tag.name}
+                    <span className="text-muted-foreground ml-1">({tag.lead_count})</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* Table */}
@@ -126,6 +158,7 @@ export function LeadsTable({
               <TableHead>Lead</TableHead>
               <TableHead>Score</TableHead>
               <TableHead>Stage</TableHead>
+              <TableHead>Tags</TableHead>
               <TableHead>Condition</TableHead>
               <TableHead>Source</TableHead>
               <TableHead>Engagement</TableHead>
@@ -136,6 +169,7 @@ export function LeadsTable({
           <TableBody>
             {leads.map((lead) => {
               const initials = `${lead.first_name?.[0] || ''}${lead.last_name?.[0] || ''}`.toUpperCase()
+              const tags = leadTagsMap?.[lead.id] || []
               return (
                 <TableRow
                   key={lead.id}
@@ -172,6 +206,13 @@ export function LeadsTable({
                         />
                         <span className="text-sm">{lead.pipeline_stage.name}</span>
                       </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {tags.length > 0 ? (
+                      <TagBadgeList tags={tags} maxVisible={2} compact />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell>

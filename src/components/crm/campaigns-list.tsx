@@ -7,11 +7,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Megaphone, Plus, Mail, MessageSquare, Play, Pause, Zap, Users,
-  Loader2, BarChart3,
+  Loader2, BarChart3, ListFilter, TrendingUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignBuilder } from './campaign-builder'
 import { CampaignAnalytics } from './campaign-analytics'
+import { CampaignPerformance } from './campaign-performance'
 import { CAMPAIGN_TEMPLATES } from '@/lib/campaigns/templates'
 import type { Campaign } from '@/types/database'
 
@@ -27,6 +28,7 @@ export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] })
   const [deploying, setDeploying] = useState<string | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
   const [viewingAnalytics, setViewingAnalytics] = useState<string | null>(null)
+  const [viewingPerformance, setViewingPerformance] = useState(false)
   const router = useRouter()
 
   async function deployTemplate(templateId: string) {
@@ -74,6 +76,16 @@ export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] })
     }
   }
 
+  // Show performance dashboard
+  if (viewingPerformance) {
+    return (
+      <CampaignPerformance
+        campaigns={campaigns}
+        onBack={() => setViewingPerformance(false)}
+      />
+    )
+  }
+
   // Show analytics view for a specific campaign
   if (viewingAnalytics) {
     return (
@@ -91,7 +103,17 @@ export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] })
           <h1 className="text-2xl font-bold">Campaigns</h1>
           <p className="text-muted-foreground">Automated SMS and email sequences that nurture leads 24/7</p>
         </div>
-        <CampaignBuilder />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setViewingPerformance(true)}
+          >
+            <TrendingUp className="h-4 w-4" />
+            Performance
+          </Button>
+          <CampaignBuilder />
+        </div>
       </div>
 
       {/* Quick-deploy templates */}
@@ -170,6 +192,12 @@ export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] })
                     <p className="text-xs text-muted-foreground">
                       {campaign.total_completed} completed &bull; {campaign.total_converted} converted
                     </p>
+                    {(campaign as any).smart_list_name && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <ListFilter className="h-3 w-3" style={{ color: (campaign as any).smart_list_color }} />
+                        {(campaign as any).smart_list_name}
+                      </p>
+                    )}
                   </div>
 
                   <Button

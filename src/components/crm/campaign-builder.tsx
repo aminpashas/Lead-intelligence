@@ -23,7 +23,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Loader2, GripVertical, Clock, MessageSquare, Mail } from 'lucide-react'
+import { Plus, Trash2, Loader2, GripVertical, Clock, MessageSquare, Mail, ListFilter, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Step = {
@@ -56,6 +56,8 @@ export function CampaignBuilder() {
   const [description, setDescription] = useState('')
   const [type, setType] = useState<string>('drip')
   const [channel, setChannel] = useState<string>('multi')
+  const [smartListId, setSmartListId] = useState<string>('')
+  const [smartLists, setSmartLists] = useState<any[]>([])
   const [steps, setSteps] = useState<Step[]>([
     {
       step_number: 1,
@@ -68,6 +70,17 @@ export function CampaignBuilder() {
     },
   ])
   const router = useRouter()
+
+  // Fetch Smart Lists when dialog opens
+  async function loadSmartLists() {
+    try {
+      const res = await fetch('/api/smart-lists')
+      if (res.ok) {
+        const data = await res.json()
+        setSmartLists(data.smart_lists || [])
+      }
+    } catch { /* ignore */ }
+  }
 
   function addStep() {
     setSteps((prev) => [
@@ -106,6 +119,7 @@ export function CampaignBuilder() {
           description,
           type,
           channel,
+          smart_list_id: smartListId || undefined,
           steps: steps.map((s) => ({
             ...s,
             subject: s.channel === 'email' ? s.subject : undefined,
@@ -126,7 +140,7 @@ export function CampaignBuilder() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) loadSmartLists() }}>
       <DialogTrigger>
         <span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer">
           <Plus className="h-4 w-4" />
@@ -171,6 +185,37 @@ export function CampaignBuilder() {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Automated follow-up sequence for new implant leads..."
             />
+          </div>
+
+          {/* Target Audience */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5">
+              <ListFilter className="h-4 w-4" />
+              Target Audience (Smart List)
+            </Label>
+            <Select value={smartListId} onValueChange={(v) => setSmartListId(v || '')}>
+              <SelectTrigger>
+                <SelectValue placeholder="All leads (no Smart List)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value=" ">All leads (manual targeting)</SelectItem>
+                {smartLists.map((sl: any) => (
+                  <SelectItem key={sl.id} value={sl.id}>
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: sl.color }} />
+                      {sl.name}
+                      <span className="text-muted-foreground">({sl.lead_count} leads)</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {smartListId && smartListId.trim() && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Users className="h-3 w-3" />
+                Campaign will target leads matching this Smart List&apos;s criteria
+              </p>
+            )}
           </div>
 
           {/* Steps */}
