@@ -16,6 +16,32 @@ export default function LoginPage() {
   const router = useRouter()
   const supabase = createClient()
 
+  /**
+   * After a successful login, fetch the user's role and redirect accordingly:
+   * - agency_admin → /agency (Agency Control Panel)
+   * - all other roles → /dashboard (Practice Dashboard)
+   */
+  async function redirectBasedOnRole() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profile?.role === 'agency_admin') {
+      router.push('/agency')
+    } else {
+      router.push('/dashboard')
+    }
+    router.refresh()
+  }
+
   async function handleGoogleLogin() {
     setLoading(true)
     setError(null)
@@ -49,8 +75,7 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
-    router.refresh()
+    await redirectBasedOnRole()
   }
 
   return (

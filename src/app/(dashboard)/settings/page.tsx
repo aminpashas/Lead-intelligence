@@ -173,30 +173,6 @@ export default function SettingsPage() {
             </p>
           </CardContent>
         </Card>
-
-        {/* Financing Lenders section temporarily removed pending live integrations */}
-
-        {/* API Keys status */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Integrations Status</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              { name: 'Supabase', env: 'NEXT_PUBLIC_SUPABASE_URL' },
-              { name: 'Anthropic AI', env: 'ANTHROPIC_API_KEY' },
-              { name: 'Twilio SMS', env: 'TWILIO_ACCOUNT_SID' },
-              { name: 'Resend Email', env: 'RESEND_API_KEY' },
-            ].map((integration) => (
-              <div key={integration.name} className="flex items-center justify-between">
-                <span className="text-sm">{integration.name}</span>
-                <Badge variant="outline" className="text-xs">
-                  Configure in .env.local
-                </Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
       </div>
     </div>
   )

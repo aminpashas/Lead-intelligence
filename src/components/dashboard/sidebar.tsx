@@ -11,19 +11,18 @@ import {
   Megaphone,
   BarChart3,
   Settings,
-  Brain,
   Calendar,
   Target,
-  GraduationCap,
-  Shield,
-  Crosshair,
   ToggleLeft,
   ListFilter,
   RefreshCw,
   X,
+  Building2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
+// Practice-level navigation only.
+// AI Training, AI Audit, AI Engine, Sales Intelligence are AGENCY-ONLY features.
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
@@ -35,11 +34,7 @@ const navigation = [
   { name: 'Smart Lists', href: '/smart-lists', icon: ListFilter },
   { name: 'Appointments', href: '/appointments', icon: Calendar },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'AI Engine', href: '/ai-engine', icon: Brain },
   { name: 'AI Control', href: '/ai-control', icon: ToggleLeft },
-  { name: 'Sales Intelligence', href: '/ai-engine/sales-intelligence', icon: Crosshair },
-  { name: 'AI Training', href: '/ai-training', icon: GraduationCap },
-  { name: 'AI Audit', href: '/ai-audit', icon: Shield },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -50,7 +45,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     <>
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 border-b px-6 shrink-0">
-        <Brain className="h-6 w-6 text-primary" />
+        <Target className="h-6 w-6 text-primary" />
         <span className="text-lg font-bold">Lead Intelligence</span>
       </div>
 
@@ -80,12 +75,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* Footer */}
       <div className="border-t p-4 shrink-0">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <LayoutDashboard className="h-4 w-4 text-primary" />
+          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Building2 className="h-4 w-4 text-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium truncate">Implant CRM</p>
-            <p className="text-xs text-muted-foreground">v1.0.0</p>
+            <p className="text-xs font-medium truncate">Practice Dashboard</p>
+            <p className="text-xs text-muted-foreground">Lead Intelligence v2.0</p>
           </div>
         </div>
       </div>
