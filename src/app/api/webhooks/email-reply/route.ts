@@ -146,5 +146,21 @@ export async function POST(request: NextRequest) {
     metadata: { conversation_id: convoId, subject },
   })
 
+  // Auto-respond with AI autopilot system
+  if (conversation.ai_enabled) {
+    const { processAutoResponse } = await import('@/lib/autopilot/auto-respond')
+
+    await processAutoResponse(supabase, {
+      organization_id: orgId,
+      conversation_id: convoId,
+      lead_id: leadId,
+      lead,
+      conversation,
+      inbound_message: emailBody,
+      channel: 'email',
+      sender_contact: senderEmail,
+    })
+  }
+
   return NextResponse.json({ ok: true, conversation_id: convoId })
 }
