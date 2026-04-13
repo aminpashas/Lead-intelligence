@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial>
-    <Sip>sip:${callId}@5wbagrk6iy.pstn.twilio.com</Sip>
+    <Sip>sip:${callId}@sip.retellai.com;transport=tcp</Sip>
   </Dial>
 </Response>`
 
