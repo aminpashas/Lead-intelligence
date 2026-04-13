@@ -14,6 +14,7 @@ import {
   Zap,
   ChevronRight,
   X,
+  Crosshair,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -31,6 +32,8 @@ const agencyNavigation = [
     items: [
       { name: 'AI Configuration', href: '/agency/ai-config', icon: Brain },
       { name: 'AI Training', href: '/agency/ai-training', icon: GraduationCap },
+      { name: 'AI Engine', href: '/ai-engine', icon: Zap },
+      { name: 'Sales Intelligence', href: '/ai-engine/sales-intelligence', icon: Crosshair },
       { name: 'AI Audit', href: '/agency/ai-audit', icon: Shield },
     ],
   },
