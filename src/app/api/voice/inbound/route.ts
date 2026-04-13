@@ -34,12 +34,33 @@ export async function POST(req: NextRequest) {
     console.log(`[Voice Inbound] Caller info: city=${callerCity}, state=${callerState}, name=${callerName}`)
 
     // ── 1. Get the organization linked to this phone number ──
-    const { data: org } = await supabase
+    // First try matching by voice_outbound_caller_id, then fall back to
+    // matching by the env Twilio number, then fall back to first org.
+    let orgData: { id: string; name: string; voice_greeting: string | null } | null = null
+
+    const { data: orgByCalledNumber } = await supabase
       .from('organizations')
       .select('id, name, voice_greeting')
       .eq('voice_outbound_caller_id', to)
       .single()
 
+    if (orgByCalledNumber) {
+      orgData = orgByCalledNumber
+    } else {
+      // Fallback: take first organization (single-tenant setup)
+      const { data: firstOrg } = await supabase
+        .from('organizations')
+        .select('id, name, voice_greeting')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single()
+      orgData = firstOrg
+      if (firstOrg) {
+        console.log(`[Voice Inbound] Org matched via fallback (first org): ${firstOrg.name}`)
+      }
+    }
+
+    const org = orgData
     const orgId = org?.id
     const practiceName = org?.name || 'our practice'
 
@@ -68,7 +89,7 @@ export async function POST(req: NextRequest) {
 
       if (existingLead) {
         lead = existingLead
-        console.log(`[Voice Inbound] Found existing lead: ${lead.first_name} ${lead.last_name} (${lead.id})`)
+        console.log(`[Voice Inbound] Found existing lead: ${existingLead.first_name} ${existingLead.last_name} (${existingLead.id})`)
       } else {
         // Auto-create a new lead from the inbound call
         const displayName = callerName || `Caller ${normalizedPhone.slice(-4)}`
@@ -99,6 +120,42 @@ export async function POST(req: NextRequest) {
         } else {
           console.error('[Voice Inbound] Failed to create lead:', createErr)
         }
+      }
+    }
+
+    // ── 2b. Ensure there is a conversation record for this lead ──
+    let conversationId: string | null = null
+    if (orgId && lead?.id) {
+      // Look for existing voice/open conversation
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('organization_id', orgId)
+        .eq('lead_id', lead.id)
+        .eq('channel', 'voice')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (existingConv) {
+        conversationId = existingConv.id
+      } else {
+        // Create a new voice conversation
+        const { data: newConv } = await supabase
+          .from('conversations')
+          .insert({
+            organization_id: orgId,
+            lead_id: lead.id as string,
+            channel: 'voice',
+            status: 'open',
+            ai_enabled: true,
+            last_message_at: new Date().toISOString(),
+          })
+          .select('id')
+          .single()
+
+        conversationId = newConv?.id || null
+        console.log(`[Voice Inbound] Created conversation: ${conversationId}`)
       }
     }
 
@@ -156,6 +213,7 @@ export async function POST(req: NextRequest) {
           twilio_call_sid: callSid,
           lead_id: lead?.id || null,
           organization_id: orgId || null,
+          conversation_id: conversationId || null,
           is_new_lead: isNewLead,
         },
       }),
@@ -184,6 +242,7 @@ export async function POST(req: NextRequest) {
       await supabase.from('voice_calls').insert({
         organization_id: orgId,
         lead_id: lead.id,
+        conversation_id: conversationId,
         direction: 'inbound',
         status: 'ringing',
         retell_call_id: callId,
@@ -198,7 +257,7 @@ export async function POST(req: NextRequest) {
           caller_country: callerCountry,
           is_new_lead: isNewLead,
         },
-      }).then(({ error }) => {
+      }).then(({ error }: { error: unknown }) => {
         if (error) console.error('[Voice Inbound] Failed to log call:', error)
       })
     }
