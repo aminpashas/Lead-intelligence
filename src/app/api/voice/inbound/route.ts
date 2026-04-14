@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     caller_last_name: '',
     caller_location: [callerCity, callerState].filter(Boolean).join(', ') || 'unknown',
     lead_status: 'unknown',
-    lead_score: '0',
+    lead_score: '0',  // maps from ai_score internally
     lead_source: 'unknown',
     lead_notes: '',
     is_new_lead: 'true',
@@ -114,9 +114,12 @@ export async function POST(req: NextRequest) {
 
         const { data: existingLead } = await supabase
           .from('leads')
-          .select('id, first_name, last_name, email, phone, status, lead_score, notes, source, personality_profile')
+          .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile')
           .eq('organization_id', orgId)
-          .or(phoneVariants.map(p => `phone.eq.${p}`).join(','))
+          .or([
+            ...phoneVariants.map(p => `phone.eq.${p}`),
+            ...phoneVariants.map(p => `phone_formatted.eq.${p}`),
+          ].join(','))
           .limit(1)
           .single()
 
@@ -134,9 +137,10 @@ export async function POST(req: NextRequest) {
               first_name: nameParts[0] || 'Unknown',
               last_name: nameParts.slice(1).join(' ') || 'Caller',
               phone: from,
-              source: 'inbound_call',
+              phone_formatted: from,
+              source_type: 'inbound_call',
               status: 'new',
-              lead_score: 50,
+              ai_score: 50,
               notes: `Auto-created from inbound call on ${new Date().toLocaleDateString()}. ${callerCity ? `Location: ${callerCity}, ${callerState}` : ''}`.trim(),
               voice_consent: true,
               voice_consent_at: new Date().toISOString(),
@@ -164,8 +168,8 @@ export async function POST(req: NextRequest) {
             caller_full_name: `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'the caller',
             caller_location: [callerCity, callerState].filter(Boolean).join(', ') || 'unknown',
             lead_status: lead.status || 'unknown',
-            lead_score: String(lead.lead_score || 0),
-            lead_source: lead.source || 'unknown',
+            lead_score: String(lead.ai_score || 0),
+            lead_source: lead.source_type || 'unknown',
             lead_notes: (lead.notes || '').slice(0, 500),
             is_new_lead: String(isNewLead),
             is_returning: String(!isNewLead),

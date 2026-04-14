@@ -250,7 +250,7 @@ export async function POST(req: NextRequest) {
 
     // ── 4. Update lead with extracted info ──
     const leadUpdate: Record<string, unknown> = {
-      lead_score: leadScore,
+      ai_score: leadScore,
       last_contacted_at: new Date().toISOString(),
     }
 
@@ -360,7 +360,7 @@ export async function POST(req: NextRequest) {
         metadata: {
           retell_call_id: retellCallId,
           type: 'voice_call_summary',
-          lead_score: leadScore,
+          ai_score: leadScore,
           appointment_booked: callerInfo.appointmentBooked,
           recording_url: recordingUrl,
           call_analysis: callAnalysis,
