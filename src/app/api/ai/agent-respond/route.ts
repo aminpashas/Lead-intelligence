@@ -151,9 +151,9 @@ export async function POST(request: NextRequest) {
       conversationId: parsed.data.conversation_id,
       transcript: fullTranscript,
       summary: result.internal_notes || null,
-      sentiment: result.lead_assessment?.engagement_level === 'high' ? 'Positive'
-        : result.lead_assessment?.engagement_level === 'medium' ? 'Neutral'
-        : result.lead_assessment?.engagement_level === 'low' ? 'Negative'
+      sentiment: (result.lead_assessment?.engagement_temperature ?? 0) >= 7 ? 'Positive'
+        : (result.lead_assessment?.engagement_temperature ?? 0) >= 4 ? 'Neutral'
+        : (result.lead_assessment?.engagement_temperature ?? 0) >= 1 ? 'Negative'
         : null,
       callSuccessful: result.confidence > 0.7,
     }).catch((err: unknown) => console.warn('[agent-respond] Encounter processing failed (non-blocking):', err instanceof Error ? err.message : err))

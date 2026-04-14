@@ -55,16 +55,23 @@ export function formatAssetForSMS(
         quote?: string
         video_url?: string
       }
+      // Fallback: use media_urls[0] if video_url not in content JSON
+      const videoUrl = c.video_url || asset.media_urls?.[0] || null
+      // Fallback: extract patient name from asset title ("Name – Title" format)
+      const patientName = c.patient_name || asset.title.split('–')[0]?.split('—')[0]?.trim() || null
+
       const lines = [`Hi ${name}! Here's a story from one of our patients:`]
-      if (c.patient_name && c.procedure) {
-        lines.push(`${c.patient_name} — ${c.procedure}`)
+      if (patientName && c.procedure) {
+        lines.push(`${patientName} — ${c.procedure}`)
+      } else if (patientName) {
+        lines.push(patientName)
       }
       if (c.quote) {
         const truncatedQuote = c.quote.length > 120 ? c.quote.substring(0, 117) + '...' : c.quote
         lines.push(`"${truncatedQuote}"`)
       }
-      if (c.video_url) {
-        lines.push(`\nWatch their story: ${c.video_url}`)
+      if (videoUrl) {
+        lines.push(`\nWatch their story: ${videoUrl}`)
       }
       return lines.join('\n')
     }
@@ -212,20 +219,28 @@ export function formatAssetForEmail(
         video_url?: string
         thumbnail_url?: string
       }
-      subject = `🌟 Patient Story: ${c.patient_name ? `${c.patient_name}'s` : 'A'} Smile Transformation`
+      // Fallback: use media_urls[0] if video_url not in content JSON
+      const videoUrl = c.video_url || asset.media_urls?.[0] || null
+      // Fallback: extract patient name from asset title ("Name – Title" format)
+      const patientName = c.patient_name || asset.title.split('–')[0]?.split('—')[0]?.trim() || null
+      // Auto-generate YouTube thumbnail if none provided
+      const youtubeId = videoUrl?.match(/(?:v=|youtu\.be\/)([\w-]+)/)?.[1]
+      const thumbnailUrl = c.thumbnail_url || (youtubeId ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg` : null)
+
+      subject = `🌟 Patient Story: ${patientName ? `${patientName}'s` : 'A'} Smile Transformation`
 
       bodyHtml = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; padding: 32px;">
           <h2 style="color: #1e293b; margin-bottom: 16px;">🌟 Real Patient, Real Results</h2>
-          ${c.patient_name ? `<p style="color: #475569; font-size: 18px; font-weight: 600; margin-bottom: 4px;">${c.patient_name}</p>` : ''}
+          ${patientName ? `<p style="color: #475569; font-size: 18px; font-weight: 600; margin-bottom: 4px;">${patientName}</p>` : ''}
           ${c.procedure ? `<p style="color: #7c3aed; font-size: 14px; margin-bottom: 16px;">${c.procedure}</p>` : ''}
           ${c.quote ? `<blockquote style="border-left: 4px solid #7c3aed; padding: 12px 16px; margin: 16px 0; background: #faf5ff; border-radius: 0 8px 8px 0;"><p style="color: #475569; font-size: 16px; font-style: italic; margin: 0;">"${c.quote}"</p></blockquote>` : ''}
-          ${c.thumbnail_url ? `<img src="${c.thumbnail_url}" alt="Patient testimonial" style="width: 100%; max-width: 560px; border-radius: 12px; margin: 16px 0;" />` : ''}
-          ${c.video_url ? `<p style="margin: 20px 0;"><a href="${c.video_url}" style="background: #7c3aed; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-size: 16px;">▶️ Watch ${c.patient_name ? `${c.patient_name}'s` : 'Their'} Story</a></p>` : ''}
+          ${thumbnailUrl ? `<a href="${videoUrl || '#'}" style="display: block; position: relative; margin: 16px 0;"><img src="${thumbnailUrl}" alt="Patient testimonial" style="width: 100%; max-width: 560px; border-radius: 12px;" /><div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 64px; height: 64px; background: rgba(124,58,237,0.9); border-radius: 50%; display: flex; align-items: center; justify-content: center;"><span style="color: white; font-size: 28px; margin-left: 4px;">▶</span></div></a>` : ''}
+          ${videoUrl ? `<p style="margin: 20px 0;"><a href="${videoUrl}" style="background: #7c3aed; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-size: 16px;">▶️ Watch ${patientName ? `${patientName}'s` : 'Their'} Story</a></p>` : ''}
           <p style="color: #94a3b8; font-size: 14px;">Hi ${name}, we thought you might find this inspiring!</p>
         </div>
       `
-      bodyText = `Real Patient Story${c.patient_name ? ` — ${c.patient_name}` : ''}\n${c.quote ? `"${c.quote}"` : ''}\n${c.video_url ? `Watch: ${c.video_url}` : ''}`
+      bodyText = `Real Patient Story${patientName ? ` — ${patientName}` : ''}\n${c.quote ? `"${c.quote}"` : ''}\n${videoUrl ? `Watch: ${videoUrl}` : ''}`
       break
     }
 
