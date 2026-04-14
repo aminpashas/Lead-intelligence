@@ -98,27 +98,89 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Return success — scoring happens async later (or via cron)
-    // For now return a mock score based on urgency + dental condition
+    const leadId = result?.lead_id
+    const isNew = result?.action === 'created'
+
+    // ── Async post-processing (non-blocking) ──
+    // Run full enrichment + AI scoring pipeline after responding to the caller.
+    // Only runs on newly created leads; duplicate form submissions skip re-processing.
+    if (leadId && isNew) {
+      ;(async () => {
+        try {
+          // Load the full lead record needed by enrichLead
+          const { data: lead } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('id', leadId)
+            .single()
+
+          if (!lead) return
+
+          // Step 1: Enrich — email validation, phone validation, IP geo, credit prequal
+          const { enrichLead } = await import('@/lib/enrichment')
+          await enrichLead(supabase, lead)
+
+          // Step 2: Reload with enrichment data, then run 8-dimension AI scoring
+          const { data: enrichedLead } = await supabase
+            .from('leads')
+            .select('*')
+            .eq('id', leadId)
+            .single()
+
+          if (!enrichedLead) return
+
+          const { scoreLead } = await import('@/lib/ai/scoring')
+          const scoreResult = await scoreLead(enrichedLead, supabase)
+
+          await supabase
+            .from('leads')
+            .update({
+              ai_score: scoreResult.total_score,
+              ai_qualification: scoreResult.qualification,
+              ai_score_breakdown: {
+                dimensions: scoreResult.dimensions,
+                confidence: scoreResult.confidence,
+              },
+              ai_score_updated_at: new Date().toISOString(),
+              ai_summary: scoreResult.summary,
+            })
+            .eq('id', leadId)
+        } catch (err) {
+          // Non-blocking — log but never surface to the form submitter
+          console.warn('[qualify] Post-processing error:', err instanceof Error ? err.message : err)
+        }
+      })()
+    }
+
+    // Return immediately with a provisional score so the form response is instant.
+    // The real 8-dimension AI score + credit prequal is persisted asynchronously above.
     const urgencyScore: Record<string, number> = { asap: 90, soon: 70, depends: 50, putting_off: 40 }
-    const conditionScore: Record<string, number> = { missing_all_both: 85, denture_problems: 80, failing_teeth: 75, missing_multiple: 60, other: 40 }
+    const conditionScore: Record<string, number> = {
+      missing_all_both: 85, denture_problems: 80, failing_teeth: 75, missing_multiple: 60, other: 40,
+    }
 
     const uScore = urgencyScore[parsed.data.urgency] || 50
     const cScore = conditionScore[parsed.data.dental_condition] || 50
-    const totalScore = Math.round((uScore * 0.5 + cScore * 0.5))
-    const qualification = totalScore >= 75 ? 'hot' : totalScore >= 50 ? 'warm' : totalScore >= 25 ? 'cold' : 'unqualified'
+    const provisionalScore = Math.round((uScore * 0.5 + cScore * 0.5))
+    const provisionalQualification =
+      provisionalScore >= 75 ? 'hot' :
+      provisionalScore >= 50 ? 'warm' :
+      provisionalScore >= 25 ? 'cold' : 'unqualified'
 
     return NextResponse.json({
       success: true,
-      lead_id: result?.lead_id,
+      lead_id: leadId,
       action: result?.action || 'created',
       score: {
-        total: totalScore,
-        qualification,
-        summary: `Lead scored ${totalScore}/100 based on dental condition and urgency.`,
-        recommended_action: qualification === 'hot' ? 'Schedule consultation ASAP' : 'Follow up within 24 hours',
+        total: provisionalScore,
+        qualification: provisionalQualification,
+        summary: `Provisional score ${provisionalScore}/100. Full AI scoring and credit pre-qualification running in background.`,
+        recommended_action: provisionalQualification === 'hot'
+          ? 'Schedule consultation ASAP'
+          : 'Follow up within 24 hours',
+        is_provisional: true,
       },
-    }, { status: result?.action === 'created' ? 201 : 200 })
+    }, { status: isNew ? 201 : 200 })
   } catch (err) {
     console.error('Qualify error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
