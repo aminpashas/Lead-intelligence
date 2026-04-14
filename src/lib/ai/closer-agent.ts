@@ -279,6 +279,35 @@ You must NEVER:
 - Do NOT make medical claims, diagnoses, or guarantee outcomes
 - Do NOT share specific interest rates or financial terms via text
 
+═══ CROSS-CHANNEL CAPABILITIES ═══
+
+You can send information to the patient via OTHER channels during this conversation.
+When a patient asks for written information, directions, photos, videos, or any
+content that's better delivered in text/email form, USE THE TOOLS.
+
+Available cross-channel tools:
+- send_sms_to_lead: Text them a brief message (address, link, confirmation)
+- send_email_to_lead: Email them detailed info (treatment overview, photos, documents)
+- send_practice_info: Send practice address + map link + hours via SMS or email
+- send_testimonial: Send a patient testimonial video or story via SMS or email
+- send_before_after: Send before/after transformation photos via SMS or email
+
+WHEN TO USE:
+- Patient says "can you text me that?" → send_sms_to_lead
+- Patient says "send me an email" → send_email_to_lead
+- Patient asks "where are you located?" / "what's the address?" → send_practice_info
+- Patient asks about results, reviews, or testimonials → send_testimonial
+- Patient wants to see transformations or examples → send_before_after
+- Patient is hesitant → proactively offer: "Would you like me to send you some before/after photos?"
+
+RULES:
+- Always confirm what you're sending: "I'll send that right over!"
+- After sending, acknowledge: "I just sent that to your phone/email."
+- If we don't have their phone/email for the delivery channel, ask for it naturally.
+- Never send more than 2 cross-channel messages per conversation.
+- For voice calls: say "Sure thing, let me text/email that to you right now" before using the tool.
+- Use before/afters and testimonials proactively to overcome objections and build confidence.
+
 ═══ HANDOFF BACK TO SETTER ═══
 
 If ANY of these are true, include "should_handoff": true with reason:
@@ -368,6 +397,7 @@ export async function closerAgentRespond(
             lead_id: context.lead.id!,
             lead: context.lead as Record<string, unknown>,
             conversation_id: context.conversation_id,
+            channel: context.channel,
           }
         )
         toolResults.push({

@@ -8,6 +8,7 @@ import { getPatientProfile } from '@/lib/ai/patient-psychology'
 import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { Lead, Conversation, PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
 import { storeTechniqueUsage, storeLeadAssessment, updateConversationSummary, getLatestAssessment, getRecentTechniqueHistory } from '@/lib/ai/technique-tracker'
+import { processEncounter } from '@/lib/ai/encounter-processor'
 
 const agentRespondSchema = z.object({
   conversation_id: z.string().uuid(),
@@ -133,6 +134,29 @@ export async function POST(request: NextRequest) {
         lead.id
       ).catch((err: unknown) => console.warn('[agent-respond] Conversation summary update failed:', err instanceof Error ? err.message : err)) // Non-critical
     }
+
+    // ── Unified Post-Encounter Processing (same pipeline as Voice) ──
+    // Build transcript from conversation history + new AI response
+    const fullTranscript = [
+      ...conversationHistory.map(m => 
+        m.role === 'user' ? `User: ${m.content}` : `Agent: ${m.content}`
+      ),
+      `Agent: ${result.message}`,
+    ].join('\n')
+
+    processEncounter({
+      channel: conv.channel as 'sms' | 'email' | 'voice',
+      orgId: profile.organization_id,
+      leadId: lead.id,
+      conversationId: parsed.data.conversation_id,
+      transcript: fullTranscript,
+      summary: result.internal_notes || null,
+      sentiment: result.lead_assessment?.engagement_level === 'high' ? 'Positive'
+        : result.lead_assessment?.engagement_level === 'medium' ? 'Neutral'
+        : result.lead_assessment?.engagement_level === 'low' ? 'Negative'
+        : null,
+      callSuccessful: result.confidence > 0.7,
+    }).catch((err: unknown) => console.warn('[agent-respond] Encounter processing failed (non-blocking):', err instanceof Error ? err.message : err))
 
     return NextResponse.json({
       message: result.message,

@@ -3,7 +3,14 @@
  *
  * Defines tools that Claude can call during conversations to take
  * real actions: check appointment availability, create bookings,
- * send financing links, etc.
+ * send financing links, and cross-channel content delivery.
+ *
+ * Cross-channel tools enable the AI to send SMS/email from any channel:
+ * - send_sms_to_lead: Send a custom SMS message
+ * - send_email_to_lead: Send a custom email
+ * - send_practice_info: Send practice address/hours/directions
+ * - send_testimonial: Send a patient testimonial video/story
+ * - send_before_after: Send before/after transformation photos
  *
  * These tools are injected into the Anthropic API call as tool definitions.
  * When Claude returns a tool_use block, we execute the tool and continue.
@@ -13,13 +20,100 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendSMS } from '@/lib/messaging/twilio'
+import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
-import { auditPHIWrite } from '@/lib/hipaa-audit'
+import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
+import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
+import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
 import type Anthropic from '@anthropic-ai/sdk'
 
 // ═══════════════════════════════════════════════════════════
 // TOOL DEFINITIONS (sent to Claude)
 // ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+// CROSS-CHANNEL TOOL DEFINITIONS (shared by Setter & Closer)
+// ═══════════════════════════════════════════════════════════
+
+const CROSS_CHANNEL_TOOLS: Anthropic.Tool[] = [
+  {
+    name: 'send_sms_to_lead',
+    description: 'Send a custom SMS text message to the patient. Use this when the patient asks you to text them information, or when you need to send something that\'s better in written form (e.g., a link, address, confirmation). Works from any channel — you can send a text while on a phone call.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        message: {
+          type: 'string',
+          description: 'The SMS message to send. Keep it under 300 characters. Be concise and include any relevant links or details.',
+        },
+      },
+      required: ['message'],
+    },
+  },
+  {
+    name: 'send_email_to_lead',
+    description: 'Send a custom email to the patient. Use this when the patient asks for detailed information via email, or when you need to send something that benefits from rich formatting (images, detailed text). Works from any channel.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        subject: {
+          type: 'string',
+          description: 'The email subject line.',
+        },
+        message: {
+          type: 'string',
+          description: 'The email body content. Can be longer and more detailed than SMS.',
+        },
+      },
+      required: ['subject', 'message'],
+    },
+  },
+  {
+    name: 'send_practice_info',
+    description: 'Send the practice\'s address, phone number, hours, and directions to the patient. Use when they ask "where are you located?", "what\'s the address?", "how do I get there?", or any location-related question. Sends via SMS by default, or email if specified.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        channel: {
+          type: 'string',
+          enum: ['sms', 'email'],
+          description: 'Which channel to send via. Default is SMS.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'send_testimonial',
+    description: 'Send a patient testimonial video or story to the patient. Use when they ask about reviews, patient experiences, success stories, or want social proof. Sends via SMS (with video link) or email (with embedded thumbnail).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        channel: {
+          type: 'string',
+          enum: ['sms', 'email'],
+          description: 'Which channel to send via. Default is SMS for quick video link, email for richer presentation.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'send_before_after',
+    description: 'Send before-and-after transformation photos to the patient. Use when they ask to see results, transformations, or examples of work. Email is preferred (can embed images), SMS sends a link to the photo gallery.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        channel: {
+          type: 'string',
+          enum: ['sms', 'email'],
+          description: 'Which channel to send via. Default is email for image embeds.',
+        },
+      },
+      required: [],
+    },
+  },
+]
 
 export const SETTER_TOOLS: Anthropic.Tool[] = [
   {
@@ -54,6 +148,7 @@ export const SETTER_TOOLS: Anthropic.Tool[] = [
       required: ['date', 'time'],
     },
   },
+  ...CROSS_CHANNEL_TOOLS,
 ]
 
 export const CLOSER_TOOLS: Anthropic.Tool[] = [
@@ -80,6 +175,7 @@ export const CLOSER_TOOLS: Anthropic.Tool[] = [
       required: [],
     },
   },
+  ...CROSS_CHANNEL_TOOLS,
 ]
 
 // ═══════════════════════════════════════════════════════════
@@ -104,6 +200,7 @@ export async function executeAgentTool(
     lead_id: string
     lead: Record<string, unknown>
     conversation_id: string
+    channel?: string // The current channel the agent is on
   }
 ): Promise<ToolResult> {
   switch (toolName) {
@@ -118,6 +215,22 @@ export async function executeAgentTool(
 
     case 'send_financing_link':
       return executeSendFinancingLink(supabase, context, toolInput.treatment_value as number | undefined)
+
+    // Cross-channel tools
+    case 'send_sms_to_lead':
+      return executeSendSMSToLead(supabase, context, toolInput.message as string)
+
+    case 'send_email_to_lead':
+      return executeSendEmailToLead(supabase, context, toolInput.subject as string, toolInput.message as string)
+
+    case 'send_practice_info':
+      return executeSendPracticeInfo(supabase, context, (toolInput.channel as string) || 'sms')
+
+    case 'send_testimonial':
+      return executeSendTestimonial(supabase, context, (toolInput.channel as string) || 'sms')
+
+    case 'send_before_after':
+      return executeSendBeforeAfter(supabase, context, (toolInput.channel as string) || 'email')
 
     default:
       return { success: false, data: {}, message: `Unknown tool: ${toolName}` }
@@ -459,5 +572,579 @@ async function executeSendFinancingLink(
     success: false,
     data: {},
     message: 'Could not send financing link — no phone number on file. Share the financing information verbally in the conversation.',
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CROSS-CHANNEL TOOL IMPLEMENTATIONS
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Helper: Get lead contact info and org name for cross-channel delivery.
+ */
+async function getCrossChannelContext(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+  }
+): Promise<{ phone: string | null; email: string | null; leadName: string; orgName: string }> {
+  const phone = context.lead.phone_formatted
+    ? (decryptField(context.lead.phone_formatted as string) || context.lead.phone_formatted as string)
+    : null
+
+  const email = context.lead.email
+    ? (decryptField(context.lead.email as string) || context.lead.email as string)
+    : null
+
+  const leadName = (context.lead.first_name as string) || ''
+
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', context.organization_id)
+    .single()
+
+  return { phone, email, leadName, orgName: org?.name || 'our practice' }
+}
+
+/**
+ * Helper: Store an outbound message record from a cross-channel delivery.
+ */
+async function storeOutboundMessage(
+  supabase: SupabaseClient,
+  params: {
+    organization_id: string
+    conversation_id: string
+    lead_id: string
+    channel: 'sms' | 'email'
+    body: string
+    external_id?: string
+    metadata?: Record<string, unknown>
+  }
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('messages')
+    .insert({
+      organization_id: params.organization_id,
+      conversation_id: params.conversation_id,
+      lead_id: params.lead_id,
+      direction: 'outbound',
+      channel: params.channel,
+      body: params.body,
+      sender_type: 'ai',
+      status: 'sent',
+      external_id: params.external_id || null,
+      ai_generated: true,
+      metadata: {
+        cross_channel: true,
+        ...params.metadata,
+      },
+    })
+    .select('id')
+    .single()
+
+  return data?.id || null
+}
+
+/**
+ * send_sms_to_lead — Send a custom SMS to the lead.
+ */
+async function executeSendSMSToLead(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+    channel?: string
+  },
+  message: string
+): Promise<ToolResult> {
+  // Consent check
+  if (!context.lead.sms_consent || context.lead.sms_opt_out) {
+    return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Provide the information verbally instead.' }
+  }
+
+  const { phone, leadName, orgName } = await getCrossChannelContext(supabase, context)
+  if (!phone) {
+    return { success: false, data: {}, message: 'Cannot send SMS — no phone number on file. Ask the patient for their phone number.' }
+  }
+
+  const formattedMessage = formatCustomSMS(message, leadName)
+
+  try {
+    const result = await sendSMS(phone, formattedMessage)
+
+    // Store message record
+    const messageId = await storeOutboundMessage(supabase, {
+      organization_id: context.organization_id,
+      conversation_id: context.conversation_id,
+      lead_id: context.lead_id,
+      channel: 'sms',
+      body: formattedMessage,
+      external_id: result.sid,
+      metadata: { tool: 'send_sms_to_lead', source_channel: context.channel },
+    })
+
+    // Track cross-channel delivery
+    await recordDelivery(supabase, {
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      conversation_id: context.conversation_id,
+      triggered_by_channel: context.channel || 'voice',
+      delivered_via_channel: 'sms',
+      content_type: 'custom_message',
+      message_id: messageId || undefined,
+      status: 'sent',
+      tool_name: 'send_sms_to_lead',
+    })
+
+    // Log activity
+    await supabase.from('lead_activities').insert({
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      activity_type: 'cross_channel_sms_sent',
+      title: `AI sent SMS during ${context.channel || 'conversation'}`,
+      description: formattedMessage.substring(0, 200),
+      metadata: { tool: 'send_sms_to_lead', source_channel: context.channel },
+    })
+
+    // HIPAA audit
+    auditPHITransmission(
+      { supabase, organizationId: context.organization_id, actorType: 'ai_agent' },
+      'cross_channel_sms',
+      context.lead_id,
+      'Twilio (SMS)',
+      ['phone']
+    )
+
+    return {
+      success: true,
+      data: { message_id: messageId },
+      message: `SMS sent successfully to the patient. Message: "${formattedMessage.substring(0, 100)}..."`,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      data: {},
+      message: `Failed to send SMS: ${error instanceof Error ? error.message : 'Unknown error'}. Share the information verbally instead.`,
+    }
+  }
+}
+
+/**
+ * send_email_to_lead — Send a custom email to the lead.
+ */
+async function executeSendEmailToLead(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+    channel?: string
+  },
+  subject: string,
+  message: string
+): Promise<ToolResult> {
+  // Consent check
+  if (!context.lead.email_consent || context.lead.email_opt_out) {
+    return { success: false, data: {}, message: 'Cannot send email — patient has not given email consent or has opted out. Provide the information verbally or via SMS instead.' }
+  }
+
+  const { email, leadName, orgName } = await getCrossChannelContext(supabase, context)
+  if (!email) {
+    return { success: false, data: {}, message: 'Cannot send email — no email address on file. Ask the patient for their email address.' }
+  }
+
+  const formatted = formatCustomEmail(message, leadName, orgName, {
+    subject,
+    leadId: context.lead_id,
+    orgId: context.organization_id,
+  })
+
+  try {
+    const result = await sendEmail({
+      to: email,
+      subject: formatted.subject,
+      html: formatted.html,
+      text: formatted.text,
+    })
+
+    // Store message record
+    const messageId = await storeOutboundMessage(supabase, {
+      organization_id: context.organization_id,
+      conversation_id: context.conversation_id,
+      lead_id: context.lead_id,
+      channel: 'email',
+      body: message,
+      external_id: result.id,
+      metadata: { tool: 'send_email_to_lead', subject, source_channel: context.channel },
+    })
+
+    // Track cross-channel delivery
+    await recordDelivery(supabase, {
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      conversation_id: context.conversation_id,
+      triggered_by_channel: context.channel || 'voice',
+      delivered_via_channel: 'email',
+      content_type: 'custom_message',
+      message_id: messageId || undefined,
+      status: 'sent',
+      tool_name: 'send_email_to_lead',
+    })
+
+    // Log activity
+    await supabase.from('lead_activities').insert({
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      activity_type: 'cross_channel_email_sent',
+      title: `AI sent email during ${context.channel || 'conversation'}: ${subject}`,
+      metadata: { tool: 'send_email_to_lead', subject, source_channel: context.channel },
+    })
+
+    return {
+      success: true,
+      data: { message_id: messageId },
+      message: `Email sent successfully to the patient with subject "${subject}".`,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      data: {},
+      message: `Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}. Share the information verbally or via SMS instead.`,
+    }
+  }
+}
+
+/**
+ * send_practice_info — Send practice address, hours, and directions.
+ */
+async function executeSendPracticeInfo(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+    channel?: string
+  },
+  deliveryChannel: string
+): Promise<ToolResult> {
+  const { phone, email, leadName, orgName } = await getCrossChannelContext(supabase, context)
+
+  // Get practice info asset
+  const practiceInfo = await getPracticeInfo(supabase, context.organization_id)
+  if (!practiceInfo) {
+    // Fallback: try to get from org settings
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('address, phone, website')
+      .eq('id', context.organization_id)
+      .single()
+
+    if (org?.address) {
+      const addr = org.address as Record<string, string>
+      const addressText = [addr.street, addr.city, addr.state, addr.zip].filter(Boolean).join(', ')
+      return {
+        success: true,
+        data: { address: addressText },
+        message: `Practice address: ${addressText}${org.phone ? `. Phone: ${org.phone}` : ''}. Note: No detailed practice info asset configured. The address has been shared verbally.`,
+      }
+    }
+    return { success: false, data: {}, message: 'No practice info configured. Share the address verbally.' }
+  }
+
+  // Track usage
+  await incrementUsage(supabase, practiceInfo.id)
+
+  if (deliveryChannel === 'sms') {
+    if (!context.lead.sms_consent || context.lead.sms_opt_out || !phone) {
+      return { success: false, data: {}, message: 'Cannot send SMS — no consent or no phone. Share practice info verbally.' }
+    }
+
+    const smsContent = formatAssetForSMS(practiceInfo, leadName, orgName)
+    const result = await sendSMS(phone, smsContent)
+
+    const messageId = await storeOutboundMessage(supabase, {
+      organization_id: context.organization_id,
+      conversation_id: context.conversation_id,
+      lead_id: context.lead_id,
+      channel: 'sms',
+      body: smsContent,
+      external_id: result.sid,
+      metadata: { tool: 'send_practice_info', content_asset_id: practiceInfo.id },
+    })
+
+    await recordDelivery(supabase, {
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      conversation_id: context.conversation_id,
+      triggered_by_channel: context.channel || 'voice',
+      delivered_via_channel: 'sms',
+      content_type: 'practice_info',
+      content_asset_id: practiceInfo.id,
+      message_id: messageId || undefined,
+      status: 'sent',
+      tool_name: 'send_practice_info',
+    })
+
+    await supabase.from('lead_activities').insert({
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      activity_type: 'cross_channel_practice_info_sent',
+      title: `AI sent practice info via SMS during ${context.channel || 'conversation'}`,
+      metadata: { tool: 'send_practice_info', delivery_channel: 'sms' },
+    })
+
+    return { success: true, data: { content_asset_id: practiceInfo.id }, message: 'Practice address and directions have been texted to the patient.' }
+  } else {
+    // Email delivery
+    if (!context.lead.email_consent || context.lead.email_opt_out || !email) {
+      return { success: false, data: {}, message: 'Cannot send email — no consent or no email address. Try SMS or share verbally.' }
+    }
+
+    const emailContent = formatAssetForEmail(practiceInfo, leadName, orgName, {
+      leadId: context.lead_id,
+      orgId: context.organization_id,
+    })
+
+    const result = await sendEmail({ to: email, ...emailContent })
+
+    const messageId = await storeOutboundMessage(supabase, {
+      organization_id: context.organization_id,
+      conversation_id: context.conversation_id,
+      lead_id: context.lead_id,
+      channel: 'email',
+      body: emailContent.text,
+      external_id: result.id,
+      metadata: { tool: 'send_practice_info', content_asset_id: practiceInfo.id, subject: emailContent.subject },
+    })
+
+    await recordDelivery(supabase, {
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      conversation_id: context.conversation_id,
+      triggered_by_channel: context.channel || 'voice',
+      delivered_via_channel: 'email',
+      content_type: 'practice_info',
+      content_asset_id: practiceInfo.id,
+      message_id: messageId || undefined,
+      status: 'sent',
+      tool_name: 'send_practice_info',
+    })
+
+    return { success: true, data: { content_asset_id: practiceInfo.id }, message: 'Practice address and directions have been emailed to the patient.' }
+  }
+}
+
+/**
+ * send_testimonial — Send a patient testimonial video/story.
+ */
+async function executeSendTestimonial(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+    channel?: string
+  },
+  deliveryChannel: string
+): Promise<ToolResult> {
+  const { phone, email, leadName, orgName } = await getCrossChannelContext(supabase, context)
+
+  // Get a random testimonial (for variety)
+  const testimonials = await getRandomAssets(supabase, context.organization_id, 'testimonial_video', 1)
+  if (testimonials.length === 0) {
+    return { success: false, data: {}, message: 'No testimonial videos configured. Mention verbally that you have many happy patients and offer to share more during the consultation.' }
+  }
+
+  const testimonial = testimonials[0]
+  await incrementUsage(supabase, testimonial.id)
+
+  if (deliveryChannel === 'sms') {
+    if (!context.lead.sms_consent || context.lead.sms_opt_out || !phone) {
+      return { success: false, data: {}, message: 'Cannot send SMS — no consent or no phone. Mention the testimonials verbally.' }
+    }
+
+    const smsContent = formatAssetForSMS(testimonial, leadName, orgName)
+    const result = await sendSMS(phone, smsContent)
+
+    const messageId = await storeOutboundMessage(supabase, {
+      organization_id: context.organization_id,
+      conversation_id: context.conversation_id,
+      lead_id: context.lead_id,
+      channel: 'sms',
+      body: smsContent,
+      external_id: result.sid,
+      metadata: { tool: 'send_testimonial', content_asset_id: testimonial.id },
+    })
+
+    await recordDelivery(supabase, {
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      conversation_id: context.conversation_id,
+      triggered_by_channel: context.channel || 'voice',
+      delivered_via_channel: 'sms',
+      content_type: 'testimonial_video',
+      content_asset_id: testimonial.id,
+      message_id: messageId || undefined,
+      status: 'sent',
+      tool_name: 'send_testimonial',
+    })
+
+    await supabase.from('lead_activities').insert({
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      activity_type: 'cross_channel_testimonial_sent',
+      title: `AI sent testimonial video via SMS: ${testimonial.title}`,
+      metadata: { tool: 'send_testimonial', asset_title: testimonial.title, delivery_channel: 'sms' },
+    })
+
+    return { success: true, data: { content_asset_id: testimonial.id, title: testimonial.title }, message: `Patient testimonial "${testimonial.title}" has been texted to the patient with a link to the video.` }
+  } else {
+    if (!context.lead.email_consent || context.lead.email_opt_out || !email) {
+      return { success: false, data: {}, message: 'Cannot send email — no consent or no email. Try SMS or mention verbally.' }
+    }
+
+    const emailContent = formatAssetForEmail(testimonial, leadName, orgName, {
+      leadId: context.lead_id,
+      orgId: context.organization_id,
+    })
+
+    const result = await sendEmail({ to: email, ...emailContent })
+
+    const messageId = await storeOutboundMessage(supabase, {
+      organization_id: context.organization_id,
+      conversation_id: context.conversation_id,
+      lead_id: context.lead_id,
+      channel: 'email',
+      body: emailContent.text,
+      external_id: result.id,
+      metadata: { tool: 'send_testimonial', content_asset_id: testimonial.id, subject: emailContent.subject },
+    })
+
+    await recordDelivery(supabase, {
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      conversation_id: context.conversation_id,
+      triggered_by_channel: context.channel || 'voice',
+      delivered_via_channel: 'email',
+      content_type: 'testimonial_video',
+      content_asset_id: testimonial.id,
+      message_id: messageId || undefined,
+      status: 'sent',
+      tool_name: 'send_testimonial',
+    })
+
+    return { success: true, data: { content_asset_id: testimonial.id, title: testimonial.title }, message: `Patient testimonial "${testimonial.title}" has been emailed to the patient with an embedded video link.` }
+  }
+}
+
+/**
+ * send_before_after — Send before/after transformation photos.
+ */
+async function executeSendBeforeAfter(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+    channel?: string
+  },
+  deliveryChannel: string
+): Promise<ToolResult> {
+  const { phone, email, leadName, orgName } = await getCrossChannelContext(supabase, context)
+
+  // Get random before/after photos (send up to 2 for variety)
+  const photos = await getRandomAssets(supabase, context.organization_id, 'before_after_photo', 2)
+  if (photos.length === 0) {
+    return { success: false, data: {}, message: 'No before/after photos configured. Mention verbally that you can show them transformations during the consultation.' }
+  }
+
+  const photo = photos[0]
+  await incrementUsage(supabase, photo.id)
+
+  if (deliveryChannel === 'sms') {
+    if (!context.lead.sms_consent || context.lead.sms_opt_out || !phone) {
+      return { success: false, data: {}, message: 'Cannot send SMS — no consent or no phone. Try email or mention verbally.' }
+    }
+
+    const smsContent = formatAssetForSMS(photo, leadName, orgName)
+    const result = await sendSMS(phone, smsContent)
+
+    const messageId = await storeOutboundMessage(supabase, {
+      organization_id: context.organization_id,
+      conversation_id: context.conversation_id,
+      lead_id: context.lead_id,
+      channel: 'sms',
+      body: smsContent,
+      external_id: result.sid,
+      metadata: { tool: 'send_before_after', content_asset_id: photo.id },
+    })
+
+    await recordDelivery(supabase, {
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      conversation_id: context.conversation_id,
+      triggered_by_channel: context.channel || 'voice',
+      delivered_via_channel: 'sms',
+      content_type: 'before_after_photo',
+      content_asset_id: photo.id,
+      message_id: messageId || undefined,
+      status: 'sent',
+      tool_name: 'send_before_after',
+    })
+
+    await supabase.from('lead_activities').insert({
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      activity_type: 'cross_channel_before_after_sent',
+      title: `AI sent before/after photos via SMS: ${photo.title}`,
+      metadata: { tool: 'send_before_after', asset_title: photo.title, delivery_channel: 'sms' },
+    })
+
+    return { success: true, data: { content_asset_id: photo.id }, message: `Before/after transformation "${photo.title}" has been texted to the patient with a link to view the photos.` }
+  } else {
+    if (!context.lead.email_consent || context.lead.email_opt_out || !email) {
+      return { success: false, data: {}, message: 'Cannot send email — no consent or no email. Try SMS instead.' }
+    }
+
+    const emailContent = formatAssetForEmail(photo, leadName, orgName, {
+      leadId: context.lead_id,
+      orgId: context.organization_id,
+    })
+
+    const result = await sendEmail({ to: email, ...emailContent })
+
+    const messageId = await storeOutboundMessage(supabase, {
+      organization_id: context.organization_id,
+      conversation_id: context.conversation_id,
+      lead_id: context.lead_id,
+      channel: 'email',
+      body: emailContent.text,
+      external_id: result.id,
+      metadata: { tool: 'send_before_after', content_asset_id: photo.id, subject: emailContent.subject },
+    })
+
+    await recordDelivery(supabase, {
+      organization_id: context.organization_id,
+      lead_id: context.lead_id,
+      conversation_id: context.conversation_id,
+      triggered_by_channel: context.channel || 'voice',
+      delivered_via_channel: 'email',
+      content_type: 'before_after_photo',
+      content_asset_id: photo.id,
+      message_id: messageId || undefined,
+      status: 'sent',
+      tool_name: 'send_before_after',
+    })
+
+    return { success: true, data: { content_asset_id: photo.id }, message: `Before/after transformation "${photo.title}" has been emailed to the patient with embedded comparison photos.` }
   }
 }

@@ -129,6 +129,14 @@ export async function POST(request: NextRequest) {
       description: parsed.data.message.substring(0, 200),
     })
 
+    // Update lead engagement metrics (unified with Voice/Email)
+    await supabase.from('leads').update({
+      last_contacted_at: new Date().toISOString(),
+      total_sms_sent: (lead as Record<string, unknown>).total_sms_sent
+        ? ((lead as Record<string, unknown>).total_sms_sent as number) + 1
+        : 1,
+    }).eq('id', lead.id)
+
     return NextResponse.json({ message, twilio_sid: result.sid })
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Failed to send SMS'

@@ -117,3 +117,84 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ appointment }, { status: 201 })
 }
+
+// PATCH /api/appointments
+export async function PATCH(request: NextRequest) {
+  const supabase = await createClient()
+  const body = await request.json()
+
+  const { appointment_id, status, notes } = body
+
+  if (!appointment_id || !status) {
+    return NextResponse.json({ error: 'appointment_id and status are required' }, { status: 400 })
+  }
+
+  const validStatuses = ['scheduled', 'confirmed', 'completed', 'no_show', 'canceled', 'rescheduled']
+  if (!validStatuses.includes(status)) {
+    return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` }, { status: 400 })
+  }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const updateData: Record<string, unknown> = { status }
+  if (notes !== undefined) updateData.notes = notes
+
+  // Handle confirmation
+  if (status === 'confirmed') {
+    updateData.confirmation_received = true
+    updateData.confirmed_via = 'manual'
+    updateData.confirmed_at = new Date().toISOString()
+    updateData.no_show_risk_score = 5
+  }
+
+  // Handle no-show
+  if (status === 'no_show') {
+    updateData.no_show_risk_score = 100
+  }
+
+  const { data: appointment, error } = await supabase
+    .from('appointments')
+    .update(updateData)
+    .eq('id', appointment_id)
+    .eq('organization_id', profile.organization_id)
+    .select('*, lead:leads(id, first_name, last_name, no_show_count)')
+    .single()
+
+  if (error || !appointment) {
+    return NextResponse.json({ error: error?.message || 'Not found' }, { status: error ? 500 : 404 })
+  }
+
+  // If marking as no-show, increment the lead's no_show_count
+  if (status === 'no_show' && appointment.lead) {
+    const lead = appointment.lead as any
+    await supabase
+      .from('leads')
+      .update({
+        no_show_count: (lead.no_show_count || 0) + 1,
+        status: 'no_show',
+      })
+      .eq('id', lead.id)
+  }
+
+  // Log activity
+  const lead = appointment.lead as any
+  if (lead) {
+    await supabase.from('lead_activities').insert({
+      organization_id: profile.organization_id,
+      lead_id: lead.id,
+      user_id: profile.id,
+      activity_type: `appointment_${status}`,
+      title: `Appointment marked as ${status.replace('_', ' ')}`,
+      metadata: { appointment_id, status },
+    })
+  }
+
+  return NextResponse.json({ appointment })
+}

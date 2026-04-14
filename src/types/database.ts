@@ -954,3 +954,49 @@ export type VoiceCampaignLead = {
   // Joined
   lead?: Lead
 }
+
+// ── Multi-Channel Content Delivery ──────────────────────────
+
+export type ContentAssetType =
+  | 'testimonial_video'
+  | 'before_after_photo'
+  | 'practice_info'
+  | 'appointment_details'
+  | 'financing_info'
+  | 'procedure_info'
+
+export type ContentAsset = {
+  id: string
+  organization_id: string
+  type: ContentAssetType
+  title: string
+  description: string | null
+  content: Record<string, unknown>
+  media_urls: string[]
+  is_active: boolean
+  tags: string[]
+  usage_count: number
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type CrossChannelDeliveryStatus = 'pending' | 'sent' | 'delivered' | 'failed'
+
+export type CrossChannelDelivery = {
+  id: string
+  organization_id: string
+  lead_id: string
+  conversation_id: string
+  triggered_by_channel: ConversationChannel
+  delivered_via_channel: ConversationChannel
+  content_type: ContentAssetType | 'custom_message'
+  content_asset_id: string | null
+  message_id: string | null
+  status: CrossChannelDeliveryStatus
+  error_message: string | null
+  agent_type: AgentType | null
+  tool_name: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
