@@ -308,9 +308,150 @@ async function sendPostCallFollowUps(
     }
   }
 
-  // TODO: Send email follow-up if wantsEmail && lead.email exists
-  // (Requires Resend API key and verified domain — set RESEND_API_KEY in env)
+  // Send email follow-up via Resend
   if (wantsEmail && extracted && 'email' in extracted && extracted.email) {
-    console.log(`[Voice Events] Email follow-up requested but email sending not yet configured`)
+    const toEmail = extracted.email as string
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'reconstruction@dionhealth.com'
+    const resendKey = process.env.RESEND_API_KEY
+
+    if (resendKey && toEmail) {
+      try {
+        const htmlEmail = buildPostCallEmail({
+          firstName,
+          practiceName,
+          wantsPricing,
+          wantsAppointment,
+        })
+
+        const emailRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${resendKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: `${practiceName} <${fromEmail}>`,
+            to: [toEmail],
+            subject: `Thanks for calling ${practiceName} — here's what we discussed`,
+            html: htmlEmail,
+          }),
+        })
+
+        if (emailRes.ok) {
+          console.log(`[Voice Events] Post-call email sent to ${toEmail}`)
+
+          // Log to conversation
+          const { data: conv } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('lead_id', leadId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+
+          if (conv) {
+            await supabase.from('messages').insert({
+              organization_id: orgId,
+              conversation_id: conv.id,
+              lead_id: leadId,
+              direction: 'outbound',
+              channel: 'email',
+              body: `Post-call summary email sent to ${toEmail}`,
+              sender_type: 'ai',
+              status: 'sent',
+              ai_generated: true,
+              metadata: { trigger: 'post_call_followup_email', to_email: toEmail },
+            })
+          }
+        } else {
+          const err = await emailRes.text()
+          console.error('[Voice Events] Resend email failed:', emailRes.status, err)
+        }
+      } catch (emailErr) {
+        console.error('[Voice Events] Email send error:', emailErr)
+      }
+    }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EMAIL TEMPLATE — Branded post-call HTML email
+// ═══════════════════════════════════════════════════════════════
+
+function buildPostCallEmail(params: {
+  firstName: string
+  practiceName: string
+  wantsPricing: boolean
+  wantsAppointment: boolean
+}): string {
+  const { firstName, practiceName, wantsPricing, wantsAppointment } = params
+
+  const pricingSection = wantsPricing ? `
+    <div style="background:#f0f9ff;border-left:4px solid #0ea5e9;padding:20px 24px;margin:24px 0;border-radius:0 8px 8px 0;">
+      <h3 style="margin:0 0 12px;color:#0369a1;font-size:16px;font-weight:700;">📋 All-on-4 Investment Overview</h3>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• Single arch restoration</td><td style="padding:6px 0;color:#0369a1;font-weight:600;text-align:right;">$20,000 – $30,000</td></tr>
+        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• Full mouth (both arches)</td><td style="padding:6px 0;color:#0369a1;font-weight:600;text-align:right;">$40,000 – $60,000</td></tr>
+        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• Monthly financing options</td><td style="padding:6px 0;color:#0369a1;font-weight:600;text-align:right;">From ~$500–800/mo</td></tr>
+        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• Insurance benefit (typical)</td><td style="padding:6px 0;color:#0369a1;font-weight:600;text-align:right;">$1,500 – $3,000</td></tr>
+        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• HSA / FSA eligible</td><td style="padding:6px 0;color:#10b981;font-weight:600;text-align:right;">✓ Pre-tax savings</td></tr>
+      </table>
+    </div>` : ''
+
+  const appointmentSection = wantsAppointment ? `
+    <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:20px 24px;margin:24px 0;border-radius:0 8px 8px 0;">
+      <h3 style="margin:0 0 12px;color:#15803d;font-size:16px;font-weight:700;">📅 Your Free Consultation Includes</h3>
+      <ul style="margin:0;padding-left:20px;color:#374151;font-size:14px;line-height:2;">
+        <li>60–90 minute one-on-one with our specialist</li>
+        <li>Full 3D CT scan (no additional charge)</li>
+        <li>Personalized treatment plan</li>
+        <li>Complete pricing breakdown</li>
+        <li>Financing pre-qualification on the spot</li>
+      </ul>
+    </div>` : ''
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:600px;margin:40px auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#1e3a5f 0%,#0ea5e9 100%);padding:40px 40px 32px;text-align:center;">
+      <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">${practiceName}</h1>
+      <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">All-on-4 Implant Specialists</p>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:40px;">
+      <h2 style="margin:0 0 8px;color:#111827;font-size:20px;font-weight:700;">Hi ${firstName}! 👋</h2>
+      <p style="margin:0 0 20px;color:#6b7280;font-size:15px;line-height:1.6;">
+        Thank you so much for calling us today. We loved speaking with you about your smile goals. Here's a quick summary of what we discussed:
+      </p>
+
+      ${pricingSection}
+      ${appointmentSection}
+
+      <!-- CTA -->
+      <div style="text-align:center;margin:32px 0;">
+        <a href="tel:+14158861942" style="display:inline-block;background:linear-gradient(135deg,#0ea5e9,#0369a1);color:#ffffff;text-decoration:none;padding:16px 40px;border-radius:50px;font-size:16px;font-weight:700;letter-spacing:0.3px;">
+          📞 Call Us Back
+        </a>
+      </div>
+
+      <p style="margin:24px 0 0;color:#6b7280;font-size:14px;line-height:1.6;">
+        Have questions? Just reply to this email or give us a call — we're here to help you take the next step toward a confident, permanent smile. 😊
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background:#f8fafc;padding:24px 40px;border-top:1px solid #e5e7eb;text-align:center;">
+      <p style="margin:0;color:#9ca3af;font-size:12px;">
+        ${practiceName} · This email was sent because you called our office today.<br>
+        <a href="#" style="color:#9ca3af;">Unsubscribe</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>`
 }
