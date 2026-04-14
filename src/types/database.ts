@@ -330,6 +330,8 @@ export type CampaignStep = {
   created_at: string
 }
 
+export type AppointmentConfirmedVia = 'sms_reply' | 'email_click' | 'voice_call' | 'manual'
+
 export type Appointment = {
   id: string
   organization_id: string
@@ -341,10 +343,60 @@ export type Appointment = {
   duration_minutes: number
   location: string | null
   notes: string | null
+
+  // Multi-stage reminder tracking
+  reminder_sent_72h: boolean
   reminder_sent_24h: boolean
+  reminder_sent_2h: boolean
   reminder_sent_1h: boolean
+  confirmation_call_made: boolean
+
+  // Confirmation tracking
   confirmation_received: boolean
+  confirmed_via: AppointmentConfirmedVia | null
+  confirmed_at: string | null
+  reschedule_requested: boolean
+
+  // Risk assessment
+  no_show_risk_score: number
+
   metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+
+  // Joined
+  lead?: Lead
+  reminders?: AppointmentReminder[]
+}
+
+export type ReminderChannel = 'sms' | 'email' | 'voice_confirmation'
+export type ReminderType = '72h' | '24h' | '2h' | '1h' | 'confirmation_call' | 'manual'
+export type ReminderStatus = 'pending' | 'sent' | 'delivered' | 'failed' | 'skipped'
+export type ReminderConfirmationStatus = 'pending' | 'confirmed' | 'declined' | 'rescheduled' | 'no_response'
+
+export type AppointmentReminder = {
+  id: string
+  organization_id: string
+  appointment_id: string
+  lead_id: string
+
+  channel: ReminderChannel
+  reminder_type: ReminderType
+
+  status: ReminderStatus
+  confirmation_status: ReminderConfirmationStatus
+
+  scheduled_for: string | null
+  sent_at: string | null
+  response_at: string | null
+  response_text: string | null
+
+  external_id: string | null
+  voice_call_id: string | null
+
+  error_message: string | null
+  metadata: Record<string, unknown>
+
   created_at: string
   updated_at: string
 }

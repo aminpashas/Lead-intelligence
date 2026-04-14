@@ -220,9 +220,63 @@ export async function POST(req: NextRequest) {
     const callMetadata = (callData.metadata || {}) as Record<string, unknown>
     const disconnectionReason = (callData.disconnection_reason || '') as string
 
-    const leadId = callMetadata.lead_id as string | null
-    const orgId = callMetadata.organization_id as string | null
-    const conversationId = callMetadata.conversation_id as string | null
+    let leadId = callMetadata.lead_id as string | null
+    let orgId = callMetadata.organization_id as string | null
+    let conversationId = callMetadata.conversation_id as string | null
+
+    // Fallback: if metadata is missing, look up by phone number
+    if ((!leadId || !orgId) && callData.from_number) {
+      const callerPhone = callData.from_number as string
+      const normalizedPhone = callerPhone.replace(/^\+1/, '').replace(/\D/g, '')
+      const phoneVariants = [
+        callerPhone,
+        normalizedPhone,
+        `+1${normalizedPhone}`,
+      ]
+
+      // Find org first
+      if (!orgId) {
+        const { data: firstOrg } = await supabase
+          .from('organizations')
+          .select('id')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single()
+        orgId = firstOrg?.id || null
+      }
+
+      // Find lead by phone
+      if (orgId && !leadId) {
+        const { data: phoneLead } = await supabase
+          .from('leads')
+          .select('id')
+          .eq('organization_id', orgId)
+          .or([
+            ...phoneVariants.map(p => `phone.eq.${p}`),
+            ...phoneVariants.map(p => `phone_formatted.eq.${p}`),
+          ].join(','))
+          .limit(1)
+          .single()
+        leadId = phoneLead?.id || null
+
+        if (leadId) {
+          console.log(`[Voice Events] Found lead by phone fallback: ${leadId}`)
+        }
+      }
+
+      // Find conversation
+      if (orgId && leadId && !conversationId) {
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('organization_id', orgId)
+          .eq('lead_id', leadId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+        conversationId = conv?.id || null
+      }
+    }
 
     if (!transcript || !leadId || !orgId) {
       console.log('[Voice Events] No transcript/lead/org — skipping', { leadId, orgId, hasTranscript: !!transcript })
