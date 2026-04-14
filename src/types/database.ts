@@ -1047,3 +1047,74 @@ export type CrossChannelDelivery = {
   metadata: Record<string, unknown>
   created_at: string
 }
+
+// ═══════════════════════════════════════════════════════════════
+// TREATMENT CLOSING WORKFLOW
+// ═══════════════════════════════════════════════════════════════
+
+export type TreatmentClosingStep =
+  | 'treatment_plan_presented'     // Doctor presented plan
+  | 'contract_signed'              // Patient signed treatment plan (non-refundable clause)
+  | 'financing_funded'             // Loan funded or deposit/payment collected
+  | 'consent_signed'               // Consent forms signed
+  | 'preop_instructions_sent'      // Pre-op + post-op instructions delivered
+  | 'surgery_scheduled'            // Surgery date confirmed with patient
+  | 'records_confirmed'            // Records, Rx, availability confirmed by office
+
+export type RecordsChecklist = {
+  medical_records: boolean
+  dental_records: boolean
+  ct_scan: boolean
+  prescription_ready: boolean
+  surgical_guide_ready: boolean
+  lab_work_ordered: boolean
+  anesthesia_confirmed: boolean
+  surgeon_availability: boolean
+}
+
+export type TreatmentClosing = {
+  id: string
+  lead_id: string
+  organization_id: string
+
+  // Step tracking
+  current_step: TreatmentClosingStep
+  steps_completed: TreatmentClosingStep[]
+
+  // Contract
+  contract_signed_at: string | null
+  contract_amount: number | null
+  deposit_amount: number | null
+  deposit_collected_at: string | null
+  non_refundable_acknowledged: boolean
+
+  // Financing
+  financing_type: 'loan' | 'in_house' | 'cash' | 'insurance' | null
+  financing_funded_at: string | null
+  financing_monthly_payment: number | null
+
+  // Consent
+  consent_signed_at: string | null
+  consent_forms: string[]
+
+  // Pre/Post-Op
+  preop_instructions_sent_at: string | null
+  preop_sent_via: 'sms' | 'email' | 'both' | null
+  postop_instructions_sent_at: string | null
+
+  // Surgery
+  surgery_date: string | null
+  surgery_time: string | null
+  surgery_type: string | null
+  estimated_duration_hours: number | null
+
+  // Records & Office Confirmation
+  records_confirmed_at: string | null
+  records_checklist: RecordsChecklist
+
+  // Metadata
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+

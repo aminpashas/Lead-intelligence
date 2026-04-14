@@ -115,15 +115,15 @@ export const STAGE_AGENT_MAP: Record<LeadStatus, AgentType> = {
   no_show: 'setter',
   unresponsive: 'setter',
 
-  // Closer handles: post-consultation through contract
+  // Closer handles: post-consultation through surgery prep
   consultation_completed: 'closer',
   treatment_presented: 'closer',
   financing: 'closer',
   contract_sent: 'closer',
+  contract_signed: 'closer',   // Closer manages through financing + consent + pre-op
+  scheduled: 'closer',         // Until surgery prep is complete
 
-  // No agent: completed stages
-  contract_signed: 'none',
-  scheduled: 'none',
+  // No agent: active treatment and terminal stages
   in_treatment: 'none',
   completed: 'none',
   lost: 'none',

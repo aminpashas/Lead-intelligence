@@ -25,6 +25,7 @@ import { decryptField } from '@/lib/encryption'
 import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
 import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
+import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/treatment/treatment-closing'
 import type Anthropic from '@anthropic-ai/sdk'
 
 // ═══════════════════════════════════════════════════════════
@@ -175,6 +176,49 @@ export const CLOSER_TOOLS: Anthropic.Tool[] = [
       required: [],
     },
   },
+  {
+    name: 'check_closing_progress',
+    description: 'Check where the patient is in the treatment closing workflow (contract → financing → consent → pre-op → surgery → records). Use this to know what step comes next.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'send_preop_instructions',
+    description: 'Send pre-operative and post-operative care instructions to the patient via SMS, email, or both. Use this after consent forms are signed and before surgery.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        channel: {
+          type: 'string',
+          enum: ['sms', 'email', 'both'],
+          description: 'Channel to deliver pre-op instructions. Default: both.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'schedule_follow_up_consultation',
+    description: 'Schedule a follow-up consultation for a patient who hasn\'t committed after their initial consultation. This is a re-close opportunity — a second visit to address remaining concerns.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        preferred_day: {
+          type: 'string',
+          description: 'Preferred day of the week (e.g., "monday", "friday").',
+        },
+        consultation_type: {
+          type: 'string',
+          enum: ['in_person', 'virtual', 'phone'],
+          description: 'Type of follow-up consultation.',
+        },
+      },
+      required: [],
+    },
+  },
   ...CROSS_CHANNEL_TOOLS,
 ]
 
@@ -231,6 +275,16 @@ export async function executeAgentTool(
 
     case 'send_before_after':
       return executeSendBeforeAfter(supabase, context, (toolInput.channel as string) || 'email')
+
+    // Treatment closing tools
+    case 'check_closing_progress':
+      return executeCheckClosingProgress(supabase, context.lead_id)
+
+    case 'send_preop_instructions':
+      return executeSendPreopInstructions(supabase, context, (toolInput.channel as string) || 'both')
+
+    case 'schedule_follow_up_consultation':
+      return executeScheduleFollowUp(supabase, context, toolInput.preferred_day as string | undefined, (toolInput.consultation_type as string) || 'in_person')
 
     default:
       return { success: false, data: {}, message: `Unknown tool: ${toolName}` }
@@ -1146,5 +1200,256 @@ async function executeSendBeforeAfter(
     })
 
     return { success: true, data: { content_asset_id: photo.id }, message: `Before/after transformation "${photo.title}" has been emailed to the patient with embedded comparison photos.` }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// TREATMENT CLOSING TOOLS
+// ═══════════════════════════════════════════════════════════
+
+async function executeCheckClosingProgress(
+  supabase: SupabaseClient,
+  leadId: string
+): Promise<ToolResult> {
+  const closing = await getTreatmentClosing(supabase, leadId)
+
+  if (!closing) {
+    return {
+      success: true,
+      data: { has_closing: false },
+      message: 'No treatment closing workflow has been started for this patient yet. The workflow begins when the treatment plan is presented and the patient starts the commitment process.',
+    }
+  }
+
+  const progress = getClosingProgress(closing)
+
+  return {
+    success: true,
+    data: {
+      has_closing: true,
+      current_step: progress.current_step,
+      percent_complete: progress.percent_complete,
+      steps_completed: progress.steps_completed,
+      steps_remaining: progress.steps_remaining,
+      next_action: progress.next_action,
+      surgery_date: closing.surgery_date,
+      surgery_in_days: progress.surgery_in_days,
+      blockers: progress.blockers,
+    },
+    message: `Treatment Closing Progress: ${progress.percent_complete}% complete.\nCurrent step: ${progress.current_step_label}\nNext action: ${progress.next_action}\n${progress.next_action_detail}\n${progress.blockers.length > 0 ? `⚠️ Blockers: ${progress.blockers.join('; ')}` : ''}${closing.surgery_date ? `\nSurgery scheduled: ${closing.surgery_date}` : ''}`,
+  }
+}
+
+async function executeSendPreopInstructions(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+    channel?: string
+  },
+  channel: string
+): Promise<ToolResult> {
+  const phone = context.lead.phone as string | undefined
+  const email = context.lead.email as string | undefined
+  const firstName = (context.lead.first_name as string) || 'there'
+  const decryptedPhone = phone ? decryptField(phone) : null
+  const decryptedEmail = email ? decryptField(email) : null
+
+  const preOpSMS = `${firstName}, here are your pre-op instructions for surgery day:\n\n🚫 Nothing to eat or drink 8 hours before\n🚗 Arrange a ride home (no driving after sedation)\n💊 Take prescribed meds as directed\n👕 Wear comfortable, loose clothing\n⏰ Arrive 15 min early\n🪪 Bring ID & insurance card\n🚭 No smoking 48 hours before\n\nPost-op care instructions will follow. Questions? Just text or call us!`
+
+  const preOpEmail = `<h2>Pre-Operative Instructions</h2>
+<p>Hi ${firstName},</p>
+<p>Your surgery date is approaching — congratulations! Here's everything you need to know to prepare:</p>
+
+<h3>Before Surgery</h3>
+<ul>
+<li><strong>Fasting:</strong> Nothing to eat or drink 8 hours before your appointment</li>
+<li><strong>Transportation:</strong> Arrange a ride home — you cannot drive after IV sedation</li>
+<li><strong>Medications:</strong> Take prescribed medications as directed by Dr. Samadian</li>
+<li><strong>Clothing:</strong> Wear comfortable, loose-fitting clothing</li>
+<li><strong>Arrival:</strong> Please arrive 15 minutes early</li>
+<li><strong>Documents:</strong> Bring your photo ID and insurance card</li>
+<li><strong>Smoking:</strong> No smoking for 48 hours before surgery</li>
+</ul>
+
+<h3>After Surgery (Post-Op Care)</h3>
+<ul>
+<li><strong>Ice:</strong> Apply ice packs 20 minutes on, 20 minutes off for the first 48 hours</li>
+<li><strong>Diet:</strong> Soft foods only for the first 2 weeks (smoothies, soups, mashed potatoes, yogurt)</li>
+<li><strong>Medications:</strong> Take ALL prescribed medications as directed — do not skip pain meds</li>
+<li><strong>Oral Care:</strong> No spitting, no straws, no smoking for 72 hours</li>
+<li><strong>Rinsing:</strong> Gentle warm salt water rinses after 24 hours</li>
+<li><strong>Follow-up:</strong> Your follow-up appointment is in 7-10 days</li>
+</ul>
+
+<p><strong>Questions?</strong> Call or text us anytime. We're here for you!</p>
+<p>— The Team at Dion Health</p>`
+
+  let sentVia: string[] = []
+
+  if ((channel === 'sms' || channel === 'both') && decryptedPhone) {
+    try {
+      await sendSMS(decryptedPhone, preOpSMS)
+      sentVia.push('SMS')
+
+      await storeOutboundMessage(supabase, {
+        organization_id: context.organization_id,
+        conversation_id: context.conversation_id,
+        lead_id: context.lead_id,
+        channel: 'sms',
+        body: preOpSMS,
+        metadata: { tool: 'send_preop_instructions', type: 'preop' },
+      })
+    } catch (err) {
+      console.error('[PreOp SMS] Error:', err)
+    }
+  }
+
+  if ((channel === 'email' || channel === 'both') && decryptedEmail) {
+    try {
+      await sendEmail({
+        to: decryptedEmail,
+        subject: `${firstName}, Your Pre-Op & Post-Op Instructions — Please Read Before Surgery`,
+        html: preOpEmail,
+        text: preOpSMS,
+      })
+      sentVia.push('Email')
+
+      await storeOutboundMessage(supabase, {
+        organization_id: context.organization_id,
+        conversation_id: context.conversation_id,
+        lead_id: context.lead_id,
+        channel: 'email',
+        body: preOpSMS,
+        metadata: { tool: 'send_preop_instructions', type: 'preop', subject: 'Pre-Op Instructions' },
+      })
+    } catch (err) {
+      console.error('[PreOp Email] Error:', err)
+    }
+  }
+
+  if (sentVia.length === 0) {
+    return { success: false, data: {}, message: 'Could not send pre-op instructions — no valid phone or email on file.' }
+  }
+
+  // Advance treatment closing workflow
+  await advanceStep(supabase, context.lead_id, 'preop_instructions_sent', {
+    preop_sent_via: sentVia.length === 2 ? 'both' : sentVia[0].toLowerCase() as 'sms' | 'email',
+  })
+
+  await supabase.from('lead_activities').insert({
+    organization_id: context.organization_id,
+    lead_id: context.lead_id,
+    activity_type: 'preop_instructions_sent',
+    title: `Pre-op & post-op instructions sent via ${sentVia.join(' + ')}`,
+    metadata: { tool: 'send_preop_instructions', channels: sentVia },
+  })
+
+  auditPHITransmission(
+    { supabase, organizationId: context.organization_id, actorType: 'ai_agent' },
+    'preop_instructions',
+    context.lead_id,
+    sentVia.join('+').toLowerCase(),
+    ['phone', 'email']
+  )
+
+  return {
+    success: true,
+    data: { channels: sentVia },
+    message: `Pre-operative and post-operative care instructions have been sent to the patient via ${sentVia.join(' and ')}. The instructions cover fasting, medication, transportation, and recovery care.`,
+  }
+}
+
+async function executeScheduleFollowUp(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+  },
+  preferredDay?: string,
+  consultationType: string = 'in_person'
+): Promise<ToolResult> {
+  // Get available slots (reuse existing availability logic)
+  const { data: settings } = await supabase
+    .from('booking_settings')
+    .select('*')
+    .eq('organization_id', context.organization_id)
+    .single()
+
+  if (!settings || !settings.is_enabled) {
+    return { success: false, data: {}, message: 'Online booking is not currently available. Please have the patient call to schedule a follow-up consultation.' }
+  }
+
+  const now = new Date()
+  const futureDate = new Date(now.getTime() + settings.advance_days * 24 * 60 * 60 * 1000)
+
+  const { data: existingAppts } = await supabase
+    .from('appointments')
+    .select('scheduled_at, duration_minutes, status')
+    .eq('organization_id', context.organization_id)
+    .gte('scheduled_at', now.toISOString())
+    .lte('scheduled_at', futureDate.toISOString())
+    .not('status', 'eq', 'canceled')
+
+  const config: BookingConfig = {
+    weekly_schedule: settings.weekly_schedule,
+    slot_duration_minutes: settings.slot_duration_minutes,
+    buffer_minutes: settings.buffer_minutes,
+    advance_days: settings.advance_days,
+    min_notice_hours: settings.min_notice_hours,
+    blocked_dates: settings.blocked_dates || [],
+    timezone: settings.timezone,
+    max_bookings_per_slot: settings.max_bookings_per_slot || 1,
+  }
+
+  const slots = generateAvailableSlots(config, (existingAppts || []) as ExistingAppointment[])
+
+  // Filter by preferred day if specified
+  let filteredSlots = slots
+  if (preferredDay) {
+    const dayMap: Record<string, number> = {
+      sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+      thursday: 4, friday: 5, saturday: 6,
+    }
+    const dayNum = dayMap[preferredDay.toLowerCase()]
+    if (dayNum !== undefined) {
+      filteredSlots = slots.filter(s => s.dayOfWeek === dayNum)
+    }
+  }
+
+  if (filteredSlots.length === 0) {
+    return {
+      success: true,
+      data: { slots: [] },
+      message: preferredDay
+        ? `No follow-up consultation slots available on ${preferredDay}s. Other available dates: ${slots.slice(0, 3).map(s => s.dayLabel).join(', ')}.`
+        : 'No available follow-up consultation slots in the upcoming schedule. Please have the patient call the office directly.',
+    }
+  }
+
+  const slotSummary = filteredSlots.slice(0, 5).map(day => {
+    const times = day.times.slice(0, 4).map(t => formatTimeDisplay(t)).join(', ')
+    const more = day.times.length > 4 ? ` (+${day.times.length - 4} more)` : ''
+    return `${day.dayLabel}: ${times}${more}`
+  }).join('\n')
+
+  const typeLabel = consultationType === 'virtual' ? 'virtual video call' :
+    consultationType === 'phone' ? 'phone consultation' : 'in-person follow-up'
+
+  return {
+    success: true,
+    data: {
+      slots: filteredSlots.slice(0, 5).map(d => ({
+        date: d.date,
+        dayLabel: d.dayLabel,
+        times: d.times.slice(0, 6),
+      })),
+      consultation_type: consultationType,
+    },
+    message: `Available ${typeLabel} slots:\n${slotSummary}\n\nThis is a follow-up consultation to address any remaining questions. Ask the patient which date and time works best, then use create_booking to confirm.`,
   }
 }

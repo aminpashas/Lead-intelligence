@@ -675,4 +675,227 @@ Best,
       },
     ],
   },
+
+  // ─── POST-CONSULTATION RE-CLOSE (8 steps, 60 days) ───────
+  {
+    id: 'post-consultation-reclose',
+    name: 'Re-Close: Post-Consultation Follow-Up',
+    description: '8-step escalation sequence over 60 days for patients who completed consultation but haven\'t committed. Escalates from gentle check-in to final stand offer, then graceful release.',
+    type: 'drip',
+    channel: 'multi',
+    target_criteria: {
+      status: ['consultation_completed', 'treatment_presented'],
+      days_since_last_contact: { min: 7 },
+    },
+    send_window: { start_hour: 9, end_hour: 20, timezone: 'America/New_York', days: [1, 2, 3, 4, 5, 6] },
+    steps: [
+      {
+        step_number: 1,
+        name: 'Gentle Check-In',
+        channel: 'sms',
+        delay_minutes: 4320, // Day 3 after going cold
+        body_template: `Hi {{first_name}}! Just checking in to see how you're doing. No pressure at all — just wanted to make sure you got everything you needed from your consultation. If any questions came up, I'm here! 😊`,
+        ai_personalize: false,
+        exit_condition: { if_replied: true, if_status_in: ['financing', 'contract_sent', 'contract_signed'] },
+      },
+      {
+        step_number: 2,
+        name: 'Value-Add Testimonial',
+        channel: 'email',
+        delay_minutes: 10080, // Day 7
+        subject: '{{first_name}}, this patient\'s story reminded me of you',
+        body_template: '',
+        ai_personalize: true, // AI matches testimonial to their specific situation/objection
+        exit_condition: { if_replied: true, if_status_in: ['financing', 'contract_sent', 'contract_signed'] },
+      },
+      {
+        step_number: 3,
+        name: 'Status Change Trigger',
+        channel: 'sms',
+        delay_minutes: 20160, // Day 14
+        body_template: '',
+        ai_personalize: true, // AI finds a genuine change (new opening, financing update, technology upgrade)
+        exit_condition: { if_replied: true, if_status_in: ['financing', 'contract_sent', 'contract_signed'] },
+      },
+      {
+        step_number: 4,
+        name: 'Testimonial Nudge',
+        channel: 'sms',
+        delay_minutes: 25920, // Day 18
+        body_template: '',
+        ai_personalize: true, // AI sends targeted testimonial via send_testimonial tool matching their objection
+        exit_condition: { if_replied: true, if_status_in: ['financing', 'contract_sent', 'contract_signed'] },
+      },
+      {
+        step_number: 5,
+        name: 'Bone Loss Education + Deadline',
+        channel: 'email',
+        delay_minutes: 30240, // Day 21
+        subject: '{{first_name}}, there\'s something important you should know',
+        body_template: `Hi {{first_name}},
+
+I want to share something with you that I think is important — and I'm telling you because I genuinely care about your outcome.
+
+Bone loss is progressive. Once teeth are lost or removed, the jawbone begins to resorb (shrink). This happens every single month, and it's irreversible. The longer treatment is delayed:
+
+• Less bone means fewer implant options
+• Additional procedures like bone grafting may be needed (adding $3,000-8,000+)
+• The procedure becomes more complex
+• Recovery takes longer
+
+I'm not saying this to pressure you — it's simply a medical reality that most patients don't know about.
+
+Your 3D scan from your consultation showed exactly where you are right now. Dr. {{doctor_name}} designed your treatment plan based on your CURRENT bone levels. The sooner we move forward, the better your outcome.
+
+Would you like to come back in for a quick follow-up to review your scan? It's complimentary and takes just 15 minutes.
+
+I'm here for you,
+{{practice_name}}`,
+        ai_personalize: false,
+        exit_condition: { if_replied: true, if_status_in: ['financing', 'contract_sent', 'contract_signed'] },
+      },
+      {
+        step_number: 6,
+        name: 'Direct Ask',
+        channel: 'sms',
+        delay_minutes: 43200, // Day 30
+        body_template: '',
+        ai_personalize: true, // AI uses radical honesty: "I want to be real with you..."
+        exit_condition: { if_replied: true, if_status_in: ['financing', 'contract_sent', 'contract_signed'] },
+      },
+      {
+        step_number: 7,
+        name: 'Final Stand Offer',
+        channel: 'email',
+        delay_minutes: 64800, // Day 45
+        subject: '{{first_name}}, I have something special for you (one-time offer)',
+        body_template: '',
+        ai_personalize: true, // AI crafts a compelling final offer
+        exit_condition: { if_replied: true, if_status_in: ['financing', 'contract_sent', 'contract_signed'] },
+      },
+      {
+        step_number: 8,
+        name: 'Graceful Release',
+        channel: 'email',
+        delay_minutes: 86400, // Day 60
+        subject: 'No pressure, {{first_name}} — just wanted to say goodbye (for now)',
+        body_template: `Hi {{first_name}},
+
+I wanted to let you know that I'm going to stop reaching out for now. I genuinely don't want to be a bother, and I respect wherever you are in your decision.
+
+But I want you to know a few things:
+
+✅ Your consultation records are saved — no need to redo anything
+✅ Your treatment plan doesn't expire
+✅ Our financing options are available whenever you're ready
+✅ You can text me anytime — even a year from now — and I'll be here
+
+Sometimes the timing just isn't right, and that's perfectly okay. What matters is that when you ARE ready, you know exactly where to go.
+
+Wishing you nothing but the best, {{first_name}}. Take care of yourself. 😊
+
+Warm regards,
+{{practice_name}}`,
+        ai_personalize: false,
+      },
+    ],
+  },
+
+  // ─── TREATMENT ONBOARDING (6 steps, surgery journey) ─────
+  {
+    id: 'treatment-onboarding',
+    name: 'Treatment Onboarding Journey',
+    description: '6-step surgery preparation sequence. Triggered when contract is signed. Guides patient from commitment through surgery day.',
+    type: 'trigger',
+    channel: 'multi',
+    target_criteria: {
+      status: ['contract_signed', 'scheduled'],
+    },
+    send_window: { start_hour: 8, end_hour: 20, timezone: 'America/New_York', days: [0, 1, 2, 3, 4, 5, 6] },
+    steps: [
+      {
+        step_number: 1,
+        name: 'Celebration + What\'s Next',
+        channel: 'sms',
+        delay_minutes: 60, // 1 hour after contract signed
+        body_template: `🎉 Congratulations {{first_name}}!! You just made the best decision of your life. I am SO excited for you! Here's what happens next:
+
+1️⃣ Financing gets processed (usually 24-48 hours)
+2️⃣ We'll send your consent forms
+3️⃣ You'll get your pre-op instructions
+4️⃣ We'll confirm your surgery date
+
+I'll be with you every step of the way. If you have ANY questions at all, just text me! 💪`,
+        ai_personalize: false,
+      },
+      {
+        step_number: 2,
+        name: 'Pre-Op Instructions Email',
+        channel: 'email',
+        delay_minutes: 1440, // Day 1
+        subject: '{{first_name}}, your surgery preparation guide (PLEASE READ)',
+        body_template: '',
+        ai_personalize: true, // AI sends personalized pre-op via send_preop_instructions tool
+      },
+      {
+        step_number: 3,
+        name: 'Paperwork Reminder',
+        channel: 'sms',
+        delay_minutes: 4320, // Day 3
+        body_template: `Hey {{first_name}}! Quick check-in — have you had a chance to review the consent forms and pre-op instructions we sent? If anything needs completing, now's the time so we can lock in your surgery date. Just text me if you need help with anything!`,
+        ai_personalize: false,
+        exit_condition: { if_replied: true },
+      },
+      {
+        step_number: 4,
+        name: '3-Day Pre-Surgery Prep',
+        channel: 'sms',
+        delay_minutes: 0, // Triggered relative to surgery date (-3 days)
+        body_template: `{{first_name}}, your surgery is in 3 days! Here's your final prep checklist:
+
+✅ Confirm your ride home (you can't drive after sedation)
+✅ Fill any prescribed medications
+✅ Stock up on soft foods (smoothies, soups, yogurt, mashed potatoes)
+✅ Get comfy clothes ready for surgery day
+✅ Set your alarm — arrive by {{appointment_time}}
+
+You're going to do amazing. We can't wait to see your new smile! 😊`,
+        ai_personalize: false,
+      },
+      {
+        step_number: 5,
+        name: 'Day-Before Confirmation',
+        channel: 'sms',
+        delay_minutes: 0, // Triggered -1 day before surgery
+        body_template: `Tomorrow is THE day, {{first_name}}! 🌟
+
+📍 {{practice_address}}
+⏰ Arrive by {{appointment_time}}
+🚗 Remember: someone needs to drive you home
+🚫 No food or drink after midnight tonight
+💊 Take any prescribed pre-medications as directed
+
+If you have any last-minute questions, call or text us. We'll see you tomorrow! 💪`,
+        ai_personalize: false,
+      },
+      {
+        step_number: 6,
+        name: 'Surgery Day',
+        channel: 'sms',
+        delay_minutes: 0, // Triggered on surgery day morning
+        body_template: `Good morning {{first_name}}! Today is the day your life changes forever! 🎉
+
+The team is prepped and ready for you. Remember:
+- Arrive at {{appointment_time}}
+- You'll be in great hands the entire time
+- Most patients say "I wish I'd done this sooner!"
+
+See you soon — your new smile is waiting! 😊
+
+Office: {{practice_phone}}
+Emergency: Text us anytime`,
+        ai_personalize: false,
+      },
+    ],
+  },
 ]

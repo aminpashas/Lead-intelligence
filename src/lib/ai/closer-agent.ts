@@ -21,6 +21,7 @@ import { formatPatientPsychologyForPrompt } from './agent-types'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { formatFinancingContextForPrompt } from './financial-coach'
+import { getTreatmentClosing, formatClosingForPrompt } from '@/lib/treatment/treatment-closing'
 import { CLOSER_TOOLS, executeAgentTool } from '@/lib/autopilot/agent-tools'
 
 function getAnthropic() {
@@ -195,6 +196,107 @@ ALWAYS: Make them feel confident and supported in their decision.`,
     }
   }
 
+  // Skill 5: Re-Close Strategy — when lead went cold after consultation
+  const lastContactDate = context.lead.last_contacted_at || context.lead.last_responded_at
+  const daysSinceContact = lastContactDate
+    ? Math.floor((Date.now() - new Date(lastContactDate as string).getTime()) / (1000 * 60 * 60 * 24))
+    : 0
+
+  if (
+    ((lead_status as string) === 'consultation_completed' || lead_status === 'treatment_presented') &&
+    daysSinceContact >= 7 &&
+    unresolvedObjections.length === 0
+  ) {
+    // Determine re-close stage based on days since last contact
+    let reCloseStage = 'gentle_checkin'
+    let reCloseApproach = ''
+
+    if (daysSinceContact >= 60) {
+      reCloseStage = 'graceful_release'
+      reCloseApproach = 'This lead has been cold for 60+ days. Time for a graceful release — warm goodbye, open door. Paradoxically, this often brings them BACK because it removes all pressure. End with "whenever you\'re ready, even if it\'s a year from now, I\'ll be here."'
+    } else if (daysSinceContact >= 45) {
+      reCloseStage = 'final_stand'
+      reCloseApproach = 'Make a compelling final offer — the best package, exclusive promotion, or one-time incentive. This is the Hail Mary before graceful release. Be transparent: "I spoke with the office and they approved something special for you."'
+    } else if (daysSinceContact >= 30) {
+      reCloseStage = 'direct_ask'
+      reCloseApproach = 'Time for radical honesty. Directly and respectfully ask what\'s holding them back. Be vulnerable: "I want to be real with you — I can tell you were interested. Can you help me understand what changed?" If they say cost/fear, address with specific counter-offers.'
+    } else if (daysSinceContact >= 21) {
+      reCloseStage = 'deadline_anchor'
+      reCloseApproach = 'Create a legitimate anchor point — appointment hold expiring, schedule filling, promotion ending. Give them a concrete reason to act NOW. Only use REAL constraints.'
+    } else if (daysSinceContact >= 14) {
+      reCloseStage = 'testimonial_nudge'
+      reCloseApproach = 'Send a targeted testimonial that mirrors their situation. Use send_testimonial tool to deliver a patient video via SMS or email. Match the testimonial to any objection they expressed during consultation.'
+    } else {
+      reCloseStage = 'value_add_touch'
+      reCloseApproach = 'Provide something new and valuable — a testimonial, new information, relevant update. Use cross-channel tools to send a video or before/after via send_testimonial or send_before_after. Give value before asking for anything.'
+    }
+
+    return {
+      skill: 're_close_strategy',
+      instructions: `ACTIVE SKILL: Re-Close Strategy (Stage: ${reCloseStage})
+
+This patient completed their consultation ${daysSinceContact} days ago but hasn't committed.
+You are re-engaging them to close the loop.
+
+RE-CLOSE STAGE: ${reCloseStage.toUpperCase()}
+${reCloseApproach}
+
+CRITICAL STRATEGY:
+- ALWAYS offer to reschedule a follow-up consultation or virtual call: "Would you like to come back in for a quick follow-up? Sometimes a second visit helps people feel more confident."
+- Use cross-channel tools proactively — text them a testimonial video or before/after photos WITHOUT waiting for them to ask
+- If they re-engage, immediately offer a concrete next step (schedule follow-up, send financing link, etc.)
+- Reference specifics from their consultation if available in conversation history
+- NEVER be needy or desperate — be warm, professional, and genuinely helpful
+- If they indicate they're not interested, respect it and use the graceful_release approach
+
+Last contact: ${daysSinceContact} days ago
+Current stage: ${lead_status}`,
+    }
+  }
+
+  // Skill 6: Treatment Closing Management — when contract is signed and workflow is active
+  if (lead_status === 'contract_signed' || lead_status === 'scheduled') {
+    return {
+      skill: 'treatment_closing_management',
+      instructions: `ACTIVE SKILL: Treatment Closing Management
+
+The patient has committed! You are now their treatment coordinator guiding them through pre-surgery preparation.
+
+Your workflow (in order):
+1. ✅ Contract Signed — Celebrate! "Congratulations on taking this incredible step!"
+2. 💰 Financing/Payment — Ensure loan is funded or deposit is collected
+3. 📋 Consent Forms — Get surgical consent and anesthesia consent signed
+4. 📄 Pre-Op Instructions — Send pre-op and post-op care instructions (use send_sms_to_lead or send_email_to_lead)
+5. 📅 Surgery Date — Coordinate and confirm the surgery date
+6. ✓ Records — Office confirms all records, prescriptions, and availability
+
+Your approach:
+- Be celebratory and supportive — they made a life-changing decision!
+- Guide them through each step clearly and warmly
+- Use cross-channel tools to send instructions and confirmations
+- If they get cold feet, use technique: commitment_consistency ("You told me you were tired of hiding your smile — that hasn't changed, has it?")
+- Always tell them exactly what to expect next
+- Coordinate with the office (escalate to human if needed for records/scheduling)
+
+PRE-OP INSTRUCTIONS TO SEND (via SMS/email):
+- Nothing to eat or drink 8 hours before surgery
+- Arrange a ride home (cannot drive after sedation)
+- Take prescribed medications as directed
+- Wear comfortable, loose-fitting clothing
+- Arrive 15 minutes early
+- Bring ID and insurance card
+- No smoking 48 hours before surgery
+
+POST-OP CARE TO SEND:
+- Ice the area 20 min on, 20 min off for first 48 hours
+- Soft foods only for first 2 weeks
+- Take all prescribed medications as directed
+- No spitting, no straws, no smoking for 72 hours
+- Gentle rinsing with warm salt water after 24 hours
+- Follow-up appointment in 7-10 days`,
+    }
+  }
+
   // Default: Continued engagement
   return {
     skill: 'general_closing_engagement',
@@ -248,6 +350,16 @@ Current stage: ${context.lead_status}
 AI Score: ${context.lead.ai_score ?? 'unscored'}
 Messages exchanged: ${context.message_count}
 ${context.financing_context ? formatFinancingContextForPrompt(context.financing_context) : ''}
+${(context.lead_status === 'contract_signed' || context.lead_status === 'scheduled') ? `
+═══ TREATMENT CLOSING WORKFLOW ═══
+
+This patient has committed to treatment. Use the check_closing_progress tool to see their current step in the closing workflow (contract → financing → consent → pre-op → surgery → records). Guide them through each step.
+
+Available closing tools:
+- check_closing_progress: See where they are in the workflow
+- send_preop_instructions: Send pre/post-op care instructions via SMS/email
+- schedule_follow_up_consultation: Schedule a follow-up if needed
+` : ''}
 
 ═══ COMMUNICATION RULES ═══
 
