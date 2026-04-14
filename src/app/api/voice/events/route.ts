@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { processEncounter, extractFromTranscript } from '@/lib/ai/encounter-processor'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY || ''
 
@@ -160,9 +161,156 @@ export async function POST(req: NextRequest) {
       }).eq('id', existingCall.id)
     }
 
+    // ── 6. Post-call follow-up: send SMS/email if AI promised it ──
+    // Detect common follow-up promises in the transcript and action them.
+    await sendPostCallFollowUps(supabase, {
+      orgId,
+      leadId,
+      transcript,
+      extracted,
+      callAnalysis,
+    })
+
   } catch (error) {
     console.error('[Voice Events] Error:', error)
   }
 
   return NextResponse.json({ received: true })
+}
+
+// ═══════════════════════════════════════════════════════════════
+// POST-CALL FOLLOW-UPS
+// Detects when the AI promised to send info via SMS or email
+// and actions it automatically after the call ends.
+// ═══════════════════════════════════════════════════════════════
+
+const RETELL_API_KEY_FOR_FOLLOWUP = process.env.RETELL_API_KEY || ''
+
+async function sendPostCallFollowUps(
+  supabase: SupabaseClient,
+  params: {
+    orgId: string
+    leadId: string
+    transcript: string
+    extracted: Record<string, unknown>
+    callAnalysis: Record<string, unknown>
+  }
+): Promise<void> {
+  const { orgId, leadId, transcript, extracted } = params
+
+  const t = transcript.toLowerCase()
+
+  // Detect SMS follow-up request
+  const wantsText = /send.{0,50}(text|sms|message)|text.{0,30}(info|detail|summary|price|cost)|i'll text|we'll text|sending.{0,30}text/i.test(transcript)
+  // Detect email follow-up request
+  const wantsEmail = /send.{0,50}(email|e-mail)|email.{0,30}(info|detail|summary|price|cost)|i'll email|we'll email|sending.{0,30}email/i.test(transcript)
+  // Detect pricing request
+  const wantsPricing = /price|cost|how much|financing|payment|afford/i.test(t)
+  // Detect appointment booking intent
+  const wantsAppointment = /schedul|appointment|book|consult|come in/i.test(t)
+
+  // Only proceed if some follow-up was promised
+  if (!wantsText && !wantsEmail) {
+    return
+  }
+
+  console.log(`[Voice Events] Follow-up detected — text:${wantsText} email:${wantsEmail}`)
+
+  // Get lead details
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('first_name, last_name, phone, phone_formatted, email, sms_consent, sms_opt_out')
+    .eq('id', leadId)
+    .single()
+
+  if (!lead) return
+
+  // Get org details
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('name, twilio_phone_number')
+    .eq('id', orgId)
+    .single()
+
+  const practiceName = org?.name || 'our practice'
+  const firstName = lead.first_name || 'there'
+
+  // Build the follow-up message
+  const lines: string[] = []
+  lines.push(`Hi ${firstName}! Thanks for calling ${practiceName}. Here's what we discussed: 🦷`)
+  lines.push('')
+
+  if (wantsPricing) {
+    lines.push('📋 ALL-ON-4 INVESTMENT OVERVIEW:')
+    lines.push('• Single arch: $20,000–$30,000')
+    lines.push('• Full mouth: $40,000–$60,000')
+    lines.push('• Financing from ~$500–800/mo (60–84 months)')
+    lines.push('• Most insurance covers $1,500–$3,000')
+    lines.push('• HSA/FSA eligible (pre-tax savings!)')
+    lines.push('')
+  }
+
+  if (wantsAppointment) {
+    lines.push('📅 NEXT STEP: Schedule your FREE consultation')
+    lines.push('• 60–90 minute appointment')
+    lines.push('• 3D CT scan included')
+    lines.push('• Custom treatment plan presented')
+    lines.push('')
+  }
+
+  lines.push(`Ready to take the next step? Reply to this message or call us back. We'd love to meet you! 😊`)
+
+  const messageBody = lines.join('\n')
+
+  // Send SMS if requested and consent exists
+  if (wantsText && lead.sms_consent && !lead.sms_opt_out) {
+    const phone = lead.phone_formatted || lead.phone
+    if (phone) {
+      try {
+        const twilio = await import('twilio')
+        const client = twilio.default(
+          process.env.TWILIO_ACCOUNT_SID,
+          process.env.TWILIO_AUTH_TOKEN
+        )
+        await client.messages.create({
+          body: messageBody,
+          from: process.env.TWILIO_PHONE_NUMBER,
+          to: phone,
+        })
+        console.log(`[Voice Events] Post-call SMS sent to ${leadId}`)
+
+        // Log the message to the conversation
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('lead_id', leadId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (conv) {
+          await supabase.from('messages').insert({
+            organization_id: orgId,
+            conversation_id: conv.id,
+            lead_id: leadId,
+            direction: 'outbound',
+            channel: 'sms',
+            body: messageBody,
+            sender_type: 'ai',
+            status: 'sent',
+            ai_generated: true,
+            metadata: { trigger: 'post_call_followup', retell_call_id: RETELL_API_KEY_FOR_FOLLOWUP },
+          })
+        }
+      } catch (smsErr) {
+        console.error('[Voice Events] Post-call SMS failed:', smsErr)
+      }
+    }
+  }
+
+  // TODO: Send email follow-up if wantsEmail && lead.email exists
+  // (Requires Resend API key and verified domain — set RESEND_API_KEY in env)
+  if (wantsEmail && extracted && 'email' in extracted && extracted.email) {
+    console.log(`[Voice Events] Email follow-up requested but email sending not yet configured`)
+  }
 }
