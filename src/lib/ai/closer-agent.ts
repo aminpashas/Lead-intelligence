@@ -20,6 +20,7 @@ import type { AgentContext, AgentResponse } from './agent-types'
 import { formatPatientPsychologyForPrompt } from './agent-types'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { formatAssessmentForPrompt } from './technique-tracker'
+import { formatFinancingContextForPrompt } from './financial-coach'
 import { CLOSER_TOOLS, executeAgentTool } from '@/lib/autopilot/agent-tools'
 
 function getAnthropic() {
@@ -127,27 +128,42 @@ Your approach:
 
   // Skill 3: Financing Guidance — when in financing stage or discussing payment
   if (lead_status === 'financing') {
+    // Build dynamic financing context from real data
+    const financingPrompt = context.financing_context
+      ? formatFinancingContextForPrompt(context.financing_context)
+      : ''
+
     return {
       skill: 'financing_guidance',
-      instructions: `ACTIVE SKILL: Financing Guidance
+      instructions: `ACTIVE SKILL: Financial Coaching & Guidance
 
 The patient is in the financing stage — they want to move forward but need to sort out payment.
+You are their FINANCIAL COACH. Help them build a realistic budget from multiple funding sources.
 
 Your approach:
 - Normalize financing: "Most of our patients use financing — it's the smart way to invest in your health"
-- Present options clearly without being pushy
-- If they have a pre-approval, guide them through next steps
-- If they need to apply, make the process feel simple and low-risk
-- Address any financing-specific concerns (interest rates, monthly payments, approval odds)
-- If applicable, mention: third-party financing options, in-house payment plans, insurance coordination
+- Present a MULTI-SOURCE budget plan: insurance + HSA/FSA + savings + financing
+- Use real numbers when available (see financial context below)
+- If they've been approved, celebrate and guide them to next steps
+- If they've been denied, present alternatives WITHOUT discouragement:
+  * In-house payment plans
+  * Alternative lenders (each has different criteria)
+  * Phased treatment (start with one arch)
+  * Co-signer option
+  * Credit improvement + re-apply in 60-90 days
+- Address financing-specific concerns with empathy and data
 
-Financial context:
-- Financing interest: ${context.lead.financing_interest || 'unknown'}
-- Budget range: ${context.lead.budget_range || 'unknown'}
-- Financing approved: ${context.lead.financing_approved ? 'Yes' : 'Not yet'}
-- Financing amount: ${context.lead.financing_amount ? `$${context.lead.financing_amount}` : 'unknown'}
+${financingPrompt}
 
-DO NOT: Share specific interest rates or financial terms via text — direct them to call or come in for those details.`,
+BUDGET COACHING SOURCES TO SUGGEST:
+- Dental insurance annual max ($1,500-$2,500 typical)
+- HSA/FSA pre-tax health savings (save 20-30% effectively)
+- Tax refund as lump-sum down payment
+- Bi-weekly payments (save $500-$1,500 in interest vs monthly)
+- Extra monthly payments ($100/mo extra can save months of payments)
+
+DO NOT: Share specific APR rates or exact financial terms via text — direct them to call for specifics.
+DO: Use "as low as $X/mo" framing with real estimated amounts when available.`,
     }
   }
 
@@ -231,6 +247,7 @@ ${leadContext}
 Current stage: ${context.lead_status}
 AI Score: ${context.lead.ai_score ?? 'unscored'}
 Messages exchanged: ${context.message_count}
+${context.financing_context ? formatFinancingContextForPrompt(context.financing_context) : ''}
 
 ═══ COMMUNICATION RULES ═══
 

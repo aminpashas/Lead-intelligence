@@ -9,7 +9,7 @@
  * the lead's pipeline stage and manages context transfer between agents.
  */
 
-import type { Lead, LeadStatus, PatientProfile, ConversationChannel } from '@/types/database'
+import type { Lead, LeadStatus, PatientProfile, ConversationChannel, FinancingContext } from '@/types/database'
 import type { TechniqueUsage, LeadEngagementAssessment } from './sales-techniques'
 
 // ════════════════════════════════════════════════════════════════
@@ -76,6 +76,7 @@ export type AgentContext = {
   message_count: number
   previous_assessment?: LeadEngagementAssessment | null
   technique_history?: Array<{ technique_id: string; predicted_effectiveness: string }>
+  financing_context?: FinancingContext
 }
 
 export type HandoffContextSnapshot = {

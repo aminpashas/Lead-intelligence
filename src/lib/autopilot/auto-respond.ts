@@ -32,6 +32,7 @@ import {
 import { createEscalation } from './escalation'
 import type { AgentContext, AgentResponse, ConversationMessage } from '@/lib/ai/agent-types'
 import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
+import { buildFinancingContext } from '@/lib/ai/financial-coach'
 import { logger } from '@/lib/logger'
 
 export type AutoResponseResult = {
@@ -277,10 +278,13 @@ async function buildAgentContext(
 ): Promise<AgentContext> {
   const { lead, conversation, conversation_id, organization_id, channel, history } = params
 
-  // Fetch patient profile and handoff history
-  const patientProfileRaw = await getPatientProfile(supabase, lead.id as string)
+  // Fetch patient profile, handoff history, and financing context in parallel
+  const [patientProfileRaw, handoffHistory, financingCtx] = await Promise.all([
+    getPatientProfile(supabase, lead.id as string),
+    getHandoffHistory(supabase, conversation_id),
+    buildFinancingContext(supabase, lead.id as string, organization_id).catch(() => undefined),
+  ])
   const patientProfile = patientProfileRaw as PatientProfile | null
-  const handoffHistory = await getHandoffHistory(supabase, conversation_id)
 
   return {
     lead,
@@ -292,6 +296,7 @@ async function buildAgentContext(
     conversation_history: history,
     handoff_history: handoffHistory,
     message_count: (conversation.message_count as number) || history.length,
+    financing_context: financingCtx,
   }
 }
 

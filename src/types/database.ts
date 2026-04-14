@@ -66,6 +66,43 @@ export type BudgetRange = 'under_10k' | '10k_15k' | '15k_20k' | '20k_25k' | '25k
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'consultation_scheduled' | 'consultation_completed' | 'treatment_presented' | 'financing' | 'contract_sent' | 'contract_signed' | 'scheduled' | 'in_treatment' | 'completed' | 'lost' | 'disqualified' | 'no_show' | 'unresponsive'
 export type AIQualification = 'hot' | 'warm' | 'cold' | 'unqualified' | 'unscored'
 export type LeadAIOverride = 'default' | 'force_on' | 'force_off' | 'assist_only'
+export type FinancialQualificationTier = 'tier_a' | 'tier_b' | 'tier_c' | 'tier_d'
+
+export type FinancialSignals = {
+  has_insurance: boolean | null
+  insurance_provider: string | null
+  financing_interest: 'low' | 'medium' | 'high' | null
+  budget_monthly: number | null
+  down_payment_mentioned: number | null
+  has_savings: boolean | null
+  has_hsa_fsa: boolean | null
+  price_aware: boolean
+  financing_curious: boolean
+  budget_conscious: boolean
+  barriers: string[]
+  readiness_score: number
+  last_updated: string
+}
+
+export type FinancingContext = {
+  status: 'none' | 'pending' | 'approved' | 'denied' | 'partial'
+  approved_amount?: number
+  monthly_payment?: number
+  apr?: number
+  term_months?: number
+  lender?: string
+  denied_lenders?: string[]
+  readiness_score: number
+  qualification_tier: FinancialQualificationTier
+  budget_breakdown?: {
+    treatment_value: number
+    insurance_coverage: number
+    hsa_fsa: number
+    down_payment: number
+    amount_to_finance: number
+    estimated_monthly: number
+  }
+}
 
 export type Lead = {
   id: string
@@ -210,6 +247,16 @@ export type Lead = {
 
   // Financing
   financing_application_id: string | null
+
+  // Financial Qualification (AI-driven)
+  financial_qualification_tier: FinancialQualificationTier
+  financing_readiness_score: number
+  financial_signals: FinancialSignals | null
+  financing_link_sent_at: string | null
+  preferred_monthly_budget: number | null
+  has_hsa_fsa: boolean | null
+  estimated_down_payment: number | null
+  financial_coaching_notes: string | null
 
   // Personality Profile (AI-analyzed)
   personality_profile: Record<string, unknown> | null

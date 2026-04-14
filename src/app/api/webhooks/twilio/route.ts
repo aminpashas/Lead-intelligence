@@ -223,6 +223,13 @@ export async function POST(request: NextRequest) {
   // Exit campaigns with if_replied exit condition
   await exitCampaignsOnReply(supabase, lead.id, lead.organization_id)
 
+  // Extract financial signals from inbound message (non-blocking)
+  import('@/lib/ai/financial-qualifier')
+    .then(({ processFinancialSignals }) =>
+      processFinancialSignals(supabase, lead.id, lead.organization_id, body, lead)
+    )
+    .catch(() => { /* Non-critical — don't block message flow */ })
+
   // Auto-respond with AI autopilot system
   if (conversation.ai_enabled) {
     const { processAutoResponse } = await import('@/lib/autopilot/auto-respond')

@@ -24,6 +24,7 @@ import {
 } from './agent-types'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { formatAssessmentForPrompt } from './technique-tracker'
+import { formatFinancingContextForPrompt } from './financial-coach'
 import { SETTER_TOOLS, executeAgentTool } from '@/lib/autopilot/agent-tools'
 
 function getAnthropic() {
@@ -182,6 +183,7 @@ Current stage: ${context.lead_status}
 AI Score: ${context.lead.ai_score ?? 'unscored'}
 AI Qualification: ${context.lead.ai_qualification ?? 'unscored'}
 Messages exchanged: ${context.message_count}
+${context.financing_context ? formatFinancingContextForPrompt(context.financing_context) : ''}
 
 ═══ COMMUNICATION RULES ═══
 
