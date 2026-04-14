@@ -47,8 +47,9 @@ export async function GET(req: NextRequest) {
     let orgId: string | null = null
     let conversationId: string | null = null
 
-    if (supabase && callData.from_number) {
-      const phone = callData.from_number
+    if (supabase) {
+      const fromNumber = (callData.from_number || callData.caller_number || callData.to_number || '') as string
+      const phone = fromNumber
       const normalized = phone.replace(/^\+1/, '').replace(/\D/g, '')
       
       const { data: org } = await supabase
@@ -56,13 +57,18 @@ export async function GET(req: NextRequest) {
         .order('created_at', { ascending: true }).limit(1).single()
       orgId = org?.id || null
 
-      if (orgId) {
+      if (orgId && phone) {
         const { data: lead } = await supabase
           .from('leads').select('id')
           .eq('organization_id', orgId)
           .or(`phone.eq.${phone},phone.eq.${normalized},phone_formatted.eq.${phone},phone_formatted.eq.+1${normalized}`)
           .limit(1).single()
         leadId = lead?.id || null
+      }
+
+      // Fallback: check metadata for lead_id
+      if (!leadId && callData.metadata?.lead_id) {
+        leadId = callData.metadata.lead_id as string
       }
 
       if (orgId && leadId) {
@@ -100,6 +106,12 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       lead_found: { leadId, orgId, conversationId },
+      phone_debug: {
+        from_number: callData.from_number || null,
+        to_number: callData.to_number || null,
+        caller_number: callData.caller_number || null,
+        metadata: callData.metadata || null,
+      },
       extraction: extracted,
       call_meta: {
         duration: callDuration,

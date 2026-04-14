@@ -193,11 +193,16 @@ export function extractFromTranscript(transcript: string): ExtractedIntelligence
   }
 
   // ── IDENTITY ──────────────────────────────────────────────
-  const nameMatch = t.match(/(?:my name is|name is|I'm|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i)
+  // Only search User lines for name
+  const userTextOnly = t.split('\n').filter(l => /^User:/i.test(l)).join(' ')
+  const excludedNames = /^(Missing|Looking|Having|Getting|Calling|Going|Feeling|Thinking|Wanting|Working|Living|Coming|Making|Taking|Doing|Being|Saying|Trying|Asking|Needing|Seeing|Losing|Really|Something|Nothing|About|Hello|Sure|Fine|Good|Great|Just|Thank|Please|Thanks|Pretty|Actually|Absolutely)$/i
+  const nameMatch = userTextOnly.match(/(?:my name is|name is|I'm|i am|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i)
   if (nameMatch) {
     const parts = nameMatch[1].trim().split(/\s+/)
-    result.firstName = parts[0]
-    result.lastName = parts.slice(1).join(' ') || null
+    if (!excludedNames.test(parts[0])) {
+      result.firstName = parts[0]
+      result.lastName = parts.slice(1).join(' ') || null
+    }
   }
 
   const emailMatch = t.match(/([a-zA-Z0-9_.+-]+\s*(?:at|@)\s*[a-zA-Z0-9-]+\s*(?:dot|\.)\s*(?:com|net|org|edu|io|co))/i)
