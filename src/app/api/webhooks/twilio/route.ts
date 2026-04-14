@@ -100,8 +100,44 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // ── APPOINTMENT CONFIRMATION via SMS ──
+  // Detect YES/CONFIRM/Y and auto-confirm the next upcoming unconfirmed appointment
+  const confirmKeywords = /^\s*(yes|confirm|y|confirmed|yep|yeah)\s*$/i
+  if (confirmKeywords.test(body)) {
+    // Check for an upcoming unconfirmed appointment
+    const { data: pendingApt } = await supabase
+      .from('appointments')
+      .select('id, type, scheduled_at')
+      .eq('lead_id', lead.id)
+      .eq('organization_id', lead.organization_id)
+      .in('status', ['scheduled'])
+      .eq('confirmation_received', false)
+      .gte('scheduled_at', new Date().toISOString())
+      .order('scheduled_at', { ascending: true })
+      .limit(1)
+      .single()
+
+    if (pendingApt) {
+      // Confirm the appointment
+      const { confirmAppointment } = await import('@/lib/campaigns/reminders')
+      await confirmAppointment(supabase, pendingApt.id, 'sms_reply', lead.organization_id)
+
+      logger.info('Appointment confirmed via SMS reply', {
+        leadId: lead.id,
+        appointmentId: pendingApt.id,
+      })
+
+      // Return confirmation TwiML — don't fall through to re-subscribe
+      return new NextResponse(
+        '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+        { headers: { 'Content-Type': 'text/xml' } }
+      )
+    }
+    // No pending appointment — fall through to re-subscribe handler below
+  }
+
   // TCPA: Handle re-subscribe (START)
-  const optInKeywords = /^\s*(start|subscribe|yes)\s*$/i
+  const optInKeywords = /^\s*(start|subscribe)\s*$/i
   if (optInKeywords.test(body)) {
     await supabase
       .from('leads')
