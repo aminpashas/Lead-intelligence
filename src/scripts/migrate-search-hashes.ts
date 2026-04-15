@@ -52,9 +52,11 @@ async function migrateLeadHashes() {
   let totalErrors = 0
 
   while (true) {
+    // Query leads — only select columns that exist. email_hash/phone_hash
+    // may not exist yet if the migration is run before the schema is updated.
     const { data: leads, error } = await supabase
       .from('leads')
-      .select('id, email, phone, phone_formatted, email_hash, phone_hash')
+      .select('id, email, phone, phone_formatted')
       .range(offset, offset + BATCH_SIZE - 1)
       .order('created_at', { ascending: true })
 
