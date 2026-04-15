@@ -21,7 +21,7 @@ export async function resumeWaterfall(
   // 1. Load the application
   const { data: application, error: appError } = await supabase
     .from('financing_applications')
-    .select('*')
+    .select('id, organization_id, lead_id, status, current_waterfall_step, waterfall_config, approved_lender_slug, approved_amount')
     .eq('id', applicationId)
     .single()
 
@@ -46,7 +46,7 @@ export async function resumeWaterfall(
   // 2. Find the pending submission for this lender
   const { data: submission } = await supabase
     .from('financing_submissions')
-    .select('*')
+    .select('id, application_id, lender_slug, status, external_application_id')
     .eq('application_id', applicationId)
     .eq('lender_slug', lenderSlug)
     .eq('status', 'submitted')

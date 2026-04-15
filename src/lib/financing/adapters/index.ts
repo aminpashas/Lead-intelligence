@@ -23,6 +23,20 @@ export const LENDER_ADAPTERS: Record<LenderSlug, LenderAdapter> = {
 }
 
 /**
+ * Primary tier: fully API-driven lenders with programmatic submission,
+ * webhook callbacks, and end-to-end status tracking.
+ * These are the recommended lenders for a clean automated waterfall.
+ */
+export const API_LENDER_SLUGS: LenderSlug[] = ['carecredit', 'sunbit', 'affirm']
+
+/**
+ * Secondary tier: link-based lenders. The patient receives a URL to complete
+ * the application on the lender's hosted platform. No programmatic result —
+ * outcome must be manually recorded or received via lender portal export.
+ */
+export const LINK_LENDER_SLUGS: LenderSlug[] = ['proceed', 'lendingclub', 'cherry', 'alpheon']
+
+/**
  * Get a lender adapter by slug.
  * Throws if the lender slug is not recognized.
  */
@@ -126,13 +140,16 @@ export const LENDER_INFO: Record<LenderSlug, {
   },
   affirm: {
     name: 'Affirm',
-    description: 'Transparent buy-now-pay-later financing. 0% APR promotional options, no hidden fees.',
-    integrationType: 'link',
-    features: ['0% APR promos', 'Transparent terms', 'No hidden fees', 'Soft credit check pre-qual'],
-    credentialFields: [],
+    description: 'Buy-now-pay-later financing via Checkout API. 0% APR promos, webhook-based decisions, no hidden fees.',
+    integrationType: 'api',
+    features: ['Checkout API', 'Webhook callbacks', 'Instant soft check', '0% APR promos', 'Transparent terms', 'No hidden fees'],
+    credentialFields: [
+      { key: 'public_key', label: 'Public API Key', type: 'text' },
+      { key: 'private_key', label: 'Private API Key', type: 'password' },
+      { key: 'api_base_url', label: 'API Base URL', type: 'text' },
+    ],
     configFields: [
-      { key: 'merchant_id', label: 'Merchant ID', type: 'text', placeholder: 'Your Affirm merchant ID' },
-      { key: 'public_api_key', label: 'Public API Key', type: 'text', placeholder: 'Your Affirm public API key' },
+      { key: 'financial_product_key', label: 'Financial Product Key', type: 'text', placeholder: 'Optional — healthcare product key from Affirm' },
     ],
   },
 }

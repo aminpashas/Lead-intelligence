@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
-import { GripVertical, ChevronDown, ChevronUp, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Save, Loader2, AlertCircle, CheckCircle2, Zap, Link2, ChevronRight } from 'lucide-react'
+import { API_LENDER_SLUGS } from '@/lib/financing/adapters'
 
 type LenderConfig = {
   id: string
@@ -38,6 +39,7 @@ export function FinancingLendersSettings() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({})
   const [configUpdates, setConfigUpdates] = useState<Record<string, Record<string, string>>>({})
+  const [showLinkLenders, setShowLinkLenders] = useState(false)
 
   useEffect(() => {
     loadLenders()
@@ -49,7 +51,6 @@ export function FinancingLendersSettings() {
       if (res.ok) {
         const data = await res.json()
         setLenders(data.lenders || [])
-        // Init config state
         const configs: Record<string, Record<string, string>> = {}
         for (const l of data.lenders || []) {
           configs[l.lender_slug] = {}
@@ -69,9 +70,11 @@ export function FinancingLendersSettings() {
     setLenders(prev => prev.map(l => l.lender_slug === slug ? { ...l, is_active: !l.is_active } : l))
   }
 
-  function movePriority(slug: string, direction: 'up' | 'down') {
+  function movePriority(slug: string, direction: 'up' | 'down', group: LenderConfig[]) {
+    const slugs = group.map(l => l.lender_slug)
     setLenders(prev => {
-      const sorted = [...prev].sort((a, b) => a.priority_order - b.priority_order)
+      const next = [...prev]
+      const sorted = next.filter(l => slugs.includes(l.lender_slug)).sort((a, b) => a.priority_order - b.priority_order)
       const idx = sorted.findIndex(l => l.lender_slug === slug)
       if (direction === 'up' && idx > 0) {
         const temp = sorted[idx - 1].priority_order
@@ -83,7 +86,8 @@ export function FinancingLendersSettings() {
         sorted[idx + 1].priority_order = sorted[idx].priority_order
         sorted[idx].priority_order = temp
       }
-      return sorted.sort((a, b) => a.priority_order - b.priority_order)
+      const sortedSlugs = sorted.map(l => l.lender_slug)
+      return next.map(l => sortedSlugs.includes(l.lender_slug) ? sorted.find(s => s.lender_slug === l.lender_slug)! : l)
     })
   }
 
@@ -130,7 +134,7 @@ export function FinancingLendersSettings() {
       }
 
       setSaved(true)
-      setCredentials({}) // Clear credential inputs after save
+      setCredentials({})
       await loadLenders()
       setTimeout(() => setSaved(false), 3000)
     } catch (err) {
@@ -150,6 +154,125 @@ export function FinancingLendersSettings() {
     )
   }
 
+  const apiLenders = lenders
+    .filter(l => API_LENDER_SLUGS.includes(l.lender_slug as typeof API_LENDER_SLUGS[number]))
+    .sort((a, b) => a.priority_order - b.priority_order)
+
+  const linkLenders = lenders
+    .filter(l => !API_LENDER_SLUGS.includes(l.lender_slug as typeof API_LENDER_SLUGS[number]))
+    .sort((a, b) => a.priority_order - b.priority_order)
+
+  const renderLender = (lender: LenderConfig, idx: number, group: LenderConfig[]) => (
+    <div key={lender.lender_slug} className="rounded-lg border">
+      {/* Lender header */}
+      <div className="flex items-center gap-3 p-3">
+        <div className="flex flex-col gap-0.5">
+          <button type="button" onClick={() => movePriority(lender.lender_slug, 'up', group)} disabled={idx === 0}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed">
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" onClick={() => movePriority(lender.lender_slug, 'down', group)} disabled={idx === group.length - 1}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed">
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-bold">
+          {idx + 1}
+        </span>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-sm">{lender.info?.name || lender.display_name}</span>
+            {API_LENDER_SLUGS.includes(lender.lender_slug as typeof API_LENDER_SLUGS[number]) ? (
+              <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-emerald-200 gap-0.5">
+                <Zap className="h-2.5 w-2.5" /> API
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] text-muted-foreground gap-0.5">
+                <Link2 className="h-2.5 w-2.5" /> Link
+              </Badge>
+            )}
+            {lender.has_credentials && (
+              <Badge variant="secondary" className="text-[10px]">
+                <CheckCircle2 className="h-3 w-3 mr-0.5" /> Keys Set
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground truncate">{lender.info?.description}</p>
+        </div>
+
+        <Switch
+          checked={lender.is_active}
+          onCheckedChange={() => toggleActive(lender.lender_slug)}
+        />
+
+        <button
+          type="button"
+          onClick={() => setExpanded(expanded === lender.lender_slug ? null : lender.lender_slug)}
+          className="text-muted-foreground hover:text-foreground text-xs"
+        >
+          {expanded === lender.lender_slug ? 'Close' : 'Config'}
+        </button>
+      </div>
+
+      {/* Expanded config */}
+      {expanded === lender.lender_slug && (
+        <div className="border-t bg-muted/30 p-4 space-y-4">
+          {/* Features */}
+          {lender.info?.features && (
+            <div>
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Features</Label>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {lender.info.features.map((f) => (
+                  <Badge key={f} variant="outline" className="text-xs font-normal">{f}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Credential fields */}
+          {lender.info?.credentialFields && lender.info.credentialFields.length > 0 && (
+            <div className="space-y-3">
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide">API Credentials</Label>
+              {lender.info.credentialFields.map((field) => (
+                <div key={field.key} className="space-y-1">
+                  <Label className="text-xs">{field.label}</Label>
+                  <Input
+                    type={field.type === 'password' ? 'password' : 'text'}
+                    placeholder={lender.has_credentials ? '••••••••  (saved)' : `Enter ${field.label.toLowerCase()}`}
+                    value={credentials[lender.lender_slug]?.[field.key] || ''}
+                    onChange={(e) => updateCredential(lender.lender_slug, field.key, e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Config fields */}
+          {lender.info?.configFields && lender.info.configFields.length > 0 && (
+            <div className="space-y-3">
+              <Label className="text-xs text-muted-foreground uppercase tracking-wide">Configuration</Label>
+              {lender.info.configFields.map((field) => (
+                <div key={field.key} className="space-y-1">
+                  <Label className="text-xs">{field.label}</Label>
+                  <Input
+                    type="text"
+                    placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+                    value={configUpdates[lender.lender_slug]?.[field.key] || ''}
+                    onChange={(e) => updateConfig(lender.lender_slug, field.key, e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <Card>
       <CardHeader>
@@ -168,116 +291,40 @@ export function FinancingLendersSettings() {
           </div>
         )}
 
-        {lenders.sort((a, b) => a.priority_order - b.priority_order).map((lender, idx) => (
-          <div key={lender.lender_slug} className="rounded-lg border">
-            {/* Lender header */}
-            <div className="flex items-center gap-3 p-3">
-              <div className="flex flex-col gap-0.5">
-                <button type="button" onClick={() => movePriority(lender.lender_slug, 'up')} disabled={idx === 0}
-                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed">
-                  <ChevronUp className="h-3.5 w-3.5" />
-                </button>
-                <button type="button" onClick={() => movePriority(lender.lender_slug, 'down')} disabled={idx === lenders.length - 1}
-                  className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed">
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-bold">
-                {idx + 1}
-              </span>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm">{lender.info?.name || lender.display_name}</span>
-                  <Badge variant="outline" className="text-[10px]">
-                    {lender.info?.integrationType || lender.integration_type}
-                  </Badge>
-                  {lender.has_credentials && (
-                    <Badge variant="secondary" className="text-[10px]">
-                      <CheckCircle2 className="h-3 w-3 mr-0.5" /> Keys Set
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground truncate">{lender.info?.description}</p>
-              </div>
-
-              <Switch
-                checked={lender.is_active}
-                onCheckedChange={() => toggleActive(lender.lender_slug)}
-              />
-
-              <button
-                type="button"
-                onClick={() => setExpanded(expanded === lender.lender_slug ? null : lender.lender_slug)}
-                className="text-muted-foreground hover:text-foreground text-xs"
-              >
-                {expanded === lender.lender_slug ? 'Close' : 'Config'}
-              </button>
-            </div>
-
-            {/* Expanded config */}
-            {expanded === lender.lender_slug && (
-              <div className="border-t bg-muted/30 p-4 space-y-4">
-                {/* Features */}
-                {lender.info?.features && (
-                  <div>
-                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Features</Label>
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {lender.info.features.map((f) => (
-                        <Badge key={f} variant="outline" className="text-xs font-normal">{f}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Credential fields */}
-                {lender.info?.credentialFields && lender.info.credentialFields.length > 0 && (
-                  <div className="space-y-3">
-                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">API Credentials</Label>
-                    {lender.info.credentialFields.map((field) => (
-                      <div key={field.key} className="space-y-1">
-                        <Label className="text-xs">{field.label}</Label>
-                        <Input
-                          type={field.type === 'password' ? 'password' : 'text'}
-                          placeholder={lender.has_credentials ? '••••••••  (saved)' : `Enter ${field.label.toLowerCase()}`}
-                          value={credentials[lender.lender_slug]?.[field.key] || ''}
-                          onChange={(e) => updateCredential(lender.lender_slug, field.key, e.target.value)}
-                          className="h-8 text-sm"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Config fields */}
-                {lender.info?.configFields && lender.info.configFields.length > 0 && (
-                  <div className="space-y-3">
-                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">Configuration</Label>
-                    {lender.info.configFields.map((field) => (
-                      <div key={field.key} className="space-y-1">
-                        <Label className="text-xs">{field.label}</Label>
-                        <Input
-                          type="text"
-                          placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
-                          value={configUpdates[lender.lender_slug]?.[field.key] || ''}
-                          onChange={(e) => updateConfig(lender.lender_slug, field.key, e.target.value)}
-                          className="h-8 text-sm"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+        {/* API Lenders — primary tier */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Zap className="h-3.5 w-3.5 text-emerald-600" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">API Lenders</span>
+            <span className="text-xs text-muted-foreground">— fully automated, end-to-end tracking</span>
           </div>
-        ))}
+          {apiLenders.map((lender, idx) => renderLender(lender, idx, apiLenders))}
+        </div>
+
+        <Separator />
+
+        {/* Link Lenders — secondary tier, collapsed by default */}
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setShowLinkLenders(v => !v)}
+            className="flex w-full items-center gap-2 text-left"
+          >
+            <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Link Lenders</span>
+            <span className="text-xs text-muted-foreground">— patient applies on lender site, manual outcome tracking</span>
+            <ChevronRight className={`ml-auto h-3.5 w-3.5 text-muted-foreground transition-transform ${showLinkLenders ? 'rotate-90' : ''}`} />
+          </button>
+          {showLinkLenders && linkLenders.map((lender, idx) => renderLender(lender, idx, linkLenders))}
+        </div>
 
         <Separator />
 
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
             {lenders.filter(l => l.is_active).length} of {lenders.length} lenders active
+            {' · '}
+            {apiLenders.filter(l => l.is_active).length} API lenders active
           </p>
           <Button onClick={save} disabled={saving} size="sm">
             {saving ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : saved ? <CheckCircle2 className="h-4 w-4 mr-1.5" /> : <Save className="h-4 w-4 mr-1.5" />}

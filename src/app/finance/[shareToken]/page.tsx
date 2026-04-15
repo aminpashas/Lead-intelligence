@@ -70,9 +70,12 @@ export default async function FinancingPublicPage({
   }
 
   // Load lead basic info to pre-fill the form
+  // HIPAA-3: Only select non-PII fields for prefill. Email and phone are
+  // encrypted at rest (start with 'enc::') — DO NOT pass ciphertext to
+  // the client. The patient will re-enter their contact info in the form.
   const { data: lead } = await supabase
     .from('leads')
-    .select('first_name, last_name, email, phone, city, state')
+    .select('first_name, last_name, city, state')
     .eq('id', application.lead_id)
     .single()
 
@@ -107,8 +110,10 @@ export default async function FinancingPublicPage({
           prefill={{
             first_name: lead?.first_name || '',
             last_name: lead?.last_name || '',
-            email: lead?.email || '',
-            phone: lead?.phone || '',
+            // HIPAA-3: email/phone excluded — they're encrypted in the DB
+            // Patient will enter their own contact info in the form
+            email: '',
+            phone: '',
             city: lead?.city || '',
             state: lead?.state || '',
           }}

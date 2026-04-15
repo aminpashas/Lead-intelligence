@@ -22,6 +22,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { withRetry } from '@/lib/retry'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { enrichWithExperian, experianConfidence, type ExperianConsumerResult } from './experian-consumer'
+import { LENDER_CREDIT_PROFILES } from '@/lib/financing/lender-profiles'
+import type { LenderSlug } from '@/lib/financing/types'
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -223,7 +225,8 @@ export async function runLenderPreQual(
 
 /**
  * Estimate pre-qualification for a specific lender based on credit tier.
- * Used when lender API credentials aren't configured or for instant estimates.
+ * Approval rates are sourced from the authoritative LENDER_CREDIT_PROFILES
+ * in lender-profiles.ts — no duplicate maintenance needed here.
  */
 function estimateLenderPreQual(
   slug: string,
@@ -233,68 +236,25 @@ function estimateLenderPreQual(
 ): LenderPreQualResult {
   const tier = credit.credit_tier
 
-  // Approval likelihood and terms vary by lender and credit tier
-  const lenderProfiles: Record<string, {
-    excellent: { approval: number; apr: number; maxAmount: number }
-    good: { approval: number; apr: number; maxAmount: number }
-    fair: { approval: number; apr: number; maxAmount: number }
-    poor: { approval: number; apr: number; maxAmount: number }
-    unknown: { approval: number; apr: number; maxAmount: number }
-  }> = {
-    carecredit: {
-      excellent: { approval: 95, apr: 0, maxAmount: 65000 },       // Promo 0%
-      good: { approval: 75, apr: 14.9, maxAmount: 40000 },
-      fair: { approval: 40, apr: 26.99, maxAmount: 15000 },
-      poor: { approval: 10, apr: 26.99, maxAmount: 5000 },
-      unknown: { approval: 50, apr: 17.9, maxAmount: 25000 },
-    },
-    sunbit: {
-      excellent: { approval: 98, apr: 0, maxAmount: 35000 },
-      good: { approval: 92, apr: 9.99, maxAmount: 30000 },
-      fair: { approval: 85, apr: 19.99, maxAmount: 20000 },
-      poor: { approval: 60, apr: 35.99, maxAmount: 10000 },
-      unknown: { approval: 80, apr: 14.99, maxAmount: 25000 },
-    },
-    cherry: {
-      excellent: { approval: 95, apr: 0, maxAmount: 50000 },
-      good: { approval: 80, apr: 14.99, maxAmount: 35000 },
-      fair: { approval: 60, apr: 24.99, maxAmount: 20000 },
-      poor: { approval: 30, apr: 31.99, maxAmount: 10000 },
-      unknown: { approval: 65, apr: 19.99, maxAmount: 25000 },
-    },
-    proceed: {
-      excellent: { approval: 90, apr: 4.99, maxAmount: 100000 },
-      good: { approval: 70, apr: 11.99, maxAmount: 65000 },
-      fair: { approval: 50, apr: 19.99, maxAmount: 35000 },
-      poor: { approval: 25, apr: 29.99, maxAmount: 15000 },
-      unknown: { approval: 55, apr: 14.99, maxAmount: 45000 },
-    },
-    lendingclub: {
-      excellent: { approval: 85, apr: 8.98, maxAmount: 65000 },
-      good: { approval: 60, apr: 13.99, maxAmount: 45000 },
-      fair: { approval: 35, apr: 24.99, maxAmount: 20000 },
-      poor: { approval: 10, apr: 35.99, maxAmount: 10000 },
-      unknown: { approval: 45, apr: 15.99, maxAmount: 30000 },
-    },
-    alpheon: {
-      excellent: { approval: 85, apr: 5.99, maxAmount: 100000 },
-      good: { approval: 65, apr: 9.99, maxAmount: 60000 },
-      fair: { approval: 40, apr: 16.99, maxAmount: 30000 },
-      poor: { approval: 15, apr: 24.99, maxAmount: 15000 },
-      unknown: { approval: 50, apr: 12.99, maxAmount: 40000 },
-    },
-    affirm: {
-      excellent: { approval: 90, apr: 0, maxAmount: 50000 },
-      good: { approval: 70, apr: 15, maxAmount: 35000 },
-      fair: { approval: 50, apr: 26, maxAmount: 15000 },
-      poor: { approval: 20, apr: 36, maxAmount: 8000 },
-      unknown: { approval: 55, apr: 20, maxAmount: 25000 },
-    },
+  // Pull from authoritative profiles (single source of truth)
+  const creditProfile = LENDER_CREDIT_PROFILES[slug as LenderSlug]
+
+  // APR by credit tier (from lender rate documentation)
+  const aprByTier: Record<string, Record<CreditTier, number>> = {
+    carecredit:  { excellent: 0,     good: 14.9,  fair: 26.99, poor: 26.99, unknown: 17.9  },
+    sunbit:      { excellent: 0,     good: 9.99,  fair: 19.99, poor: 35.99, unknown: 14.99 },
+    affirm:      { excellent: 0,     good: 15,    fair: 26,    poor: 36,    unknown: 20    },
+    cherry:      { excellent: 0,     good: 14.99, fair: 24.99, poor: 39.99, unknown: 19.99 },
+    alpheon:     { excellent: 4.99,  good: 9.99,  fair: 16.99, poor: 24.99, unknown: 12.99 },
+    proceed:     { excellent: 4.99,  good: 11.99, fair: 19.99, poor: 29.99, unknown: 14.99 },
+    lendingclub: { excellent: 8.98,  good: 13.99, fair: 24.99, poor: 35.99, unknown: 15.99 },
   }
 
-  const profile = lenderProfiles[slug]?.[tier] || lenderProfiles[slug]?.unknown || {
-    approval: 50, apr: 15, maxAmount: 25000,
-  }
+  const approvalRate = creditProfile?.approvalRates[tier] ?? 50
+  const maxAmount    = creditProfile?.maxAmount ?? 25000
+  const apr          = aprByTier[slug]?.[tier] ?? 15
+
+  const profile = { approval: approvalRate, apr, maxAmount }
 
   const approvalAmount = Math.min(requestedAmount, profile.maxAmount)
   const termMonths = approvalAmount > 20000 ? 60 : approvalAmount > 10000 ? 48 : 36

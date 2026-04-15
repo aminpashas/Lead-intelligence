@@ -13,6 +13,7 @@ import type { Lead, FinancialSignals } from '@/types/database'
 import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { escapeHtml } from '@/lib/utils'
 import { logger } from '@/lib/logger'
 
 export type ReadinessAssessment = {
@@ -195,7 +196,7 @@ export async function checkAndTriggerFinancing(
   // Load full lead data
   const { data: lead } = await supabase
     .from('leads')
-    .select('*')
+    .select('id, first_name, last_name, email, phone, phone_formatted, status, engagement_score, total_messages_sent, total_messages_received, has_dental_insurance, financing_interest, financing_link_sent_at, financing_approved, financing_readiness_score, financial_signals, personality_profile, sms_opt_out, email_opt_out, created_at, treatment_value, organization_id, budget_range')
     .eq('id', leadId)
     .single()
 
@@ -334,14 +335,19 @@ async function sendFinancingLink(
 }
 
 function buildFinancingEmailHTML(firstName: string, practiceName: string, url: string, monthlyNote: string): string {
+  // PROD-8: Escape user-controlled values to prevent email HTML injection
+  const safeFirstName = escapeHtml(firstName)
+  const safePracticeName = escapeHtml(practiceName)
+  const safeUrl = escapeHtml(url)
+  const safeMonthlyNote = escapeHtml(monthlyNote)
   return `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px; border-radius: 12px 12px 0 0; text-align: center;">
         <h1 style="color: white; margin: 0; font-size: 24px;">Your Financing Options Are Ready! 🎉</h1>
       </div>
       <div style="padding: 32px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
-        <p style="font-size: 16px; color: #374151;">Hi ${firstName},</p>
-        <p style="font-size: 16px; color: #374151;">${monthlyNote}We've put together personalized financing options just for you.</p>
+        <p style="font-size: 16px; color: #374151;">Hi ${safeFirstName},</p>
+        <p style="font-size: 16px; color: #374151;">${safeMonthlyNote}We've put together personalized financing options just for you.</p>
         
         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 24px 0;">
           <p style="margin: 4px 0; color: #166534;"><strong>✅ 2-minute application</strong></p>
@@ -351,11 +357,11 @@ function buildFinancingEmailHTML(firstName: string, practiceName: string, url: s
         </div>
         
         <div style="text-align: center; margin: 32px 0;">
-          <a href="${url}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-size: 18px; font-weight: 600; display: inline-block;">See My Options →</a>
+          <a href="${safeUrl}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px 40px; text-decoration: none; border-radius: 8px; font-size: 18px; font-weight: 600; display: inline-block;">See My Options →</a>
         </div>
         
         <p style="font-size: 14px; color: #6b7280; text-align: center;">Questions? Just reply to this email — we're here to help.</p>
-        <p style="font-size: 14px; color: #6b7280; text-align: center;">— ${practiceName}</p>
+        <p style="font-size: 14px; color: #6b7280; text-align: center;">— ${safePracticeName}</p>
       </div>
     </div>
   `

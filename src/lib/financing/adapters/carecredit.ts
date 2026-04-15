@@ -1,4 +1,5 @@
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
+import { validateLenderBaseUrl } from '../url-validator'
 import type {
   LenderAdapter,
   LenderApplicationRequest,
@@ -44,8 +45,9 @@ export class CareCreditAdapter implements LenderAdapter {
     credentials: LenderCredentials
   ): Promise<LenderApplicationResponse> {
     return withRetry(async () => {
-      const baseUrl = credentials.api_base_url || 'https://api.syf.com'
-      const token = await this.getOAuthToken(credentials)
+      // Production: https://api.syf.com, Staging: https://api-stg.syf.com, UAT: https://api-uat.syf.com
+      const baseUrl = validateLenderBaseUrl('carecredit', credentials.api_base_url || 'https://api.syf.com')
+      const token = await this.getOAuthToken(credentials, baseUrl)
 
       // Step 1: Quickscreen pre-qualification (soft pull)
       const prequalResponse = await fetch(`${baseUrl}/v1/quickscreen`, {
@@ -66,6 +68,7 @@ export class CareCreditAdapter implements LenderAdapter {
           dateOfBirth: request.applicant.date_of_birth,
           requestedAmount: request.requested_amount,
         }),
+        signal: AbortSignal.timeout(15_000),
       })
 
       if (!prequalResponse.ok) {
@@ -116,14 +119,15 @@ export class CareCreditAdapter implements LenderAdapter {
     externalId: string,
     credentials: LenderCredentials
   ): Promise<LenderApplicationResponse> {
-    const baseUrl = credentials.api_base_url || 'https://api.syf.com'
-    const token = await this.getOAuthToken(credentials)
+    const baseUrl = validateLenderBaseUrl('carecredit', credentials.api_base_url || 'https://api.syf.com')
+    const token = await this.getOAuthToken(credentials, baseUrl)
 
     const response = await fetch(`${baseUrl}/v1/applications/${externalId}/status`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'X-Merchant-Id': credentials.merchant_id,
       },
+      signal: AbortSignal.timeout(15_000),
     })
 
     if (!response.ok) {
@@ -213,18 +217,28 @@ export class CareCreditAdapter implements LenderAdapter {
       .createHmac('sha256', secret)
       .update(body)
       .digest('hex')
-    return crypto.timingSafeEqual(
-      Buffer.from(signature, 'hex'),
-      Buffer.from(expected, 'hex')
-    )
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(signature, 'hex'),
+        Buffer.from(expected, 'hex')
+      )
+    } catch {
+      return false
+    }
   }
 
   /**
-   * Get OAuth token from Synchrony.
+   * Get OAuth2 Bearer token from Synchrony.
+   * Endpoint: POST /v1/oauth2/token (per Synchrony OAuth2 API spec)
+   * Grant type: client_credentials (server-to-server)
+   * Environments:
+   *   Production: https://api.syf.com/v1/oauth2/token
+   *   Staging:    https://api-stg.syf.com/v1/oauth2/token
+   *   UAT:        https://api-uat.syf.com/v1/oauth2/token
    */
-  private async getOAuthToken(credentials: LenderCredentials): Promise<string> {
-    const baseUrl = credentials.api_base_url || 'https://api.syf.com'
-    const response = await fetch(`${baseUrl}/oauth/token`, {
+  private async getOAuthToken(credentials: LenderCredentials, baseUrl?: string): Promise<string> {
+    const apiBase = baseUrl || credentials.api_base_url || 'https://api.syf.com'
+    const response = await fetch(`${apiBase}/v1/oauth2/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -232,6 +246,7 @@ export class CareCreditAdapter implements LenderAdapter {
         client_id: credentials.client_id,
         client_secret: credentials.client_secret,
       }),
+      signal: AbortSignal.timeout(10_000),
     })
 
     if (!response.ok) {

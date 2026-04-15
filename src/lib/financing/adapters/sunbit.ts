@@ -59,6 +59,7 @@ export class SunbitAdapter implements LenderAdapter {
             phone: request.applicant.phone,
           },
         }),
+        signal: AbortSignal.timeout(15_000),
       })
 
       if (!response.ok) {
@@ -97,6 +98,7 @@ export class SunbitAdapter implements LenderAdapter {
       headers: {
         'Token': credentials.api_token,
       },
+      signal: AbortSignal.timeout(15_000),
     })
 
     if (!response.ok) {
@@ -157,6 +159,7 @@ export class SunbitAdapter implements LenderAdapter {
         `${baseUrl}/purchase-service/payment-estimation?amount=${amount}&locationId=${credentials.location_id}`,
         {
           headers: { 'Token': credentials.api_token },
+          signal: AbortSignal.timeout(10_000),
         }
       )
 

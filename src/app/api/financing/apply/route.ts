@@ -1,11 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { financingApplicationSchema, publicFinancingApplicationSchema } from '@/lib/validators/financing'
 import { encryptApplicantData, hashSSN } from '@/lib/financing/encryption-helpers'
 import { executeWaterfall } from '@/lib/financing/waterfall'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
+import { buildOptimalWaterfallOrder, describeWaterfallStrategy } from '@/lib/financing/lender-profiles'
 import type { ApplicantData, WaterfallConfig, LenderSlug } from '@/lib/financing/types'
+import type { CreditTier } from '@/lib/enrichment/credit-prequal'
+import { checkRateLimit, FINANCING_APPLY_RATE_LIMIT, FINANCING_TOKEN_RATE_LIMIT } from '@/lib/financing/rate-limiter'
 
 /**
  * POST /api/financing/apply
@@ -19,6 +22,29 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const shareToken = request.headers.get('x-share-token')
+
+    // SEC-5: Rate limit by IP — prevent mass credit pull attacks
+    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || request.headers.get('x-real-ip')
+      || 'unknown'
+    const ipLimit = checkRateLimit(`financing:ip:${clientIp}`, FINANCING_APPLY_RATE_LIMIT)
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many financing requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil((ipLimit.resetAt - Date.now()) / 1000)) } }
+      )
+    }
+
+    // SEC-5: Rate limit by share token — 1 submission per token
+    if (shareToken) {
+      const tokenLimit = checkRateLimit(`financing:token:${shareToken}`, FINANCING_TOKEN_RATE_LIMIT)
+      if (!tokenLimit.allowed) {
+        return NextResponse.json(
+          { error: 'An application has already been submitted with this link.' },
+          { status: 429 }
+        )
+      }
+    }
 
     let organizationId: string
     let leadId: string
@@ -93,19 +119,32 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', tokenData.id)
 
-      // Audit log
+      // Audit log — AUTH-5: use correct actor type for patient-initiated submissions
       await auditPHIWrite(
-        { supabase: serviceClient, organizationId, actorType: 'webhook' },
+        { supabase: serviceClient, organizationId, actorType: 'system' },
         'financing_application',
         tokenData.id,
-        'Financing application submitted via public form',
+        'Financing application submitted by patient via public form',
         ['ssn', 'financial', 'name', 'dob', 'address', 'phone', 'email']
       )
 
-      // Execute waterfall
-      const result = await executeWaterfall(tokenData.id, serviceClient, organizationId)
+      // PROD-2: Execute waterfall asynchronously — don't block the patient's response.
+      // The waterfall iterates through lenders (potentially 30-60s), so we return
+      // immediately and run it in the background via next/server after().
+      after(async () => {
+        try {
+          await executeWaterfall(tokenData.id, serviceClient, organizationId)
+        } catch (err) {
+          console.error('[financing/apply] Background waterfall error:', err instanceof Error ? err.message : err)
+        }
+      })
 
-      return NextResponse.json({ success: true, result })
+      return NextResponse.json({
+        success: true,
+        application_id: tokenData.id,
+        status: 'processing',
+        message: 'Your application is being reviewed. You will receive a notification with the result.',
+      })
     }
 
     // ── Staff-initiated flow ──
@@ -205,12 +244,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Fetch the lead's estimated credit tier from enrichment data
+    // to build a credit-optimized waterfall order
+    const { data: leadEnrichment } = await supabase
+      .from('leads')
+      .select('credit_tier, financing_readiness_score')
+      .eq('id', leadId)
+      .single()
+
+    const creditTier = (leadEnrichment?.credit_tier as CreditTier | null) || 'unknown'
+    const activeSlugs = lenderConfigs.map(lc => lc.lender_slug as LenderSlug)
+
+    // Build credit-aware ordering: highest approval-likelihood lenders first
+    const optimizedOrder = buildOptimalWaterfallOrder(activeSlugs, creditTier)
+    const strategyDescription = describeWaterfallStrategy(optimizedOrder, creditTier)
+
+    // Fall back to manual priority_order if optimization produces no results
+    const finalOrder = optimizedOrder.length > 0 ? optimizedOrder : activeSlugs
+
     const waterfallConfig: WaterfallConfig = {
-      lenders: lenderConfigs.map((lc, idx) => ({
-        slug: lc.lender_slug as LenderSlug,
-        priority: idx + 1,
-        integration_type: lc.integration_type,
-      })),
+      lenders: finalOrder.map((slug, idx) => {
+        const config = lenderConfigs.find(lc => lc.lender_slug === slug)!
+        return {
+          slug,
+          priority: idx + 1,
+          integration_type: config.integration_type,
+        }
+      }),
     }
 
     // Create application
@@ -250,7 +310,7 @@ export async function POST(request: NextRequest) {
       ['ssn', 'financial', 'name', 'dob', 'address', 'phone', 'email']
     )
 
-    // Log activity
+    // Log activity — include credit tier and waterfall strategy for transparency
     try {
       await supabase
         .from('lead_activities')
@@ -260,20 +320,41 @@ export async function POST(request: NextRequest) {
           user_id: user.id,
           activity_type: 'financing_submitted',
           title: 'Financing application submitted',
-          description: `Requested amount: $${validation.data.requested_amount.toLocaleString()}`,
+          description: `Requested: $${validation.data.requested_amount.toLocaleString()} · Credit tier: ${creditTier} · ${strategyDescription}`,
           metadata: {
             application_id: application.id,
             requested_amount: validation.data.requested_amount,
-            lender_count: lenderConfigs.length,
+            credit_tier: creditTier,
+            waterfall_strategy: strategyDescription,
+            lender_order: finalOrder,
+            lender_count: finalOrder.length,
           },
         })
     } catch { /* Non-blocking */ }
 
-    // Execute waterfall (uses service client for cross-table access)
+    // PROD-2: Execute waterfall asynchronously via after().
+    // The waterfall can take 30-60s iterating through lenders — don't block the staff UI.
+    // The result will be reflected in the application record and activity log.
     const serviceClient = createServiceClient()
-    const result = await executeWaterfall(application.id, serviceClient, organizationId)
+    after(async () => {
+      try {
+        await executeWaterfall(application.id, serviceClient, organizationId)
+      } catch (err) {
+        console.error('[financing/apply] Background waterfall error:', err instanceof Error ? err.message : err)
+        // Mark application as error so it's not stuck in pending forever
+        await serviceClient
+          .from('financing_applications')
+          .update({ status: 'error', updated_at: new Date().toISOString() })
+          .eq('id', application.id)
+      }
+    })
 
-    return NextResponse.json({ success: true, application_id: application.id, result })
+    return NextResponse.json({
+      success: true,
+      application_id: application.id,
+      status: 'processing',
+      message: 'Application submitted. The waterfall is running — results will appear in the lead timeline.',
+    })
   } catch (error) {
     console.error('[financing/apply] Error:', error)
     return NextResponse.json(

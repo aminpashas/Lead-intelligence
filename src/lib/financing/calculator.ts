@@ -606,15 +606,17 @@ function estimateInsuranceCoverage(
 
 /**
  * Convert budget_range enum to an estimated down payment amount.
+ * PROD-7: Uses ~10-15% of the bottom of the range as a realistic
+ * down payment assumption. Previously mapped 50% which was nonsensical.
  */
 function budgetRangeToDownPayment(range: BudgetRange | null | undefined): number {
   switch (range) {
-    case 'under_10k': return 5000
-    case '10k_15k': return 10000
-    case '15k_20k': return 15000
-    case '20k_25k': return 20000
-    case '25k_30k': return 25000
-    case 'over_30k': return 30000
+    case 'under_10k': return 1000
+    case '10k_15k': return 1500
+    case '15k_20k': return 2000
+    case '20k_25k': return 2500
+    case '25k_30k': return 3000
+    case 'over_30k': return 4000
     default: return 0
   }
 }

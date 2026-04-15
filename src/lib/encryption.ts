@@ -13,7 +13,7 @@
  * The encryption key must be a 32-byte hex string set in ENCRYPTION_KEY env var.
  */
 
-import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'crypto'
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, hkdfSync } from 'crypto'
 
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 12
@@ -21,6 +21,13 @@ const AUTH_TAG_LENGTH = 16
 
 // Prefix to identify encrypted values (avoids double-encryption)
 const ENCRYPTED_PREFIX = 'enc::'
+
+/**
+ * Cached derived HMAC key — computed once via HKDF.
+ * SEC-4: Using a separate key for HMAC prevents a compromised hash
+ * from providing a known-ciphertext attack vector against the AES key.
+ */
+let _hmacKey: Buffer | null = null
 
 function getKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY
@@ -31,6 +38,22 @@ function getKey(): Buffer {
     throw new Error('ENCRYPTION_KEY must be a 64-character hex string (32 bytes)')
   }
   return Buffer.from(key, 'hex')
+}
+
+/**
+ * Derive a separate HMAC key from the master key using HKDF.
+ * SEC-4: Prevents using the same key for both AES-GCM encryption
+ * and HMAC hashing. The HKDF context label ensures the derived key
+ * is cryptographically independent of the master key.
+ */
+function getHmacKey(): Buffer {
+  if (_hmacKey) return _hmacKey
+  const masterKey = getKey()
+  // HKDF: derive a 32-byte HMAC key with a distinct context label
+  _hmacKey = Buffer.from(
+    hkdfSync('sha256', masterKey, '', 'search-hash-hmac-v1', 32)
+  )
+  return _hmacKey
 }
 
 /**
@@ -90,11 +113,13 @@ export function decryptField(encrypted: string | null | undefined): string | nul
  * Generate a deterministic HMAC-SHA256 hash for search/lookup.
  * This allows querying encrypted fields without decrypting all rows.
  * The hash is one-way — the plaintext cannot be recovered from it.
+ *
+ * SEC-4: Uses a HKDF-derived key separate from the AES encryption key.
  */
 export function searchHash(plaintext: string | null | undefined): string | null {
   if (plaintext == null || plaintext === '') return null
-  const key = getKey()
-  return createHmac('sha256', key).update(plaintext.toLowerCase().trim()).digest('hex')
+  const hmacKey = getHmacKey()
+  return createHmac('sha256', hmacKey).update(plaintext.toLowerCase().trim()).digest('hex')
 }
 
 /**

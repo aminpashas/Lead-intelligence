@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getLenderAdapter } from './adapters'
 import { decryptApplicantData, decryptCredentials, FINANCING_PHI_CATEGORIES } from './encryption-helpers'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
+import { auditPHIRead } from '@/lib/hipaa-audit'
 import { followUpApproved, followUpDenied, followUpPending } from './follow-up'
 import type {
   FinancingApplication,
@@ -38,7 +39,7 @@ export async function executeWaterfall(
   // 1. Load the application
   const { data: application, error: appError } = await supabase
     .from('financing_applications')
-    .select('*')
+    .select('id, organization_id, lead_id, status, current_waterfall_step, waterfall_config, applicant_data_encrypted, requested_amount, expires_at, approved_lender_slug, approved_amount')
     .eq('id', applicationId)
     .eq('organization_id', organizationId)
     .single()
@@ -77,11 +78,45 @@ export async function executeWaterfall(
   // 2. Decrypt applicant data
   const applicantData = decryptApplicantData(application.applicant_data_encrypted)
 
-  // 3. Mark as in_progress
-  await supabase
+  // HIPAA-2: Audit log the decryption of PHI (SSN, DOB, income, address)
+  auditPHIRead(
+    { supabase, organizationId, actorType: 'system' },
+    'financing_application',
+    applicationId,
+    'Decrypted applicant PHI for waterfall lender submission',
+    [...FINANCING_PHI_CATEGORIES]
+  ).catch(() => { /* Non-blocking */ })
+
+  // 3. Acquire concurrency lock via optimistic update
+  // DI-2: Only transition to 'in_progress' if the current status is 'pending'.
+  // If another process (e.g., a webhook callback) already set it to 'in_progress',
+  // this update will match 0 rows and we'll exit safely, preventing two concurrent
+  // waterfall runs from corrupting the application state.
+  const { data: lockResult } = await supabase
     .from('financing_applications')
-    .update({ status: 'in_progress', updated_at: new Date().toISOString() })
+    .update({
+      status: 'in_progress',
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', applicationId)
+    .in('status', ['pending'])  // Only lock if still pending
+    .select('id')
+
+  if (!lockResult || lockResult.length === 0) {
+    // Another process already picked this up — check if it's already in_progress (resumable)
+    // or completed. If it's in_progress from a resumeWaterfall call, we can still proceed
+    // since resumeWaterfall advances the step before calling us.
+    if (application.status !== 'in_progress') {
+      console.warn(`[waterfall] Lock contention: application ${applicationId} status=${application.status}, skipping`)
+      return {
+        application_id: applicationId,
+        status: application.status as WaterfallResult['status'],
+        current_step: application.current_waterfall_step,
+        total_steps: application.waterfall_config.lenders.length,
+      }
+    }
+    // status is 'in_progress' — we were called by resumeWaterfall, proceed
+  }
 
   // 4. Iterate through lenders starting from current step
   const lenders = application.waterfall_config.lenders as Array<{
@@ -98,7 +133,7 @@ export async function executeWaterfall(
     // Load lender config
     const { data: lenderConfig } = await supabase
       .from('financing_lender_configs')
-      .select('*')
+      .select('id, lender_slug, is_active, credentials_encrypted, config, integration_type')
       .eq('organization_id', organizationId)
       .eq('lender_slug', lenderEntry.slug)
       .eq('is_active', true)
@@ -169,7 +204,7 @@ export async function executeWaterfall(
 
         // Handle response
         if (response.status === 'approved') {
-          const result = await handleApproval(supabase, applicationId, application.lead_id, lenderEntry.slug, response, step, totalSteps)
+          const result = await handleApproval(supabase, applicationId, application.lead_id, organizationId, lenderEntry.slug, response, step, totalSteps)
 
           // Auto follow-up: notify patient of approval
           followUpApproved(
@@ -298,6 +333,7 @@ async function handleApproval(
   supabase: SupabaseClient,
   applicationId: string,
   leadId: string,
+  organizationId: string,
   lenderSlug: LenderSlug,
   response: LenderApplicationResponse,
   step: number,
@@ -327,21 +363,13 @@ async function handleApproval(
     })
     .eq('id', leadId)
 
-  // Get org for activity logging
-  const { data: app } = await supabase
-    .from('financing_applications')
-    .select('organization_id')
-    .eq('id', applicationId)
-    .single()
-
-  if (app) {
-    await logFinancingActivity(supabase, app.organization_id, leadId, 'financing_approved', {
-      lender: lenderSlug,
-      approved_amount: response.approved_amount,
-      terms: response.terms,
-      step,
-    })
-  }
+  // DI-3: organizationId is now passed in — no extra DB query needed
+  await logFinancingActivity(supabase, organizationId, leadId, 'financing_approved', {
+    lender: lenderSlug,
+    approved_amount: response.approved_amount,
+    terms: response.terms,
+    step,
+  })
 
   return {
     application_id: applicationId,

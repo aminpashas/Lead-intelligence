@@ -33,13 +33,19 @@ export async function POST(request: NextRequest) {
   const { lead_id, channel, treatment_value, custom_message } = parsed.data
 
   // Auth + org scoping
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('id, organization_id')
+    .eq('id', user.id)
     .single()
 
   if (!profile) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: 'User profile not found' }, { status: 403 })
   }
 
   // Fetch lead — scoped to org
@@ -104,10 +110,12 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         requested_amount: effectiveTreatmentValue,
         share_token: shareToken,
-        consent_given_at: new Date().toISOString(),
+        // DI-5: consent_given_at is null — patient hasn't consented yet, just link creation
+        consent_given_at: null,
         expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), // 72h
         waterfall_config: { lenders: [] },
-        applicant_data_encrypted: '',
+        // DI-4: use null instead of empty string to avoid accidental decryption of ''
+        applicant_data_encrypted: null,
       })
       .select('id')
       .single()
