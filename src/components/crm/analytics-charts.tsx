@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback, type ReactNode } from 'react'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Users, Brain, DollarSign, TrendingUp, Calendar, MessageSquare,
   Flame, Thermometer, Target, Mail, Phone, Bot, Loader2,
-  Clock, Zap, Timer,
+  Clock, Zap, Timer, Plug,
 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -84,6 +85,19 @@ type AnalyticsData = {
     avg_deal_size: number
   }
   dateRange?: { start: string; end: string }
+  connectorHealth?: {
+    total_events: number
+    total_success: number
+    total_failed: number
+    connectors: Array<{
+      type: string
+      total: number
+      success: number
+      failed: number
+      success_rate: number
+      top_event: string | null
+    }>
+  } | null
 }
 
 const COLORS = ['#2563eb', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
@@ -215,7 +229,15 @@ export function AnalyticsDashboard() {
     <div className="space-y-6 animate-in fade-in-0 duration-500">
       {/* Date Range Picker */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Analytics</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Analytics</h1>
+          <Link href="/analytics/attribution">
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
+              <Target className="h-3 w-3" />
+              Attribution
+            </Button>
+          </Link>
+        </div>
         <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
           {([['7d', '7D'], ['30d', '30D'], ['90d', '90D'], ['ytd', 'YTD'], ['1y', '1Y']] as [DateRange, string][]).map(([key, label]) => (
             <Button
@@ -750,6 +772,82 @@ export function AnalyticsDashboard() {
                 <Bar dataKey="avg_days_in_stage" fill="#8b5cf6" radius={[0, 4, 4, 0]} name="Avg Days" />
               </BarChart>
             </ChartWrapper>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══ Connector Health ═══ */}
+      {data.connectorHealth && data.connectorHealth.connectors.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Plug className="h-5 w-5 text-primary" />
+              Connector Health
+            </CardTitle>
+            <CardDescription>
+              Event delivery stats for your marketing connectors (last 7 days)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 mb-4 text-center">
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-3">
+                <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{data.connectorHealth.total_events}</p>
+                <p className="text-xs text-blue-600 dark:text-blue-500">Total Events</p>
+              </div>
+              <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-3">
+                <p className="text-2xl font-bold text-green-700 dark:text-green-400">{data.connectorHealth.total_success}</p>
+                <p className="text-xs text-green-600 dark:text-green-500">Successful</p>
+              </div>
+              <div className="rounded-lg bg-red-50 dark:bg-red-950/30 p-3">
+                <p className="text-2xl font-bold text-red-700 dark:text-red-400">{data.connectorHealth.total_failed}</p>
+                <p className="text-xs text-red-600 dark:text-red-500">Failed</p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {data.connectorHealth.connectors.map((c) => {
+                const CONNECTOR_NAMES: Record<string, string> = {
+                  google_ads: 'Google Ads',
+                  meta_capi: 'Meta CAPI',
+                  ga4: 'GA4',
+                  outbound_webhook: 'Webhooks',
+                  slack: 'Slack',
+                }
+                const EVENT_NAMES: Record<string, string> = {
+                  'lead.created': 'Lead Created',
+                  'lead.qualified': 'Qualified',
+                  'consultation.scheduled': 'Consult Booked',
+                  'contract.signed': 'Contract Signed',
+                  'stage.changed': 'Stage Changed',
+                }
+                return (
+                  <div key={c.type} className="flex items-center gap-3">
+                    <div className="w-24 text-sm font-medium truncate">
+                      {CONNECTOR_NAMES[c.type] || c.type}
+                    </div>
+                    <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          c.success_rate >= 95 ? 'bg-green-500' :
+                          c.success_rate >= 80 ? 'bg-amber-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${c.success_rate}%` }}
+                      />
+                    </div>
+                    <div className="w-12 text-right text-sm font-medium">
+                      {c.success_rate}%
+                    </div>
+                    <div className="w-24 text-right text-xs text-muted-foreground">
+                      {c.total} events
+                    </div>
+                    {c.top_event && (
+                      <Badge variant="outline" className="text-[10px] h-4 hidden md:inline-flex">
+                        {EVENT_NAMES[c.top_event] || c.top_event}
+                      </Badge>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </CardContent>
         </Card>
       )}

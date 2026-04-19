@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { useOrgStore } from '@/lib/store/use-org'
+import { canAccessRoute, ROLE_LABELS, ROLE_COLORS, type PracticeRole } from '@/lib/auth/permissions'
 import {
   LayoutDashboard,
   Users,
@@ -22,12 +24,24 @@ import {
   X,
   Building2,
   Phone,
+  UsersRound,
+  CreditCard,
+  FolderHeart,
+  Plug,
+  type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+
+type NavItem = {
+  name: string
+  href: string
+  icon: LucideIcon
+}
 
 // Practice-level navigation only.
 // AI Training, AI Audit, AI Engine, Sales Intelligence are AGENCY-ONLY features.
-const navigation = [
+const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
   { name: 'Funnel Playbook', href: '/funnel', icon: Target },
@@ -41,13 +55,22 @@ const navigation = [
   { name: 'Mass Email', href: '/mass-email', icon: Mail },
   { name: 'Broadcast Audit', href: '/broadcast-audit', icon: ClipboardCheck },
   { name: 'Appointments', href: '/appointments', icon: Calendar },
+  { name: 'Cases', href: '/cases', icon: FolderHeart },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'AI Control', href: '/ai-control', icon: ToggleLeft },
+  { name: 'Team', href: '/team', icon: UsersRound },
+  { name: 'Billing', href: '/billing', icon: CreditCard },
+  { name: 'Connectors', href: '/settings/connectors', icon: Plug },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
+  const { userProfile } = useOrgStore()
+  const role = (userProfile?.role || 'member') as PracticeRole
+
+  // Filter navigation items based on user's role
+  const filteredNav = navigation.filter((item) => canAccessRoute(role, item.href))
 
   return (
     <>
@@ -59,7 +82,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-3 overflow-y-auto">
-        {navigation.map((item) => {
+        {filteredNav.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
           return (
             <Link
@@ -87,8 +110,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <Building2 className="h-4 w-4 text-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium truncate">Practice Dashboard</p>
-            <p className="text-xs text-muted-foreground">Lead Intelligence v2.0</p>
+            <p className="text-xs font-medium truncate">{userProfile?.full_name || 'Practice Dashboard'}</p>
+            <Badge
+              variant="outline"
+              className={cn('text-[10px] px-1.5 py-0 h-4 font-medium', ROLE_COLORS[role])}
+            >
+              {ROLE_LABELS[role] || role}
+            </Badge>
           </div>
         </div>
       </div>

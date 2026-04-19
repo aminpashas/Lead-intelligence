@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useOrgStore } from '@/lib/store/use-org'
+import { isAdminRole, ROLE_LABELS, ROLE_COLORS, type PracticeRole } from '@/lib/auth/permissions'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -12,16 +13,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Search, Menu } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Search, Menu, UsersRound } from 'lucide-react'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import { Input } from '@/components/ui/input'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { NotificationDropdown } from './notification-dropdown'
+import { cn } from '@/lib/utils'
 
 export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter()
   const supabase = createClient()
   const { userProfile, organization } = useOrgStore()
+  const role = (userProfile?.role || 'member') as PracticeRole
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -73,14 +77,32 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
               <span className="text-sm font-medium hidden md:inline">
                 {userProfile?.full_name || 'User'}
               </span>
+              <Badge
+                variant="outline"
+                className={cn('text-[10px] px-1.5 py-0 h-4 font-medium hidden lg:inline-flex', ROLE_COLORS[role])}
+              >
+                {ROLE_LABELS[role] || role}
+              </Badge>
             </span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5">
               <p className="text-sm font-medium">{userProfile?.full_name}</p>
               <p className="text-xs text-muted-foreground">{organization?.name}</p>
+              <Badge
+                variant="outline"
+                className={cn('text-[10px] px-1.5 py-0 h-4 font-medium mt-1', ROLE_COLORS[role])}
+              >
+                {ROLE_LABELS[role] || role}
+              </Badge>
             </div>
             <DropdownMenuSeparator />
+            {isAdminRole(role) && (
+              <DropdownMenuItem onClick={() => router.push('/team')}>
+                <UsersRound className="mr-2 h-4 w-4" />
+                Team Management
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => router.push('/settings')}>
               Settings
             </DropdownMenuItem>

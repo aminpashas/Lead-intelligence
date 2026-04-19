@@ -295,6 +295,44 @@ export async function GET(request: NextRequest) {
   const convertedLeads = kpis.converted_leads ?? kpis.convertedLeads ?? 0
   const qualifiedLeads = kpis.qualified_leads ?? kpis.qualifiedLeads ?? 0
 
+  // ── Connector Health (last 7 days) ──
+  let connectorHealth: any = null
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const { data: connectorEvents } = await supabase
+      .from('connector_events')
+      .select('connector_type, event_type, success, dispatched_at')
+      .eq('organization_id', orgId)
+      .gte('dispatched_at', sevenDaysAgo)
+
+    if (connectorEvents && connectorEvents.length > 0) {
+      const byConnector: Record<string, { total: number; success: number; failed: number; events: Record<string, number> }> = {}
+      for (const ev of connectorEvents) {
+        if (!byConnector[ev.connector_type]) {
+          byConnector[ev.connector_type] = { total: 0, success: 0, failed: 0, events: {} }
+        }
+        byConnector[ev.connector_type].total++
+        if (ev.success) byConnector[ev.connector_type].success++
+        else byConnector[ev.connector_type].failed++
+        byConnector[ev.connector_type].events[ev.event_type] = (byConnector[ev.connector_type].events[ev.event_type] || 0) + 1
+      }
+
+      connectorHealth = {
+        total_events: connectorEvents.length,
+        total_success: connectorEvents.filter(e => e.success).length,
+        total_failed: connectorEvents.filter(e => !e.success).length,
+        connectors: Object.entries(byConnector).map(([type, stats]) => ({
+          type,
+          ...stats,
+          success_rate: stats.total > 0 ? Math.round(stats.success / stats.total * 100) : 0,
+          top_event: Object.entries(stats.events).sort((a, b) => b[1] - a[1])[0]?.[0] || null,
+        })),
+      }
+    }
+  } catch {
+    // connector_events table may not exist yet — graceful degradation
+  }
+
   return NextResponse.json({
     kpis: {
       totalLeads,
@@ -333,6 +371,7 @@ export async function GET(request: NextRequest) {
     sourceRoi,
     pipelineVelocity,
     forecasting,
+    connectorHealth,
     dateRange: { start: startDate, end: endDate },
   })
 }
