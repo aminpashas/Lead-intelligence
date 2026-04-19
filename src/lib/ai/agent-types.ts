@@ -128,6 +128,10 @@ export const STAGE_AGENT_MAP: Record<LeadStatus, AgentType> = {
   completed: 'none',
   lost: 'none',
   disqualified: 'none',
+
+  // Dormant leads are re-engaged by the Reactivation campaign (setter agent)
+  // when the campaign step is an SMS/email; voice steps go through Retell directly.
+  dormant: 'setter',
 }
 
 // ════════════════════════════════════════════════════════════════

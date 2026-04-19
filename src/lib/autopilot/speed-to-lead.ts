@@ -12,8 +12,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAutopilotConfig } from './config'
 import { routeToAgent } from '@/lib/ai/agent-handoff'
-import { sendSMS } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
+import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { ConversationChannel, LeadStatus } from '@/types/database'
@@ -157,20 +157,37 @@ export async function triggerSpeedToLead(
     return { action: 'escalated', message: agentResponse.message }
   }
 
-  // 8. Send the message
+  // 8. Send the message (consent gate enforced inside sendSMSToLead / sendEmailToLead)
   try {
     let externalId: string | undefined
 
     if (channel === 'sms' && phone) {
-      const result = await sendSMS(phone, agentResponse.message)
+      const result = await sendSMSToLead({
+        supabase,
+        leadId,
+        to: phone,
+        body: agentResponse.message,
+        caller: 'autopilot.speed_to_lead',
+      })
+      if (!result.sent) {
+        logger.warn('Speed-to-lead SMS blocked by consent gate', { leadId, reason: result.reason })
+        return { action: 'skipped' }
+      }
       externalId = result.sid
     } else if (channel === 'email' && email) {
-      await sendEmail({
+      const result = await sendEmailToLead({
+        supabase,
+        leadId,
         to: email,
         subject: 'Thanks for reaching out!',
         html: `<div style="font-family: -apple-system, sans-serif; padding: 24px;">${agentResponse.message.replace(/\n/g, '<br>')}</div>`,
         text: agentResponse.message,
+        caller: 'autopilot.speed_to_lead',
       })
+      if (!result.sent) {
+        logger.warn('Speed-to-lead email blocked by consent gate', { leadId, reason: result.reason })
+        return { action: 'skipped' }
+      }
     }
 
     // Store outbound message

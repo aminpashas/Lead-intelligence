@@ -17,8 +17,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
 import { getPatientProfile } from '@/lib/ai/patient-psychology'
-import { sendSMS } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendSMS, sendSMSToLead } from '@/lib/messaging/twilio'
+import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { detectPromptInjection, wrapUserContent } from '@/lib/ai/prompt-guard'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
@@ -318,29 +318,36 @@ async function sendAgentResponse(
   const { organization_id, conversation_id, lead_id, lead, channel, sender_contact, agentResponse } = params
   let externalId: string | undefined
 
-  // CRIT-1: TCPA consent check before sending
+  // CRIT-1: TCPA consent check enforced inside sendSMSToLead / sendEmailToLead.
+  // Gate refusal returns { sent: false } with a logged events row; we throw to escalate.
   if (channel === 'sms') {
-    if (!lead.sms_consent || lead.sms_opt_out) {
-      throw new Error('Cannot send SMS: lead has not given consent or has opted out')
+    const result = await sendSMSToLead({
+      supabase,
+      leadId: lead_id,
+      to: sender_contact,
+      body: agentResponse.message,
+      caller: 'autopilot.auto_respond',
+    })
+    if (!result.sent) {
+      throw new Error(`Cannot send SMS: consent gate denied (${result.reason})`)
     }
-  } else {
-    if (!lead.email_consent || lead.email_opt_out) {
-      throw new Error('Cannot send email: lead has not given consent or has opted out')
-    }
-  }
-
-  if (channel === 'sms') {
-    const result = await sendSMS(sender_contact, agentResponse.message)
     externalId = result.sid
   } else {
     const email = decryptField(sender_contact) || sender_contact
-    await sendEmail({
+    const result = await sendEmailToLead({
+      supabase,
+      leadId: lead_id,
       to: email,
       subject: 'Following up on your consultation',
       html: `<div style="font-family: -apple-system, sans-serif; padding: 24px;">${agentResponse.message.replace(/\n/g, '<br>')}</div>`,
       text: agentResponse.message,
+      caller: 'autopilot.auto_respond',
     })
+    if (!result.sent) {
+      throw new Error(`Cannot send email: consent gate denied (${result.reason})`)
+    }
   }
+  void lead // (channel/consent state read inside the gate via leadId)
 
   // Store outbound message
   await supabase.from('messages').insert({

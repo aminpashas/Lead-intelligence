@@ -7,6 +7,7 @@ import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCus
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
+import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
 
 // POST /api/webhooks/form - Universal form webhook
 // Supports: Custom forms, Typeform, JotForm, Google Forms, landing pages
@@ -188,12 +189,48 @@ export async function POST(request: NextRequest) {
     // Scoring failure shouldn't block lead creation
   }
 
-  // Speed-to-lead: AI auto-outreach to new leads (non-blocking)
+  // Append-only event for Phase 2 CAPI/Google Ads forwarders + analytics
+  try {
+    await supabase.from('events').insert({
+      organization_id: orgResult.orgId,
+      lead_id: lead.id,
+      event_type: 'lead.created',
+      payload: {
+        source_type: parsed.data.source_type || 'website_form',
+        utm_source: parsed.data.utm_source,
+        utm_medium: parsed.data.utm_medium,
+        utm_campaign: parsed.data.utm_campaign,
+        gclid: parsed.data.gclid,
+        fbclid: parsed.data.fbclid,
+        landing_page_url: parsed.data.landing_page_url,
+        ip_address: ipAddress,
+      },
+    })
+  } catch {
+    // Events insert is best-effort; analytics will catch up via lead_activities
+  }
+
+  // Speed-to-lead: AI auto-outreach to new leads (awaited, gated by 60-second SLA per brief §2.2)
   try {
     const { triggerSpeedToLead } = await import('@/lib/autopilot/speed-to-lead')
     await triggerSpeedToLead(supabase, lead.id, orgResult.orgId)
   } catch {
     // Speed-to-lead failure shouldn't block lead creation
+  }
+
+  // Dispatch to external connectors (non-blocking)
+  try {
+    dispatchConnectorEvent(supabase, {
+      type: 'lead.created',
+      organizationId: orgResult.orgId,
+      leadId: lead.id,
+      timestamp: new Date().toISOString(),
+      data: {
+        lead: buildConnectorLeadData(lead),
+      },
+    }).catch(() => { /* non-blocking */ })
+  } catch {
+    // Connector failures never block lead creation
   }
 
   return NextResponse.json({

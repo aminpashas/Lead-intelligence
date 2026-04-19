@@ -9,10 +9,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getTransitionRules, type TransitionAction } from './automations'
 import { processTemplate, buildTemplateContext, type TemplateContext } from '../campaigns/template'
 import { decryptField } from '@/lib/encryption'
-import { sendSMS } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
+import { sendEmailToLead } from '@/lib/messaging/resend'
 import { scoreLead } from '@/lib/ai/scoring'
 import { appendEmailFooter } from '@/lib/messaging/email-footer'
+import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
+import type { ConnectorEventType } from '@/lib/connectors'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 
 type AutomationResult = {
@@ -113,7 +115,51 @@ export async function executeStageTransition(
     results.push(result)
   }
 
+  // ── Dispatch to external connectors (non-blocking) ──
+  try {
+    const connectorEventType = mapStageToConnectorEvent(params.toStageSlug)
+    if (connectorEventType) {
+      dispatchConnectorEvent(supabase, {
+        type: connectorEventType,
+        organizationId: params.organizationId,
+        leadId: params.leadId,
+        timestamp: new Date().toISOString(),
+        data: {
+          lead: buildConnectorLeadData({
+            ...params.lead,
+            stage_slug: params.toStageSlug,
+          }),
+          metadata: {
+            old_stage: params.fromStageSlug,
+            new_stage: params.toStageSlug,
+          },
+        },
+      }).catch(() => { /* connector dispatch is non-blocking */ })
+    }
+  } catch {
+    // Connector failures never block stage transitions
+  }
+
   return results
+}
+
+/** Map pipeline stage slugs to connector event types */
+function mapStageToConnectorEvent(stageSlug: string): ConnectorEventType | null {
+  const map: Record<string, ConnectorEventType> = {
+    'new': 'lead.created',
+    'contacted': 'stage.changed',
+    'qualified': 'lead.qualified',
+    'consultation-scheduled': 'consultation.scheduled',
+    'consultation-completed': 'consultation.completed',
+    'treatment-presented': 'treatment.presented',
+    'financing': 'treatment.accepted',
+    'contract-signed': 'contract.signed',
+    'scheduled': 'appointment.booked',
+    'completed': 'treatment.completed',
+    'lost': 'lead.lost',
+    'disqualified': 'lead.lost',
+  }
+  return map[stageSlug] || 'stage.changed'
 }
 
 async function executeAction(
@@ -162,7 +208,16 @@ async function executeAction(
       const template = action.config.template as string || ''
       const body = processTemplate(template, templateCtx)
       try {
-        await withRetry(() => sendSMS(phone, body), RETRY_CONFIGS.twilio)
+        await withRetry(
+          () => sendSMSToLead({
+            supabase,
+            leadId: params.leadId,
+            to: phone,
+            body,
+            caller: 'funnel.executor.send_sms',
+          }),
+          RETRY_CONFIGS.twilio
+        )
       } catch {
         // Log but don't fail the transition
       }
@@ -179,7 +234,18 @@ async function executeAction(
       let html = `<div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">${body.replace(/\n/g, '<br>')}</div>`
       html = appendEmailFooter(html, { leadId: params.leadId, orgId: params.organizationId, orgName })
       try {
-        await withRetry(() => sendEmail({ to: email, subject, html, text: body }), RETRY_CONFIGS.resend)
+        await withRetry(
+          () => sendEmailToLead({
+            supabase,
+            leadId: params.leadId,
+            to: email,
+            subject,
+            html,
+            text: body,
+            caller: 'funnel.executor.send_email',
+          }),
+          RETRY_CONFIGS.resend
+        )
       } catch {
         // Non-blocking
       }
@@ -187,7 +253,7 @@ async function executeAction(
     }
 
     case 'notify_team': {
-      // Log as activity — in production would push to Slack/websocket
+      // Log as activity
       await supabase.from('lead_activities').insert({
         organization_id: params.organizationId,
         lead_id: params.leadId,
@@ -195,6 +261,49 @@ async function executeAction(
         title: action.config.message as string || 'Team notification',
         metadata: { priority: action.config.priority },
       })
+
+      // Also push to Slack if configured (non-blocking)
+      try {
+        const { data: slackConfig } = await supabase
+          .from('connector_configs')
+          .select('credentials')
+          .eq('organization_id', params.organizationId)
+          .eq('connector_type', 'slack')
+          .eq('enabled', true)
+          .single()
+
+        if (slackConfig?.credentials) {
+          const { sendSlackNotification } = await import('@/lib/connectors/slack/notify')
+          const slackCreds = slackConfig.credentials as { webhookUrl: string; channel?: string; events: string[] }
+          await sendSlackNotification(
+            {
+              type: 'stage.changed',
+              organizationId: params.organizationId,
+              leadId: params.leadId,
+              timestamp: new Date().toISOString(),
+              data: {
+                lead: {
+                  id: params.leadId,
+                  firstName: (params.lead.first_name as string) || '',
+                  lastName: (params.lead.last_name as string) || '',
+                  source_type: params.lead.source_type as string || null,
+                  ai_score: params.lead.ai_score as number || null,
+                  ai_qualification: params.lead.ai_qualification as string || null,
+                  treatment_value: params.lead.treatment_value as number || null,
+                },
+                metadata: { notification: action.config.message },
+              },
+            },
+            {
+              webhookUrl: slackCreds.webhookUrl,
+              channel: slackCreds.channel,
+              events: (slackCreds.events || []) as import('@/lib/connectors/types').ConnectorEventType[],
+            }
+          )
+        }
+      } catch {
+        // Slack failure is non-blocking
+      }
       break
     }
 

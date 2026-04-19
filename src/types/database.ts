@@ -24,9 +24,25 @@ export type UserProfile = {
   full_name: string
   email: string
   avatar_url: string | null
-  role: 'owner' | 'admin' | 'manager' | 'member'
+  role:
+    | 'doctor_admin'
+    | 'doctor'
+    | 'nurse'
+    | 'assistant'
+    | 'treatment_coordinator'
+    | 'office_manager'
+    | 'owner'
+    | 'admin'
+    | 'manager'
+    | 'member'
+    | 'agency_admin'
   is_active: boolean
   last_seen_at: string | null
+  job_title: string | null
+  specialty: string | null
+  phone: string | null
+  invited_by: string | null
+  invited_at: string | null
   created_at: string
   updated_at: string
 }
@@ -63,7 +79,7 @@ export type LeadSource = {
 export type DentalCondition = 'missing_all_upper' | 'missing_all_lower' | 'missing_all_both' | 'missing_multiple' | 'failing_teeth' | 'denture_problems' | 'other'
 export type FinancingInterest = 'cash_pay' | 'financing_needed' | 'insurance_only' | 'undecided'
 export type BudgetRange = 'under_10k' | '10k_15k' | '15k_20k' | '20k_25k' | '25k_30k' | 'over_30k' | 'unknown'
-export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'consultation_scheduled' | 'consultation_completed' | 'treatment_presented' | 'financing' | 'contract_sent' | 'contract_signed' | 'scheduled' | 'in_treatment' | 'completed' | 'lost' | 'disqualified' | 'no_show' | 'unresponsive'
+export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'consultation_scheduled' | 'consultation_completed' | 'treatment_presented' | 'financing' | 'contract_sent' | 'contract_signed' | 'scheduled' | 'in_treatment' | 'completed' | 'lost' | 'disqualified' | 'no_show' | 'unresponsive' | 'dormant'
 export type AIQualification = 'hot' | 'warm' | 'cold' | 'unqualified' | 'unscored'
 export type LeadAIOverride = 'default' | 'force_on' | 'force_off' | 'assist_only'
 export type FinancialQualificationTier = 'tier_a' | 'tier_b' | 'tier_c' | 'tier_d'
@@ -1118,3 +1134,146 @@ export type TreatmentClosing = {
   updated_at: string
 }
 
+// ── Clinical Cases ────────────────────────────────────────────
+
+export type CaseStatus = 'intake' | 'analysis' | 'diagnosis' | 'treatment_planning' | 'patient_review' | 'completed' | 'archived'
+export type CasePriority = 'low' | 'normal' | 'high' | 'urgent'
+export type CaseFileType = 'photo' | 'xray' | 'panoramic' | 'periapical' | 'cephalometric' | 'cbct' | 'ct_scan' | 'stl' | 'intraoral' | 'extraoral' | 'other'
+
+export type ClinicalCase = {
+  id: string
+  organization_id: string
+  lead_id: string | null
+  patient_name: string
+  patient_email: string | null
+  patient_phone: string | null
+  case_number: string
+  chief_complaint: string
+  clinical_notes: string | null
+  status: CaseStatus
+  priority: CasePriority
+  created_by: string
+  assigned_doctor_id: string | null
+  ai_analysis_summary: Record<string, unknown> | null
+  ai_analyzed_at: string | null
+  share_token: string
+  patient_notified_at: string | null
+  patient_viewed_at: string | null
+  patient_accepted_at: string | null
+  diagnosed_at: string | null
+  treatment_planned_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+  // Joined data
+  files?: CaseFile[]
+  diagnosis?: CaseDiagnosis | null
+  treatment_plan?: CaseTreatmentPlan | null
+  creator?: Pick<UserProfile, 'id' | 'full_name' | 'role' | 'avatar_url'>
+  assigned_doctor?: Pick<UserProfile, 'id' | 'full_name' | 'role' | 'avatar_url' | 'specialty'> | null
+}
+
+export type CaseFile = {
+  id: string
+  case_id: string
+  organization_id: string
+  file_name: string
+  file_url: string
+  file_size: number | null
+  mime_type: string | null
+  file_type: CaseFileType
+  ai_analysis: Record<string, unknown> | null
+  ai_analyzed_at: string | null
+  ai_confidence: number | null
+  description: string | null
+  sort_order: number
+  uploaded_by: string | null
+  created_at: string
+}
+
+export type CaseDiagnosis = {
+  id: string
+  case_id: string
+  organization_id: string
+  diagnosis_summary: string
+  findings: Array<{ area: string; condition: string; severity: string; notes?: string }>
+  icd_codes: string[]
+  severity: 'mild' | 'moderate' | 'severe' | 'critical'
+  bone_quality: string | null
+  soft_tissue_status: string | null
+  occlusion_notes: string | null
+  risk_factors: string[]
+  diagnosed_by: string
+  diagnosed_at: string
+  created_at: string
+  updated_at: string
+}
+
+export type CaseTreatmentItem = {
+  procedure: string
+  description: string
+  tooth_numbers?: string[]
+  phase: number
+  estimated_cost: number
+  cdt_code?: string
+  notes?: string
+}
+
+export type CaseTreatmentPlan = {
+  id: string
+  case_id: string
+  organization_id: string
+  plan_summary: string
+  total_estimated_cost: number | null
+  estimated_duration: string | null
+  phases: number
+  items: CaseTreatmentItem[]
+  alternative_options: Array<{
+    name: string
+    description: string
+    estimated_cost: number
+    pros: string[]
+    cons: string[]
+  }>
+  planned_by: string
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Phase 1 Nurture Foundation (migration 023) ──────────────
+
+export type ConsentChannel = 'sms' | 'email' | 'voice'
+
+export type ConsentLog = {
+  id: string
+  organization_id: string
+  lead_id: string
+  channel: ConsentChannel
+  consent_given: boolean
+  granted_at: string | null
+  revoked_at: string | null
+  source: string | null
+  source_text: string | null
+  ip_address: string | null
+  user_agent: string | null
+  actor_user_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export type EventForwarderStatus = 'pending' | 'sent' | 'failed' | 'skipped' | 'na'
+
+export type SystemEvent = {
+  id: string
+  organization_id: string
+  lead_id: string | null
+  event_type: string  // 'lead.created' | 'lead.booking.created' | 'lead.dormant.flagged' | 'consent_violation_prevented' | etc.
+  payload: Record<string, unknown>
+  capi_status: EventForwarderStatus
+  capi_attempted_at: string | null
+  gads_status: EventForwarderStatus
+  gads_attempted_at: string | null
+  occurred_at: string
+  created_at: string
+}

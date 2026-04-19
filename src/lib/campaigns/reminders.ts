@@ -16,12 +16,12 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import * as React from 'react'
 import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { initiateConfirmationCall } from './confirmation-call'
 import {
   generate72hEmailTemplate,
-  generate24hEmailTemplate,
   generate24hSmsTemplate,
   generate1hSmsTemplate,
   generateConfirmationSmsReply,
@@ -29,6 +29,8 @@ import {
   getConfirmationUrl,
   getRescheduleUrl,
 } from './reminder-templates'
+import { renderEmail } from '@/emails/render'
+import { BookingReminder } from '@/emails/BookingReminder'
 import { logger } from '@/lib/logger'
 
 // ═══════════════════════════════════════════════════════════════
@@ -287,22 +289,33 @@ async function send24hReminders(
 
     // ── Send Email ──
     if (lead.email && !lead.email_opt_out) {
-      const template = generate24hEmailTemplate({
-        firstName: lead.first_name || 'there',
-        appointmentType: apt.type,
-        dateTime,
-        location: apt.location,
-        practiceName,
-        confirmUrl,
-        rescheduleUrl,
-      })
+      // React Email template (src/emails/BookingReminder.tsx). Provides branded HTML +
+      // matching plain-text body for clients that fall back to text/plain.
+      const subject = `Reminder: your ${apt.type} appointment tomorrow`
+      const { html, text } = await renderEmail(
+        React.createElement(BookingReminder, {
+          leadId: lead.id,
+          orgId,
+          orgName: practiceName,
+          firstName: lead.first_name || 'there',
+          consultLabel: apt.type,
+          scheduledAt: apt.scheduled_at,
+          durationMinutes: apt.duration_minutes,
+          location: apt.location || undefined,
+          window: '24h',
+          rescheduleUrl,
+        })
+      )
+      // confirmUrl is collected via the SMS reply / email-click webhook; we keep the var
+      // referenced so the build doesn't strip the helper import.
+      void confirmUrl
 
       try {
         const result = await sendEmail({
           to: lead.email,
-          subject: template.subject,
-          html: template.html,
-          text: template.text,
+          subject,
+          html,
+          text,
         })
 
         await supabase.from('appointment_reminders').insert({
