@@ -254,6 +254,18 @@ export async function POST(request: NextRequest) {
     })
   }
 
+  // Refresh the rolling conversation summary in the background.
+  // Debounced to MIN_NEW_MESSAGES inside summarizeConversation; safe to call after every inbound.
+  import('@/lib/ai/summarize')
+    .then(({ summarizeConversation }) =>
+      summarizeConversation(supabase, {
+        conversationId: conversation.id,
+        organizationId: lead.organization_id,
+        leadId: lead.id,
+      })
+    )
+    .catch(() => { /* observability-only; never blocks the webhook */ })
+
   // Return empty TwiML (we're handling response via API, not TwiML)
   return new NextResponse(
     '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',

@@ -327,9 +327,10 @@ async function sendAgentResponse(
       to: sender_contact,
       body: agentResponse.message,
       caller: 'autopilot.auto_respond',
+      aiGenerated: true,
     })
     if (!result.sent) {
-      throw new Error(`Cannot send SMS: consent gate denied (${result.reason})`)
+      throw new Error(`Cannot send SMS: ${result.reason}`)
     }
     externalId = result.sid
   } else {
@@ -342,9 +343,10 @@ async function sendAgentResponse(
       html: `<div style="font-family: -apple-system, sans-serif; padding: 24px;">${agentResponse.message.replace(/\n/g, '<br>')}</div>`,
       text: agentResponse.message,
       caller: 'autopilot.auto_respond',
+      aiGenerated: true,
     })
     if (!result.sent) {
-      throw new Error(`Cannot send email: consent gate denied (${result.reason})`)
+      throw new Error(`Cannot send email: ${result.reason}`)
     }
   }
   void lead // (channel/consent state read inside the gate via leadId)

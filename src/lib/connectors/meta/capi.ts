@@ -86,9 +86,17 @@ export async function sendMetaConversionEvent(
     if (lead.zip_code) {
       userData.zp = [hashForMatching(lead.zip_code.trim())]
     }
-    // Pass through fbclid if available
-    if (lead.fbclid) {
+    // Pass through Meta cookies for browser↔server event dedupe + match quality.
+    // Prefer the cookie captured at form submit (fbc) — it's the actual cookie Meta set
+    // when the lead clicked the ad. Fall back to a synthesized value from fbclid if we
+    // only have the click ID. fbp (browser ID) is required to hit MQS >= 7.0.
+    if (lead.fbc) {
+      userData.fbc = lead.fbc
+    } else if (lead.fbclid) {
       userData.fbc = `fb.1.${Date.now()}.${lead.fbclid}`
+    }
+    if (lead.fbp) {
+      userData.fbp = lead.fbp
     }
 
     // Build the event

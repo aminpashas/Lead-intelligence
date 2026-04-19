@@ -1277,3 +1277,61 @@ export type SystemEvent = {
   occurred_at: string
   created_at: string
 }
+
+// ── Phase 2 Intelligence Layer (migration 025) ──────────────
+
+export type ReviewSource = 'gbp' | 'yelp' | 'healthgrades' | 'manual'
+export type ReviewSentiment = 'positive' | 'neutral' | 'negative'
+export type ReviewResponseStatus = 'unresponded' | 'drafted' | 'approved' | 'published' | 'declined'
+
+export type Review = {
+  id: string
+  organization_id: string
+  source: ReviewSource
+  external_id: string
+  external_url: string | null
+  reviewer_name: string | null
+  reviewer_avatar_url: string | null
+  star_rating: number | null
+  review_text: string | null
+  reviewed_at: string | null
+  sentiment: ReviewSentiment | null
+  sentiment_score: number | null
+  topics: string[] | null
+  sentiment_analyzed_at: string | null
+  draft_response: string | null
+  draft_response_at: string | null
+  draft_model: string | null
+  response_status: ReviewResponseStatus
+  response_text: string | null
+  responded_at: string | null
+  responded_by: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type AiUsageFeature =
+  | 'summarize'
+  | 'personalize'
+  | 'score'
+  | 'sentiment_review'
+  | 'compliance_filter'
+  | 'post_call_analysis'
+  | 'review_response_draft'
+
+export type AiUsageRow = {
+  id: string
+  organization_id: string
+  lead_id: string | null
+  feature: AiUsageFeature
+  model: string
+  tokens_in: number
+  tokens_out: number
+  cost_cents: number
+  duration_ms: number | null
+  succeeded: boolean
+  error_message: string | null
+  metadata: Record<string, unknown>
+  occurred_at: string
+}

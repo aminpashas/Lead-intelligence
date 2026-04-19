@@ -168,9 +168,10 @@ export async function triggerSpeedToLead(
         to: phone,
         body: agentResponse.message,
         caller: 'autopilot.speed_to_lead',
+        aiGenerated: true,
       })
       if (!result.sent) {
-        logger.warn('Speed-to-lead SMS blocked by consent gate', { leadId, reason: result.reason })
+        logger.warn('Speed-to-lead SMS blocked', { leadId, reason: result.reason })
         return { action: 'skipped' }
       }
       externalId = result.sid
@@ -183,9 +184,10 @@ export async function triggerSpeedToLead(
         html: `<div style="font-family: -apple-system, sans-serif; padding: 24px;">${agentResponse.message.replace(/\n/g, '<br>')}</div>`,
         text: agentResponse.message,
         caller: 'autopilot.speed_to_lead',
+        aiGenerated: true,
       })
       if (!result.sent) {
-        logger.warn('Speed-to-lead email blocked by consent gate', { leadId, reason: result.reason })
+        logger.warn('Speed-to-lead email blocked', { leadId, reason: result.reason })
         return { action: 'skipped' }
       }
     }

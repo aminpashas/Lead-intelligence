@@ -31,6 +31,7 @@ import type {
   SlackConfig,
 } from './types'
 import { uploadClickConversion } from './google-ads/offline-conversions'
+import { uploadEnhancedConversionForLead } from './google-ads/enhanced-conversions'
 import { sendMetaConversionEvent } from './meta/capi'
 import { sendGA4Event } from './ga4/measurement'
 import { sendOutboundWebhook } from './webhooks/outbound'
@@ -94,12 +95,26 @@ async function executeConnector(
   switch (config.connector_type) {
     case 'google_ads': {
       const gadsConfig = config.credentials as unknown as GoogleAdsConfig
-      return uploadClickConversion(event, gadsConfig)
+      // Prefer the gclid path (highest match accuracy). If we don't have a gclid
+      // (offline lead, organic, missed click ID), fall back to Enhanced Conversions
+      // for Leads using hashed user identifiers. The conversion action in Google Ads
+      // must have "Enhanced conversions for leads" enabled for the EC path to match.
+      if (event.data.lead.gclid) {
+        return uploadClickConversion(event, gadsConfig)
+      }
+      return uploadEnhancedConversionForLead(event, gadsConfig)
     }
 
     case 'meta_capi': {
       const metaConfig = config.credentials as unknown as MetaCAPIConfig
-      return sendMetaConversionEvent(event, metaConfig)
+      // Env override: when META_CAPI_TEST_EVENT_CODE is set, force test mode globally.
+      // Lets us validate events in Meta Events Manager test view across all orgs without
+      // editing each org's connector_configs row.
+      const envTestCode = process.env.META_CAPI_TEST_EVENT_CODE
+      const effectiveConfig = envTestCode
+        ? { ...metaConfig, testEventCode: envTestCode }
+        : metaConfig
+      return sendMetaConversionEvent(event, effectiveConfig)
     }
 
     case 'ga4': {

@@ -210,6 +210,32 @@ async function executeOneStep(
     } catch (err) {
       return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'error', detail: `SMS failed: ${err instanceof Error ? err.message : 'unknown'}` }
     }
+  } else if (step.channel === 'voice') {
+    // Outbound Retell call (Day 10 of the seeded Reactivation campaign uses this).
+    // Consent + DNC enforced inside placeOutboundCallToLead.
+    const { placeOutboundCallToLead } = await import('@/lib/voice/outbound-to-lead')
+    const result = await placeOutboundCallToLead({
+      supabase,
+      leadId: lead.id,
+      organizationId: campaign.organization_id,
+      caller: `campaign:${campaign.name}:step_${step.step_number}`,
+      dynamicVariables: { practice_name: org?.name || 'our practice' },
+    })
+    if (!result.placed) {
+      // No-consent / DNC are exits, not retries. Other failures are errors so cron retries.
+      const isExit = result.reason === 'no_consent' || result.reason === 'opted_out' || result.reason === 'do_not_call'
+      if (isExit) {
+        await supabase.from('campaign_enrollments').update({
+          status: 'exited',
+          exited_at: new Date().toISOString(),
+          exit_reason: `Voice ${result.reason}`,
+        }).eq('id', enrollment.id)
+        return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: `voice_${result.reason}` }
+      }
+      return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'error', detail: `voice_${result.reason}${result.detail ? ': ' + result.detail : ''}` }
+    }
+    externalId = result.call.call_id || null
+    sendSuccess = true
   } else if (step.channel === 'email') {
     if (!lead.email) {
       return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'error', detail: 'No email' }

@@ -124,6 +124,9 @@ export async function POST(request: NextRequest) {
     utm_term: parsed.data.utm_term,
     gclid: parsed.data.gclid,
     fbclid: parsed.data.fbclid,
+    // Accept both fbc/fbp and _fbc/_fbp spellings (browser cookies use the underscore prefix).
+    fbc: parsed.data.fbc || parsed.data._fbc,
+    fbp: parsed.data.fbp || parsed.data._fbp,
     landing_page_url: parsed.data.landing_page_url,
     dental_condition: parsed.data.dental_condition as any,
     notes: parsed.data.notes,
@@ -202,6 +205,8 @@ export async function POST(request: NextRequest) {
         utm_campaign: parsed.data.utm_campaign,
         gclid: parsed.data.gclid,
         fbclid: parsed.data.fbclid,
+        fbc: parsed.data.fbc || parsed.data._fbc,
+        fbp: parsed.data.fbp || parsed.data._fbp,
         landing_page_url: parsed.data.landing_page_url,
         ip_address: ipAddress,
       },

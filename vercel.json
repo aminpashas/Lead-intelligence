@@ -23,6 +23,14 @@
     {
       "path": "/api/cron/dormant-sweep",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/forward-events",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/pull-gbp-reviews",
+      "schedule": "15 7 * * *"
     }
   ]
 }

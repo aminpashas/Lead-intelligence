@@ -74,6 +74,12 @@ export const webhookLeadSchema = z.object({
   utm_term: z.string().optional(),
   gclid: z.string().optional(),
   fbclid: z.string().optional(),
+  // Meta cookies captured at form submit (required for CAPI match quality >= 7.0)
+  // Forms post these under fbc/fbp (no underscore). Browser cookies are _fbc/_fbp.
+  fbc: z.string().optional(),
+  fbp: z.string().optional(),
+  _fbc: z.string().optional(),
+  _fbp: z.string().optional(),
   landing_page_url: z.string().optional(),
   dental_condition: z.string().optional(),
   notes: z.string().optional(),

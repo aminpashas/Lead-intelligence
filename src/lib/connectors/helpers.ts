@@ -21,6 +21,8 @@ export function buildConnectorLeadData(lead: Record<string, unknown>): Connector
     source_type: lead.source_type as string | null,
     gclid: lead.gclid as string | null,
     fbclid: lead.fbclid as string | null,
+    fbc: lead.fbc as string | null,
+    fbp: lead.fbp as string | null,
     utm_source: lead.utm_source as string | null,
     utm_medium: lead.utm_medium as string | null,
     utm_campaign: lead.utm_campaign as string | null,

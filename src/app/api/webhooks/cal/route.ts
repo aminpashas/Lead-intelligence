@@ -213,6 +213,10 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Background: refresh the conversation summary so staff see the new booking
+      // reflected in the AI summary the next time they open the thread.
+      void refreshLatestConversationSummary(supabase, lead.id, lead.organization_id)
+
       return NextResponse.json({ ok: true, action: 'booking_created' })
     }
 
@@ -316,5 +320,35 @@ async function insertEvent(
     })
   } catch {
     // Best-effort — don't fail the webhook on event-log write failure.
+  }
+}
+
+/**
+ * Find the lead's most recent active conversation (any channel) and trigger a summary refresh.
+ * Best-effort, fire-and-forget.
+ */
+async function refreshLatestConversationSummary(
+  supabase: ReturnType<typeof createServiceClient>,
+  leadId: string,
+  organizationId: string
+): Promise<void> {
+  try {
+    const { data: convo } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('lead_id', leadId)
+      .eq('status', 'active')
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .single()
+    if (!convo) return
+    const { summarizeConversation } = await import('@/lib/ai/summarize')
+    await summarizeConversation(supabase, {
+      conversationId: convo.id as string,
+      organizationId,
+      leadId,
+    })
+  } catch {
+    // Summary refresh is observability — never block the webhook.
   }
 }

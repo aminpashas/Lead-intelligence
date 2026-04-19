@@ -45,6 +45,10 @@ export type ConnectorLeadData = {
   source_type?: string | null
   gclid?: string | null
   fbclid?: string | null
+  /** Meta _fbc cookie value captured at form submit (raw cookie, e.g. fb.1.123456789.fbclidvalue). */
+  fbc?: string | null
+  /** Meta _fbp cookie value captured at form submit (raw cookie, e.g. fb.1.123456789.987654321). */
+  fbp?: string | null
   utm_source?: string | null
   utm_medium?: string | null
   utm_campaign?: string | null

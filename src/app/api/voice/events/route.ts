@@ -136,6 +136,20 @@ export async function POST(req: NextRequest) {
       extractedInfo: extracted,
     })
 
+    // ── 4b. Refresh the rolling AI summary so staff see post-call state ──
+    if (conversationId) {
+      try {
+        const { summarizeConversation } = await import('@/lib/ai/summarize')
+        await summarizeConversation(supabase, {
+          conversationId,
+          organizationId: orgId,
+          leadId,
+        })
+      } catch {
+        // Non-blocking — never fail the post-call flow on summary refresh.
+      }
+    }
+
     // ── 5. Update voice_call record (voice-specific) ──
     const { data: existingCall } = await supabase
       .from('voice_calls').select('id')
