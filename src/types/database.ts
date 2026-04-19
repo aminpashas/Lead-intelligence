@@ -1472,3 +1472,87 @@ export type EhrSyncState = {
   created_at: string
   updated_at: string
 }
+
+// ── Phase 3 closed-loop attribution (migrations 027-029) ────
+
+export type AdPlatform = 'google_ads' | 'meta_ads' | 'tiktok_ads' | 'youtube_ads' | 'linkedin_ads' | 'other'
+
+export type AdSpendDaily = {
+  id: string
+  organization_id: string
+  date: string
+  platform: AdPlatform
+  account_id: string | null
+  account_name: string | null
+  campaign_id: string | null
+  campaign_name: string | null
+  ad_group_id: string | null
+  ad_group_name: string | null
+  spend: number
+  impressions: number
+  clicks: number
+  conversions: number | null
+  conversion_value: number | null
+  cpc: number | null
+  cpm: number | null
+  ctr: number | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type StripeObjectType = 'payment_intent' | 'invoice' | 'subscription' | 'charge' | 'checkout_session'
+
+export type StripePayment = {
+  id: string
+  organization_id: string
+  stripe_event_id: string
+  stripe_object_id: string
+  stripe_object_type: StripeObjectType
+  stripe_customer_id: string | null
+  stripe_account_id: string | null
+  amount_cents: number
+  amount: number
+  currency: string
+  email: string | null
+  email_hash: string | null
+  phone: string | null
+  phone_hash: string | null
+  lead_id: string | null
+  patient_id: string | null
+  match_method: 'email_hash' | 'phone_hash' | 'manual' | 'webhook_meta' | 'unmatched' | null
+  financing_partner: string | null
+  forwarded: boolean
+  forwarded_at: string | null
+  status: string | null
+  occurred_at: string
+  metadata: Record<string, unknown>
+  raw_payload: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export type ExpenseCategory = 'acquisition' | 'platform' | 'other'
+
+export type ExpenseLineItem = {
+  id: string
+  organization_id: string
+  source: 'brex' | 'manual'
+  external_id: string
+  posted_at: string
+  amount_cents: number
+  amount: number
+  currency: string
+  vendor_name: string | null
+  vendor_normalized: string | null
+  description: string | null
+  card_last4: string | null
+  user_email: string | null
+  category: ExpenseCategory
+  subcategory: string | null
+  category_overridden: boolean
+  metadata: Record<string, unknown>
+  raw_payload: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}

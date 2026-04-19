@@ -112,6 +112,93 @@ export async function GET(request: NextRequest) {
     (l.gclid || l.fbclid || ['google_ads', 'meta_ads'].includes(l.source_type))
   ).length
 
+  // ── 11. Ad spend (Windsor.ai) — totals + per-platform + per-campaign ──
+  // Pulled in the same date window as the leads so CAC / ROAS divides apples by apples.
+  const { data: spendRows } = await supabase
+    .from('ad_spend_daily')
+    .select('platform, campaign_name, spend, impressions, clicks')
+    .eq('organization_id', orgId)
+    .gte('date', startDate.slice(0, 10))
+    .lte('date', endDate.slice(0, 10))
+
+  const spend = (spendRows || []) as Array<{ platform: string; campaign_name: string | null; spend: number; impressions: number; clicks: number }>
+
+  const totalSpend = spend.reduce((s, r) => s + (r.spend || 0), 0)
+  const totalImpressions = spend.reduce((s, r) => s + (r.impressions || 0), 0)
+  const totalClicks = spend.reduce((s, r) => s + (r.clicks || 0), 0)
+
+  // Per-platform spend roll-up
+  const spendByPlatform: Record<string, { spend: number; impressions: number; clicks: number }> = {}
+  for (const r of spend) {
+    const k = r.platform
+    if (!spendByPlatform[k]) spendByPlatform[k] = { spend: 0, impressions: 0, clicks: 0 }
+    spendByPlatform[k].spend += r.spend || 0
+    spendByPlatform[k].impressions += r.impressions || 0
+    spendByPlatform[k].clicks += r.clicks || 0
+  }
+
+  // Per-campaign spend → join onto byCampaign rows so each row has spend / cpl / cac / roas.
+  const spendByCampaign: Record<string, number> = {}
+  for (const r of spend) {
+    if (!r.campaign_name) continue
+    spendByCampaign[r.campaign_name] = (spendByCampaign[r.campaign_name] || 0) + (r.spend || 0)
+  }
+
+  const byCampaignWithSpend = byCampaign.map((row) => {
+    const campaignSpend = spendByCampaign[row.dimension] || 0
+    return {
+      ...row,
+      spend: Math.round(campaignSpend),
+      cpl: row.leads > 0 && campaignSpend > 0 ? Math.round(campaignSpend / row.leads * 100) / 100 : null,
+      cac: row.conversions > 0 && campaignSpend > 0 ? Math.round(campaignSpend / row.conversions) : null,
+      roas: campaignSpend > 0 ? Math.round((row.revenue / campaignSpend) * 100) / 100 : null,
+    }
+  })
+
+  // Per-utm_source spend roll-up (utm_source typically maps cleanly to platform)
+  const platformToUtm: Record<string, string> = { google_ads: 'google', meta_ads: 'facebook' }
+  const spendByUtmSource: Record<string, number> = {}
+  for (const [platform, agg] of Object.entries(spendByPlatform)) {
+    const utm = platformToUtm[platform] || platform
+    spendByUtmSource[utm] = (spendByUtmSource[utm] || 0) + agg.spend
+  }
+  const byUtmSourceWithSpend = byUtmSource.map((row) => {
+    const utmSpend = spendByUtmSource[row.dimension] || 0
+    return {
+      ...row,
+      spend: Math.round(utmSpend),
+      cpl: row.leads > 0 && utmSpend > 0 ? Math.round(utmSpend / row.leads * 100) / 100 : null,
+      cac: row.conversions > 0 && utmSpend > 0 ? Math.round(utmSpend / row.conversions) : null,
+      roas: utmSpend > 0 ? Math.round((row.revenue / utmSpend) * 100) / 100 : null,
+    }
+  })
+
+  // Spend KPIs
+  const blendedCAC = convertedLeads > 0 && totalSpend > 0 ? Math.round(totalSpend / convertedLeads) : null
+  const blendedCPL = paidLeads > 0 && totalSpend > 0 ? Math.round((totalSpend / paidLeads) * 100) / 100 : null
+  const blendedROAS = totalSpend > 0 ? Math.round((totalRevenue / totalSpend) * 100) / 100 : null
+
+  // ── 12. Fully-loaded CAC (Brex) — adds agency fees + platform costs to media spend ──
+  const { data: expenseRows } = await supabase
+    .from('expense_line_items')
+    .select('amount, category')
+    .eq('organization_id', orgId)
+    .gte('posted_at', startDate)
+    .lte('posted_at', endDate)
+
+  type ExpenseRow = { amount: number; category: 'acquisition' | 'platform' | 'other' }
+  const expenses = (expenseRows || []) as ExpenseRow[]
+  const acquisitionSpend = expenses.filter(e => e.category === 'acquisition').reduce((s, e) => s + e.amount, 0)
+  const platformSpend = expenses.filter(e => e.category === 'platform').reduce((s, e) => s + e.amount, 0)
+
+  // Brex acquisition includes Windsor's media spend + agency fees. We use Windsor's totalSpend
+  // directly (more granular) and ADD only the agency fees we infer from Brex (acquisition - media).
+  // If Brex acquisition is less than Windsor totalSpend, the agency portion is zero (best-effort).
+  const inferredAgencyFees = Math.max(0, acquisitionSpend - totalSpend)
+  const fullyLoadedCAC = convertedLeads > 0
+    ? Math.round((totalSpend + inferredAgencyFees + platformSpend) / convertedLeads)
+    : null
+
   return NextResponse.json({
     kpis: {
       totalLeads,
@@ -122,16 +209,29 @@ export async function GET(request: NextRequest) {
       paidLeads,
       paidConversions,
       paidConversionRate: paidLeads > 0 ? Math.round(paidConversions / paidLeads * 1000) / 10 : 0,
+      // Spend-side KPIs (null when no Windsor data in window)
+      totalSpend: totalSpend > 0 ? Math.round(totalSpend) : null,
+      totalImpressions: totalImpressions || null,
+      totalClicks: totalClicks || null,
+      blendedCAC,
+      blendedCPL,
+      blendedROAS,
+      // Fully-loaded CAC includes inferred agency fees + platform software costs (Brex)
+      fullyLoadedCAC,
+      acquisitionSpend: acquisitionSpend > 0 ? Math.round(acquisitionSpend) : null,
+      platformSpend: platformSpend > 0 ? Math.round(platformSpend) : null,
+      inferredAgencyFees: inferredAgencyFees > 0 ? Math.round(inferredAgencyFees) : null,
     },
     bySource,
-    byUtmSource,
+    byUtmSource: byUtmSourceWithSpend,
     byUtmMedium,
-    byCampaign,
+    byCampaign: byCampaignWithSpend,
     byKeyword,
     byLandingPage,
     clickAttribution,
     funnelBySource,
     timeToConvert,
+    spendByPlatform,
     dateRange: { start: startDate, end: endDate },
   })
 }

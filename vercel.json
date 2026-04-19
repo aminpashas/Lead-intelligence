@@ -35,6 +35,14 @@
     {
       "path": "/api/cron/carestack-sync",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/windsor-sync",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/brex-sync",
+      "schedule": "0 6 * * *"
     }
   ]
 }
