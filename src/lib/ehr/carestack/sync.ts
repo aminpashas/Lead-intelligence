@@ -78,6 +78,24 @@ async function saveCursor(
     .upsert(row, { onConflict: 'organization_id,ehr_source,resource' })
 }
 
+/**
+ * Read a field from a CareStack response object, accepting both camelCase and PascalCase.
+ * Returns the first matching key's value (or undefined). The PDF docs are inconsistent
+ * across endpoints — treatment-procedures examples use camelCase, invoices use PascalCase.
+ * We don't trust either; we look for both.
+ */
+function pickField<T = unknown>(row: Record<string, unknown>, ...candidates: string[]): T | undefined {
+  for (const key of candidates) {
+    if (row[key] !== undefined && row[key] !== null) return row[key] as T
+    // Try both first-letter-toggled variants for each candidate.
+    const flipped = key.charAt(0) === key.charAt(0).toUpperCase()
+      ? key.charAt(0).toLowerCase() + key.slice(1)
+      : key.charAt(0).toUpperCase() + key.slice(1)
+    if (row[flipped] !== undefined && row[flipped] !== null) return row[flipped] as T
+  }
+  return undefined
+}
+
 async function emitEvent(
   supabase: SupabaseClient,
   organizationId: string,
@@ -98,18 +116,9 @@ async function emitEvent(
 
 // ── 1. Patients sync ────────────────────────────────────────────────────
 
-type CareStackPatientSyncRow = {
-  id: number
-  firstName?: string
-  lastName?: string
-  email?: string
-  mobile?: string
-  phoneWithExt?: string
-  dob?: string
-  defaultLocationId?: number
-  accountId?: number
-  status?: number
-}
+// Patient resource fields (per PDF section 3) — defensively handled via pickField
+// since CareStack's response casing has been inconsistent across endpoints.
+type CareStackPatientSyncRow = Record<string, unknown>
 
 export async function syncPatients(
   supabase: SupabaseClient,
@@ -134,17 +143,20 @@ export async function syncPatients(
       const list = Array.isArray(raw) ? raw : (raw.results || [])
       const nextToken = Array.isArray(raw) ? null : (raw.continueToken ?? null)
 
-      for (const p of list) {
+      for (const raw of list) {
+        const p = raw as Record<string, unknown>
+        const ehrId = pickField<number>(p, 'id', 'Id', 'patientId', 'PatientId')
+        if (ehrId === undefined) continue
         await upsertCareStackPatient(supabase, organizationId, {
-          ehr_patient_id: p.id,
-          first_name: p.firstName ?? null,
-          last_name: p.lastName ?? null,
-          email: p.email ?? null,
-          phone: p.mobile ?? p.phoneWithExt ?? null,
-          dob: p.dob ?? null,
-          default_location_id: p.defaultLocationId ?? null,
-          account_id: p.accountId ?? null,
-          status: p.status ?? null,
+          ehr_patient_id: ehrId,
+          first_name: pickField<string>(p, 'firstName', 'FirstName') ?? null,
+          last_name: pickField<string>(p, 'lastName', 'LastName') ?? null,
+          email: pickField<string>(p, 'email', 'Email') ?? null,
+          phone: pickField<string>(p, 'mobile', 'Mobile', 'phoneWithExt', 'PhoneWithExt') ?? null,
+          dob: pickField<string>(p, 'dob', 'Dob', 'DOB', 'dateOfBirth', 'DateOfBirth') ?? null,
+          default_location_id: pickField<number>(p, 'defaultLocationId', 'DefaultLocationId') ?? null,
+          account_id: pickField<number>(p, 'accountId', 'AccountId') ?? null,
+          status: pickField<number>(p, 'status', 'Status') ?? null,
         })
         upserted++
         fetched++
@@ -183,25 +195,12 @@ export async function syncPatients(
 
 // ── 2. Treatment procedures sync (revenue events!) ──────────────────────
 
-type CareStackTreatmentProcedureRow = {
-  id: number
-  patientId: number
-  treatmentPlanId?: number
-  treatmentPlanPhaseId?: number
-  procedureCodeId?: number
-  appointmentId?: number
-  providerId?: number
-  locationId?: number
-  tooth?: string
-  surfaces?: Record<string, number>
-  patientEstimate?: number
-  insuranceEstimate?: number
-  statusId?: number
-  proposedDate?: string
-  dateOfService?: string
-  isDeleted?: boolean
-  lastUpdatedOn?: string
-}
+// CareStack docs show camelCase examples for this endpoint, but other endpoints
+// (invoices, treatment-conditions) use PascalCase, and a parallel production
+// integration in another repo doesn't actually parse this response. We accept
+// both casings via the `pickField` helper below to avoid silently dropping
+// revenue events on a field-name mismatch in production.
+type CareStackTreatmentProcedureRow = Record<string, unknown>
 
 const PROC_STATUS_ACCEPTED = 3
 const PROC_STATUS_COMPLETED = 8
@@ -230,15 +229,35 @@ export async function syncTreatmentProcedures(
       const list = raw.results || []
       const nextToken = raw.continueToken ?? null
 
-      for (const p of list) {
-        // Resolve our patient row (auto-create if first time we see this CareStack patientId).
-        const patient = await ensurePatientStub(supabase, organizationId, p.patientId)
+      for (const raw of list) {
+        const p = raw as Record<string, unknown>
+        // Pull every field via case-tolerant lookup (see pickField helper).
+        const procId = pickField<number>(p, 'id', 'Id', 'procedureId', 'ProcedureId')
+        const patientId = pickField<number>(p, 'patientId', 'PatientId')
+        if (procId === undefined || patientId === undefined) continue
+
+        const patient = await ensurePatientStub(supabase, organizationId, patientId)
         if (!patient) continue
 
-        // Upsert the procedure mirror row.
-        const proposed = p.proposedDate ? new Date(p.proposedDate).toISOString() : null
-        const dateOfService = p.dateOfService ? new Date(p.dateOfService).toISOString() : null
-        const lastUpdated = p.lastUpdatedOn ? new Date(p.lastUpdatedOn).toISOString() : null
+        const treatmentPlanId = pickField<number>(p, 'treatmentPlanId', 'TreatmentPlanId')
+        const treatmentPlanPhaseId = pickField<number>(p, 'treatmentPlanPhaseId', 'TreatmentPlanPhaseId')
+        const appointmentId = pickField<number>(p, 'appointmentId', 'AppointmentId')
+        const providerId = pickField<number>(p, 'providerId', 'ProviderId')
+        const locationId = pickField<number>(p, 'locationId', 'LocationId')
+        const procedureCodeId = pickField<number>(p, 'procedureCodeId', 'ProcedureCodeId')
+        const tooth = pickField<string>(p, 'tooth', 'Tooth', 'toothNumber', 'ToothNumber')
+        const surfaces = pickField<Record<string, number>>(p, 'surfaces', 'Surfaces', 'toothSurfaces', 'ToothSurfaces')
+        const patientEstimate = pickField<number>(p, 'patientEstimate', 'PatientEstimate')
+        const insuranceEstimate = pickField<number>(p, 'insuranceEstimate', 'InsuranceEstimate')
+        const statusId = pickField<number>(p, 'statusId', 'StatusId', 'status', 'Status')
+        const proposedDateRaw = pickField<string>(p, 'proposedDate', 'ProposedDate')
+        const dateOfServiceRaw = pickField<string>(p, 'dateOfService', 'DateOfService')
+        const lastUpdatedRaw = pickField<string>(p, 'lastUpdatedOn', 'LastUpdatedOn')
+        const isDeleted = !!pickField<boolean>(p, 'isDeleted', 'IsDeleted')
+
+        const proposed = proposedDateRaw ? new Date(proposedDateRaw).toISOString() : null
+        const dateOfService = dateOfServiceRaw ? new Date(dateOfServiceRaw).toISOString() : null
+        const lastUpdated = lastUpdatedRaw ? new Date(lastUpdatedRaw).toISOString() : null
         if (lastUpdated && (!highWater || lastUpdated > highWater)) highWater = lastUpdated
 
         const { data: existing } = await supabase
@@ -246,28 +265,28 @@ export async function syncTreatmentProcedures(
           .select('id, status_id, last_forwarded_status_id')
           .eq('organization_id', organizationId)
           .eq('ehr_source', 'carestack')
-          .eq('ehr_procedure_id', p.id)
+          .eq('ehr_procedure_id', procId)
           .maybeSingle()
 
         const baseRow = {
           organization_id: organizationId,
           patient_id: patient.patient_row_id,
-          ehr_procedure_id: p.id,
+          ehr_procedure_id: procId,
           ehr_source: 'carestack',
-          ehr_treatment_plan_id: p.treatmentPlanId ?? null,
-          ehr_treatment_plan_phase_id: p.treatmentPlanPhaseId ?? null,
-          ehr_appointment_id: p.appointmentId ?? null,
-          ehr_provider_id: p.providerId ?? null,
-          ehr_location_id: p.locationId ?? null,
-          procedure_code_id: p.procedureCodeId ?? null,
-          tooth: p.tooth ?? null,
-          surfaces: p.surfaces ?? null,
-          patient_estimate: p.patientEstimate ?? null,
-          insurance_estimate: p.insuranceEstimate ?? null,
-          status_id: p.statusId ?? null,
+          ehr_treatment_plan_id: treatmentPlanId ?? null,
+          ehr_treatment_plan_phase_id: treatmentPlanPhaseId ?? null,
+          ehr_appointment_id: appointmentId ?? null,
+          ehr_provider_id: providerId ?? null,
+          ehr_location_id: locationId ?? null,
+          procedure_code_id: procedureCodeId ?? null,
+          tooth: tooth ?? null,
+          surfaces: surfaces ?? null,
+          patient_estimate: patientEstimate ?? null,
+          insurance_estimate: insuranceEstimate ?? null,
+          status_id: statusId ?? null,
           proposed_date: proposed,
           date_of_service: dateOfService,
-          is_deleted: !!p.isDeleted,
+          is_deleted: isDeleted,
           ehr_last_updated_on: lastUpdated,
         }
 
@@ -291,19 +310,19 @@ export async function syncTreatmentProcedures(
         // Emit one event per status transition we care about, only if not already forwarded
         // for that exact status. last_forwarded_status_id prevents re-firing on resync.
         const lastForwarded = (existing?.last_forwarded_status_id as number | null) ?? null
-        const totalValue = (p.patientEstimate ?? 0) + (p.insuranceEstimate ?? 0)
+        const totalValue = (patientEstimate ?? 0) + (insuranceEstimate ?? 0)
 
-        if (p.statusId === PROC_STATUS_ACCEPTED && lastForwarded !== PROC_STATUS_ACCEPTED && !p.isDeleted) {
+        if (statusId === PROC_STATUS_ACCEPTED && lastForwarded !== PROC_STATUS_ACCEPTED && !isDeleted) {
           await emitEvent(supabase, organizationId, patient.lead_id, 'lead.treatment_accepted', {
             ehr_source: 'carestack',
-            ehr_procedure_id: p.id,
-            ehr_patient_id: p.patientId,
-            ehr_treatment_plan_id: p.treatmentPlanId,
+            ehr_procedure_id: procId,
+            ehr_patient_id: patientId,
+            ehr_treatment_plan_id: treatmentPlanId,
             value: totalValue,
             currency: 'USD',
-            patient_estimate: p.patientEstimate,
-            insurance_estimate: p.insuranceEstimate,
-            procedure_code_id: p.procedureCodeId,
+            patient_estimate: patientEstimate,
+            insurance_estimate: insuranceEstimate,
+            procedure_code_id: procedureCodeId,
             proposed_date: proposed,
           })
           events++
@@ -313,15 +332,15 @@ export async function syncTreatmentProcedures(
             .eq('id', procRowId)
         }
 
-        if (p.statusId === PROC_STATUS_COMPLETED && lastForwarded !== PROC_STATUS_COMPLETED && !p.isDeleted) {
+        if (statusId === PROC_STATUS_COMPLETED && lastForwarded !== PROC_STATUS_COMPLETED && !isDeleted) {
           await emitEvent(supabase, organizationId, patient.lead_id, 'lead.treatment_completed', {
             ehr_source: 'carestack',
-            ehr_procedure_id: p.id,
-            ehr_patient_id: p.patientId,
+            ehr_procedure_id: procId,
+            ehr_patient_id: patientId,
             value: totalValue,
             currency: 'USD',
             date_of_service: dateOfService,
-            procedure_code_id: p.procedureCodeId,
+            procedure_code_id: procedureCodeId,
           })
           events++
           await supabase
@@ -364,23 +383,10 @@ export async function syncTreatmentProcedures(
 
 // ── 3. Invoices sync (collected revenue) ────────────────────────────────
 
-type CareStackInvoiceRow = {
-  InvoiceId: number
-  Amount: number
-  UnappliedAmount?: number
-  ProviderId?: number
-  LocationId?: number
-  IsDeleted?: boolean
-  PatientId?: number
-  LastUpdatedOn?: string
-  PaymentCategory?: string
-  InvoiceNumber?: number
-  PaymentDate?: string
-  InvoiceType?: number
-  InvoiceSource?: number
-  PaymentTypeId?: number
-  IsNsf?: boolean
-}
+// PDF examples for /sync/invoices use PascalCase. The parallel production integration
+// in another repo doesn't actually use this endpoint, so PascalCase is unverified
+// against real responses. We accept both casings via pickField.
+type CareStackInvoiceRow = Record<string, unknown>
 
 export async function syncInvoices(
   supabase: SupabaseClient,
@@ -406,31 +412,48 @@ export async function syncInvoices(
       const list = Array.isArray(raw) ? raw : (raw.results || [])
       const nextToken = Array.isArray(raw) ? null : (raw.continueToken ?? null)
 
-      for (const inv of list) {
-        const patient = inv.PatientId
-          ? await ensurePatientStub(supabase, organizationId, inv.PatientId)
-          : null
+      for (const raw of list) {
+        const inv = raw as Record<string, unknown>
+        const invoiceId = pickField<number>(inv, 'InvoiceId', 'invoiceId', 'id', 'Id')
+        if (invoiceId === undefined) continue
 
-        const lastUpdated = inv.LastUpdatedOn ? new Date(inv.LastUpdatedOn).toISOString() : null
+        const invoiceNumber = pickField<number>(inv, 'InvoiceNumber', 'invoiceNumber')
+        const amount = pickField<number>(inv, 'Amount', 'amount') ?? 0
+        const unapplied = pickField<number>(inv, 'UnappliedAmount', 'unappliedAmount')
+        const providerId = pickField<number>(inv, 'ProviderId', 'providerId')
+        const locationId = pickField<number>(inv, 'LocationId', 'locationId')
+        const isDeleted = !!pickField<boolean>(inv, 'IsDeleted', 'isDeleted')
+        const isNsf = !!pickField<boolean>(inv, 'IsNsf', 'isNsf')
+        const patientId = pickField<number>(inv, 'PatientId', 'patientId')
+        const lastUpdatedRaw = pickField<string>(inv, 'LastUpdatedOn', 'lastUpdatedOn')
+        const paymentCategory = pickField<string>(inv, 'PaymentCategory', 'paymentCategory')
+        const paymentDateRaw = pickField<string>(inv, 'PaymentDate', 'paymentDate')
+        const invoiceType = pickField<number>(inv, 'InvoiceType', 'invoiceType')
+        const invoiceSource = pickField<number>(inv, 'InvoiceSource', 'invoiceSource')
+        const paymentTypeId = pickField<number>(inv, 'PaymentTypeId', 'paymentTypeId')
+
+        const patient = patientId ? await ensurePatientStub(supabase, organizationId, patientId) : null
+
+        const lastUpdated = lastUpdatedRaw ? new Date(lastUpdatedRaw).toISOString() : null
         if (lastUpdated && (!highWater || lastUpdated > highWater)) highWater = lastUpdated
 
         const baseRow = {
           organization_id: organizationId,
           patient_id: patient?.patient_row_id ?? null,
-          ehr_invoice_id: inv.InvoiceId,
-          ehr_invoice_number: inv.InvoiceNumber ?? null,
+          ehr_invoice_id: invoiceId,
+          ehr_invoice_number: invoiceNumber ?? null,
           ehr_source: 'carestack',
-          amount: inv.Amount,
-          unapplied_amount: inv.UnappliedAmount ?? null,
-          ehr_provider_id: inv.ProviderId ?? null,
-          ehr_location_id: inv.LocationId ?? null,
-          payment_category: inv.PaymentCategory ?? null,
-          invoice_type: inv.InvoiceType ?? null,
-          invoice_source: inv.InvoiceSource ?? null,
-          payment_type_id: inv.PaymentTypeId ?? null,
-          payment_date: inv.PaymentDate ? new Date(inv.PaymentDate).toISOString() : null,
-          is_nsf: !!inv.IsNsf,
-          is_deleted: !!inv.IsDeleted,
+          amount,
+          unapplied_amount: unapplied ?? null,
+          ehr_provider_id: providerId ?? null,
+          ehr_location_id: locationId ?? null,
+          payment_category: paymentCategory ?? null,
+          invoice_type: invoiceType ?? null,
+          invoice_source: invoiceSource ?? null,
+          payment_type_id: paymentTypeId ?? null,
+          payment_date: paymentDateRaw ? new Date(paymentDateRaw).toISOString() : null,
+          is_nsf: isNsf,
+          is_deleted: isDeleted,
           ehr_last_updated_on: lastUpdated,
         }
 
@@ -439,7 +462,7 @@ export async function syncInvoices(
           .select('id, forwarded')
           .eq('organization_id', organizationId)
           .eq('ehr_source', 'carestack')
-          .eq('ehr_invoice_id', inv.InvoiceId)
+          .eq('ehr_invoice_id', invoiceId)
           .maybeSingle()
 
         let invRowId: string
@@ -462,18 +485,18 @@ export async function syncInvoices(
         // Emit a payment.received event for each new, non-deleted, non-NSF invoice.
         // Skip if forwarded already (idempotency on resync).
         const alreadyForwarded = (existing?.forwarded as boolean) || false
-        if (!alreadyForwarded && !inv.IsDeleted && !inv.IsNsf && inv.Amount > 0) {
+        if (!alreadyForwarded && !isDeleted && !isNsf && amount > 0) {
           await emitEvent(supabase, organizationId, patient?.lead_id ?? null, 'lead.payment.received', {
             ehr_source: 'carestack',
-            ehr_invoice_id: inv.InvoiceId,
-            ehr_invoice_number: inv.InvoiceNumber,
-            ehr_patient_id: inv.PatientId,
-            value: inv.Amount,
+            ehr_invoice_id: invoiceId,
+            ehr_invoice_number: invoiceNumber,
+            ehr_patient_id: patientId,
+            value: amount,
             currency: 'USD',
-            payment_category: inv.PaymentCategory,
-            payment_date: inv.PaymentDate,
-            invoice_type: inv.InvoiceType,
-            invoice_source: inv.InvoiceSource,
+            payment_category: paymentCategory,
+            payment_date: paymentDateRaw,
+            invoice_type: invoiceType,
+            invoice_source: invoiceSource,
           })
           events++
           await supabase
