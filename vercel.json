@@ -31,6 +31,10 @@
     {
       "path": "/api/cron/pull-gbp-reviews",
       "schedule": "15 7 * * *"
+    },
+    {
+      "path": "/api/cron/carestack-sync",
+      "schedule": "30 4 * * *"
     }
   ]
 }

@@ -1335,3 +1335,140 @@ export type AiUsageRow = {
   metadata: Record<string, unknown>
   occurred_at: string
 }
+
+// ── Phase 3 EHR Integration (migration 026) ─────────────────
+
+export type EhrSource = 'carestack' | 'open_dental' | 'dentrix' | 'eaglesoft' | 'manual'
+export type PatientMatchMethod = 'email_hash' | 'phone_hash' | 'name_dob' | 'manual' | 'webhook_meta' | 'unmatched'
+
+export type Patient = {
+  id: string
+  organization_id: string
+  ehr_patient_id: string
+  ehr_source: EhrSource
+  lead_id: string | null
+  match_method: PatientMatchMethod | null
+  match_confidence: number | null
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  email_hash: string | null
+  phone_e164: string | null
+  phone_hash: string | null
+  dob: string | null
+  default_location_id: number | null
+  account_id: number | null
+  status: number | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+// CareStack TreatmentPlanStatus enum (also reused for TreatmentProcedure status):
+//   1 Proposed | 2 Scheduled | 3 Accepted | 4 Rejected | 5 Alternative |
+//   6 Hold    | 7 ReferredOut | 8 Completed | 9 Presented | 10 ServiceCompleted
+export type EhrTreatmentStatusId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
+
+export type TreatmentPlan = {
+  id: string
+  organization_id: string
+  patient_id: string
+  ehr_treatment_plan_id: number
+  ehr_source: EhrSource
+  name: string | null
+  status_id: EhrTreatmentStatusId
+  duration: number | null
+  condition_ids: string | null
+  coordinator_id: number | null
+  total_patient_estimate: number | null
+  total_insurance_estimate: number | null
+  last_forwarded_status_id: EhrTreatmentStatusId | null
+  last_forwarded_at: string | null
+  metadata: Record<string, unknown>
+  ehr_last_updated_on: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type TreatmentProcedure = {
+  id: string
+  organization_id: string
+  patient_id: string | null
+  treatment_plan_id: string | null
+  ehr_procedure_id: number
+  ehr_source: EhrSource
+  ehr_treatment_plan_id: number | null
+  ehr_treatment_plan_phase_id: number | null
+  ehr_appointment_id: number | null
+  ehr_provider_id: number | null
+  ehr_location_id: number | null
+  procedure_code_id: number | null
+  tooth: string | null
+  surfaces: Record<string, number> | null
+  patient_estimate: number | null
+  insurance_estimate: number | null
+  status_id: EhrTreatmentStatusId | null
+  proposed_date: string | null
+  date_of_service: string | null
+  is_deleted: boolean
+  last_forwarded_status_id: EhrTreatmentStatusId | null
+  last_forwarded_at: string | null
+  metadata: Record<string, unknown>
+  ehr_last_updated_on: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type Invoice = {
+  id: string
+  organization_id: string
+  patient_id: string | null
+  ehr_invoice_id: number
+  ehr_invoice_number: number | null
+  ehr_source: EhrSource
+  amount: number
+  unapplied_amount: number | null
+  ehr_provider_id: number | null
+  ehr_location_id: number | null
+  payment_category: string | null
+  invoice_type: number | null
+  invoice_source: number | null
+  payment_type_id: number | null
+  payment_date: string | null
+  is_nsf: boolean
+  is_deleted: boolean
+  forwarded: boolean
+  forwarded_at: string | null
+  metadata: Record<string, unknown>
+  ehr_last_updated_on: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type EhrSyncResource =
+  | 'patients'
+  | 'appointments'
+  | 'treatment_procedures'
+  | 'existing_treatment_procedures'
+  | 'invoices'
+  | 'accounting_procedures'
+  | 'accounting_transactions'
+  | 'treatment_plans'
+  | 'treatment_phases'
+  | 'potential_patients'
+
+export type EhrSyncState = {
+  id: string
+  organization_id: string
+  ehr_source: EhrSource
+  resource: EhrSyncResource
+  last_synced_at: string | null
+  continue_token: string | null
+  last_run_at: string | null
+  last_run_status: 'success' | 'failed' | 'partial' | null
+  last_run_count: number | null
+  last_run_error: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}

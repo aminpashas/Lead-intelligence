@@ -125,13 +125,29 @@ export async function POST(request: NextRequest) {
       continue
     }
 
+    const connectorLead = buildConnectorLeadData(lead as Record<string, unknown>)
+
+    // For value-bearing events emitted by EHR sync (treatment_accepted/_completed/payment.received),
+    // the per-procedure or per-invoice $ amount lives in payload.value, NOT on the lead row
+    // (a single lead can produce many such events with different values). Copy the payload value
+    // onto the lead snapshot we hand the connector so Meta CAPI / Google Ads pick up the right
+    // conversion value without having to special-case event types in every connector.
+    const payloadValue = typeof ev.payload?.value === 'number' ? (ev.payload.value as number) : null
+    if (payloadValue !== null && payloadValue > 0) {
+      if (mapped === 'payment.received' || mapped === 'treatment.completed') {
+        connectorLead.actual_revenue = payloadValue
+      } else if (mapped === 'treatment.accepted' || mapped === 'treatment.presented') {
+        connectorLead.treatment_value = payloadValue
+      }
+    }
+
     const connectorEvent: ConnectorEvent = {
       type: mapped,
       organizationId: ev.organization_id,
       leadId: ev.lead_id,
       timestamp: ev.occurred_at,
       data: {
-        lead: buildConnectorLeadData(lead as Record<string, unknown>),
+        lead: connectorLead,
         metadata: ev.payload,
       },
     }
