@@ -36,6 +36,22 @@ const ENV_VARS: EnvVar[] = [
 
   // App
   { key: 'NEXT_PUBLIC_APP_URL', required: false, description: 'Public app URL' },
+
+  // Connectors — Google Ads
+  { key: 'GOOGLE_ADS_DEVELOPER_TOKEN', required: false, description: 'Google Ads API developer token' },
+  { key: 'GOOGLE_ADS_CLIENT_ID', required: false, description: 'Google OAuth2 client ID for Ads' },
+  { key: 'GOOGLE_ADS_CLIENT_SECRET', required: false, description: 'Google OAuth2 client secret for Ads' },
+
+  // Connectors — Meta CAPI
+  { key: 'META_PIXEL_ID', required: false, description: 'Meta/Facebook pixel ID' },
+  { key: 'META_CAPI_ACCESS_TOKEN', required: false, description: 'Meta Conversions API access token' },
+
+  // Connectors — GA4
+  { key: 'GA4_MEASUREMENT_ID', required: false, description: 'GA4 Measurement ID (G-XXXXXXXXXX)' },
+  { key: 'GA4_API_SECRET', required: false, description: 'GA4 Measurement Protocol API secret' },
+
+  // Connectors — Slack
+  { key: 'SLACK_WEBHOOK_URL', required: false, description: 'Slack Incoming Webhook URL' },
 ]
 
 export type EnvValidationResult = {

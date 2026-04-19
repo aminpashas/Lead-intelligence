@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { scoreLead } from '@/lib/ai/scoring'
 import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
 
 // POST /api/webhooks/google-ads - Google Ads lead form webhook
 // Google Ads sends lead form extensions data via webhook
@@ -124,6 +125,17 @@ export async function POST(request: NextRequest) {
       ai_summary: score.summary,
     }).eq('id', lead.id)
   } catch { /* scoring failure shouldn't block */ }
+
+  // Dispatch to external connectors (non-blocking)
+  try {
+    dispatchConnectorEvent(supabase, {
+      type: 'lead.created',
+      organizationId: orgResult.orgId,
+      leadId: lead.id,
+      timestamp: new Date().toISOString(),
+      data: { lead: buildConnectorLeadData(lead) },
+    }).catch(() => { /* non-blocking */ })
+  } catch { /* non-blocking */ }
 
   return NextResponse.json({ success: true, lead_id: lead.id, action: 'created' }, { status: 201 })
 }

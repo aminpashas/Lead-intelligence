@@ -179,6 +179,45 @@ async function executeEntryAction(
         title: action.description,
         metadata: { assign_to: action.assignTo },
       })
+
+      // Push to Slack if configured (non-blocking)
+      try {
+        const { data: slackConfig } = await supabase
+          .from('connector_configs')
+          .select('credentials')
+          .eq('organization_id', organizationId)
+          .eq('connector_type', 'slack')
+          .eq('enabled', true)
+          .single()
+
+        if (slackConfig?.credentials) {
+          const { sendSlackNotification } = await import('@/lib/connectors/slack/notify')
+          const creds = slackConfig.credentials as { webhookUrl: string; channel?: string; events: string[] }
+          sendSlackNotification(
+            {
+              type: 'stage.changed',
+              organizationId,
+              leadId: lead.id as string,
+              timestamp: new Date().toISOString(),
+              data: {
+                lead: {
+                  id: lead.id as string,
+                  firstName: (lead.first_name as string) || '',
+                  lastName: (lead.last_name as string) || '',
+                  source_type: lead.source_type as string || null,
+                  ai_score: lead.ai_score as number || null,
+                  ai_qualification: lead.ai_qualification as string || null,
+                  treatment_value: lead.treatment_value as number || null,
+                },
+                metadata: { notification: action.description },
+              },
+            },
+            { webhookUrl: creds.webhookUrl, channel: creds.channel, events: (creds.events || []) as import('@/lib/connectors/types').ConnectorEventType[] }
+          ).catch(() => { /* non-blocking */ })
+        }
+      } catch {
+        // Slack failure is non-blocking
+      }
       break
     }
 

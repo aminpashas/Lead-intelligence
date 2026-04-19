@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { scoreLead } from '@/lib/ai/scoring'
 import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
 
 // GET /api/webhooks/meta - Meta webhook verification (required for setup)
 export async function GET(request: NextRequest) {
@@ -139,6 +140,17 @@ export async function POST(request: NextRequest) {
             ai_score_updated_at: new Date().toISOString(),
             ai_summary: score.summary,
           }).eq('id', lead.id)
+        } catch { /* non-blocking */ }
+
+        // Dispatch to external connectors (non-blocking)
+        try {
+          dispatchConnectorEvent(supabase, {
+            type: 'lead.created',
+            organizationId: orgResult.orgId,
+            leadId: lead.id,
+            timestamp: new Date().toISOString(),
+            data: { lead: buildConnectorLeadData(lead) },
+          }).catch(() => { /* non-blocking */ })
         } catch { /* non-blocking */ }
       }
     }

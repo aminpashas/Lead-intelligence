@@ -7,8 +7,9 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check, Plug, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
+import Link from 'next/link'
 
 export default function SettingsPage() {
   const { organization } = useOrgStore()
@@ -133,6 +134,28 @@ export default function SettingsPage() {
               </p>
             </div>
           </CardContent>
+        </Card>
+
+        {/* Marketing Connectors */}
+        <Card className="group hover:border-primary/30 transition-colors">
+          <Link href="/settings/connectors" className="block">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                    <Plug className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <CardTitle>Marketing Connectors</CardTitle>
+                    <CardDescription>
+                      Connect Google Ads, Meta, GA4, Slack, and webhooks for closed-loop ROI tracking
+                    </CardDescription>
+                  </div>
+                </div>
+                <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+              </div>
+            </CardHeader>
+          </Link>
         </Card>
 
         {/* Booking Link */}
