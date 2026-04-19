@@ -19,11 +19,12 @@
 - `src/components/dashboard/` — Layout components (sidebar, topbar, shell)
 - `src/lib/ai/` — AI scoring engine and engagement prompts
 - `src/lib/messaging/` — Twilio SMS and Resend email clients
+- `src/lib/connectors/` — Marketing connectors (Google Ads, Meta CAPI, GA4, Slack, Webhooks)
 - `src/lib/supabase/` — Server/client/middleware Supabase clients
 - `src/lib/validators/` — Zod schemas for API validation
 - `src/lib/store/` — Zustand stores
 - `src/types/` — TypeScript types (database.ts mirrors Supabase schema)
-- `supabase/migrations/` — SQL migrations (001-004)
+- `supabase/migrations/` — SQL migrations
 
 ## Key Patterns
 - Multi-tenant: Every table has `organization_id` + RLS via `get_user_org_id()`
@@ -31,6 +32,9 @@
 - AI scoring: 6 dimensions weighted to 0-100 score → Hot/Warm/Cold/Unqualified
 - Webhook: POST to `/api/webhooks/form?org=<org_id>` for lead capture
 - Pipeline: Drag-and-drop kanban with optimistic updates
+- Connectors: Event-driven dispatcher pushes CRM events to Google Ads, Meta, GA4, Slack, custom webhooks
+  - Configured per-org in `connector_configs` table
+  - All connector calls are non-blocking (fire-and-forget)
 
 ## Commands
 - `npm run dev` — Start dev server

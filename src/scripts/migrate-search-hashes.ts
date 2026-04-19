@@ -56,7 +56,7 @@ async function migrateLeadHashes() {
     // may not exist yet if the migration is run before the schema is updated.
     const { data: leads, error } = await supabase
       .from('leads')
-      .select('id, email, phone, phone_formatted')
+      .select('id, email, phone, phone_formatted, email_hash, phone_hash')
       .range(offset, offset + BATCH_SIZE - 1)
       .order('created_at', { ascending: true })
 
