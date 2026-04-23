@@ -76,7 +76,16 @@ export function LandingPageContent({ utmParams = {} }: { utmParams?: Record<stri
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#faf8f5', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+    <div className="page-wrap" style={{ minHeight: '100vh', background: '#faf8f5', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+
+      {/* ── Sticky Mobile CTA — media-query scoped ── */}
+      <style>{`
+        .sticky-cta-bar { display: none; }
+        @media (max-width: 768px) {
+          .sticky-cta-bar { display: flex; }
+          .page-wrap { padding-bottom: 76px; }
+        }
+      `}</style>
 
       {/* ── Urgency Banner ── */}
       <div style={{ background: '#dc2626', color: '#fff', textAlign: 'center', padding: '12px 16px', fontSize: '14px', fontWeight: 700, letterSpacing: '.5px', position: 'sticky', top: 0, zIndex: 100 }}>
@@ -104,7 +113,7 @@ export function LandingPageContent({ utmParams = {} }: { utmParams?: Record<stri
               }}>
                 SEE IF I QUALIFY — FREE →
               </button>
-              <a href="tel:+14155551234" style={{
+              <a href="tel:+14158861942" style={{
                 padding: '18px 32px', fontSize: '18px', fontWeight: 700, borderRadius: '14px',
                 border: '2px solid #57534e', color: '#d6d3d1', textDecoration: 'none',
                 display: 'inline-flex', alignItems: 'center', gap: '8px',
@@ -306,6 +315,176 @@ export function LandingPageContent({ utmParams = {} }: { utmParams?: Record<stri
                 <span style={{ fontSize: '32px', display: 'block', marginBottom: '12px' }}>{item.icon}</span>
                 <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#1c1917', marginBottom: '8px' }}>{item.title}</h3>
                 <p style={{ fontSize: '14px', color: '#78716c', lineHeight: 1.5, margin: 0 }}>{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Package Tiers Section ── */}
+      <section style={{ padding: '64px 24px', background: '#fff' }}>
+        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+            <p style={{ fontSize: '12px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '16px' }}>YOUR OPTIONS</p>
+            <h2 style={{ fontSize: 'clamp(26px, 4vw, 38px)', fontWeight: 800, color: '#1c1917', lineHeight: 1.2, marginBottom: '12px' }}>
+              Three Ways to Get Your New Smile.<br />All Include Dr. Samadian.
+            </h2>
+            <p style={{ fontSize: '16px', color: '#78716c', lineHeight: 1.5, maxWidth: '640px', margin: '0 auto' }}>
+              Every package includes the FREE 3D scan, smile design, and financing pre-approval. You choose the finish.
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', alignItems: 'stretch' }}>
+            {[
+              {
+                tier: 'ESSENTIAL',
+                name: 'All-on-4 Classic',
+                material: 'Acrylic Hybrid',
+                monthly: '199',
+                bestFor: 'Patients focused on function + budget',
+                featured: false,
+                includes: [
+                  '4 titanium implants per arch',
+                  'Acrylic hybrid bridge (natural look)',
+                  'Same-day fixed teeth',
+                  'IV sedation included',
+                  '5-year warranty on implants',
+                ],
+              },
+              {
+                tier: 'PREMIUM',
+                name: 'All-on-4 Zirconia',
+                material: 'Full Zirconia Bridge',
+                monthly: '279',
+                bestFor: 'Premium aesthetics + lifetime durability',
+                featured: true,
+                includes: [
+                  '4 titanium implants per arch',
+                  'Monolithic zirconia bridge (strongest)',
+                  'Superior aesthetics — indistinguishable from real teeth',
+                  'Stain & chip resistant for life',
+                  'Same-day fixed teeth + IV sedation',
+                  '10-year warranty on implants',
+                ],
+              },
+              {
+                tier: 'SIGNATURE',
+                name: 'All-on-6 / Zygomatic',
+                material: 'Full Zirconia, 6+ Implants',
+                monthly: '369',
+                bestFor: 'Complex cases + severe bone loss',
+                featured: false,
+                includes: [
+                  '6+ implants per arch (including zygomatic if needed)',
+                  'Full zirconia bridge — premium finish',
+                  'Bone regeneration included',
+                  'For patients turned away elsewhere',
+                  'IV sedation + priority scheduling',
+                  '10-year warranty on implants',
+                ],
+              },
+            ].map((pkg, i) => (
+              <div key={i} style={{
+                position: 'relative',
+                background: pkg.featured ? 'linear-gradient(180deg, #fff, #fffbeb)' : '#fff',
+                border: pkg.featured ? '2px solid #d97706' : '2px solid #e5e0d8',
+                borderRadius: '16px',
+                padding: '28px 24px',
+                boxShadow: pkg.featured ? '0 12px 32px rgba(217,119,6,.18)' : '0 2px 8px rgba(0,0,0,.04)',
+                transform: pkg.featured ? 'translateY(-8px)' : 'none',
+                display: 'flex',
+                flexDirection: 'column',
+              }}>
+                {pkg.featured && (
+                  <div style={{
+                    position: 'absolute', top: '-14px', right: '20px',
+                    background: '#dc2626', color: '#fff',
+                    fontSize: '11px', fontWeight: 800, letterSpacing: '1px',
+                    padding: '6px 14px', borderRadius: '999px',
+                    boxShadow: '0 4px 12px rgba(220,38,38,.35)',
+                  }}>
+                    ⭐ MOST CHOSEN
+                  </div>
+                )}
+                <p style={{ fontSize: '12px', fontWeight: 800, color: '#d97706', textTransform: 'uppercase', letterSpacing: '2px', margin: '0 0 8px' }}>{pkg.tier}</p>
+                <h3 style={{ fontSize: '22px', fontWeight: 800, color: '#1c1917', margin: '0 0 4px' }}>{pkg.name}</h3>
+                <p style={{ fontSize: '13px', color: '#78716c', margin: '0 0 20px' }}>{pkg.material}</p>
+                <div style={{ marginBottom: '8px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#78716c' }}>From </span>
+                  <span style={{ fontSize: '40px', fontWeight: 800, color: '#d97706', lineHeight: 1 }}>${pkg.monthly}</span>
+                  <span style={{ fontSize: '16px', fontWeight: 700, color: '#78716c' }}>/mo*</span>
+                </div>
+                <p style={{ fontSize: '13px', color: '#a8a29e', margin: '0 0 20px', fontStyle: 'italic' }}>Best for: {pkg.bestFor}</p>
+                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', flex: 1 }}>
+                  {pkg.includes.map((inc, j) => (
+                    <li key={j} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '8px 0', fontSize: '14px', color: '#57534e', lineHeight: 1.4, borderBottom: j < pkg.includes.length - 1 ? '1px solid #f5f5f4' : 'none' }}>
+                      <span style={{ color: '#16a34a', fontWeight: 800, flexShrink: 0 }}>✓</span>
+                      <span>{inc}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" onClick={scrollToForm} style={{
+                  padding: '14px 20px', fontSize: '15px', fontWeight: 800, borderRadius: '12px', border: 'none',
+                  background: pkg.featured ? 'linear-gradient(135deg, #d97706, #b45309)' : '#1c1917',
+                  color: '#fff', cursor: 'pointer',
+                  boxShadow: pkg.featured ? '0 6px 18px rgba(217,119,6,.35)' : '0 2px 8px rgba(0,0,0,.15)',
+                  width: '100%',
+                }}>
+                  SEE IF I QUALIFY →
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <p style={{ fontSize: '12px', color: '#a8a29e', textAlign: 'center', marginTop: '24px', lineHeight: 1.5, maxWidth: '720px', margin: '24px auto 0' }}>
+            *Monthly payments based on qualified credit through our 6+ partner lenders. Actual payment depends on loan term, down payment, and credit profile. Same-day treatment and final pricing confirmed during your free consultation.
+          </p>
+        </div>
+      </section>
+
+      {/* ── Offers / Guarantees Band ── */}
+      <section style={{ padding: '64px 24px', background: 'linear-gradient(135deg, #1c1917, #292524)', color: '#fff' }}>
+        <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+            <p style={{ fontSize: '12px', fontWeight: 800, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '16px' }}>TWO EXCLUSIVE GUARANTEES</p>
+            <h2 style={{ fontSize: 'clamp(26px, 4vw, 38px)', fontWeight: 800, lineHeight: 1.2 }}>
+              We Put Our Money<br />Where Our Mouth Is.
+            </h2>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+            {[
+              {
+                icon: '🔍',
+                title: 'FREE Second Opinion',
+                body: 'Already been quoted by ClearChoice, Aspen, or another corporate chain? Bring us your itemized treatment plan. Dr. Samadian will personally review it — free, no pressure, no commitment. Our patients regularly save $5,000–$10,000 on the exact same treatment.',
+                cta: 'Claim my second opinion →',
+              },
+              {
+                icon: '🛡️',
+                title: 'Price Match Guarantee',
+                body: 'Found a lower price on the exact same treatment plan — same materials, same number of implants, same doctor credentials? Show us the itemized quote in writing. We\'ll match it. Same-day smile, same lender options, same doctor. No compromises.',
+                cta: 'Show us your quote →',
+              },
+            ].map((offer, i) => (
+              <div key={i} style={{
+                background: '#44403c',
+                border: '1px solid #57534e',
+                borderRadius: '16px',
+                padding: '28px',
+                display: 'flex',
+                flexDirection: 'column',
+              }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px', lineHeight: 1 }}>{offer.icon}</div>
+                <h3 style={{ fontSize: '22px', fontWeight: 800, color: '#fff', margin: '0 0 12px' }}>{offer.title}</h3>
+                <p style={{ fontSize: '15px', color: '#d6d3d1', lineHeight: 1.6, margin: '0 0 20px', flex: 1 }}>{offer.body}</p>
+                <button type="button" onClick={scrollToForm} style={{
+                  background: 'none', border: 'none', color: '#fbbf24',
+                  fontSize: '15px', fontWeight: 800, cursor: 'pointer',
+                  textAlign: 'left', padding: 0,
+                }}>
+                  {offer.cta}
+                </button>
               </div>
             ))}
           </div>
@@ -582,6 +761,30 @@ export function LandingPageContent({ utmParams = {} }: { utmParams?: Record<stri
           </p>
         </div>
       </footer>
+
+      {/* ── Sticky Mobile CTA Bar (visible <768px only) ── */}
+      <div className="sticky-cta-bar" style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 100,
+        background: '#1c1917', borderTop: '2px solid #d97706',
+        padding: '10px 12px', gap: '8px',
+        boxShadow: '0 -4px 16px rgba(0,0,0,.25)',
+      }}>
+        <a href="tel:+14158861942" style={{
+          flex: 1, textAlign: 'center', textDecoration: 'none',
+          padding: '14px 10px', fontSize: '15px', fontWeight: 800, borderRadius: '10px',
+          border: '2px solid #57534e', color: '#fff', background: 'transparent',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+        }}>
+          📞 Call Now
+        </a>
+        <button type="button" onClick={scrollToForm} style={{
+          flex: 2, padding: '14px 10px', fontSize: '15px', fontWeight: 800, borderRadius: '10px', border: 'none',
+          background: 'linear-gradient(135deg, #d97706, #b45309)', color: '#fff', cursor: 'pointer',
+          boxShadow: '0 4px 14px rgba(217,119,6,.4)',
+        }}>
+          SEE IF I QUALIFY →
+        </button>
+      </div>
     </div>
   )
 }
