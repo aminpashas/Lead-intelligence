@@ -34,6 +34,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/signup') ||
     pathname.startsWith('/qualify') ||
     pathname.startsWith('/book') ||
+    pathname.startsWith('/all-on-4') ||
     pathname.startsWith('/api/booking') ||
     pathname.startsWith('/api/webhooks') ||
     pathname.startsWith('/api/cron') ||
