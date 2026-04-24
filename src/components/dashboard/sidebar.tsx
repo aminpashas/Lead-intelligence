@@ -27,6 +27,7 @@ import {
   UsersRound,
   CreditCard,
   FolderHeart,
+  FileSignature,
   Plug,
   type LucideIcon,
 } from 'lucide-react'
@@ -56,6 +57,7 @@ const navigation: NavItem[] = [
   { name: 'Broadcast Audit', href: '/broadcast-audit', icon: ClipboardCheck },
   { name: 'Appointments', href: '/appointments', icon: Calendar },
   { name: 'Cases', href: '/cases', icon: FolderHeart },
+  { name: 'Contracts', href: '/contracts', icon: FileSignature },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'AI Control', href: '/ai-control', icon: ToggleLeft },
   { name: 'Team', href: '/team', icon: UsersRound },

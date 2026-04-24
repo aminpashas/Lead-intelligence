@@ -1556,3 +1556,156 @@ export type ExpenseLineItem = {
   created_at: string
   updated_at: string
 }
+
+// ────────────────────────────────────────────────────────────────
+// AI-Generated Patient Treatment Contracts
+// ────────────────────────────────────────────────────────────────
+
+export type ContractSectionKind = 'boilerplate' | 'ai_narrative' | 'data_table' | 'consent' | 'signature'
+export type ContractTemplateDataSource = 'treatment_plan.phases' | 'financial.summary'
+
+export type ContractTemplateSection = {
+  id: string
+  title: string
+  kind: ContractSectionKind
+  required: boolean
+  body?: string
+  ai_prompt?: string
+  max_ai_words?: number
+  consent_key?: string
+  data_source?: ContractTemplateDataSource
+}
+
+export type ContractTemplate = {
+  id: string
+  organization_id: string
+  name: string
+  slug: string
+  version: number
+  sections: ContractTemplateSection[]
+  required_variables: string[]
+  status: 'draft' | 'published' | 'archived'
+  published_at: string | null
+  published_by: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ContractStatus =
+  | 'draft'
+  | 'pending_review'
+  | 'changes_requested'
+  | 'approved'
+  | 'sent'
+  | 'viewed'
+  | 'signed'
+  | 'executed'
+  | 'declined'
+  | 'expired'
+  | 'voided'
+
+export type RenderedContractSection = {
+  section_id: string
+  title: string
+  kind: ContractSectionKind
+  rendered_text: string
+  rendered_html: string
+  ai_generated: boolean
+  consent_key?: string
+  data_source?: ContractTemplateDataSource
+  data_rows?: Array<Record<string, string | number>>
+}
+
+export type ContractConsentAgreement = {
+  section_id: string
+  consent_key: string
+  agreed_at: string
+}
+
+export type PatientContract = {
+  id: string
+  organization_id: string
+  clinical_case_id: string
+  lead_id: string | null
+  treatment_closing_id: string | null
+  case_treatment_plan_id: string | null
+
+  template_id: string | null
+  template_version: number
+  template_snapshot: { sections: ContractTemplateSection[]; name?: string; slug?: string }
+
+  generated_content: RenderedContractSection[]
+  context_snapshot: Record<string, unknown>
+
+  status: ContractStatus
+  needs_manual_draft: boolean
+
+  reviewer_id: string | null
+  review_notes: string | null
+  reviewed_at: string | null
+  approved_at: string | null
+
+  share_token: string
+  share_token_expires_at: string | null
+  sent_at: string | null
+  sent_via: 'email' | 'sms' | 'email+sms' | 'portal_only' | null
+  first_viewed_at: string | null
+
+  signed_at: string | null
+  signer_name: string | null
+  signer_ip: string | null
+  signer_user_agent: string | null
+  signature_data_url: string | null
+  signature_type: 'drawn' | 'typed' | null
+  consents_agreed: ContractConsentAgreement[]
+
+  draft_pdf_storage_path: string | null
+  executed_pdf_storage_path: string | null
+  executed_pdf_sha256: string | null
+
+  contract_amount: number | null
+  deposit_amount: number | null
+  financing_type: 'loan' | 'in_house' | 'cash' | 'insurance' | null
+  financing_monthly_payment: number | null
+
+  ai_model: string | null
+  ai_tokens_in: number | null
+  ai_tokens_out: number | null
+  ai_cost_cents: number | null
+
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ContractEvent = {
+  id: string
+  organization_id: string
+  contract_id: string
+  event_type: string
+  actor_type: 'user' | 'patient' | 'system' | 'ai_agent'
+  actor_id: string | null
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export type OrgLegalSettings = {
+  entity_name: string | null
+  state_of_formation: string | null
+  license_numbers: Record<string, string>
+  principal_address: { street: string; city: string; state: string; zip: string } | null
+  attorney_contact: { name: string; email: string; phone: string } | null
+  arbitration_venue: string | null
+  cancellation_policy_days: number
+  refund_policy_days: number
+  governing_law: string | null
+  esign_disclosure_version: string
+}
+
+export type OrgContractSettings = {
+  signature_type_allowed: ('drawn' | 'typed')[]
+  send_method_default: 'email' | 'sms' | 'email+sms' | 'portal_only'
+  share_token_expiry_days: number
+  auto_draft_on_ehr_accept: boolean
+}
