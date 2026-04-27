@@ -90,6 +90,27 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // PHASE 5: Refresh agent performance daily fact table (yesterday's data)
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10)
+  let agentRowsRefreshed = 0
+  for (const org of orgs) {
+    try {
+      const { data, error } = await supabase.rpc('refresh_agent_performance_daily', {
+        p_org_id: org.id,
+        p_date: yesterday,
+      })
+      if (error) {
+        errors.push(`Agent perf refresh error (org ${org.id}): ${error.message}`)
+      } else if (typeof data === 'number') {
+        agentRowsRefreshed += data
+      }
+    } catch (err) {
+      errors.push(`Agent perf refresh error (org ${org.id}): ${err instanceof Error ? err.message : 'unknown'}`)
+    }
+  }
+
   const duration = Date.now() - startTime
   const summary = {
     success: true,
@@ -97,6 +118,7 @@ export async function POST(request: NextRequest) {
     executions: totalExecuted,
     disqualified,
     remindersSent,
+    agentRowsRefreshed,
     errors: errors.length > 0 ? errors : undefined,
     durationMs: duration,
     orgsProcessed: orgs.length,

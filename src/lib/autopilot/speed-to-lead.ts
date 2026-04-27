@@ -12,6 +12,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAutopilotConfig } from './config'
 import { routeToAgent } from '@/lib/ai/agent-handoff'
+import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
+import { checkAgentCapacity } from '@/lib/agents/discipline-engine'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
@@ -51,6 +53,29 @@ export async function triggerSpeedToLead(
       activeRange: `${config.active_hours_start}-${config.active_hours_end}`,
     })
     return { action: 'skipped' }
+  }
+
+  // PHASE C: Reward/discipline gate.
+  // First-touch goes through the Setter agent. Check that agent's
+  // remaining daily capacity AND its autopilot override before doing
+  // any work. Probated agents have autopilot='review_first', so this
+  // path skips them and the lead falls through to the manual queue
+  // (where speed-to-lead's existing escalation logic can pick it up).
+  const setterAgentId = await getAgentIdForRole(supabase, organizationId, 'setter')
+  if (setterAgentId) {
+    const capacity = await checkAgentCapacity(supabase, setterAgentId)
+    if (!capacity.allowed) {
+      logger.info('Speed-to-lead: blocked by agent capacity / autopilot', {
+        leadId,
+        agentId: setterAgentId,
+        reason: capacity.reason,
+        effectiveCap: capacity.effectiveCap,
+      })
+      // Cap-reached or autopilot-throttled leads aren't lost — they
+      // remain in the queue and get picked up by the next pass once
+      // capacity returns or the agent's status improves.
+      return { action: 'skipped' }
+    }
   }
 
   // 2. Fetch the lead
@@ -193,10 +218,12 @@ export async function triggerSpeedToLead(
     }
 
     // Store outbound message
+    const agentId = await getAgentIdForRole(supabase, organizationId, agentResponse.agent)
     await supabase.from('messages').insert({
       organization_id: organizationId,
       conversation_id: conversationId,
       lead_id: leadId,
+      agent_id: agentId,
       direction: 'outbound',
       channel,
       body: agentResponse.message,

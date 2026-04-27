@@ -19,6 +19,8 @@ import {
   Megaphone,
   CheckCheck,
   X,
+  AlertTriangle,
+  ShieldAlert,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
@@ -29,6 +31,8 @@ const NOTIFICATION_ICONS: Record<NotificationType, { icon: React.ElementType; co
   appointment_booked: { icon: Calendar, color: 'text-orange-500' },
   inbound_message: { icon: MessageSquare, color: 'text-purple-500' },
   campaign_completed: { icon: Megaphone, color: 'text-amber-500' },
+  agent_status_down: { icon: AlertTriangle, color: 'text-amber-500' },
+  agent_probation: { icon: ShieldAlert, color: 'text-rose-500' },
 }
 
 export function NotificationDropdown() {

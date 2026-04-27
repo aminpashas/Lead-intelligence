@@ -214,6 +214,7 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/broadcast-audit': 'broadcast_audit:read',
   '/appointments': 'schedule:read',
   '/analytics': 'analytics:read',
+  '/agent-kpi': 'analytics:read',
   '/ai-control': 'ai_control:read',
   '/settings': 'settings:read',
   '/team': 'team:manage',

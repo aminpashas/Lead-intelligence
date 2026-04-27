@@ -17,6 +17,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendSMS } from '@/lib/messaging/twilio'
@@ -245,6 +246,7 @@ export async function executeAgentTool(
     lead: Record<string, unknown>
     conversation_id: string
     channel?: string // The current channel the agent is on
+    agent_role?: 'setter' | 'closer' // Attributes downstream message inserts
   }
 ): Promise<ToolResult> {
   switch (toolName) {
@@ -676,14 +678,34 @@ async function storeOutboundMessage(
     body: string
     external_id?: string
     metadata?: Record<string, unknown>
+    agent_role?: 'setter' | 'closer'
   }
 ): Promise<string | null> {
+  // Attribute to the specific agent. If the caller didn't supply a role,
+  // fall back to the conversation's active_agent — same convention used
+  // by the historical backfill in migration 030.
+  let role: 'setter' | 'closer' | undefined = params.agent_role
+  if (!role) {
+    const { data: conv } = await supabase
+      .from('conversations')
+      .select('active_agent')
+      .eq('id', params.conversation_id)
+      .maybeSingle()
+    if (conv?.active_agent === 'setter' || conv?.active_agent === 'closer') {
+      role = conv.active_agent
+    }
+  }
+  const agentId = role
+    ? await getAgentIdForRole(supabase, params.organization_id, role)
+    : null
+
   const { data } = await supabase
     .from('messages')
     .insert({
       organization_id: params.organization_id,
       conversation_id: params.conversation_id,
       lead_id: params.lead_id,
+      agent_id: agentId,
       direction: 'outbound',
       channel: params.channel,
       body: params.body,

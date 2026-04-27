@@ -20,6 +20,7 @@ import type { AgentContext, AgentResponse } from './agent-types'
 import { formatPatientPsychologyForPrompt } from './agent-types'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { formatAssessmentForPrompt } from './technique-tracker'
+import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
 import { formatFinancingContextForPrompt } from './financial-coach'
 import { getTreatmentClosing, formatClosingForPrompt } from '@/lib/treatment/treatment-closing'
 import { CLOSER_TOOLS, executeAgentTool } from '@/lib/autopilot/agent-tools'
@@ -503,7 +504,11 @@ export async function closerAgentRespond(
   supabase: SupabaseClient,
   context: AgentContext
 ): Promise<AgentResponse> {
-  const systemPrompt = buildCloserSystemPrompt(context)
+  const baselinePrompt = buildCloserSystemPrompt(context)
+  // Phase C: optional protocol override — see setter-agent.ts for
+  // rationale. Default returns null → behavior unchanged.
+  const protocol = await getActiveProtocol(supabase, context.organization_id, 'closer')
+  const systemPrompt = composeSystemPrompt(baselinePrompt, protocol, 'append')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

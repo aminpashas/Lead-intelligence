@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
+import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { getPatientProfile } from '@/lib/ai/patient-psychology'
 import { sendSMS, sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
@@ -352,10 +353,12 @@ async function sendAgentResponse(
   void lead // (channel/consent state read inside the gate via leadId)
 
   // Store outbound message
+  const agentId = await getAgentIdForRole(supabase, organization_id, agentResponse.agent)
   await supabase.from('messages').insert({
     organization_id,
     conversation_id,
     lead_id,
+    agent_id: agentId,
     direction: 'outbound',
     channel,
     body: agentResponse.message,

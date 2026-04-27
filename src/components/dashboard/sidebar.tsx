@@ -28,6 +28,7 @@ import {
   CreditCard,
   FolderHeart,
   Plug,
+  Gauge,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -57,6 +58,7 @@ const navigation: NavItem[] = [
   { name: 'Appointments', href: '/appointments', icon: Calendar },
   { name: 'Cases', href: '/cases', icon: FolderHeart },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+  { name: 'Agent KPI', href: '/agent-kpi', icon: Gauge },
   { name: 'AI Control', href: '/ai-control', icon: ToggleLeft },
   { name: 'Team', href: '/team', icon: UsersRound },
   { name: 'Billing', href: '/billing', icon: CreditCard },

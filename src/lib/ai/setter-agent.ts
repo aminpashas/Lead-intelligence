@@ -23,6 +23,7 @@ import {
   formatPatientPsychologyForPrompt,
 } from './agent-types'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
+import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { formatFinancingContextForPrompt } from './financial-coach'
 import { SETTER_TOOLS, executeAgentTool } from '@/lib/autopilot/agent-tools'
@@ -306,7 +307,12 @@ export async function setterAgentRespond(
   supabase: SupabaseClient,
   context: AgentContext
 ): Promise<AgentResponse> {
-  const systemPrompt = buildSetterSystemPrompt(context)
+  const baselinePrompt = buildSetterSystemPrompt(context)
+  // Phase C: if an admin (or auto-tune) has activated an alternate
+  // protocol with a prompt override, append it to the baseline.
+  // Default: no active protocol → systemPrompt === baselinePrompt.
+  const protocol = await getActiveProtocol(supabase, context.organization_id, 'setter')
+  const systemPrompt = composeSystemPrompt(baselinePrompt, protocol, 'append')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

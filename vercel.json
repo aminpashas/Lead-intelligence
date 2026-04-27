@@ -43,6 +43,14 @@
     {
       "path": "/api/cron/brex-sync",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/agent-reviews",
+      "schedule": "0 3 * * 1"
+    },
+    {
+      "path": "/api/cron/technique-feedback",
+      "schedule": "30 3 * * *"
     }
   ]
 }

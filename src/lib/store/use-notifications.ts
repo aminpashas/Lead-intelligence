@@ -8,6 +8,8 @@ export type NotificationType =
   | 'appointment_booked'
   | 'inbound_message'
   | 'campaign_completed'
+  | 'agent_status_down'
+  | 'agent_probation'
 
 export type Notification = {
   id: string
