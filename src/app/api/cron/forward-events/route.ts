@@ -24,6 +24,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { dispatchConnectorEvent } from '@/lib/connectors'
 import { buildConnectorLeadData } from '@/lib/connectors'
 import type { ConnectorEvent, ConnectorEventType } from '@/lib/connectors'
+import { fireAndForgetEnsureContract } from '@/lib/contracts/orchestrator'
 
 const BATCH_SIZE = 50
 const MAX_RETRIES = 5
@@ -202,6 +203,48 @@ export async function POST(request: NextRequest) {
     }
 
     await supabase.from('events').update(updates).eq('id', ev.id)
+
+    // Side effect: when CareStack reports treatment accepted, kick off contract draft
+    // for the most recent clinical case on this lead. Gated by org settings.
+    if (
+      ev.event_type === 'lead.treatment_accepted' &&
+      !(ev.payload?._contract_orchestrated === true)
+    ) {
+      try {
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('settings')
+          .eq('id', ev.organization_id)
+          .single()
+        const autoDraft =
+          (org?.settings as { contracts?: { auto_draft_on_ehr_accept?: boolean } })?.contracts
+            ?.auto_draft_on_ehr_accept !== false
+        if (autoDraft) {
+          const { data: caseRow } = await supabase
+            .from('clinical_cases')
+            .select('id')
+            .eq('lead_id', ev.lead_id)
+            .eq('organization_id', ev.organization_id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          if (caseRow) {
+            fireAndForgetEnsureContract({
+              organizationId: ev.organization_id,
+              caseId: caseRow.id,
+              actorType: 'system',
+            })
+            // Mark payload so we don't retry on subsequent sweeps
+            await supabase
+              .from('events')
+              .update({ payload: { ...ev.payload, _contract_orchestrated: true } })
+              .eq('id', ev.id)
+          }
+        }
+      } catch (err) {
+        console.error('[forward-events] contract orchestrate failed', err)
+      }
+    }
   }
 
   return NextResponse.json({

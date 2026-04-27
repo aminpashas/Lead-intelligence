@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/technique-feedback",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/contracts",
+      "schedule": "0 3 * * *"
     }
   ]
 }

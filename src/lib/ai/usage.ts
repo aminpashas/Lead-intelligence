@@ -19,6 +19,7 @@ export type AiUsageFeature =
   | 'compliance_filter'
   | 'post_call_analysis'
   | 'review_response_draft'
+  | 'contract_draft'
 
 export type RecordAiUsageParams = {
   supabase: SupabaseClient
@@ -45,6 +46,8 @@ const PRICE_PER_1K_CENTS: Record<string, { in: number; out: number }> = {
   'claude-sonnet-4-5':             { in: 0.30, out: 1.50 },
   'claude-sonnet-4-20250514':      { in: 0.30, out: 1.50 },
   'claude-opus-4':                 { in: 1.50, out: 7.50 },
+  'claude-opus-4-5':               { in: 1.50, out: 7.50 },
+  'claude-opus-4-7':               { in: 1.50, out: 7.50 },
 }
 
 function estimateCostCents(model: string, tokensIn: number, tokensOut: number): number {

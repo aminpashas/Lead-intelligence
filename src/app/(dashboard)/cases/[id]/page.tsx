@@ -33,6 +33,7 @@ import {
   Trash2,
   Eye,
   ExternalLink,
+  FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -301,7 +302,100 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
           </Button>
         </div>
       )}
+
+      {/* Contract generation — surfaced once there is a treatment plan */}
+      {caseData.treatment_plan && canDiagnose && (
+        <ContractActionsSection caseId={id} caseStatus={caseData.status} />
+      )}
     </div>
+  )
+}
+
+function ContractActionsSection({ caseId, caseStatus }: { caseId: string; caseStatus: string }) {
+  const router = useRouter()
+  const [contract, setContract] = useState<{ id: string; status: string; needs_manual_draft: boolean } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+
+  const refresh = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/contracts?status=`)
+      if (res.ok) {
+        const data = await res.json()
+        const match = (data.contracts ?? []).find(
+          (c: { clinical_case_id: string; status: string }) =>
+            c.clinical_case_id === caseId &&
+            !['voided', 'expired', 'declined'].includes(c.status)
+        )
+        setContract(match ?? null)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { void refresh() }, [caseId])
+
+  const generate = async () => {
+    setGenerating(true)
+    const res = await fetch('/api/contracts/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ case_id: caseId }),
+    })
+    setGenerating(false)
+    if (res.ok) {
+      const data = await res.json()
+      toast.success(data.needs_manual_draft ? 'Contract stub created — manual draft needed' : 'Contract generated')
+      router.push(`/contracts/${data.contract_id}`)
+      return
+    }
+    const err = await res.json().catch(() => ({}))
+    if (err.code === 'missing_legal') {
+      toast.error('Configure legal settings first')
+      router.push('/settings/legal')
+      return
+    }
+    toast.error(err.error ?? 'Contract generation failed')
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileText className="h-4 w-4" /> Treatment Agreement
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="text-sm text-slate-500">Checking contract status…</div>
+        ) : contract ? (
+          <div className="flex items-center justify-between">
+            <div>
+              <Badge variant="outline">{contract.status}</Badge>
+              {contract.needs_manual_draft && (
+                <Badge variant="outline" className="ml-2 text-amber-700 border-amber-300">Manual draft needed</Badge>
+              )}
+            </div>
+            <Button size="sm" onClick={() => router.push(`/contracts/${contract.id}`)}>
+              Open contract
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-slate-600">
+              {caseStatus === 'completed' || caseStatus === 'patient_review'
+                ? 'Ready to generate the treatment services agreement.'
+                : 'Generate the agreement now, or wait until the patient accepts the plan.'}
+            </div>
+            <Button size="sm" onClick={generate} disabled={generating}>
+              {generating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Generate contract
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

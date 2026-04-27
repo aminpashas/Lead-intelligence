@@ -99,6 +99,12 @@ export type Permission =
   | 'cases:read'
   | 'cases:create'
   | 'cases:diagnose'
+  | 'contracts:read'
+  | 'contracts:generate'
+  | 'contracts:approve'
+  | 'contracts:void'
+  | 'contract_templates:manage'
+  | 'legal_settings:manage'
 
 // Full access set for admin roles
 const FULL_PERMISSIONS: Permission[] = [
@@ -121,6 +127,8 @@ const FULL_PERMISSIONS: Permission[] = [
   'call_center:read', 'call_center:write',
   'funnel:read', 'funnel:write',
   'cases:read', 'cases:create', 'cases:diagnose',
+  'contracts:read', 'contracts:generate', 'contracts:approve', 'contracts:void',
+  'contract_templates:manage', 'legal_settings:manage',
 ]
 
 // Clinical-only permissions
@@ -133,15 +141,17 @@ const CLINICAL_PERMISSIONS: Permission[] = [
   'pipeline:read',
   'settings:read',
   'cases:read', 'cases:create',
+  'contracts:read',
 ]
 
-// Doctor permissions: clinical + diagnose
+// Doctor permissions: clinical + diagnose + contract generation (no final approval)
 const DOCTOR_PERMISSIONS: Permission[] = [
   ...CLINICAL_PERMISSIONS,
   'cases:diagnose',
+  'contracts:generate',
 ]
 
-// Treatment coordinator: clinical + marketing
+// Treatment coordinator: clinical + marketing + contract generation
 const TC_PERMISSIONS: Permission[] = [
   ...CLINICAL_PERMISSIONS,
   'leads:write',
@@ -153,6 +163,7 @@ const TC_PERMISSIONS: Permission[] = [
   'broadcast_audit:read',
   'funnel:read', 'funnel:write',
   'call_center:read', 'call_center:write',
+  'contracts:generate',
 ]
 
 /** Map of role → permissions */
@@ -220,6 +231,9 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/team': 'team:manage',
   '/billing': 'billing:read',
   '/cases': 'cases:read',
+  '/contracts': 'contracts:read',
+  '/settings/legal': 'legal_settings:manage',
+  '/settings/contracts': 'contract_templates:manage',
 }
 
 /** Check if a role can access a given route */

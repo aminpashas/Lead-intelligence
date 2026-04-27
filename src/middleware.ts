@@ -28,12 +28,15 @@ export async function middleware(request: NextRequest) {
     return setCorsHeaders(response, origin)
   }
 
-  // Skip middleware for auth pages, API webhooks, static assets
+  // Skip middleware for auth pages, public patient portals, API webhooks, static assets
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/qualify') ||
     pathname.startsWith('/book') ||
+    pathname.startsWith('/all-on-4') ||
+    pathname.startsWith('/contract/') ||
+    pathname.startsWith('/api/contracts/patient') ||
     pathname.startsWith('/api/booking') ||
     pathname.startsWith('/api/webhooks') ||
     pathname.startsWith('/api/cron') ||
