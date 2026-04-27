@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import type { ConnectorType } from '@/lib/connectors'
+import { decryptCredentials } from '@/lib/connectors/crypto'
 
 /**
  * POST /api/connectors/test — Send a test event to verify connector configuration.
@@ -50,6 +51,9 @@ export async function POST(request: NextRequest) {
     }, { status: 404 })
   }
 
+  // Credentials are encrypted at rest; decrypt before handing to connector modules.
+  const decryptedCredentials = decryptCredentials(config.credentials as Record<string, unknown>)
+
   // Build a synthetic test event
   const testEvent = {
     type: 'lead.created' as const,
@@ -93,35 +97,46 @@ export async function POST(request: NextRequest) {
     switch (connector_type) {
       case 'google_ads': {
         const { uploadClickConversion } = await import('@/lib/connectors/google-ads/offline-conversions')
-        result = await uploadClickConversion(testEvent, config.credentials as any)
+        // Orgs connected via OAuth only persist customerId + refreshToken
+        // per-org; the platform OAuth client + dev token come from env.
+        const gadsCreds = {
+          ...(decryptedCredentials as Record<string, unknown>),
+          developerToken: (decryptedCredentials as { developerToken?: string }).developerToken
+            || process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
+          clientId: (decryptedCredentials as { clientId?: string }).clientId
+            || process.env.GOOGLE_ADS_CLIENT_ID,
+          clientSecret: (decryptedCredentials as { clientSecret?: string }).clientSecret
+            || process.env.GOOGLE_ADS_CLIENT_SECRET,
+        }
+        result = await uploadClickConversion(testEvent, gadsCreds as any)
         break
       }
       case 'meta_capi': {
         const { sendMetaConversionEvent } = await import('@/lib/connectors/meta/capi')
-        result = await sendMetaConversionEvent(testEvent, config.credentials as any)
+        result = await sendMetaConversionEvent(testEvent, decryptedCredentials as any)
         break
       }
       case 'ga4': {
         const { sendGA4Event } = await import('@/lib/connectors/ga4/measurement')
         // Use debug endpoint for test
-        result = await sendGA4Event(testEvent, config.credentials as any, { debug: true })
+        result = await sendGA4Event(testEvent, decryptedCredentials as any, { debug: true })
         break
       }
       case 'outbound_webhook': {
         const { sendOutboundWebhook } = await import('@/lib/connectors/webhooks/outbound')
-        result = await sendOutboundWebhook(testEvent, config.credentials as any)
+        result = await sendOutboundWebhook(testEvent, decryptedCredentials as any)
         break
       }
       case 'slack': {
         const { sendSlackNotification } = await import('@/lib/connectors/slack/notify')
-        result = await sendSlackNotification(testEvent, config.credentials as any)
+        result = await sendSlackNotification(testEvent, decryptedCredentials as any)
         break
       }
       case 'google_reviews': {
         const { processReviewRequest } = await import('@/lib/connectors/google-business/reviews')
         // Use treatment.completed event type for review test
         const reviewTestEvent = { ...testEvent, type: 'treatment.completed' as const }
-        result = await processReviewRequest(reviewTestEvent, config.credentials as any)
+        result = await processReviewRequest(reviewTestEvent, decryptedCredentials as any)
         break
       }
       default:

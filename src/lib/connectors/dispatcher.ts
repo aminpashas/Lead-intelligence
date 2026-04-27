@@ -36,6 +36,7 @@ import { sendMetaConversionEvent } from './meta/capi'
 import { sendGA4Event } from './ga4/measurement'
 import { sendOutboundWebhook } from './webhooks/outbound'
 import { sendSlackNotification } from './slack/notify'
+import { decryptCredentials } from './crypto'
 
 /**
  * Dispatch a CRM event to all enabled connectors for the organization.
@@ -57,14 +58,20 @@ export async function dispatchConnectorEvent(
 
     if (!configs || configs.length === 0) return results
 
-    // Run all connectors in parallel
-    const promises = configs.map((config) =>
-      executeConnector(config as ConnectorConfig, event).catch((err) => ({
-        connector: config.connector_type as ConnectorType,
+    // Run all connectors in parallel. Credentials are stored AES-GCM-encrypted
+    // at rest (see src/lib/connectors/crypto.ts); we decrypt per-row here so
+    // each connector module receives plaintext secrets.
+    const promises = configs.map((rawConfig) => {
+      const config = {
+        ...rawConfig,
+        credentials: decryptCredentials(rawConfig.credentials),
+      } as ConnectorConfig
+      return executeConnector(config, event).catch((err) => ({
+        connector: rawConfig.connector_type as ConnectorType,
         success: false,
         error: err instanceof Error ? err.message : 'Unknown error',
       }))
-    )
+    })
 
     const settled = await Promise.allSettled(promises)
 
@@ -94,7 +101,21 @@ async function executeConnector(
 ): Promise<ConnectorResult> {
   switch (config.connector_type) {
     case 'google_ads': {
-      const gadsConfig = config.credentials as unknown as GoogleAdsConfig
+      // Merge platform-wide OAuth client + dev token with per-org fields.
+      // Orgs that went through the OAuth flow only persist customerId +
+      // refreshToken (+ optional loginCustomerId) — clientId, clientSecret,
+      // and developerToken come from env. Orgs that used the manual form
+      // can still override any field.
+      const stored = config.credentials as unknown as Partial<GoogleAdsConfig>
+      const gadsConfig: GoogleAdsConfig = {
+        customerId: stored.customerId || '',
+        developerToken: stored.developerToken || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '',
+        clientId: stored.clientId || process.env.GOOGLE_ADS_CLIENT_ID || '',
+        clientSecret: stored.clientSecret || process.env.GOOGLE_ADS_CLIENT_SECRET || '',
+        refreshToken: stored.refreshToken || '',
+        loginCustomerId: stored.loginCustomerId,
+        conversionActions: stored.conversionActions || [],
+      }
       // Prefer the gclid path (highest match accuracy). If we don't have a gclid
       // (offline lead, organic, missed click ID), fall back to Enhanced Conversions
       // for Leads using hashed user identifiers. The conversion action in Google Ads

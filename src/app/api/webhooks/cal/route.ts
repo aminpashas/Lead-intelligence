@@ -98,7 +98,9 @@ export async function POST(request: NextRequest) {
     .eq('connector_type', 'cal_com')
     .single()
 
-  const webhookSecret = (cfg?.credentials as { webhook_secret?: string } | null)?.webhook_secret
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
+  const decryptedCfg = cfg?.credentials ? decryptCredentials(cfg.credentials as Record<string, unknown>) : null
+  const webhookSecret = (decryptedCfg as { webhook_secret?: string } | null)?.webhook_secret
   if (!webhookSecret || !cfg?.enabled) {
     return new NextResponse('Cal.com integration not configured', { status: 401 })
   }

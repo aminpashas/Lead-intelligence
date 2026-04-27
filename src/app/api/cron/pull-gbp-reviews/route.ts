@@ -42,8 +42,9 @@ export async function POST(request: NextRequest) {
     error?: string
   }> = []
 
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
   for (const cfg of configs as Array<{ organization_id: string; credentials: Record<string, string> }>) {
-    const creds = cfg.credentials || {}
+    const creds = decryptCredentials(cfg.credentials || {}) as Record<string, string>
     // Only orgs that have completed the OAuth flow (refresh_token present) are pulled.
     if (!creds.account_name || !creds.location_id || !creds.refresh_token || !creds.client_id || !creds.client_secret) {
       results.push({

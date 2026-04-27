@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import type { ConnectorType } from '@/lib/connectors'
+import { encryptCredentials } from '@/lib/connectors/crypto'
 
 const VALID_CONNECTOR_TYPES: ConnectorType[] = [
   'google_ads', 'meta_capi', 'ga4', 'outbound_webhook', 'slack', 'google_reviews', 'callrail',
@@ -70,10 +71,50 @@ export async function GET(request: NextRequest) {
     else stats[event.connector_type].failed++
   }
 
+  // Pull-side sync status for the channels that have an ad_metrics
+  // pull module: google_ads, ga4, meta. Map by connector_type so the
+  // UI can show "Synced 4h ago" badges next to push-side stats.
+  const { data: syncStateRows } = await supabase
+    .from('ad_metrics_sync_state')
+    .select('channel, last_synced_at, last_success_at, last_error, rows_inserted_last_run')
+    .eq('organization_id', profile.organization_id)
+
+  // The ad_metrics_sync_state.channel = 'meta' but the connector_type
+  // = 'meta_capi'. Normalize so the UI can look up by connector_type.
+  const channelToConnectorType: Record<string, ConnectorType> = {
+    google_ads: 'google_ads',
+    ga4: 'ga4',
+    meta: 'meta_capi',
+  }
+  const syncByConnector: Record<string, {
+    last_synced_at: string | null
+    last_success_at: string | null
+    last_error: string | null
+    rows_inserted_last_run: number | null
+  }> = {}
+  for (const row of (syncStateRows || []) as Array<{
+    channel: string
+    last_synced_at: string | null
+    last_success_at: string | null
+    last_error: string | null
+    rows_inserted_last_run: number | null
+  }>) {
+    const ct = channelToConnectorType[row.channel]
+    if (ct) {
+      syncByConnector[ct] = {
+        last_synced_at: row.last_synced_at,
+        last_success_at: row.last_success_at,
+        last_error: row.last_error,
+        rows_inserted_last_run: row.rows_inserted_last_run,
+      }
+    }
+  }
+
   return NextResponse.json({
     connectors: connectorList.map((c) => ({
       ...c,
       stats: stats[c.connector_type] || { sent: 0, failed: 0 },
+      syncStatus: syncByConnector[c.connector_type] || null,
     })),
   })
 }
@@ -110,16 +151,38 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid connector type' }, { status: 400 })
   }
 
+  // When the client sends an empty credentials object (e.g. toggling
+  // enabled from the Settings UI), preserve what's already stored rather
+  // than overwriting with {}. A genuine credential rotation will include
+  // at least one populated field.
+  const hasCredentialsPayload =
+    body.credentials && Object.keys(body.credentials).some((k) => body.credentials[k] !== '' && body.credentials[k] != null)
+
+  const upsertPayload: {
+    organization_id: string
+    connector_type: ConnectorType
+    enabled: boolean
+    settings: Record<string, unknown>
+    updated_at: string
+    credentials?: Record<string, unknown>
+  } = {
+    organization_id: profile.organization_id,
+    connector_type: body.connector_type,
+    enabled: body.enabled,
+    settings: body.settings || {},
+    updated_at: new Date().toISOString(),
+  }
+
+  if (hasCredentialsPayload) {
+    // Encrypt each string value in credentials before persisting. The
+    // underlying encryptField is idempotent (enc:: prefix check) so re-saves
+    // of already-encrypted values remain safe.
+    upsertPayload.credentials = encryptCredentials(body.credentials)
+  }
+
   const { data, error } = await supabase
     .from('connector_configs')
-    .upsert({
-      organization_id: profile.organization_id,
-      connector_type: body.connector_type,
-      enabled: body.enabled,
-      credentials: body.credentials,
-      settings: body.settings || {},
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'organization_id,connector_type' })
+    .upsert(upsertPayload, { onConflict: 'organization_id,connector_type' })
     .select()
     .single()
 

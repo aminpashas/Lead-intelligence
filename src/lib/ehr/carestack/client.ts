@@ -58,7 +58,8 @@ export async function getCareStackConfig(
 
   if (!data || !data.enabled) return null
 
-  const creds = (data.credentials || {}) as Partial<CareStackConfig>
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
+  const creds = decryptCredentials(data.credentials as Record<string, unknown>) as Partial<CareStackConfig>
   const settings = (data.settings || {}) as Partial<{ base_url: string; identity_url: string }>
 
   if (!creds.account_id || !creds.client_id || !creds.client_secret || !creds.username || !creds.password) {

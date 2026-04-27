@@ -85,9 +85,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No CallRail connector configured' }, { status: 404 })
   }
 
-  // Match by company ID or take first configured org
+  // Match by company ID or take first configured org.
+  // Credentials are AES-GCM encrypted at rest — decrypt per row before
+  // comparing companyId. decryptCredentials is a passthrough for plaintext
+  // values, so rows written before encryption shipped still match.
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
   const matchedConfig = config.find(c => {
-    const creds = c.credentials as Record<string, string>
+    const creds = decryptCredentials(c.credentials as Record<string, unknown>) as { companyId?: string }
     return creds.companyId === body.company_id
   }) || config[0]
 

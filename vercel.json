@@ -55,6 +55,14 @@
     {
       "path": "/api/cron/contracts",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/sync-ad-metrics",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-meta-token",
+      "schedule": "30 5 * * *"
     }
   ]
 }
