@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/campaigns",
-      "schedule": "0 8 * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/triggers",
@@ -18,7 +18,7 @@
     },
     {
       "path": "/api/cron/reminders",
-      "schedule": "0 7 * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/dormant-sweep",
@@ -26,7 +26,7 @@
     },
     {
       "path": "/api/cron/forward-events",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/cron/pull-gbp-reviews",
