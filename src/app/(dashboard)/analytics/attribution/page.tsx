@@ -19,6 +19,8 @@ import {
   Loader2,
   Zap,
   Clock,
+  Calculator,
+  AlertTriangle,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -59,6 +61,59 @@ type AttributionData = {
   timeToConvert: Array<{ source: string; avgDays: number; medianDays: number; count: number }>
 }
 
+type Channel = 'google_ads' | 'meta' | 'ga4'
+
+type AdSpendData = {
+  range: { start: string; end: string }
+  kpis: {
+    spend: number
+    impressions: number
+    clicks: number
+    conversions: number
+    conversion_value: number
+    sessions: number
+    users: number
+  }
+  byChannel: Array<{
+    channel: Channel
+    spend: number
+    impressions: number
+    clicks: number
+    conversions: number
+    conversion_value: number
+    sessions: number
+    users: number
+  }>
+  byCampaign: Array<{
+    key: string
+    channel: Channel
+    campaign_id: string | null
+    campaign_name: string | null
+    spend: number
+    impressions: number
+    clicks: number
+    conversions: number
+    conversion_value: number
+    currency: string | null
+  }>
+  daily: Array<{
+    date: string
+    spend: number
+    clicks: number
+    impressions: number
+    conversions: number
+    conversion_value: number
+    sessions: number
+  }>
+  syncStatus: Array<{
+    channel: Channel
+    last_synced_at: string | null
+    last_success_at: string | null
+    last_error: string | null
+    rows_inserted_last_run: number | null
+  }>
+}
+
 function getDateRange(range: DateRange): { start: string; end: string } {
   const end = new Date()
   let start: Date
@@ -95,17 +150,29 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export default function AttributionPage() {
   const [data, setData] = useState<AttributionData | null>(null)
+  const [adSpend, setAdSpend] = useState<AdSpendData | null>(null)
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState<DateRange>('90d')
-  const [activeTab, setActiveTab] = useState<'source' | 'campaign' | 'keyword' | 'landing' | 'funnel'>('source')
+  const [activeTab, setActiveTab] = useState<'source' | 'campaign' | 'roas' | 'keyword' | 'landing' | 'funnel'>('source')
 
   const fetchData = useCallback(() => {
     setLoading(true)
     const { start, end } = getDateRange(dateRange)
-    fetch(`/api/analytics/attribution?start_date=${start}&end_date=${end}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(setData)
-      .catch(() => setData(null))
+    // Fetch attribution + ad-spend in parallel. ad-spend can fail
+    // independently (no connectors configured yet) — we still want the
+    // leads-side attribution to render.
+    Promise.all([
+      fetch(`/api/analytics/attribution?start_date=${start}&end_date=${end}`)
+        .then(r => r.ok ? r.json() as Promise<AttributionData> : null)
+        .catch(() => null),
+      fetch(`/api/analytics/ad-spend?start_date=${start}&end_date=${end}`)
+        .then(r => r.ok ? r.json() as Promise<AdSpendData> : null)
+        .catch(() => null),
+    ])
+      .then(([attribution, spend]) => {
+        setData(attribution)
+        setAdSpend(spend)
+      })
       .finally(() => setLoading(false))
   }, [dateRange])
 
@@ -201,6 +268,7 @@ export default function AttributionPage() {
         {[
           { key: 'source', label: 'By Source', icon: Globe },
           { key: 'campaign', label: 'By Campaign', icon: Megaphone },
+          { key: 'roas', label: 'Spend & ROAS', icon: Calculator },
           { key: 'keyword', label: 'By Keyword', icon: Search },
           { key: 'landing', label: 'By Landing Page', icon: Target },
           { key: 'funnel', label: 'Funnel', icon: TrendingUp },
@@ -246,6 +314,10 @@ export default function AttributionPage() {
             rows={data.byUtmMedium}
           />
         </div>
+      )}
+
+      {activeTab === 'roas' && (
+        <SpendROASView adSpend={adSpend} crmCampaigns={data.byCampaign} />
       )}
 
       {activeTab === 'keyword' && (
@@ -472,4 +544,312 @@ function KPICard({
       </CardContent>
     </Card>
   )
+}
+
+const CHANNEL_LABELS: Record<Channel, string> = {
+  google_ads: 'Google Ads',
+  meta: 'Meta',
+  ga4: 'GA4',
+}
+
+function SpendROASView({
+  adSpend,
+  crmCampaigns,
+}: {
+  adSpend: AdSpendData | null
+  crmCampaigns: AttributionRow[]
+}) {
+  if (!adSpend) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-sm text-muted-foreground space-y-2">
+          <p className="font-medium text-foreground">Connect an ad account to see spend & ROAS</p>
+          <p>
+            Visit{' '}
+            <Link href="/settings/connectors" className="text-primary hover:underline">
+              Settings → Connectors
+            </Link>{' '}
+            and click <span className="font-medium">Connect with Google</span> or{' '}
+            <span className="font-medium">Connect with Meta</span>.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Build a fast lookup from CRM byCampaign keyed by lowercased campaign
+  // name. The leads-side attribution dimension is utm_campaign — when
+  // UTMs are tagged consistently with what the ad platform calls the
+  // campaign, the join is clean. When they're not (Google auto-tagging,
+  // typos, no UTMs at all), the row falls back to platform-reported
+  // conversions and we flag the row visually so the gap is obvious.
+  const crmByCampaign = new Map<string, AttributionRow>()
+  for (const row of crmCampaigns) {
+    if (row.dimension && row.dimension !== '(none)') {
+      crmByCampaign.set(row.dimension.toLowerCase().trim(), row)
+    }
+  }
+
+  // Spend from ga4 rows is always 0 (we store sessions there) — exclude
+  // them from the ROAS table; they show up in their own "GA4 traffic"
+  // section below.
+  const paidCampaigns = adSpend.byCampaign.filter(c => c.channel !== 'ga4')
+
+  type MergedRow = {
+    key: string
+    channel: Channel
+    campaignName: string
+    campaignId: string | null
+    spend: number
+    clicks: number
+    impressions: number
+    platformConversions: number
+    platformRevenue: number
+    crmLeads: number
+    crmConversions: number
+    crmRevenue: number
+    matched: boolean
+    currency: string | null
+  }
+  const merged: MergedRow[] = paidCampaigns.map(c => {
+    const name = (c.campaign_name || '').toLowerCase().trim()
+    const crm = name ? crmByCampaign.get(name) : undefined
+    return {
+      key: c.key,
+      channel: c.channel,
+      campaignName: c.campaign_name || '(unnamed)',
+      campaignId: c.campaign_id,
+      spend: c.spend,
+      clicks: c.clicks,
+      impressions: c.impressions,
+      platformConversions: c.conversions,
+      platformRevenue: c.conversion_value,
+      crmLeads: crm?.leads ?? 0,
+      crmConversions: crm?.conversions ?? 0,
+      crmRevenue: crm?.revenue ?? 0,
+      matched: !!crm,
+      currency: c.currency,
+    }
+  })
+
+  // Totals — used for the KPI cards. Spend KPIs come from ad-spend
+  // (authoritative), revenue KPIs prefer CRM revenue (true closed loop)
+  // with platform revenue as fallback when no UTM match.
+  const totalSpend = merged.reduce((s, r) => s + r.spend, 0)
+  const totalClicks = merged.reduce((s, r) => s + r.clicks, 0)
+  const totalCrmConversions = merged.reduce((s, r) => s + r.crmConversions, 0)
+  const totalCrmRevenue = merged.reduce((s, r) => s + r.crmRevenue, 0)
+  const totalPlatformRevenue = merged.reduce((s, r) => s + r.platformRevenue, 0)
+  const blendedRevenue = totalCrmRevenue > 0 ? totalCrmRevenue : totalPlatformRevenue
+
+  const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0
+  const cpa = totalCrmConversions > 0 ? totalSpend / totalCrmConversions : 0
+  const roas = totalSpend > 0 ? blendedRevenue / totalSpend : 0
+
+  const sortedRows = merged.slice().sort((a, b) => b.spend - a.spend)
+
+  return (
+    <div className="space-y-6">
+      {/* Spend KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KPICard
+          icon={DollarSign}
+          label="Total Spend"
+          value={formatCurrency(totalSpend)}
+          color="text-rose-600"
+          subtitle={merged.length > 0 ? `${merged.length} campaign${merged.length === 1 ? '' : 's'}` : undefined}
+        />
+        <KPICard
+          icon={Calculator}
+          label="Avg CPC"
+          value={cpc > 0 ? `$${cpc.toFixed(2)}` : '—'}
+          color="text-blue-600"
+          subtitle={`${totalClicks.toLocaleString()} clicks`}
+        />
+        <KPICard
+          icon={Calculator}
+          label="CPA (CRM)"
+          value={cpa > 0 ? `$${cpa.toFixed(0)}` : '—'}
+          color="text-amber-600"
+          subtitle={`${totalCrmConversions} conversions`}
+        />
+        <KPICard
+          icon={TrendingUp}
+          label="Blended ROAS"
+          value={roas > 0 ? `${roas.toFixed(2)}×` : '—'}
+          color={roas >= 3 ? 'text-emerald-600' : roas >= 1 ? 'text-amber-600' : 'text-rose-600'}
+          subtitle={totalCrmRevenue > 0 ? 'CRM revenue ÷ spend' : 'Platform revenue ÷ spend'}
+        />
+      </div>
+
+      {/* Per-channel rollup */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">By Channel</CardTitle>
+          <CardDescription>Spend and platform-reported metrics per ad platform</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="pb-2 font-medium">Channel</th>
+                  <th className="pb-2 font-medium text-right">Impressions</th>
+                  <th className="pb-2 font-medium text-right">Clicks</th>
+                  <th className="pb-2 font-medium text-right">Spend</th>
+                  <th className="pb-2 font-medium text-right">CPC</th>
+                  <th className="pb-2 font-medium text-right">Platform Conv.</th>
+                  <th className="pb-2 font-medium text-right">Platform Revenue</th>
+                  <th className="pb-2 font-medium text-right">Platform ROAS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adSpend.byChannel.filter(c => c.channel !== 'ga4').map(c => {
+                  const channelCpc = c.clicks > 0 ? c.spend / c.clicks : 0
+                  const channelRoas = c.spend > 0 ? c.conversion_value / c.spend : 0
+                  return (
+                    <tr key={c.channel} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="py-2.5 font-medium">{CHANNEL_LABELS[c.channel]}</td>
+                      <td className="py-2.5 text-right tabular-nums">{c.impressions.toLocaleString()}</td>
+                      <td className="py-2.5 text-right tabular-nums">{c.clicks.toLocaleString()}</td>
+                      <td className="py-2.5 text-right tabular-nums font-medium">{formatCurrency(c.spend)}</td>
+                      <td className="py-2.5 text-right tabular-nums text-muted-foreground">
+                        {channelCpc > 0 ? `$${channelCpc.toFixed(2)}` : '—'}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums">{c.conversions.toFixed(1)}</td>
+                      <td className="py-2.5 text-right tabular-nums">{formatCurrency(c.conversion_value)}</td>
+                      <td className="py-2.5 text-right tabular-nums">
+                        {channelRoas > 0 ? (
+                          <span className={channelRoas >= 3 ? 'text-emerald-600 font-medium' : channelRoas >= 1 ? 'text-amber-600' : 'text-rose-600'}>
+                            {channelRoas.toFixed(2)}×
+                          </span>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {adSpend.byChannel.filter(c => c.channel !== 'ga4').length === 0 && (
+                  <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">No paid spend in this date range yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Per-campaign join */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">By Campaign — Spend × CRM Closed-Loop</CardTitle>
+          <CardDescription>
+            Joins ad-platform spend with leads & revenue from your CRM on campaign name.
+            Rows flagged with a warning didn&apos;t find a matching UTM in your leads — check
+            campaign tagging.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="pb-2 font-medium">Campaign</th>
+                  <th className="pb-2 font-medium">Channel</th>
+                  <th className="pb-2 font-medium text-right">Spend</th>
+                  <th className="pb-2 font-medium text-right">Clicks</th>
+                  <th className="pb-2 font-medium text-right">CPC</th>
+                  <th className="pb-2 font-medium text-right">CRM Leads</th>
+                  <th className="pb-2 font-medium text-right">CRM Conv.</th>
+                  <th className="pb-2 font-medium text-right">CPA</th>
+                  <th className="pb-2 font-medium text-right">CRM Revenue</th>
+                  <th className="pb-2 font-medium text-right">ROAS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedRows.map(row => {
+                  const rowCpc = row.clicks > 0 ? row.spend / row.clicks : 0
+                  const rowCpa = row.crmConversions > 0 ? row.spend / row.crmConversions : 0
+                  const rowRevenue = row.crmRevenue > 0 ? row.crmRevenue : row.platformRevenue
+                  const rowRoas = row.spend > 0 ? rowRevenue / row.spend : 0
+                  return (
+                    <tr key={row.key} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                      <td className="py-2.5 font-medium max-w-[260px] truncate" title={row.campaignName}>
+                        <div className="flex items-center gap-1.5">
+                          {!row.matched && (
+                            <span title="No matching utm_campaign in CRM leads — check tagging">
+                              <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
+                            </span>
+                          )}
+                          <span className="truncate">{row.campaignName}</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5">
+                        <Badge variant="outline" className="text-[10px]">
+                          {CHANNEL_LABELS[row.channel]}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums font-medium">{formatCurrency(row.spend)}</td>
+                      <td className="py-2.5 text-right tabular-nums">{row.clicks.toLocaleString()}</td>
+                      <td className="py-2.5 text-right tabular-nums text-muted-foreground">
+                        {rowCpc > 0 ? `$${rowCpc.toFixed(2)}` : '—'}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums">
+                        {row.matched ? row.crmLeads : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums font-medium text-green-600">
+                        {row.matched ? row.crmConversions : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums">
+                        {rowCpa > 0 ? (
+                          <span className={rowCpa <= 100 ? 'text-emerald-600' : rowCpa <= 500 ? 'text-amber-600' : 'text-rose-600'}>
+                            ${rowCpa.toFixed(0)}
+                          </span>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="py-2.5 text-right tabular-nums">{formatCurrency(rowRevenue)}</td>
+                      <td className="py-2.5 text-right tabular-nums">
+                        {rowRoas > 0 ? (
+                          <span className={rowRoas >= 3 ? 'text-emerald-600 font-bold' : rowRoas >= 1 ? 'text-amber-600' : 'text-rose-600'}>
+                            {rowRoas.toFixed(2)}×
+                          </span>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {sortedRows.length === 0 && (
+                  <tr><td colSpan={10} className="py-6 text-center text-muted-foreground">No campaign-level spend in this date range</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Sync status footnote */}
+      {adSpend.syncStatus.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {adSpend.syncStatus.map(s => (
+            <Badge key={s.channel} variant={s.last_error ? 'destructive' : 'outline'} className="text-[10px] gap-1">
+              <Clock className="h-2.5 w-2.5" />
+              {CHANNEL_LABELS[s.channel]}{' '}
+              {s.last_synced_at
+                ? `synced ${formatRelativeTime(s.last_synced_at)}`
+                : 'never synced'}
+              {s.last_error ? ' · failed' : ''}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function formatRelativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }

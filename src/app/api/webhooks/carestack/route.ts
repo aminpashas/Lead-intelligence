@@ -59,7 +59,9 @@ export async function POST(request: NextRequest) {
     return new NextResponse('No CareStack integration configured for this AccountId', { status: 401 })
   }
 
-  const secret = (cfg.credentials as { webhook_secret?: string })?.webhook_secret
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
+  const decryptedCreds = decryptCredentials(cfg.credentials as Record<string, unknown>)
+  const secret = (decryptedCreds as { webhook_secret?: string })?.webhook_secret
   if (!secret) {
     return new NextResponse('Webhook secret not configured', { status: 401 })
   }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,7 +17,6 @@ import {
   MessageSquare,
   Webhook,
   ArrowLeft,
-  Check,
   AlertTriangle,
   ExternalLink,
   Loader2,
@@ -25,6 +25,7 @@ import {
   Activity,
   Star,
   Phone,
+  Clock,
   type LucideIcon,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -49,6 +50,12 @@ type ConnectorData = {
   settings: Record<string, unknown>
   id: string | null
   stats: { sent: number; failed: number }
+  syncStatus: {
+    last_synced_at: string | null
+    last_success_at: string | null
+    last_error: string | null
+    rows_inserted_last_run: number | null
+  } | null
 }
 
 const CONNECTOR_INFO: ConnectorInfo[] = [
@@ -159,6 +166,8 @@ const EVENT_OPTIONS = [
 ]
 
 export default function ConnectorsPage() {
+  const searchParams = useSearchParams()
+  const oauthError = searchParams.get('oauth_error')
   const [connectors, setConnectors] = useState<ConnectorData[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedConnector, setExpandedConnector] = useState<ConnectorType | null>(null)
@@ -326,6 +335,20 @@ export default function ConnectorsPage() {
         </p>
       </div>
 
+      {oauthError && (
+        <Card className="mb-6 border-amber-500/40 bg-amber-500/5">
+          <CardContent className="py-3 flex items-start gap-2 text-sm">
+            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium">Connection didn&apos;t complete</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Error code: <code className="font-mono">{oauthError}</code>. Try reconnecting, or use the &quot;Configure manually&quot; button to enter credentials directly.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Quick Stats */}
       {connectors.some((c) => c.configured) && (
         <Card className="mb-6">
@@ -397,6 +420,9 @@ export default function ConnectorsPage() {
                             )}
                           </Badge>
                         )}
+                        {data?.syncStatus && (
+                          <SyncBadge sync={data.syncStatus} />
+                        )}
                       </div>
                       <CardDescription className="text-xs mt-0.5">
                         {info.description}
@@ -421,6 +447,26 @@ export default function ConnectorsPage() {
                         </Button>
                       </>
                     )}
+                    {!data?.configured && (info.type === 'google_ads' || info.type === 'ga4') && !isExpanded && (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          window.location.href = '/api/connectors/oauth/google/connect'
+                        }}
+                      >
+                        Connect with Google
+                      </Button>
+                    )}
+                    {!data?.configured && info.type === 'meta_capi' && !isExpanded && (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          window.location.href = '/api/connectors/oauth/meta/connect'
+                        }}
+                      >
+                        Connect with Meta
+                      </Button>
+                    )}
                     {!data?.configured && (
                       <Button
                         variant="outline"
@@ -431,7 +477,11 @@ export default function ConnectorsPage() {
                           setSelectedEvents([])
                         }}
                       >
-                        {isExpanded ? 'Cancel' : 'Configure'}
+                        {isExpanded
+                          ? 'Cancel'
+                          : (info.type === 'google_ads' || info.type === 'ga4' || info.type === 'meta_capi')
+                            ? 'Configure manually'
+                            : 'Configure'}
                       </Button>
                     )}
                     {data?.configured && !isExpanded && (
@@ -604,4 +654,63 @@ export default function ConnectorsPage() {
       </Card>
     </div>
   )
+}
+
+/**
+ * Surface the daily ad-metrics sync status next to push-side stats.
+ * Shows three states:
+ *   - never synced  → muted "Pull pending" badge
+ *   - failed        → destructive badge with the error preview
+ *   - succeeded     → outline badge with relative time + rows count
+ */
+function SyncBadge({
+  sync,
+}: {
+  sync: {
+    last_synced_at: string | null
+    last_success_at: string | null
+    last_error: string | null
+    rows_inserted_last_run: number | null
+  }
+}) {
+  if (!sync.last_synced_at) {
+    return (
+      <Badge variant="secondary" className="text-[10px] px-1.5 h-4 gap-1">
+        <Clock className="h-2.5 w-2.5" />
+        Pull pending
+      </Badge>
+    )
+  }
+  if (sync.last_error) {
+    return (
+      <Badge
+        variant="destructive"
+        className="text-[10px] px-1.5 h-4 gap-1"
+        title={sync.last_error}
+      >
+        <AlertTriangle className="h-2.5 w-2.5" />
+        Sync failed
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="outline" className="text-[10px] px-1.5 h-4 gap-1">
+      <Clock className="h-2.5 w-2.5" />
+      Synced {formatRelativeTime(sync.last_synced_at)}
+      {sync.rows_inserted_last_run != null && sync.rows_inserted_last_run > 0 && (
+        <span className="text-muted-foreground">· {sync.rows_inserted_last_run} rows</span>
+      )}
+    </Badge>
+  )
+}
+
+function formatRelativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
 }

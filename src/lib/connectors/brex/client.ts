@@ -36,7 +36,8 @@ export async function getBrexConfig(
 
   if (!data || !data.enabled) return null
 
-  const creds = (data.credentials || {}) as Partial<BrexConfig>
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
+  const creds = decryptCredentials(data.credentials as Record<string, unknown>) as Partial<BrexConfig>
   const settings = (data.settings || {}) as Partial<BrexConfig>
 
   if (!creds.api_key) return null

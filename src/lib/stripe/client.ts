@@ -33,7 +33,8 @@ export async function getStripeConfig(
     .eq('connector_type', 'stripe')
     .maybeSingle()
 
-  const creds = (data?.credentials || {}) as Partial<StripeConfig>
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
+  const creds = decryptCredentials((data?.credentials || {}) as Record<string, unknown>) as Partial<StripeConfig>
   const settings = (data?.settings || {}) as Partial<StripeConfig>
 
   const secretKey = creds.secret_key || process.env.STRIPE_SECRET_KEY
@@ -76,9 +77,13 @@ export async function identifyOrgFromStripeSignature(
   type OrgRow = { organization_id: string; credentials: Record<string, string>; settings: Record<string, string> }
   const candidates: Array<{ orgId: string; secret_key: string; webhook_secret: string; financing_partner_metadata_key: string }> = []
 
+  // Credentials are AES-GCM encrypted at rest — decrypt per-row before
+  // using secret_key + webhook_secret for signature verification.
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
   for (const row of (configs as OrgRow[] | null) || []) {
-    const sec = row.credentials?.secret_key
-    const whsec = row.credentials?.webhook_secret
+    const decrypted = decryptCredentials(row.credentials as Record<string, unknown>) as Record<string, string>
+    const sec = decrypted?.secret_key
+    const whsec = decrypted?.webhook_secret
     if (!sec || !whsec) continue
     candidates.push({
       orgId: row.organization_id,

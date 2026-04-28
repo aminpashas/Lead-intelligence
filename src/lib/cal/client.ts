@@ -45,7 +45,8 @@ export async function getCalConfig(
 
   if (!data || !data.enabled) return null
 
-  const creds = (data.credentials || {}) as Partial<{ api_key: string; webhook_secret: string }>
+  const { decryptCredentials } = await import('@/lib/connectors/crypto')
+  const creds = decryptCredentials(data.credentials as Record<string, unknown>) as Partial<{ api_key: string; webhook_secret: string }>
   const settings = (data.settings || {}) as Partial<{ event_types: CalEventTypeConfig[]; booking_base_url: string }>
 
   if (!creds.api_key || !settings.booking_base_url) return null

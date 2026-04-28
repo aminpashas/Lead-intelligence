@@ -192,7 +192,8 @@ async function executeEntryAction(
 
         if (slackConfig?.credentials) {
           const { sendSlackNotification } = await import('@/lib/connectors/slack/notify')
-          const creds = slackConfig.credentials as { webhookUrl: string; channel?: string; events: string[] }
+          const { decryptCredentials } = await import('@/lib/connectors/crypto')
+          const creds = decryptCredentials(slackConfig.credentials as Record<string, unknown>) as unknown as { webhookUrl: string; channel?: string; events: string[] }
           sendSlackNotification(
             {
               type: 'stage.changed',
