@@ -4,6 +4,7 @@ import { createLeadSchema } from '@/lib/validators/lead'
 import { encryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
 import { auditPHIRead, auditPHIWrite } from '@/lib/hipaa-audit'
 import { safeParseBody } from '@/lib/body-size'
+import { formatToE164 } from '@/lib/leads/phone'
 
 // Allowlisted sort columns to prevent column enumeration via sort_by parameter
 const ALLOWED_SORT_COLUMNS = new Set([
@@ -150,12 +151,7 @@ export async function POST(request: NextRequest) {
     .eq('is_default', true)
     .single()
 
-  // Format phone for Twilio
-  let phoneFormatted: string | undefined
-  if (parsed.data.phone) {
-    const cleaned = parsed.data.phone.replace(/\D/g, '')
-    phoneFormatted = cleaned.startsWith('1') ? `+${cleaned}` : `+1${cleaned}`
-  }
+  const phoneFormatted = formatToE164(parsed.data.phone) ?? undefined
 
   const insertData = encryptLeadPII({
     ...parsed.data,
