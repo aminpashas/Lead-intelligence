@@ -89,6 +89,69 @@ export const webhookLeadSchema = z.object({
   email_consent: z.boolean().optional().default(false),
 })
 
+// ------------------------------------------------------------
+// Bulk import — used by /api/leads/import
+// ------------------------------------------------------------
+
+/**
+ * Per-row schema for bulk import. Adds the consent + audit columns and
+ * `do_not_call` so the importer can stamp these from the UI attestation
+ * (or per-row override if the CSV carries the data).
+ */
+export const bulkImportLeadSchema = createLeadSchema.extend({
+  // Per-row consent overrides (defaults come from the wrapper payload)
+  sms_consent: z.boolean().optional(),
+  sms_consent_at: z.string().optional(),
+  sms_consent_source: z.string().optional(),
+  email_consent: z.boolean().optional(),
+  email_consent_at: z.string().optional(),
+  email_consent_source: z.string().optional(),
+  voice_consent: z.boolean().optional(),
+  voice_consent_at: z.string().optional(),
+  voice_consent_source: z.string().optional(),
+  do_not_call: z.boolean().optional(),
+})
+
+const consentBlockSchema = z.object({
+  sms: z.boolean().default(false),
+  email: z.boolean().default(false),
+  voice: z.boolean().default(false),
+  source: z.string().min(1, 'Consent source is required'),
+  attested_at: z.string().min(1, 'Attestation timestamp is required'),
+}).refine(
+  (c) => c.sms || c.email || c.voice,
+  { message: 'At least one consent channel must be attested' },
+)
+
+const defaultsBlockSchema = z.object({
+  source_type: z.string().optional(),
+  source_id: z.string().uuid().optional(),
+  assigned_to: z.string().uuid().optional(),
+  tags: z.array(z.string()).optional(),
+  file_name: z.string().optional(),
+}).optional().default({})
+
+const postActionsSchema = z.object({
+  score: z.boolean().default(true),
+  enroll_campaign_id: z.string().uuid().optional(),
+}).optional().default({ score: true })
+
+/**
+ * Wrapper payload accepted by POST /api/leads/import.
+ * The client parses the CSV with papaparse, maps headers to canonical fields,
+ * collects consent attestation + import-wide defaults, and posts JSON.
+ */
+export const bulkImportRequestSchema = z.object({
+  rows: z.array(z.record(z.string(), z.unknown())).min(1).max(2000),
+  consent: consentBlockSchema,
+  defaults: defaultsBlockSchema,
+  post_actions: postActionsSchema,
+  dedupe: z.enum(['skip', 'overwrite', 'allow']).default('skip'),
+})
+
+export type BulkImportLeadInput = z.infer<typeof bulkImportLeadSchema>
+export type BulkImportRequest = z.infer<typeof bulkImportRequestSchema>
+
 export type CreateLeadInput = z.infer<typeof createLeadSchema>
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>
 export type WebhookLeadInput = z.infer<typeof webhookLeadSchema>
