@@ -11,11 +11,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { bulkImportRequestSchema, bulkImportLeadSchema } from '@/lib/validators/lead'
 import { encryptLeadPII } from '@/lib/encryption'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
-import { safeParseBody } from '@/lib/body-size'
+import { safeParseBody, BULK_IMPORT_MAX_BODY_SIZE } from '@/lib/body-size'
 import { formatToE164 } from '@/lib/leads/phone'
 import { findExistingLeads } from '@/lib/leads/dedupe'
 import { scoreLead } from '@/lib/ai/scoring'
@@ -29,7 +29,7 @@ type FailedRow = { row: number; error: string }
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
 
-  const { data: body, error: bodyError } = await safeParseBody(request)
+  const { data: body, error: bodyError } = await safeParseBody(request, BULK_IMPORT_MAX_BODY_SIZE)
   if (bodyError) return bodyError
 
   const parsed = bulkImportRequestSchema.safeParse(body)
@@ -239,6 +239,9 @@ export async function POST(request: NextRequest) {
   }
 
   // ---- Voice consent_log (trigger doesn't cover voice) ---------------
+  // consent_log has no user INSERT policy — the SMS/email trigger fires under
+  // SECURITY DEFINER, but voice rows are written directly here, so use the
+  // service client to bypass RLS the same way the trigger does.
   if (consent.voice && insertedIds.length > 0) {
     const voiceLogRows = insertedIds.map((leadId) => ({
       organization_id: orgId,
@@ -249,7 +252,11 @@ export async function POST(request: NextRequest) {
       source: consent.source,
       actor_user_id: profile.id,
     }))
-    await supabase.from('consent_log').insert(voiceLogRows)
+    const service = createServiceClient()
+    const { error: voiceLogError } = await service.from('consent_log').insert(voiceLogRows)
+    if (voiceLogError) {
+      logger.warn('Bulk import: voice consent_log insert failed', { orgId, error: voiceLogError.message })
+    }
   }
 
   // ---- Import audit row in events -----------------------------------
