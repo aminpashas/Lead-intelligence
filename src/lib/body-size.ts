@@ -14,6 +14,13 @@ const DEFAULT_MAX_BODY_SIZE = 100 * 1024 // 100KB
 export const WEBHOOK_MAX_BODY_SIZE = 512 * 1024 // 512KB
 
 /**
+ * Max body size for bulk import endpoints. The CSV importer caps at 2,000 rows,
+ * which can run several hundred KB after JSON-encoding. 4MB stays under Vercel's
+ * 4.5MB serverless body limit.
+ */
+export const BULK_IMPORT_MAX_BODY_SIZE = 4 * 1024 * 1024 // 4MB
+
+/**
  * Check the Content-Length header against the max allowed size.
  * Returns a 413 response if the body is too large, or null if OK.
  * 

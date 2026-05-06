@@ -10,16 +10,22 @@
  * voice consent is logged manually since the trigger predates the voice columns.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { NextRequest, NextResponse, after } from 'next/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { bulkImportRequestSchema, bulkImportLeadSchema } from '@/lib/validators/lead'
 import { encryptLeadPII } from '@/lib/encryption'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
-import { safeParseBody } from '@/lib/body-size'
+import { safeParseBody, BULK_IMPORT_MAX_BODY_SIZE } from '@/lib/body-size'
 import { formatToE164 } from '@/lib/leads/phone'
 import { findExistingLeads } from '@/lib/leads/dedupe'
 import { scoreLead } from '@/lib/ai/scoring'
 import { logger } from '@/lib/logger'
+
+// Bulk imports do AI scoring after the response is sent (via next/server `after`),
+// which extends the function lifetime past the user-facing response. 300s gives
+// the background work room to finish under Vercel Pro's default ceiling.
+export const runtime = 'nodejs'
+export const maxDuration = 300
 
 const CHUNK_SIZE = 100
 const SCORING_CONCURRENCY = 8
@@ -29,7 +35,7 @@ type FailedRow = { row: number; error: string }
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
 
-  const { data: body, error: bodyError } = await safeParseBody(request)
+  const { data: body, error: bodyError } = await safeParseBody(request, BULK_IMPORT_MAX_BODY_SIZE)
   if (bodyError) return bodyError
 
   const parsed = bulkImportRequestSchema.safeParse(body)
@@ -239,6 +245,9 @@ export async function POST(request: NextRequest) {
   }
 
   // ---- Voice consent_log (trigger doesn't cover voice) ---------------
+  // consent_log has no user INSERT policy — the SMS/email trigger fires under
+  // SECURITY DEFINER, but voice rows are written directly here, so use the
+  // service client to bypass RLS the same way the trigger does.
   if (consent.voice && insertedIds.length > 0) {
     const voiceLogRows = insertedIds.map((leadId) => ({
       organization_id: orgId,
@@ -249,7 +258,11 @@ export async function POST(request: NextRequest) {
       source: consent.source,
       actor_user_id: profile.id,
     }))
-    await supabase.from('consent_log').insert(voiceLogRows)
+    const service = createServiceClient()
+    const { error: voiceLogError } = await service.from('consent_log').insert(voiceLogRows)
+    if (voiceLogError) {
+      logger.warn('Bulk import: voice consent_log insert failed', { orgId, error: voiceLogError.message })
+    }
   }
 
   // ---- Import audit row in events -----------------------------------
@@ -296,47 +309,57 @@ export async function POST(request: NextRequest) {
   }
 
   // ---- Post-actions: scoring + campaign enrollment ------------------
-  // Both run synchronously per spec but with bounded concurrency.
-  // For 2,000 leads this can be slow; the UI shows a progress indicator
-  // and the response only returns after they finish so the user has a
-  // single source of truth for "import done."
+  // Defer to next/server `after` so the response returns as soon as leads are
+  // committed. AI scoring against ~50 leads at concurrency 8 is ~10–20s of
+  // serial Anthropic calls; users were perceiving the synchronous flow as
+  // "doesn't upload" because the fetch hung while scoring ran.
+  if (insertedIds.length > 0 && (post_actions.score || post_actions.enroll_campaign_id)) {
+    const service = createServiceClient()
+    const enrollCampaignId = post_actions.enroll_campaign_id
+    const shouldScore = post_actions.score
+    const idsForBackground = [...insertedIds]
 
-  if (post_actions.score && insertedIds.length > 0) {
-    await runWithConcurrency(insertedIds, SCORING_CONCURRENCY, async (leadId) => {
-      try {
-        const { data: lead } = await supabase
-          .from('leads')
-          .select('*')
-          .eq('id', leadId)
-          .eq('organization_id', orgId)
-          .single()
-        if (!lead) return
-        const score = await scoreLead(lead)
-        await supabase.from('leads').update({
-          ai_score: score.total_score,
-          ai_qualification: score.qualification,
-          ai_score_breakdown: { dimensions: score.dimensions, confidence: score.confidence },
-          ai_score_updated_at: new Date().toISOString(),
-          ai_summary: score.summary,
-        }).eq('id', leadId)
-      } catch (err) {
-        logger.warn('Bulk import: scoring failed for lead', { leadId, err: err instanceof Error ? err.message : 'unknown' })
+    after(async () => {
+      if (shouldScore) {
+        await runWithConcurrency(idsForBackground, SCORING_CONCURRENCY, async (leadId) => {
+          try {
+            const { data: lead } = await service
+              .from('leads')
+              .select('*')
+              .eq('id', leadId)
+              .eq('organization_id', orgId)
+              .single()
+            if (!lead) return
+            const score = await scoreLead(lead)
+            await service.from('leads').update({
+              ai_score: score.total_score,
+              ai_qualification: score.qualification,
+              ai_score_breakdown: { dimensions: score.dimensions, confidence: score.confidence },
+              ai_score_updated_at: new Date().toISOString(),
+              ai_summary: score.summary,
+            }).eq('id', leadId)
+          } catch (err) {
+            logger.warn('Bulk import: scoring failed for lead', { leadId, err: err instanceof Error ? err.message : 'unknown' })
+          }
+        })
       }
-    })
-  }
 
-  if (post_actions.enroll_campaign_id && insertedIds.length > 0) {
-    const enrollRows = insertedIds.map((leadId) => ({
-      organization_id: orgId,
-      campaign_id: post_actions.enroll_campaign_id,
-      lead_id: leadId,
-      status: 'active',
-      next_step_at: new Date().toISOString(),
-    }))
-    // upsert ignores duplicates if the lead is already enrolled
-    await supabase.from('campaign_enrollments').upsert(enrollRows, {
-      onConflict: 'campaign_id,lead_id',
-      ignoreDuplicates: true,
+      if (enrollCampaignId) {
+        const enrollRows = idsForBackground.map((leadId) => ({
+          organization_id: orgId,
+          campaign_id: enrollCampaignId,
+          lead_id: leadId,
+          status: 'active',
+          next_step_at: new Date().toISOString(),
+        }))
+        // upsert ignores duplicates if the lead is already enrolled
+        const { error: enrollError } = await service
+          .from('campaign_enrollments')
+          .upsert(enrollRows, { onConflict: 'campaign_id,lead_id', ignoreDuplicates: true })
+        if (enrollError) {
+          logger.warn('Bulk import: campaign enrollment failed', { orgId, error: enrollError.message })
+        }
+      }
     })
   }
 
