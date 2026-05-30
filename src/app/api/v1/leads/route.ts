@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
   const supabase = serviceRoleClient()
   const { data, error } = await supabase
     .from('leads')
-    .select('id, organization_id, first_name, last_name, email, phone, status, source_id, created_at, last_contacted_at')
+    .select('id, organization_id, first_name, last_name, email, phone, status, source_type, utm_source, lead_source:lead_sources(name), created_at, last_contacted_at')
     .eq('organization_id', customerId)
     .order('created_at', { ascending: false })
     .limit(limit)
@@ -77,7 +77,11 @@ export async function GET(request: NextRequest) {
     email: (l.email as string) ?? null,
     phone: (l.phone as string) ?? null,
     status: String(l.status ?? 'new'),
-    source: (l.source_id as string) ?? null,
+    source:
+      ((l.lead_source as { name?: string } | null)?.name) ??
+      (l.source_type as string) ??
+      (l.utm_source as string) ??
+      null,
     created_at: String(l.created_at),
     last_contacted_at: (l.last_contacted_at as string) ?? null,
   }))
