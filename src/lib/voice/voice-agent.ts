@@ -28,6 +28,26 @@ import type { PatientProfile, LeadStatus } from '@/types/database'
 import type { RetellLLMRequest, RetellLLMResponse } from './retell-client'
 
 // ═══════════════════════════════════════════════════════════════
+// ORG PHONE LOOKUP
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Fetch the organization's main phone number for warm/cold call transfers.
+ * Returns undefined if no phone is configured (Retell will end the call gracefully).
+ */
+async function getOrgTransferNumber(
+  supabase: SupabaseClient,
+  organizationId: string
+): Promise<string | undefined> {
+  const { data } = await supabase
+    .from('organizations')
+    .select('phone')
+    .eq('id', organizationId)
+    .single()
+  return data?.phone || undefined
+}
+
+// ═══════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════
 
@@ -221,10 +241,11 @@ export async function processVoiceTranscript(
       ai_notes: `Voice agent failed: ${error instanceof Error ? error.message : 'Unknown'}`,
     })
 
+    const transferNumber = await getOrgTransferNumber(supabase, organization_id)
     return {
       response: "I apologize, I'm having a little trouble on my end. Let me connect you with someone who can help right away.",
       end_call: false,
-      transfer_number: undefined, // TODO: org's main phone number
+      transfer_number: transferNumber,
       agent: 'none',
       confidence: 0,
       action_taken: 'escalated_to_human',
@@ -239,10 +260,14 @@ export async function processVoiceTranscript(
   // but we do a final cleanup pass
   const voiceResponse = adaptResponseForVoice(agentResponse.message)
 
+  const transferNumber = shouldTransfer
+    ? await getOrgTransferNumber(supabase, organization_id)
+    : undefined
+
   return {
     response: voiceResponse,
     end_call: false,
-    transfer_number: shouldTransfer ? undefined : undefined, // TODO: warm transfer number
+    transfer_number: transferNumber,
     agent: agentResponse.agent,
     confidence: agentResponse.confidence,
     action_taken: agentResponse.action_taken,
