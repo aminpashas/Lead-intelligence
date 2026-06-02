@@ -1,0 +1,318 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// Create persistent mock for Anthropic's messages.create
+const mockCreate = vi.fn()
+
+// Mock Anthropic as a proper class that survives vi.clearAllMocks
+vi.mock('@anthropic-ai/sdk', () => {
+  // Use a real class to survive vi.clearAllMocks (which clears vi.fn implementations)
+  class MockAnthropic {
+    messages = { create: mockCreate }
+    constructor(_opts?: unknown) {}
+  }
+  return { default: MockAnthropic, __esModule: true }
+})
+
+vi.mock('@/lib/ai/hipaa', () => ({
+  buildSafeLeadContext: vi.fn((lead: Record<string, unknown>) => {
+    const parts: string[] = []
+    if (lead.first_name) parts.push(`Name: ${lead.first_name}`)
+    if (lead.dental_condition) parts.push(`Dental Condition: ${lead.dental_condition}`)
+    if (lead.status) parts.push(`Status: ${lead.status}`)
+    if (lead.source_type) parts.push(`Source: ${lead.source_type}`)
+    return parts.join('\n') || 'Minimal lead context'
+  }),
+  buildSafeConversationHistory: vi.fn((h: unknown[]) => h),
+  checkResponseCompliance: vi.fn().mockReturnValue([]),
+  logHIPAAEvent: vi.fn().mockResolvedValue(undefined),
+  scrubPHI: vi.fn((text: string) => text),
+}))
+
+vi.mock('@/lib/enrichment', () => ({
+  getEnrichmentSummary: vi.fn().mockResolvedValue(null),
+}))
+
+import { scoreLead, generateLeadEngagement, type ScoreResult } from '@/lib/ai/scoring'
+import { getEnrichmentSummary } from '@/lib/enrichment'
+import { logHIPAAEvent, checkResponseCompliance } from '@/lib/ai/hipaa'
+
+// ── Helper to set Anthropic response ────────────────────────────
+
+function setAnthropicResponse(responseText: string) {
+  mockCreate.mockResolvedValue({
+    content: [{ type: 'text', text: responseText }],
+  })
+}
+
+function makeScoringResponse(overrides: Partial<{
+  dimensions: Array<{ name: string; score: number; weight: number; reasoning: string }>
+  summary: string
+  recommended_action: string
+  confidence: number
+}> = {}) {
+  const defaults = {
+    dimensions: [
+      { name: 'dental_condition', score: 85, weight: 0.22, reasoning: 'Missing all teeth upper arch' },
+      { name: 'financial_readiness', score: 70, weight: 0.18, reasoning: 'Open to financing' },
+      { name: 'urgency', score: 90, weight: 0.18, reasoning: 'Wants treatment ASAP, in pain' },
+      { name: 'engagement', score: 75, weight: 0.12, reasoning: 'Responded quickly' },
+      { name: 'demographics', score: 60, weight: 0.08, reasoning: 'Age 55, local area' },
+      { name: 'source_quality', score: 80, weight: 0.07, reasoning: 'Google Ads high-intent' },
+      { name: 'identity_confidence', score: 70, weight: 0.08, reasoning: 'Valid email + phone' },
+      { name: 'behavioral_intent', score: 65, weight: 0.07, reasoning: 'Viewed pricing page' },
+    ],
+    summary: 'Hot lead with urgent dental needs, ready for consultation.',
+    recommended_action: 'Schedule consultation within 24 hours.',
+    confidence: 0.9,
+    ...overrides,
+  }
+  return JSON.stringify(defaults)
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  process.env.ANTHROPIC_API_KEY = 'test-key'
+  // Re-establish default mock values after clearAllMocks
+  vi.mocked(checkResponseCompliance).mockReturnValue([])
+  vi.mocked(getEnrichmentSummary).mockResolvedValue(null)
+  vi.mocked(logHIPAAEvent).mockResolvedValue(undefined)
+})
+
+// ═══════════════════════════════════════════════════════════════
+// scoreLead
+// ═══════════════════════════════════════════════════════════════
+
+describe('scoreLead', () => {
+  it('returns a valid ScoreResult with weighted total score', async () => {
+    setAnthropicResponse(makeScoringResponse())
+
+    const result = await scoreLead({
+      first_name: 'Sarah',
+      dental_condition: 'missing_all_both',
+      status: 'new',
+      source_type: 'google_ads',
+    })
+
+    expect(result.total_score).toBeGreaterThan(0)
+    expect(result.total_score).toBeLessThanOrEqual(100)
+    expect(result.dimensions).toHaveLength(8)
+    expect(result.summary).toBeTruthy()
+    expect(result.recommended_action).toBeTruthy()
+    expect(result.confidence).toBe(0.9)
+  })
+
+  it('calculates correct weighted total from dimensions', async () => {
+    const dims = [
+      { name: 'dental_condition', score: 100, weight: 0.22, reasoning: '' },
+      { name: 'financial_readiness', score: 100, weight: 0.18, reasoning: '' },
+      { name: 'urgency', score: 100, weight: 0.18, reasoning: '' },
+      { name: 'engagement', score: 100, weight: 0.12, reasoning: '' },
+      { name: 'demographics', score: 100, weight: 0.08, reasoning: '' },
+      { name: 'source_quality', score: 100, weight: 0.07, reasoning: '' },
+      { name: 'identity_confidence', score: 100, weight: 0.08, reasoning: '' },
+      { name: 'behavioral_intent', score: 100, weight: 0.07, reasoning: '' },
+    ]
+    setAnthropicResponse(makeScoringResponse({ dimensions: dims }))
+
+    const result = await scoreLead({ first_name: 'Test' })
+
+    // All 100s with weights summing to 1.0 → total = 100
+    expect(result.total_score).toBe(100)
+  })
+
+  it('classifies as "hot" when total >= 75', async () => {
+    setAnthropicResponse(makeScoringResponse()) // default gives ~78
+    const result = await scoreLead({ first_name: 'Hot' })
+    expect(result.qualification).toBe('hot')
+  })
+
+  it('classifies as "warm" when total is 50-74', async () => {
+    const dims = [
+      { name: 'dental_condition', score: 60, weight: 0.22, reasoning: '' },
+      { name: 'financial_readiness', score: 50, weight: 0.18, reasoning: '' },
+      { name: 'urgency', score: 55, weight: 0.18, reasoning: '' },
+      { name: 'engagement', score: 50, weight: 0.12, reasoning: '' },
+      { name: 'demographics', score: 50, weight: 0.08, reasoning: '' },
+      { name: 'source_quality', score: 50, weight: 0.07, reasoning: '' },
+      { name: 'identity_confidence', score: 50, weight: 0.08, reasoning: '' },
+      { name: 'behavioral_intent', score: 50, weight: 0.07, reasoning: '' },
+    ]
+    setAnthropicResponse(makeScoringResponse({ dimensions: dims }))
+    const result = await scoreLead({ first_name: 'Warm' })
+    expect(result.qualification).toBe('warm')
+  })
+
+  it('classifies as "cold" when total is 25-49', async () => {
+    const dims = [
+      { name: 'dental_condition', score: 30, weight: 0.22, reasoning: '' },
+      { name: 'financial_readiness', score: 30, weight: 0.18, reasoning: '' },
+      { name: 'urgency', score: 30, weight: 0.18, reasoning: '' },
+      { name: 'engagement', score: 30, weight: 0.12, reasoning: '' },
+      { name: 'demographics', score: 30, weight: 0.08, reasoning: '' },
+      { name: 'source_quality', score: 30, weight: 0.07, reasoning: '' },
+      { name: 'identity_confidence', score: 30, weight: 0.08, reasoning: '' },
+      { name: 'behavioral_intent', score: 30, weight: 0.07, reasoning: '' },
+    ]
+    setAnthropicResponse(makeScoringResponse({ dimensions: dims }))
+    const result = await scoreLead({ first_name: 'Cold' })
+    expect(result.qualification).toBe('cold')
+  })
+
+  it('classifies as "unqualified" when total < 25', async () => {
+    const dims = [
+      { name: 'dental_condition', score: 10, weight: 0.22, reasoning: '' },
+      { name: 'financial_readiness', score: 10, weight: 0.18, reasoning: '' },
+      { name: 'urgency', score: 10, weight: 0.18, reasoning: '' },
+      { name: 'engagement', score: 10, weight: 0.12, reasoning: '' },
+      { name: 'demographics', score: 10, weight: 0.08, reasoning: '' },
+      { name: 'source_quality', score: 10, weight: 0.07, reasoning: '' },
+      { name: 'identity_confidence', score: 10, weight: 0.08, reasoning: '' },
+      { name: 'behavioral_intent', score: 10, weight: 0.07, reasoning: '' },
+    ]
+    setAnthropicResponse(makeScoringResponse({ dimensions: dims }))
+    const result = await scoreLead({ first_name: 'Bad' })
+    expect(result.qualification).toBe('unqualified')
+  })
+
+  it('throws when AI response has no JSON', async () => {
+    setAnthropicResponse('I cannot score this lead right now.')
+
+    await expect(scoreLead({ first_name: 'Test' })).rejects.toThrow('Failed to parse AI scoring response')
+  })
+
+  it('extracts JSON from text with surrounding content', async () => {
+    const json = makeScoringResponse()
+    setAnthropicResponse(`Here is my scoring:\n${json}\nHope this helps!`)
+
+    const result = await scoreLead({ first_name: 'Test' })
+    expect(result.total_score).toBeGreaterThan(0)
+  })
+
+  it('logs HIPAA event when supabase and lead.id are provided', async () => {
+    setAnthropicResponse(makeScoringResponse())
+
+    const mockSupabase = {} as any
+    await scoreLead(
+      { id: 'lead-1', organization_id: 'org-1', first_name: 'Test' },
+      mockSupabase
+    )
+
+    expect(logHIPAAEvent).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({
+        event_type: 'ai_scoring',
+        resource_id: 'lead-1',
+      })
+    )
+  })
+
+  it('does not log HIPAA event when supabase is not provided', async () => {
+    setAnthropicResponse(makeScoringResponse())
+
+    await scoreLead({ first_name: 'Test' })
+
+    expect(logHIPAAEvent).not.toHaveBeenCalled()
+  })
+
+  it('fetches enrichment data when supabase and lead.id are available', async () => {
+    setAnthropicResponse(makeScoringResponse())
+
+    const mockSupabase = {} as any
+    await scoreLead({ id: 'lead-1', first_name: 'Test' }, mockSupabase)
+
+    expect(getEnrichmentSummary).toHaveBeenCalledWith(mockSupabase, 'lead-1')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
+// generateLeadEngagement
+// ═══════════════════════════════════════════════════════════════
+
+describe('generateLeadEngagement', () => {
+  it('returns a message and confidence for education mode', async () => {
+    setAnthropicResponse('Great question! The All-on-4 is a fantastic option.')
+
+    const result = await generateLeadEngagement(
+      { first_name: 'Sarah' },
+      [{ role: 'user', content: 'Tell me about implants' }],
+      { mode: 'education', channel: 'sms' }
+    )
+
+    expect(result.message).toBeTruthy()
+    expect(result.confidence).toBe(0.85)
+  })
+
+  it('reduces confidence when HIPAA violation detected', async () => {
+    setAnthropicResponse('Your SSN is 123-45-6789. Call Dr. Smith.')
+
+    vi.mocked(checkResponseCompliance).mockReturnValue([
+      { category: 'ssn', severity: 'critical', description: 'SSN found', remediation: 'Remove SSN from response' },
+    ])
+
+    const result = await generateLeadEngagement(
+      { first_name: 'Sarah', organization_id: 'org-1' },
+      [{ role: 'user', content: 'What info do you need?' }],
+      { mode: 'education', channel: 'email' },
+      {} as any // supabase
+    )
+
+    expect(result.confidence).toBe(0.5)
+  })
+
+  it('logs compliance issues when supabase is available', async () => {
+    setAnthropicResponse('Some response')
+
+    vi.mocked(checkResponseCompliance).mockReturnValue([
+      { category: 'name', severity: 'warning', description: 'Full name found', remediation: 'Remove full name from response' },
+    ])
+
+    const mockSupabase = {} as any
+    await generateLeadEngagement(
+      { first_name: 'Sarah', organization_id: 'org-1', id: 'lead-1' },
+      [{ role: 'user', content: 'Hi' }],
+      { mode: 'follow_up', channel: 'email' },
+      mockSupabase
+    )
+
+    expect(logHIPAAEvent).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({
+        event_type: 'ai_compliance_warning',
+      })
+    )
+  })
+
+  it('generates engagement for all modes', async () => {
+    const modes = ['education', 'objection_handling', 'appointment_scheduling', 'follow_up'] as const
+
+    for (const mode of modes) {
+      mockCreate.mockClear()
+      vi.mocked(checkResponseCompliance).mockReturnValue([])
+      setAnthropicResponse(`Response for ${mode}`)
+
+      const result = await generateLeadEngagement(
+        { first_name: 'Test' },
+        [{ role: 'user', content: 'Hello' }],
+        { mode, channel: 'sms' }
+      )
+
+      expect(result.message).toBeTruthy()
+    }
+  })
+
+  it('works with both sms and email channels', async () => {
+    for (const channel of ['sms', 'email'] as const) {
+      mockCreate.mockClear()
+      vi.mocked(checkResponseCompliance).mockReturnValue([])
+      setAnthropicResponse(`Response for ${channel}`)
+
+      const result = await generateLeadEngagement(
+        { first_name: 'Test' },
+        [{ role: 'user', content: 'Hello' }],
+        { mode: 'education', channel }
+      )
+
+      expect(result.message).toBeTruthy()
+    }
+  })
+})
