@@ -15,6 +15,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { decryptCredentials, encryptCredentials } from '@/lib/connectors/crypto'
+import { requireAgencyClientOrg } from '@/lib/auth/active-org'
 
 type SelectBody = {
   state: string
@@ -28,16 +29,9 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-  if (!profile) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  if (!['owner', 'admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden — admin access required' }, { status: 403 })
-  }
+  const guard = await requireAgencyClientOrg(supabase)
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   const body = (await request.json()) as SelectBody
   if (!body.state || !body.pixelId) {
@@ -55,7 +49,7 @@ export async function POST(request: NextRequest) {
   if (stateErr || !stateRow) {
     return NextResponse.json({ error: 'invalid_or_consumed_state' }, { status: 400 })
   }
-  if (stateRow.organization_id !== profile.organization_id) {
+  if (stateRow.organization_id !== orgId) {
     return NextResponse.json({ error: 'state_org_mismatch' }, { status: 403 })
   }
   if (new Date(stateRow.expires_at).getTime() < Date.now()) {
@@ -84,7 +78,7 @@ export async function POST(request: NextRequest) {
     .from('connector_configs')
     .upsert(
       {
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         connector_type: 'meta_capi',
         enabled: true,
         credentials,

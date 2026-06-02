@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { buildMetaAuthUrl, metaRedirectUri } from '@/lib/connectors/oauth/meta'
 
 export async function GET(request: NextRequest) {
@@ -20,16 +21,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile) {
+  // Agency-owned: only an agency_admin inside a client account may connect.
+  const active = await resolveActiveOrg(supabase)
+  if (!active.role) {
     return errorRedirect(request, 'unauthorized')
   }
-  if (!['owner', 'admin'].includes(profile.role)) {
+  if (active.role !== 'agency_admin') {
     return errorRedirect(request, 'forbidden')
+  }
+  if (!active.actingAsClient || !active.orgId) {
+    return errorRedirect(request, 'no_active_account')
   }
 
   const state = randomBytes(32).toString('base64url')
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
     .from('oauth_states')
     .insert({
       state,
-      organization_id: profile.organization_id,
+      organization_id: active.orgId,
       user_id: user.id,
       provider: 'meta',
       metadata: {},

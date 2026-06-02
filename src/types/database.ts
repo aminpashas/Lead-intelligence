@@ -18,6 +18,14 @@ export type Organization = {
   updated_at: string
 }
 
+// Per agency-admin selection of which client org they are currently "inside".
+// Drives the context-aware get_user_org_id() (migration 038).
+export type AgencyActiveOrg = {
+  user_id: string
+  active_org_id: string
+  updated_at: string
+}
+
 export type UserProfile = {
   id: string
   organization_id: string

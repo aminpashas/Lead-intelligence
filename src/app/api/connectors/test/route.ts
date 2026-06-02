@@ -4,6 +4,7 @@ import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import type { ConnectorType } from '@/lib/connectors'
 import { decryptCredentials } from '@/lib/connectors/crypto'
+import { requireAgencyClientOrg } from '@/lib/auth/active-org'
 
 /**
  * POST /api/connectors/test — Send a test event to verify connector configuration.
@@ -17,18 +18,9 @@ export async function POST(request: NextRequest) {
 
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  if (!['owner', 'admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const guard = await requireAgencyClientOrg(supabase)
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   const body = await request.json() as { connector_type: ConnectorType }
   const { connector_type } = body
@@ -41,7 +33,7 @@ export async function POST(request: NextRequest) {
   const { data: config } = await supabase
     .from('connector_configs')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('connector_type', connector_type)
     .single()
 
@@ -57,7 +49,7 @@ export async function POST(request: NextRequest) {
   // Build a synthetic test event
   const testEvent = {
     type: 'lead.created' as const,
-    organizationId: profile.organization_id,
+    organizationId: orgId,
     leadId: '00000000-0000-0000-0000-000000000000',
     timestamp: new Date().toISOString(),
     data: {

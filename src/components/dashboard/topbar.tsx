@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Search, Menu, UsersRound } from 'lucide-react'
+import { Search, Menu, UsersRound, Building2, LogOut } from 'lucide-react'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import { Input } from '@/components/ui/input'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
@@ -24,12 +24,18 @@ import { cn } from '@/lib/utils'
 export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter()
   const supabase = createClient()
-  const { userProfile, organization } = useOrgStore()
+  const { userProfile, organization, actingAsClient } = useOrgStore()
   const role = (userProfile?.role || 'member') as PracticeRole
 
   async function handleSignOut() {
     await supabase.auth.signOut()
     router.push('/login')
+    router.refresh()
+  }
+
+  async function handleExitAccount() {
+    await fetch('/api/agency/active-account', { method: 'DELETE' })
+    router.push('/agency')
     router.refresh()
   }
 
@@ -60,6 +66,25 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2">
+        {actingAsClient && (
+          <div className="hidden md:flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1">
+            <Building2 className="h-3.5 w-3.5 text-primary" />
+            <span className="text-xs">
+              <span className="text-muted-foreground">Managing</span>{' '}
+              <span className="font-medium">{organization?.name}</span>
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleExitAccount}
+            >
+              <LogOut className="h-3 w-3 mr-1" />
+              Exit
+            </Button>
+          </div>
+        )}
+
         <div className="hidden sm:block">
           <NewLeadDialog />
         </div>
@@ -97,6 +122,15 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
               </Badge>
             </div>
             <DropdownMenuSeparator />
+            {actingAsClient && (
+              <>
+                <DropdownMenuItem onClick={handleExitAccount}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Exit to Agency Console
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             {isAdminRole(role) && (
               <DropdownMenuItem onClick={() => router.push('/team')}>
                 <UsersRound className="mr-2 h-4 w-4" />

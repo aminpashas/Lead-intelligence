@@ -12,18 +12,21 @@ export function DashboardShell({
   children,
   userProfile,
   organization,
+  actingAsClient = false,
 }: {
   children: React.ReactNode
   userProfile: UserProfile
   organization: Organization
+  actingAsClient?: boolean
 }) {
-  const { setOrganization, setUserProfile } = useOrgStore()
+  const { setOrganization, setUserProfile, setActingAsClient } = useOrgStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     setOrganization(organization)
     setUserProfile(userProfile)
-  }, [organization, userProfile, setOrganization, setUserProfile])
+    setActingAsClient(actingAsClient)
+  }, [organization, userProfile, actingAsClient, setOrganization, setUserProfile, setActingAsClient])
 
   // Real-time notifications (leads, messages, appointments, campaigns)
   useRealtimeNotifications()

@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { Building2, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { EnterAccountButton } from './enter-account-button'
+import { AddPracticeButton } from './add-practice-button'
 
 export const metadata = {
   title: 'Practices | Agency | Lead Intelligence',
@@ -24,18 +26,40 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 export default async function PracticesPage() {
   const supabase = await createClient()
 
-  const { data: organizations } = await supabase
+  // The agency admin's own home org is the agency itself, not a client —
+  // exclude it so the picker only lists real practices to enter.
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: me } = await supabase
+    .from('user_profiles')
+    .select('organization_id')
+    .eq('id', user?.id ?? '')
+    .single()
+  const agencyOrgId = me?.organization_id ?? null
+
+  const { data: allOrgs } = await supabase
     .from('organizations')
     .select('*')
     .order('created_at', { ascending: false })
 
+  const organizations = (allOrgs ?? []).filter((o) => o.id !== agencyOrgId)
+
+  // Which client (if any) is the agency admin currently inside?
+  const { data: active } = await supabase
+    .from('agency_active_org')
+    .select('active_org_id')
+    .maybeSingle()
+  const activeOrgId = active?.active_org_id ?? null
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Practices</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          All dental practices using the platform. {organizations?.length ?? 0} total.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Practices</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            Client practices you manage. {organizations.length} total.
+          </p>
+        </div>
+        <AddPracticeButton />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -93,6 +117,11 @@ export default async function PracticesPage() {
                   {new Date(org.created_at).toLocaleDateString()}
                 </span>
               </div>
+              <EnterAccountButton
+                orgId={org.id}
+                orgName={org.name}
+                isCurrent={org.id === activeOrgId}
+              />
             </CardContent>
           </Card>
         ))}

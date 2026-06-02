@@ -44,6 +44,7 @@ type NavItem = {
 // Practice-level navigation only.
 // AI Training, AI Audit, AI Engine, Sales Intelligence are AGENCY-ONLY features.
 const navigation: NavItem[] = [
+  { name: 'Agency Console', href: '/agency', icon: Building2 },
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
   { name: 'Funnel Playbook', href: '/funnel', icon: Target },

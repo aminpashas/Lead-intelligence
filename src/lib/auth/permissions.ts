@@ -105,6 +105,10 @@ export type Permission =
   | 'contracts:void'
   | 'contract_templates:manage'
   | 'legal_settings:manage'
+  // Agency-only (deliberately NOT part of FULL_PERMISSIONS — client owners/admins
+  // must never receive these; only agency_admin does)
+  | 'connectors:manage'
+  | 'agency:console'
 
 // Full access set for admin roles
 const FULL_PERMISSIONS: Permission[] = [
@@ -179,8 +183,10 @@ export const ROLE_PERMISSIONS: Record<PracticeRole, Permission[]> = {
   admin: FULL_PERMISSIONS,
   manager: TC_PERMISSIONS,
   member: CLINICAL_PERMISSIONS,
-  // Agency admin gets everything
-  agency_admin: FULL_PERMISSIONS,
+  // Agency admin gets everything PLUS the agency-only capabilities. These two
+  // permissions are intentionally absent from every other role — they are what
+  // keep marketing connectors and the agency console out of client staff's reach.
+  agency_admin: [...FULL_PERMISSIONS, 'connectors:manage', 'agency:console'],
 }
 
 // ── Permission Utilities ────────────────────────────────────────
@@ -211,6 +217,8 @@ export function canViewBilling(role: PracticeRole | string): boolean {
 
 /** Map dashboard routes to the permission required to view them */
 const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
+  '/agency': 'agency:console',
+  '/settings/connectors': 'connectors:manage',
   '/dashboard': 'dashboard:view',
   '/pipeline': 'pipeline:read',
   '/funnel': 'funnel:read',
