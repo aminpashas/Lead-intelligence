@@ -58,8 +58,9 @@ export default function AIEnginePage() {
     {
       icon: TrendingUp,
       title: 'Predictive Analytics',
-      description: 'ML-powered predictions for conversion probability, optimal contact times, and campaign performance.',
-      status: 'coming_soon',
+      description: 'Statistical predictions for conversion probability, optimal contact times, no-show risk, and revenue forecasting — powered by your historical data.',
+      status: 'active',
+      isNew: true,
     },
   ]
 
