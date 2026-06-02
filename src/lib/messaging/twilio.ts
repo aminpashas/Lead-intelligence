@@ -16,10 +16,18 @@ function getClient() {
  * For any lead-facing message, use sendSMSToLead() so consent is enforced.
  */
 export async function sendSMS(to: string, body: string): Promise<{ sid: string; status: string }> {
+  // Prefer routing through the Messaging Service: for US A2P 10DLC the service is
+  // what's bound to the approved Campaign and the registered sender pool, so the
+  // carrier maps traffic correctly (avoids error 30034 — unregistered number).
+  // Fall back to the raw from-number when no service is configured (local dev,
+  // non-US destinations, or system OTP sends).
+  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID
   const message = await getClient().messages.create({
     body,
-    from: process.env.TWILIO_PHONE_NUMBER!,
     to,
+    ...(messagingServiceSid
+      ? { messagingServiceSid }
+      : { from: process.env.TWILIO_PHONE_NUMBER! }),
   })
 
   return {
