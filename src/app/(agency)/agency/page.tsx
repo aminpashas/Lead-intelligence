@@ -21,11 +21,22 @@ export const metadata = {
 export default async function AgencyHomePage() {
   const supabase = await createClient()
 
-  // Fetch all organizations (agency_admin RLS allows this)
-  const { data: organizations } = await supabase
+  // Fetch all organizations (agency_admin RLS allows this), excluding the
+  // agency's own home org — that's the agency itself, not a client practice.
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: me } = await supabase
+    .from('user_profiles')
+    .select('organization_id')
+    .eq('id', user?.id ?? '')
+    .single()
+  const agencyOrgId = me?.organization_id ?? null
+
+  const { data: allOrgs } = await supabase
     .from('organizations')
     .select('id, name, slug, subscription_tier, subscription_status, created_at')
     .order('created_at', { ascending: false })
+
+  const organizations = (allOrgs ?? []).filter((o) => o.id !== agencyOrgId)
 
   // Fetch aggregate stats
   const { count: totalLeads } = await supabase

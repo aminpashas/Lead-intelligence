@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { buildGoogleAuthUrl, googleRedirectUri } from '@/lib/connectors/oauth/google'
 
 export async function GET(request: NextRequest) {
@@ -31,16 +32,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile) {
+  // Connectors are agency-owned: only an agency_admin who has entered a client
+  // account may connect, and the credentials are bound to that client org.
+  const active = await resolveActiveOrg(supabase)
+  if (!active.role) {
     return errorRedirect(request, 'unauthorized')
   }
-  if (!['owner', 'admin'].includes(profile.role)) {
+  if (active.role !== 'agency_admin') {
     return errorRedirect(request, 'forbidden')
+  }
+  if (!active.actingAsClient || !active.orgId) {
+    return errorRedirect(request, 'no_active_account')
   }
 
   // URL-safe base64, 32 bytes → ~43 chars.
@@ -50,7 +52,7 @@ export async function GET(request: NextRequest) {
     .from('oauth_states')
     .insert({
       state,
-      organization_id: profile.organization_id,
+      organization_id: active.orgId,
       user_id: user.id,
       provider: 'google',
       metadata: {},

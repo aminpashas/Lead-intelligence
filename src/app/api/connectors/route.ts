@@ -4,6 +4,7 @@ import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import type { ConnectorType } from '@/lib/connectors'
 import { encryptCredentials } from '@/lib/connectors/crypto'
+import { requireAgencyClientOrg } from '@/lib/auth/active-org'
 
 const VALID_CONNECTOR_TYPES: ConnectorType[] = [
   'google_ads', 'meta_capi', 'ga4', 'outbound_webhook', 'slack', 'google_reviews', 'callrail',
@@ -16,24 +17,14 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  // Only owners, admins, and managers can view connectors
-  if (!['owner', 'admin', 'manager'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const guard = await requireAgencyClientOrg(supabase)
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   const { data: configs, error } = await supabase
     .from('connector_configs')
     .select('id, connector_type, enabled, settings, created_at, updated_at')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('connector_type')
 
   if (error) {
@@ -59,7 +50,7 @@ export async function GET(request: NextRequest) {
   const { data: eventCounts } = await supabase
     .from('connector_events')
     .select('connector_type, success')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .gte('dispatched_at', oneDayAgo)
 
   const stats: Record<string, { sent: number; failed: number }> = {}
@@ -77,7 +68,7 @@ export async function GET(request: NextRequest) {
   const { data: syncStateRows } = await supabase
     .from('ad_metrics_sync_state')
     .select('channel, last_synced_at, last_success_at, last_error, rows_inserted_last_run')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   // The ad_metrics_sync_state.channel = 'meta' but the connector_type
   // = 'meta_capi'. Normalize so the UI can look up by connector_type.
@@ -126,19 +117,9 @@ export async function PUT(request: NextRequest) {
 
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  // Only owners and admins can manage connectors
-  if (!['owner', 'admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden — admin access required' }, { status: 403 })
-  }
+  const guard = await requireAgencyClientOrg(supabase)
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   const body = await request.json() as {
     connector_type: ConnectorType
@@ -166,7 +147,7 @@ export async function PUT(request: NextRequest) {
     updated_at: string
     credentials?: Record<string, unknown>
   } = {
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     connector_type: body.connector_type,
     enabled: body.enabled,
     settings: body.settings || {},
@@ -200,18 +181,9 @@ export async function DELETE(request: NextRequest) {
 
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  if (!['owner', 'admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const guard = await requireAgencyClientOrg(supabase)
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   const { searchParams } = new URL(request.url)
   const connectorType = searchParams.get('type') as ConnectorType
@@ -223,7 +195,7 @@ export async function DELETE(request: NextRequest) {
   const { error } = await supabase
     .from('connector_configs')
     .delete()
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('connector_type', connectorType)
 
   if (error) {
