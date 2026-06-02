@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useOrgStore } from '@/lib/store/use-org'
 import { RoleGuard } from '@/components/auth/role-guard'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -16,8 +17,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Sparkles,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 export default function BillingPage() {
   return (
@@ -29,6 +32,8 @@ export default function BillingPage() {
 
 function BillingContent() {
   const { organization } = useOrgStore()
+  const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null)
+  const [portalLoading, setPortalLoading] = useState(false)
 
   const tierColors: Record<string, string> = {
     trial: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/25',
@@ -46,6 +51,61 @@ function BillingContent() {
 
   const tier = organization?.subscription_tier || 'trial'
   const status = organization?.subscription_status || 'active'
+  const hasStripeCustomer = !!organization?.stripe_customer_id
+
+  async function handleUpgrade(targetTier: string) {
+    if (targetTier === 'enterprise') {
+      window.open('mailto:sales@dionhealth.com?subject=Enterprise Plan Inquiry', '_blank')
+      return
+    }
+
+    setUpgradeLoading(targetTier)
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier: targetTier }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to create checkout session')
+      }
+
+      const { url } = await res.json()
+      if (url) {
+        window.location.href = url
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to start checkout')
+    } finally {
+      setUpgradeLoading(null)
+    }
+  }
+
+  async function handleManageSubscription() {
+    setPortalLoading(true)
+    try {
+      const res = await fetch('/api/billing/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to open billing portal')
+      }
+
+      const { url } = await res.json()
+      if (url) {
+        window.location.href = url
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to open billing portal')
+    } finally {
+      setPortalLoading(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -110,11 +170,30 @@ function BillingContent() {
             )}
 
             <div className="flex gap-3">
-              <Button className="gap-2">
-                <ArrowUpRight className="h-4 w-4" />
-                Upgrade Plan
+              {tier !== 'enterprise' && (
+                <Button
+                  className="gap-2"
+                  onClick={() => handleUpgrade(tier === 'trial' ? 'starter' : tier === 'starter' ? 'professional' : 'enterprise')}
+                  disabled={!!upgradeLoading}
+                >
+                  {upgradeLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowUpRight className="h-4 w-4" />
+                  )}
+                  Upgrade Plan
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={handleManageSubscription}
+                disabled={!hasStripeCustomer || portalLoading}
+              >
+                {portalLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                Manage Subscription
               </Button>
-              <Button variant="outline">Manage Subscription</Button>
             </div>
           </CardContent>
         </div>
@@ -148,8 +227,8 @@ function BillingContent() {
         />
         <RevenueCard
           label="Payment Methods"
-          value="0"
-          change="None added"
+          value={hasStripeCustomer ? '1' : '0'}
+          change={hasStripeCustomer ? 'On file' : 'None added'}
           icon={CreditCard}
           gradient="from-violet-500/10 to-purple-500/10"
           iconColor="text-violet-600 dark:text-violet-400"
@@ -165,15 +244,27 @@ function BillingContent() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted mb-4">
-              <Receipt className="h-7 w-7 text-muted-foreground" />
+          {hasStripeCustomer ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <p className="text-sm text-muted-foreground mb-4">
+                View your full invoice history in the Stripe portal.
+              </p>
+              <Button variant="outline" onClick={handleManageSubscription} disabled={portalLoading}>
+                {portalLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                View Invoices
+              </Button>
             </div>
-            <p className="text-sm font-medium">No invoices yet</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-              Invoices will appear here once you upgrade from the trial plan and make your first payment.
-            </p>
-          </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted mb-4">
+                <Receipt className="h-7 w-7 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium">No invoices yet</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                Invoices will appear here once you upgrade from the trial plan and make your first payment.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -192,6 +283,9 @@ function BillingContent() {
               price="$299"
               features={['Up to 5 team members', 'Basic AI automation', '500 leads/month', 'Email campaigns', 'Standard support']}
               current={tier === 'starter'}
+              onUpgrade={() => handleUpgrade('starter')}
+              loading={upgradeLoading === 'starter'}
+              canUpgrade={tier === 'trial'}
             />
             <PlanCard
               name="Professional"
@@ -199,12 +293,18 @@ function BillingContent() {
               features={['Up to 15 team members', 'Advanced AI with autopilot', 'Unlimited leads', 'Multi-channel campaigns', 'Priority support', 'Analytics dashboard']}
               current={tier === 'professional'}
               highlighted
+              onUpgrade={() => handleUpgrade('professional')}
+              loading={upgradeLoading === 'professional'}
+              canUpgrade={tier === 'trial' || tier === 'starter'}
             />
             <PlanCard
               name="Enterprise"
               price="Custom"
               features={['Unlimited team members', 'Custom AI training', 'Dedicated account manager', 'API access', 'HIPAA BAA', 'Custom integrations']}
               current={tier === 'enterprise'}
+              onUpgrade={() => handleUpgrade('enterprise')}
+              loading={upgradeLoading === 'enterprise'}
+              canUpgrade={tier !== 'enterprise'}
             />
           </div>
         </CardContent>
@@ -256,12 +356,18 @@ function PlanCard({
   features,
   current,
   highlighted,
+  onUpgrade,
+  loading,
+  canUpgrade,
 }: {
   name: string
   price: string
   features: string[]
   current: boolean
   highlighted?: boolean
+  onUpgrade: () => void
+  loading: boolean
+  canUpgrade: boolean
 }) {
   return (
     <div
@@ -292,9 +398,13 @@ function PlanCard({
       <Button
         variant={current ? 'secondary' : highlighted ? 'default' : 'outline'}
         className="w-full"
-        disabled={current}
+        disabled={current || !canUpgrade || loading}
+        onClick={onUpgrade}
       >
-        {current ? 'Current Plan' : 'Upgrade'}
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+        ) : null}
+        {current ? 'Current Plan' : name === 'Enterprise' ? 'Contact Sales' : 'Upgrade'}
       </Button>
     </div>
   )

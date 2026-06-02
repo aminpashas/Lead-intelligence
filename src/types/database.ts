@@ -14,6 +14,8 @@ export type Organization = {
   subscription_tier: 'trial' | 'starter' | 'professional' | 'enterprise'
   subscription_status: 'active' | 'past_due' | 'canceled' | 'trialing'
   trial_ends_at: string | null
+  stripe_customer_id: string | null
+  stripe_subscription_id: string | null
   created_at: string
   updated_at: string
 }
