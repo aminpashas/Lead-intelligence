@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { validateOrgId, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
@@ -104,8 +104,13 @@ export async function POST(request: NextRequest) {
     // ── Async post-processing (non-blocking) ──
     // Run full enrichment + AI scoring pipeline after responding to the caller.
     // Only runs on newly created leads; duplicate form submissions skip re-processing.
+    //
+    // Uses `after()` (not a detached `(async()=>{})()` IIFE): on Vercel the
+    // serverless invocation is suspended once the response flushes, which can
+    // kill a floating promise mid-flight. `after()` keeps the invocation alive
+    // until this background work completes.
     if (leadId && isNew) {
-      ;(async () => {
+      after(async () => {
         try {
           // Load the full lead record needed by enrichLead
           const { data: lead } = await supabase
@@ -145,11 +150,23 @@ export async function POST(request: NextRequest) {
               ai_summary: scoreResult.summary,
             })
             .eq('id', leadId)
+
+          // Step 3: Speed-to-lead AI first outreach. Runs AFTER scoring so the
+          // setter agent has ai_score/ai_qualification in context. Isolated in
+          // its own try/catch so an outreach failure can't undo the score.
+          // Internally gated by autopilot config (must be enabled), per-lead
+          // consent flags, and TCPA quiet hours — nothing sends unless allowed.
+          try {
+            const { triggerSpeedToLead } = await import('@/lib/autopilot/speed-to-lead')
+            await triggerSpeedToLead(supabase, leadId, orgResult.orgId)
+          } catch (err) {
+            console.warn('[qualify] Speed-to-lead error:', err instanceof Error ? err.message : err)
+          }
         } catch (err) {
           // Non-blocking — log but never surface to the form submitter
           console.warn('[qualify] Post-processing error:', err instanceof Error ? err.message : err)
         }
-      })()
+      })
     }
 
     // Return immediately with a provisional score so the form response is instant.
