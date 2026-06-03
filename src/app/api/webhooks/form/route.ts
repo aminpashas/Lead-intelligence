@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { webhookLeadSchema } from '@/lib/validators/lead'
 import { scoreLead } from '@/lib/ai/scoring'
@@ -168,30 +168,6 @@ export async function POST(request: NextRequest) {
     'PHI ingested via form webhook (encrypted at rest)',
   )
 
-  // Auto-enrich the lead asynchronously (before scoring for better data)
-  try {
-    await enrichLead(supabase, lead)
-  } catch {
-    // Enrichment failure shouldn't block lead creation
-  }
-
-  // Auto-score the lead asynchronously (now with enrichment data available)
-  try {
-    const scoreResult = await scoreLead(lead, supabase)
-    await supabase
-      .from('leads')
-      .update({
-        ai_score: scoreResult.total_score,
-        ai_qualification: scoreResult.qualification,
-        ai_score_breakdown: { dimensions: scoreResult.dimensions, confidence: scoreResult.confidence },
-        ai_score_updated_at: new Date().toISOString(),
-        ai_summary: scoreResult.summary,
-      })
-      .eq('id', lead.id)
-  } catch {
-    // Scoring failure shouldn't block lead creation
-  }
-
   // Append-only event for Phase 2 CAPI/Google Ads forwarders + analytics
   try {
     await supabase.from('events').insert({
@@ -215,13 +191,49 @@ export async function POST(request: NextRequest) {
     // Events insert is best-effort; analytics will catch up via lead_activities
   }
 
-  // Speed-to-lead: AI auto-outreach to new leads (awaited, gated by 60-second SLA per brief §2.2)
-  try {
-    const { triggerSpeedToLead } = await import('@/lib/autopilot/speed-to-lead')
-    await triggerSpeedToLead(supabase, lead.id, orgResult.orgId)
-  } catch {
-    // Speed-to-lead failure shouldn't block lead creation
-  }
+  // Heavy post-capture work runs AFTER the HTTP response is returned, so the
+  // webhook caller (form / ad platform) gets a fast 201 ack instead of waiting
+  // ~15-20s on external enrichment + AI scoring + outreach. `after()` keeps the
+  // serverless invocation alive until this finishes (unlike a detached promise).
+  //
+  // Order is intentional and must be preserved:
+  //   1. enrich  — writes lead_enrichment rows (email/phone/IP/credit signals)
+  //   2. score   — reads those signals back; persists ai_score / ai_qualification
+  //   3. speed-to-lead — setter agent consumes ai_score/ai_qualification, so it
+  //      must run AFTER scoring or it sends an "unscored" first message.
+  after(async () => {
+    // 1. Enrich (external providers — slowest step)
+    try {
+      await enrichLead(supabase, lead)
+    } catch {
+      // Enrichment failure is non-fatal
+    }
+
+    // 2. Score (now with enrichment data available)
+    try {
+      const scoreResult = await scoreLead(lead, supabase)
+      await supabase
+        .from('leads')
+        .update({
+          ai_score: scoreResult.total_score,
+          ai_qualification: scoreResult.qualification,
+          ai_score_breakdown: { dimensions: scoreResult.dimensions, confidence: scoreResult.confidence },
+          ai_score_updated_at: new Date().toISOString(),
+          ai_summary: scoreResult.summary,
+        })
+        .eq('id', lead.id)
+    } catch {
+      // Scoring failure is non-fatal
+    }
+
+    // 3. Speed-to-lead: AI auto-outreach (well within the 5-minute SLA)
+    try {
+      const { triggerSpeedToLead } = await import('@/lib/autopilot/speed-to-lead')
+      await triggerSpeedToLead(supabase, lead.id, orgResult.orgId)
+    } catch {
+      // Speed-to-lead failure is non-fatal
+    }
+  })
 
   // Dispatch to external connectors (non-blocking)
   try {
