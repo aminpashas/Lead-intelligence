@@ -27,12 +27,11 @@ import { logger } from '@/lib/logger'
 export async function POST(request: NextRequest) {
   const rawBody = await request.text()
 
-  // Verify webhook signature in production
-  if (process.env.NODE_ENV === 'production') {
-    const signature = request.headers.get('x-retell-signature') || ''
-    if (!verifyRetellWebhook(rawBody, signature)) {
-      return new NextResponse('Invalid signature', { status: 401 })
-    }
+  // Verify webhook signature. verifyRetellWebhook fails closed in production and
+  // is a no-op only in non-production, so we always call it (no NODE_ENV gate here).
+  const signature = request.headers.get('x-retell-signature') || ''
+  if (!(await verifyRetellWebhook(rawBody, signature))) {
+    return new NextResponse('Invalid signature', { status: 401 })
   }
 
   let retellRequest: RetellLLMRequest
