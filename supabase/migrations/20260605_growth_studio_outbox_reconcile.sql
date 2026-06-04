@@ -86,7 +86,7 @@ begin
           -- Re-issue the same writeback and capture the NEW request id so the next
           -- sweep tracks the retry rather than the original (already-resolved) call.
           body := jsonb_build_object(
-            'customer_id', null,
+            'customer_id', rec.organization_id,
             'stage',       rec.stage,
             'lead_id',     rec.external_ref,
             'value_cents', rec.value_cents,

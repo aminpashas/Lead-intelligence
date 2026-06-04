@@ -23,8 +23,9 @@ create index if not exists idx_leads_external_ref on public.leads (external_ref)
 
 -- 2. Delivery / audit outbox ----------------------------------------------------
 create table if not exists public.growth_studio_outbox (
-  id           uuid primary key default gen_random_uuid(),
-  lead_id      uuid,
+  id              uuid primary key default gen_random_uuid(),
+  organization_id uuid,
+  lead_id         uuid,
   external_ref text,
   stage        text,
   value_cents  bigint,
@@ -35,6 +36,9 @@ create table if not exists public.growth_studio_outbox (
   created_at   timestamptz default now(),
   delivered_at timestamptz
 );
+-- Defensive: ensure organization_id exists even if the table predates this column
+-- (so the reconcile retry can replay customer_id instead of sending null).
+alter table public.growth_studio_outbox add column if not exists organization_id uuid;
 alter table public.growth_studio_outbox enable row level security;
 -- No policies → service role / definer functions only (same posture as the config table).
 create index if not exists idx_gs_outbox_status on public.growth_studio_outbox (status);
@@ -130,9 +134,9 @@ begin
   );
 
   insert into public.growth_studio_outbox
-    (lead_id, external_ref, stage, value_cents, request_id, status, attempts)
+    (organization_id, lead_id, external_ref, stage, value_cents, request_id, status, attempts)
   values
-    (new.id, dgs_id, canonical, val_cents, req_id, 'pending', 1);
+    (new.organization_id, new.id, dgs_id, canonical, val_cents, req_id, 'pending', 1);
 
   return new;
 end;
