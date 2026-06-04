@@ -116,6 +116,12 @@ export async function POST(request: NextRequest) {
     phone: parsed.data.phone,
     phone_formatted: phoneFormatted,
     ip_address: ipAddress,
+    // Attribution: only the raw fields are written here. `leads.source_id` (FK to
+    // lead_sources) is resolved automatically by the BEFORE INSERT trigger
+    // `resolve_lead_source_id` (migration: add_lead_source_resolver_trigger).
+    // The cascade is: (utm_source, utm_medium) → source_type → metadata override → 'Unknown'.
+    // If you need to override the resolved source from app code, set source_id explicitly
+    // and the trigger will short-circuit.
     source_type: parsed.data.source_type || 'website_form',
     utm_source: parsed.data.utm_source,
     utm_medium: parsed.data.utm_medium,

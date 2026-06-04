@@ -29,7 +29,7 @@ export async function GET(
   // Get organization info
   const { data: org } = await supabase
     .from('organizations')
-    .select('name, phone, email, address')
+    .select('name, phone, email, address, logo_url')
     .eq('id', orgId)
     .single()
 
@@ -71,6 +71,7 @@ export async function GET(
       phone: org.phone,
       email: org.email,
       location: settings.location,
+      logo_url: org.logo_url,
     },
     settings: {
       slot_duration_minutes: settings.slot_duration_minutes,

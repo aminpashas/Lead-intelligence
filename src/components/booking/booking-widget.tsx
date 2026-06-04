@@ -28,7 +28,7 @@ type SlotDay = {
 }
 
 type BookingData = {
-  organization: { name: string; phone: string | null; email: string | null; location: string | null }
+  organization: { name: string; phone: string | null; email: string | null; location: string | null; logo_url: string | null }
   settings: { slot_duration_minutes: number; timezone: string; booking_message: string | null }
   slots: SlotDay[]
 }
@@ -159,6 +159,15 @@ export function BookingWidget({ orgId }: { orgId: string }) {
     <div className="max-w-2xl mx-auto">
       {/* Header */}
       <div className="text-center mb-8">
+        {organization.logo_url && (
+          // Plain <img>: avoids next/image SVG rasterization and external-host config.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={organization.logo_url}
+            alt={`${organization.name} logo`}
+            className="h-12 mx-auto mb-3 object-contain"
+          />
+        )}
         <h1 className="text-3xl font-bold">{organization.name}</h1>
         <p className="text-muted-foreground mt-2">
           Book your free {settings.slot_duration_minutes}-minute consultation
