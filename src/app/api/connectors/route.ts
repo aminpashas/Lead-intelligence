@@ -192,6 +192,41 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid connector type' }, { status: 400 })
   }
 
+  // Best-effort: revoke the OAuth token at the provider BEFORE deleting the row,
+  // so disconnecting actually invalidates access rather than just forgetting the
+  // token (which would otherwise stay live for up to ~60 days).
+  if (connectorType === 'google_ads' || connectorType === 'meta_capi') {
+    try {
+      const { data: cfg } = await supabase
+        .from('connector_configs')
+        .select('credentials')
+        .eq('organization_id', orgId)
+        .eq('connector_type', connectorType)
+        .maybeSingle()
+      if (cfg?.credentials) {
+        const { decryptCredentials } = await import('@/lib/connectors/crypto')
+        const creds = decryptCredentials(cfg.credentials as Record<string, unknown>) as {
+          access_token?: string; refresh_token?: string
+        }
+        const token = creds.refresh_token || creds.access_token
+        if (token) {
+          if (connectorType === 'google_ads') {
+            await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+              method: 'POST', signal: AbortSignal.timeout(5000),
+            }).catch(() => {})
+          } else {
+            // Meta: drop all app permissions for the user holding this token.
+            await fetch(`https://graph.facebook.com/v19.0/me/permissions?access_token=${encodeURIComponent(token)}`, {
+              method: 'DELETE', signal: AbortSignal.timeout(5000),
+            }).catch(() => {})
+          }
+        }
+      }
+    } catch {
+      // Revocation is best-effort — never block the disconnect.
+    }
+  }
+
   const { error } = await supabase
     .from('connector_configs')
     .delete()

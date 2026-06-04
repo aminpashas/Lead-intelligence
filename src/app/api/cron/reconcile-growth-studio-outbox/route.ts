@@ -11,22 +11,16 @@
  * (or the trigger's own pg_net post) is deduped on the DGS side.
  *
  * Schedule: every 10 minutes (vercel.json → /api/cron/reconcile-growth-studio-outbox).
+ * Heartbeats to cron_runs via withCron — a stale heartbeat means writeback delivery
+ * has silently stopped.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { withCron } from '@/lib/cron/with-cron'
 
 const BATCH_SIZE = 50
 const MAX_ATTEMPTS = 8
 
-export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const supabase = createServiceClient()
-
+export const POST = withCron('reconcile-growth-studio-outbox', async ({ supabase }) => {
   const { data: cfg } = await supabase
     .from('growth_studio_webhook_config')
     .select('url, bearer, enabled')
@@ -34,7 +28,7 @@ export async function POST(request: NextRequest) {
     .maybeSingle()
 
   if (!cfg || !cfg.enabled) {
-    return NextResponse.json({ processed: 0, reason: 'not_armed' })
+    return { status: 'skipped', items: 0, data: { processed: 0, reason: 'not_armed' } }
   }
 
   const { data: rows, error } = await supabase
@@ -45,8 +39,9 @@ export async function POST(request: NextRequest) {
     .order('created_at', { ascending: true })
     .limit(BATCH_SIZE)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!rows || rows.length === 0) return NextResponse.json({ processed: 0 })
+  // Throw so withCron records a 'failed' heartbeat + Sentry, instead of a silent 500.
+  if (error) throw new Error(`outbox query failed: ${error.message}`)
+  if (!rows || rows.length === 0) return { items: 0, data: { processed: 0 } }
 
   let delivered = 0
   let failed = 0
@@ -81,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ processed: rows.length, delivered, failed })
-}
+  return { items: rows.length, data: { processed: rows.length, delivered, failed } }
+})
 
 export const GET = POST

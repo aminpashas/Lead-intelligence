@@ -21,14 +21,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type Stripe from 'stripe'
 import { createServiceClient } from '@/lib/supabase/server'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { identifyOrgFromStripeSignature, getStripeClient, type StripeConfig } from '@/lib/stripe/client'
 import { searchHash } from '@/lib/encryption'
 import { logger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-stripe')
   if (rlError) return rlError
 
   const rawBody = await request.text()

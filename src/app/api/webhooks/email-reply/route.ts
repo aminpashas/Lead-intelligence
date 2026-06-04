@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { exitCampaignsOnReply } from '@/lib/campaigns/enrollments'
 import { searchHash } from '@/lib/encryption'
@@ -29,7 +29,7 @@ function timingSafeBearer(authHeader: string | null, secret: string | undefined)
  */
 
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-email-reply')
   if (rlError) return rlError
 
   // Verify webhook secret (fail-closed if WEBHOOK_SECRET is unset; timing-safe).

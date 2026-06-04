@@ -21,7 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'node:crypto'
 import * as React from 'react'
 import { createServiceClient } from '@/lib/supabase/server'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { exitAllCampaigns } from '@/lib/campaigns/enrollments'
 import { logger } from '@/lib/logger'
@@ -55,7 +55,7 @@ type CalWebhookPayload = {
 }
 
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-cal')
   if (rlError) return rlError
 
   const rawBody = await request.text()

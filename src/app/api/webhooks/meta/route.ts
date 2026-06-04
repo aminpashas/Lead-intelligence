@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { scoreLead } from '@/lib/ai/scoring'
-import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, applyRateLimit } from '@/lib/webhooks/verify'
+import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
 
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 // POST /api/webhooks/meta - Meta Lead Ads webhook
 export async function POST(request: NextRequest) {
   // Rate limit
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-meta')
   if (rlError) return rlError
 
   // Read raw body for signature verification

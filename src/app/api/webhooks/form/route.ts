@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { webhookLeadSchema } from '@/lib/validators/lead'
 import { scoreLead } from '@/lib/ai/scoring'
 import { enrichLead } from '@/lib/enrichment'
-import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
+import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { formatToE164 } from '@/lib/leads/phone'
@@ -30,7 +30,7 @@ import { logger } from '@/lib/logger'
 // Supports: Custom forms, Typeform, JotForm, Google Forms, landing pages
 export async function POST(request: NextRequest) {
   // Rate limit
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-form')
   if (rlError) return rlError
 
   // Read raw body for signature verification (must be before .json())

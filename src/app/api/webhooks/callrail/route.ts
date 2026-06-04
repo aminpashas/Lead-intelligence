@@ -22,7 +22,7 @@
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptLeadPII } from '@/lib/encryption'
 import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
@@ -70,7 +70,7 @@ type CallRailEvent = {
 }
 
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-callrail')
   if (rlError) return rlError
 
   const supabase = await createClient()

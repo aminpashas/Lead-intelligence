@@ -1,20 +1,12 @@
 /**
  * Brex daily expense sync.
- * Vercel cron: 06:00 UTC daily (after Windsor at 05:00).
+ * Vercel cron: 06:00 UTC daily (after Windsor at 05:00). Heartbeats via withCron.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { withCron } from '@/lib/cron/with-cron'
 import { getBrexConfig, runBrexSync } from '@/lib/connectors/brex/client'
 
-export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const supabase = createServiceClient()
-
+export const POST = withCron('brex-sync', async ({ supabase }) => {
   const { data: orgs } = await supabase
     .from('connector_configs')
     .select('organization_id')
@@ -22,7 +14,7 @@ export async function POST(request: NextRequest) {
     .eq('enabled', true)
 
   if (!orgs || orgs.length === 0) {
-    return NextResponse.json({ message: 'No Brex connectors configured', orgs: 0 })
+    return { status: 'skipped', items: 0, data: { message: 'No Brex connectors configured', orgs: 0 } }
   }
 
   const results: Array<{ organization_id: string; result: unknown }> = []
@@ -37,7 +29,7 @@ export async function POST(request: NextRequest) {
     results.push({ organization_id: org.organization_id, result })
   }
 
-  return NextResponse.json({ orgs: results.length, results })
-}
+  return { items: results.length, data: { orgs: results.length, results } }
+})
 
 export const GET = POST

@@ -22,7 +22,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/server'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { upsertCareStackPatient } from '@/lib/ehr/carestack/match'
 import { logger } from '@/lib/logger'
@@ -34,7 +34,7 @@ type CareStackEvent = {
 }
 
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-carestack')
   if (rlError) return rlError
 
   const rawBody = await request.text()
@@ -84,6 +84,21 @@ export async function POST(request: NextRequest) {
   if (Number.isFinite(ts) && Math.abs(Date.now() / 1000 - ts) > 5 * 60) {
     logger.warn('Stale CareStack webhook', { organizationId, event: event.event, ts })
     // Accept but flag — we don't reject because clock drift on either side can happen.
+  }
+
+  // Replay protection: dedupe on a hash of the signed body. INSERT-first so a
+  // replayed (verbatim) webhook conflicts on the PK and is processed exactly once
+  // — otherwise a captured signed event can be replayed to inflate leads/conversions.
+  const eventHash = crypto.createHash('sha256').update(`${accountIdHeader}:${rawBody}`).digest('hex')
+  const { error: dedupeErr } = await supabase
+    .from('processed_webhook_events')
+    .insert({ organization_id: organizationId, source: 'carestack', event_hash: eventHash })
+  if (dedupeErr) {
+    // Unique-violation (23505) → already processed. Anything else: log and continue.
+    if (dedupeErr.code === '23505') {
+      return NextResponse.json({ received: true, duplicate: true })
+    }
+    logger.warn('CareStack dedupe insert failed (processing anyway)', { organizationId, error: dedupeErr.message })
   }
 
   const eventName = event.event || ''

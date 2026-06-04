@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { exitCampaignsOnReply } from '@/lib/campaigns/enrollments'
 import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
@@ -79,7 +79,7 @@ function verifyResendSignature(rawBody: string, headers: Headers): boolean {
 
 // POST /api/webhooks/resend — Incoming email events from Resend
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-resend')
   if (rlError) return rlError
 
   const rawBody = await request.text()

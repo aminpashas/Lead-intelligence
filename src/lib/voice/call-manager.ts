@@ -18,6 +18,7 @@ import {
   type RetellCallConfig,
 } from './retell-client'
 import { decryptField, searchHash } from '@/lib/encryption'
+import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
 import { logger } from '@/lib/logger'
@@ -76,8 +77,23 @@ export async function preCallCheck(
 
   // Consent check — require explicit voice consent OR SMS consent as fallback
   // (TCPA requires prior express consent for autodialed calls)
+  // NOTE: SMS consent is a weak substitute for voice-autodial consent; consider
+  // requiring voice_consent outright once enough leads carry it.
   if (!lead.voice_consent && !lead.sms_consent) {
     return { allowed: false, reason: 'no_consent' }
+  }
+
+  // TCPA calling window: no autodialed calls before 8am / after 9pm in the lead's
+  // local time. Previously only the campaign dialer enforced this — manual and
+  // speed-to-lead calls bypassed it. Centralized here so every outbound path is covered.
+  const callWindow = checkSendWindow({
+    start_hour: 8,
+    end_hour: 21,
+    timezone: lead.timezone || 'America/New_York',
+    days: [0, 1, 2, 3, 4, 5, 6],
+  })
+  if (!callWindow.allowed) {
+    return { allowed: false, reason: 'outside_calling_hours' }
   }
 
   // Phone number check

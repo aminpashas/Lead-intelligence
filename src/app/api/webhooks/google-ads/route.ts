@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { scoreLead } from '@/lib/ai/scoring'
-import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
+import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
 
@@ -9,7 +9,7 @@ import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors
 // Google Ads sends lead form extensions data via webhook
 export async function POST(request: NextRequest) {
   // Rate limit
-  const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-google-ads')
   if (rlError) return rlError
 
   // Read raw body for signature verification

@@ -12,22 +12,15 @@
  * and ships to Meta CAPI / Google Ads as Purchase / value-bearing conversions.
  *
  * Vercel cron: 30 04 * * * (04:30 UTC daily) — runs before forward-events
- * (every 15 min) so newly emitted events get one ship attempt within ~15 min.
+ * (every 2 min) so newly emitted events get one ship attempt within minutes.
+ * Heartbeats to cron_runs via withCron.
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { withCron } from '@/lib/cron/with-cron'
 import { getCareStackConfig } from '@/lib/ehr/carestack/client'
 import { syncPatients, syncTreatmentProcedures, syncInvoices } from '@/lib/ehr/carestack/sync'
 
-export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const supabase = createServiceClient()
-
+export const POST = withCron('carestack-sync', async ({ supabase }) => {
   // All orgs with a CareStack connector configured AND enabled.
   const { data: orgs } = await supabase
     .from('connector_configs')
@@ -36,7 +29,7 @@ export async function POST(request: NextRequest) {
     .eq('enabled', true)
 
   if (!orgs || orgs.length === 0) {
-    return NextResponse.json({ message: 'No CareStack integrations configured', orgs: 0 })
+    return { status: 'skipped', items: 0, data: { message: 'No CareStack integrations configured', orgs: 0 } }
   }
 
   const results: Array<{
@@ -76,7 +69,7 @@ export async function POST(request: NextRequest) {
     results.push({ organization_id: org.organization_id, runs })
   }
 
-  return NextResponse.json({ orgs: results.length, results })
-}
+  return { items: results.length, data: { orgs: results.length, results } }
+})
 
 export const GET = POST
