@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
@@ -176,8 +176,15 @@ export async function POST(request: NextRequest) {
         { supabase, organizationId: lead.organization_id, actorType: 'user' },
         'lead', lead_id, 'twilio_sms', ['phone']
       )
-      await sendSMS(phone, smsBody)
-      sentVia.push('sms')
+      const sendRes = await sendSMSToLead({ supabase, leadId: lead_id, to: phone, body: smsBody, caller: 'financing.send-link' })
+      if (!sendRes.sent) {
+        if (channel === 'sms') {
+          return NextResponse.json({ error: 'Message blocked — no SMS consent or opted out', reason: sendRes.reason }, { status: 403 })
+        }
+        // 'both' → fall through to email
+      } else {
+        sentVia.push('sms')
+      }
     } catch {
       if (channel === 'sms') {
         return NextResponse.json({ error: 'Failed to send SMS' }, { status: 500 })

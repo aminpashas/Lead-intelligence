@@ -1,8 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { buildFinancingBreakdown, type BreakdownOptions } from '@/lib/financing/calculator'
 import { generatePatientFinancingSummary } from '@/lib/financing/patient-summary'
 import type { LenderSlug } from '@/lib/financing/types'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
+
+const MAX_TREATMENT_VALUE = 250_000
+
+const breakdownSchema = z.object({
+  treatment_value: z.number().positive().max(MAX_TREATMENT_VALUE),
+  insurance_estimate: z.number().nonnegative().max(MAX_TREATMENT_VALUE).optional(),
+  patient_cash: z.number().nonnegative().max(MAX_TREATMENT_VALUE).optional(),
+  hsa_fsa: z.number().nonnegative().max(MAX_TREATMENT_VALUE).optional(),
+  other_credits: z.number().nonnegative().max(MAX_TREATMENT_VALUE).optional(),
+  active_lenders: z.array(z.string()).optional(),
+  first_name: z.string().max(100).optional(),
+})
 
 /**
  * GET /api/financing/breakdown?lead_id=X
@@ -82,20 +97,33 @@ export async function GET(request: NextRequest) {
  * Custom calculation with explicit overrides.
  */
 export async function POST(request: NextRequest) {
-  const body = await request.json() as Record<string, unknown>
+  // Rate limit (this endpoint calls the LLM, so it's abuse/cost-sensitive).
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.api, 'financing-breakdown')
+  if (rlError) return rlError
 
-  const treatmentValue = body.treatment_value as number
-  if (!treatmentValue || treatmentValue <= 0) {
-    return NextResponse.json({ error: 'treatment_value must be a positive number' }, { status: 400 })
+  // Require an authenticated org member — the previous handler was fully open.
+  const supabase = await createClient()
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('organization_id')
+    .single()
+
+  if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const parsed = breakdownSchema.safeParse(await request.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
 
   const options: BreakdownOptions = {
-    treatment_value: treatmentValue,
-    insurance_estimate: typeof body.insurance_estimate === 'number' ? body.insurance_estimate : undefined,
-    patient_cash: typeof body.patient_cash === 'number' ? body.patient_cash : undefined,
-    hsa_fsa: typeof body.hsa_fsa === 'number' ? body.hsa_fsa : undefined,
-    other_credits: typeof body.other_credits === 'number' ? body.other_credits : undefined,
-    active_lenders: Array.isArray(body.active_lenders) ? body.active_lenders as LenderSlug[] : undefined,
+    treatment_value: parsed.data.treatment_value,
+    insurance_estimate: parsed.data.insurance_estimate,
+    patient_cash: parsed.data.patient_cash,
+    hsa_fsa: parsed.data.hsa_fsa,
+    other_credits: parsed.data.other_credits,
+    active_lenders: parsed.data.active_lenders as LenderSlug[] | undefined,
   }
 
   const breakdown = buildFinancingBreakdown(options)
@@ -104,7 +132,7 @@ export async function POST(request: NextRequest) {
   let patientSummary: string | null = null
   try {
     patientSummary = await generatePatientFinancingSummary(breakdown, {
-      firstName: body.first_name as string,
+      firstName: parsed.data.first_name,
     })
   } catch {
     // Optional

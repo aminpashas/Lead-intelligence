@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { z } from 'zod'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
@@ -15,7 +15,7 @@ const sendSMSSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.api)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.api, 'sms-send')
   if (rlError) return rlError
 
   const supabase = await createClient()
@@ -36,11 +36,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Get lead
+  // Get lead — scoped to caller's org (defense-in-depth beyond RLS)
   const { data: lead } = await supabase
     .from('leads')
     .select('id, phone_formatted, phone, first_name, last_name, organization_id')
     .eq('id', parsed.data.lead_id)
+    .eq('organization_id', profile.organization_id)
     .single()
 
   if (!lead || !lead.phone_formatted) {
@@ -84,8 +85,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // HIPAA audit: PHI transmitted to Twilio
-    auditPHITransmission(
+    // HIPAA audit: PHI transmitted to Twilio. Awaited so an audit-write failure
+    // fails the send closed rather than silently dropping the disclosure record.
+    await auditPHITransmission(
       { supabase, organizationId: lead.organization_id, actorId: profile.id },
       'lead',
       lead.id,
@@ -93,11 +95,27 @@ export async function POST(request: NextRequest) {
       ['phone'],
     )
 
-    // Send via Twilio
-    const result = await withRetry(
-      () => sendSMS(lead.phone_formatted, parsed.data.message),
+    // Send via Twilio — HARD consent gate (TCPA). Refuses if the lead has not
+    // granted SMS consent or has opted out, and logs a consent_violation_prevented row.
+    const sendResult = await withRetry(
+      () => sendSMSToLead({
+        supabase,
+        leadId: lead.id,
+        to: lead.phone_formatted,
+        body: parsed.data.message,
+        caller: 'api.sms.send',
+        aiGenerated: parsed.data.ai_generated,
+      }),
       RETRY_CONFIGS.twilio
     )
+
+    if (!sendResult.sent) {
+      return NextResponse.json(
+        { error: 'Message blocked', reason: sendResult.reason },
+        { status: 403 }
+      )
+    }
+    const result = { sid: sendResult.sid }
 
     // Store message
     const { data: message } = await supabase

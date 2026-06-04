@@ -12,7 +12,7 @@ import { FUNNEL_STAGES, type StageAction } from '@/lib/funnel/stages'
 import { processTriggerCampaigns, type TriggerEvent } from './triggers'
 import { exitAllCampaigns } from './enrollments'
 import { processTemplate, buildTemplateContext, type TemplateContext } from './template'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 
@@ -129,7 +129,9 @@ async function executeEntryAction(
       if (!action.template || !lead.phone_formatted) return
       if (lead.sms_opt_out || !lead.sms_consent) return
       const message = processTemplate(action.template, templateCtx)
-      await sendSMS(lead.phone_formatted as string, message)
+      await sendSMSToLead({
+        supabase, leadId: lead.id as string, to: lead.phone_formatted as string, body: message, caller: 'campaign.stage-automation',
+      })
 
       // Store as message
       const { data: convo } = await supabase

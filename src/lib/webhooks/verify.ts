@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { checkRateLimit, type RateLimitConfig, RATE_LIMITS } from '@/lib/rate-limit'
+import { checkRateLimit, checkRateLimitRedis, type RateLimitConfig, RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
  * Verify HMAC-SHA256 webhook signature.
@@ -139,6 +139,42 @@ export function applyRateLimit(
     'unknown'
 
   const result = checkRateLimit(ip, config)
+  if (!result.allowed) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil((result.resetAt - Date.now()) / 1000)),
+          'X-RateLimit-Remaining': '0',
+        },
+      }
+    )
+  }
+
+  return null
+}
+
+/**
+ * Distributed rate limit (Redis-backed, global across serverless instances) with
+ * an in-memory fallback. Use on abuse/cost-sensitive routes (mass send, public
+ * forms, paid actions) where a per-instance cap is not enough.
+ *
+ * Pass `keyPrefix` to namespace the limit (e.g. 'sms-mass') so different routes
+ * sharing an IP don't drain each other's budget.
+ */
+export async function applyDistributedRateLimit(
+  request: NextRequest,
+  config: RateLimitConfig = RATE_LIMITS.api,
+  keyPrefix = 'rl',
+): Promise<NextResponse | null> {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown'
+
+  const key = `${keyPrefix}:${ip}`
+  const result = (await checkRateLimitRedis(key, config)) ?? checkRateLimit(key, config)
+
   if (!result.allowed) {
     return NextResponse.json(
       { error: 'Too many requests' },

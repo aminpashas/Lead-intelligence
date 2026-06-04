@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { getLenderAdapter } from '@/lib/financing/adapters'
-import { API_LENDER_SLUGS } from '@/lib/financing/adapters'
 import { resumeWaterfall, findApplicationByExternalId } from '@/lib/financing/waterfall-resume'
 import { financingWebhookBaseSchema } from '@/lib/validators/financing'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
@@ -34,7 +33,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const slug = lenderSlug as LenderSlug
     const adapter = getLenderAdapter(slug)
-    const isApiLender = API_LENDER_SLUGS.includes(slug)
 
     // Read raw body for signature verification
     const rawBody = await request.text()
@@ -48,12 +46,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const supabase = createServiceClient()
 
-    // ── Signature Verification (MANDATORY for API lenders) ──────────
-    // SEC-1: API lenders MUST have verifyWebhook. Reject unsigned payloads.
-    if (isApiLender) {
+    // ── Signature Verification (MANDATORY for EVERY slug) ──────────
+    // SEC-1: any slug that can resume the waterfall must be signature-verified.
+    // Link-based lenders (proceed, lendingclub) have no verifyWebhook, so they
+    // fail closed here rather than silently bypassing into the resume flow.
+    {
       if (!adapter.verifyWebhook) {
-        console.error(`[webhook/${slug}] CRITICAL: API lender adapter missing verifyWebhook implementation`)
-        return NextResponse.json({ error: 'Webhook verification not configured' }, { status: 500 })
+        console.error(`[webhook/${slug}] Rejecting: lender adapter has no verifyWebhook implementation (unsigned webhooks are not accepted)`)
+        return NextResponse.json({ error: 'Webhook verification not supported for this lender' }, { status: 501 })
       }
 
       const signature = request.headers.get('x-webhook-signature')

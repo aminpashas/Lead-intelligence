@@ -19,12 +19,21 @@
  * - form_submission: CallRail form fill (if using their forms)
  */
 
+import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptLeadPII } from '@/lib/encryption'
 import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
+
+/** Timing-safe string compare that tolerates length mismatches. */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  if (ab.length !== bb.length) return false
+  return crypto.timingSafeEqual(ab, bb)
+}
 
 // CallRail webhook payload types
 type CallRailEvent = {
@@ -85,15 +94,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No CallRail connector configured' }, { status: 404 })
   }
 
-  // Match by company ID or take first configured org.
-  // Credentials are AES-GCM encrypted at rest — decrypt per row before
-  // comparing companyId. decryptCredentials is a passthrough for plaintext
-  // values, so rows written before encryption shipped still match.
+  // Match strictly by company_id. CallRail does not sign its webhooks, so the
+  // company_id match is the primary tenant binding. The previous `|| config[0]`
+  // fallback let an attacker inject leads into an arbitrary org by sending any
+  // payload — removed: no match → reject.
   const { decryptCredentials } = await import('@/lib/connectors/crypto')
   const matchedConfig = config.find(c => {
     const creds = decryptCredentials(c.credentials as Record<string, unknown>) as { companyId?: string }
-    return creds.companyId === body.company_id
-  }) || config[0]
+    return !!creds.companyId && creds.companyId === body.company_id
+  })
+
+  if (!matchedConfig) {
+    return NextResponse.json({ error: 'No matching CallRail configuration' }, { status: 404 })
+  }
+
+  // Optional shared secret: if the connector has a `webhookToken` configured,
+  // require it (via ?token= or X-Webhook-Token) so the company_id alone can't be
+  // spoofed. Configure the token into the CallRail webhook URL when setting it up.
+  const matchedCreds = decryptCredentials(matchedConfig.credentials as Record<string, unknown>) as { webhookToken?: string }
+  if (matchedCreds.webhookToken) {
+    const provided = new URL(request.url).searchParams.get('token')
+      || request.headers.get('x-webhook-token')
+      || ''
+    if (!provided || !safeEqual(provided, matchedCreds.webhookToken)) {
+      return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401 })
+    }
+  } else {
+    console.warn(`[webhook/callrail] org ${matchedConfig.organization_id} has no webhookToken configured — relying on company_id match only`)
+  }
 
   const orgId = matchedConfig.organization_id
 

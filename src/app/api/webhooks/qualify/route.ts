@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { z } from 'zod'
-import { validateOrgId, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
+import { validateOrgId, validateCustomFields, applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptField } from '@/lib/encryption'
 
@@ -33,8 +33,21 @@ const qualifySchema = z.object({
 
 export async function POST(request: NextRequest) {
   // Rate limit — stricter for public form (10 req/min)
-  const rlError = applyRateLimit(request, RATE_LIMITS.publicForm)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.publicForm, 'qualify')
   if (rlError) return rlError
+
+  // This is a public, browser-submitted form (no client secret possible), so the
+  // primary abuse control is the rate limiter above. As optional defense-in-depth,
+  // when QUALIFY_ALLOWED_ORIGINS is configured we reject requests from other
+  // origins. Unset → allow all (default, non-breaking).
+  const allowedOrigins = process.env.QUALIFY_ALLOWED_ORIGINS
+  if (allowedOrigins) {
+    const origin = request.headers.get('origin')
+    const allow = allowedOrigins.split(',').map((o) => o.trim()).filter(Boolean)
+    if (origin && !allow.includes(origin)) {
+      return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+    }
+  }
 
   const body = await request.json()
 

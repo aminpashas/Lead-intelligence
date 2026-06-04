@@ -6,7 +6,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 
@@ -40,16 +40,26 @@ async function getLeadContact(supabase: SupabaseClient, leadId: string) {
 }
 
 async function sendFollowUp(
+  ctx: FollowUpContext,
   contact: { firstName: string; phone: string | null; email: string | null },
   smsBody: string,
   emailSubject: string,
   emailHtml: string
 ): Promise<{ channel: 'sms' | 'email' | null }> {
-  // Prefer SMS for urgency, fall back to email
+  // Prefer SMS for urgency, fall back to email.
+  // SMS goes through the TCPA consent gate — if the lead hasn't consented or opted
+  // out, sendSMSToLead returns { sent: false } and we fall through to email.
   if (contact.phone) {
     try {
-      await sendSMS(contact.phone, smsBody)
-      return { channel: 'sms' }
+      const res = await sendSMSToLead({
+        supabase: ctx.supabase,
+        leadId: ctx.leadId,
+        to: contact.phone,
+        body: smsBody,
+        caller: 'financing.follow-up',
+      })
+      if (res.sent) return { channel: 'sms' }
+      /* consent denied — fall through to email */
     } catch { /* fall through to email */ }
   }
   if (contact.email) {
@@ -95,7 +105,7 @@ export async function followUpLinkNotStarted(ctx: FollowUpContext): Promise<Foll
     <p><em>This link expires in ${hoursLeft} hours.</em></p>
   `
 
-  const result = await sendFollowUp(contact, smsBody, 'Your financing options are waiting', emailHtml)
+  const result = await sendFollowUp(ctx, contact, smsBody, 'Your financing options are waiting', emailHtml)
 
   if (result.channel) {
     await ctx.supabase.from('lead_activities').insert({
@@ -138,7 +148,7 @@ export async function followUpFormAbandoned(ctx: FollowUpContext): Promise<Follo
     <p>Need help? Just reply to this email and we'll walk you through it.</p>
   `
 
-  const result = await sendFollowUp(contact, smsBody, 'You\'re almost done with your application!', emailHtml)
+  const result = await sendFollowUp(ctx, contact, smsBody, 'You\'re almost done with your application!', emailHtml)
 
   if (result.channel) {
     await ctx.supabase.from('lead_activities').insert({
@@ -180,7 +190,7 @@ export async function followUpApproved(
     <p>We're excited to help you get started on your new smile!</p>
   `
 
-  const result = await sendFollowUp(contact, smsBody, 'You\'re approved! Let\'s schedule your consultation', emailHtml)
+  const result = await sendFollowUp(ctx, contact, smsBody, 'You\'re approved! Let\'s schedule your consultation', emailHtml)
 
   if (result.channel) {
     await ctx.supabase.from('lead_activities').insert({
@@ -216,7 +226,7 @@ export async function followUpDenied(ctx: FollowUpContext): Promise<FollowUpResu
     <p>We help patients at every budget level. Reply to this email or give us a call — we'd love to find something that works for you.</p>
   `
 
-  const result = await sendFollowUp(contact, smsBody, 'Let\'s explore your financing options together', emailHtml)
+  const result = await sendFollowUp(ctx, contact, smsBody, 'Let\'s explore your financing options together', emailHtml)
 
   if (result.channel) {
     await ctx.supabase.from('lead_activities').insert({
@@ -248,7 +258,7 @@ export async function followUpPending(ctx: FollowUpContext, lenderName: string):
     <p>If you have any questions in the meantime, just reply to this email.</p>
   `
 
-  const result = await sendFollowUp(contact, smsBody, 'Your financing application is being reviewed', emailHtml)
+  const result = await sendFollowUp(ctx, contact, smsBody, 'Your financing application is being reviewed', emailHtml)
 
   return { sent: !!result.channel, channel: result.channel, message_type: 'pending' }
 }
@@ -283,7 +293,7 @@ export async function followUpApprovedNoSchedule(ctx: FollowUpContext, approvedA
     <p>We can't wait to help you get started! 😊</p>
   `
 
-  const result = await sendFollowUp(contact, smsBody, 'Your financing is approved — ready to schedule?', emailHtml)
+  const result = await sendFollowUp(ctx, contact, smsBody, 'Your financing is approved — ready to schedule?', emailHtml)
 
   if (result.channel) {
     await ctx.supabase.from('lead_activities').insert({

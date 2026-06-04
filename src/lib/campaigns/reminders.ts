@@ -17,7 +17,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as React from 'react'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { initiateConfirmationCall } from './confirmation-call'
 import {
@@ -258,7 +258,9 @@ async function send24hReminders(
       })
 
       try {
-        const result = await sendSMS(lead.phone, smsBody)
+        const sendRes = await sendSMSToLead({ supabase, leadId: lead.id, to: lead.phone, body: smsBody, caller: 'reminders.24h' })
+        if (!sendRes.sent) throw new Error(`sms_not_sent:${sendRes.reason}`)
+        const result = { sid: sendRes.sid }
 
         await supabase.from('appointment_reminders').insert({
           organization_id: orgId,
@@ -477,7 +479,12 @@ async function send1hReminders(
     })
 
     try {
-      const result = await sendSMS(lead.phone, smsBody)
+      const sendRes = await sendSMSToLead({ supabase, leadId: lead.id, to: lead.phone, body: smsBody, caller: 'reminders.1h' })
+      if (!sendRes.sent) {
+        results.push({ appointment_id: apt.id, type: '1h', channel: 'sms', status: 'skipped', detail: `consent:${sendRes.reason}` })
+        continue
+      }
+      const result = { sid: sendRes.sid }
 
       await supabase.from('appointment_reminders').insert({
         organization_id: orgId,
@@ -610,9 +617,9 @@ export async function confirmAppointment(
       })
 
       try {
-        await sendSMS(leadWithPhone.phone, confirmSms)
+        await sendSMSToLead({ supabase, leadId: lead.id, to: leadWithPhone.phone, body: confirmSms, caller: 'reminders.confirmation' })
       } catch {
-        // Non-critical
+        // Non-critical; consent denial handled inside the gate
       }
     }
   }

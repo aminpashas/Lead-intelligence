@@ -20,7 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
 import { encryptLeadPII } from '@/lib/encryption'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
@@ -515,8 +515,13 @@ async function executeCreateBooking(
     const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
     const displayTime = formatTimeDisplay(time)
 
-    sendSMS(phone, `✅ Confirmed! Your consultation at ${orgName} is booked for ${displayDate} at ${displayTime}. We look forward to seeing you!`)
-      .catch(() => { /* Non-critical */ })
+    sendSMSToLead({
+      supabase,
+      leadId: context.lead_id,
+      to: phone,
+      body: `✅ Confirmed! Your consultation at ${orgName} is booked for ${displayDate} at ${displayTime}. We look forward to seeing you!`,
+      caller: 'autopilot.book_appointment',
+    }).catch(() => { /* Non-critical; consent denial is handled inside the gate */ })
   }
 
   const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -595,10 +600,21 @@ async function executeSendFinancingLink(
 
   if (phone && typeof phone === 'string') {
     const valueText = treatmentValue ? ` for your $${treatmentValue.toLocaleString()} treatment plan` : ''
-    await sendSMS(
-      phone,
-      `Here's your personalized financing link${valueText}. See your payment options and apply in 2 minutes (soft credit check only): ${financingUrl}`
-    )
+    const sendRes = await sendSMSToLead({
+      supabase,
+      leadId: context.lead_id,
+      to: phone,
+      body: `Here's your personalized financing link${valueText}. See your payment options and apply in 2 minutes (soft credit check only): ${financingUrl}`,
+      caller: 'autopilot.send_financing_link',
+    })
+
+    if (!sendRes.sent) {
+      return {
+        success: false,
+        data: {},
+        message: 'Could not send financing link via SMS — patient has not given SMS consent or has opted out. Share the financing information verbally in the conversation.',
+      }
+    }
 
     // Log activity
     await supabase.from('lead_activities').insert({
@@ -751,7 +767,13 @@ async function executeSendSMSToLead(
   const formattedMessage = formatCustomSMS(message, leadName)
 
   try {
-    const result = await sendSMS(phone, formattedMessage)
+    const sendRes = await sendSMSToLead({
+      supabase, leadId: context.lead_id, to: phone, body: formattedMessage, caller: 'autopilot.send_sms_to_lead',
+    })
+    if (!sendRes.sent) {
+      return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Provide the information verbally instead.' }
+    }
+    const result = { sid: sendRes.sid }
 
     // Store message record
     const messageId = await storeOutboundMessage(supabase, {
@@ -943,7 +965,13 @@ async function executeSendPracticeInfo(
     }
 
     const smsContent = formatAssetForSMS(practiceInfo, leadName, orgName)
-    const result = await sendSMS(phone, smsContent)
+    const sendRes = await sendSMSToLead({
+      supabase, leadId: context.lead_id, to: phone, body: smsContent, caller: 'autopilot.send_asset',
+    })
+    if (!sendRes.sent) {
+      return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Share verbally instead.' }
+    }
+    const result = { sid: sendRes.sid }
 
     const messageId = await storeOutboundMessage(supabase, {
       organization_id: context.organization_id,
@@ -1048,7 +1076,13 @@ async function executeSendTestimonial(
     }
 
     const smsContent = formatAssetForSMS(testimonial, leadName, orgName)
-    const result = await sendSMS(phone, smsContent)
+    const sendRes = await sendSMSToLead({
+      supabase, leadId: context.lead_id, to: phone, body: smsContent, caller: 'autopilot.send_asset',
+    })
+    if (!sendRes.sent) {
+      return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Share verbally instead.' }
+    }
+    const result = { sid: sendRes.sid }
 
     const messageId = await storeOutboundMessage(supabase, {
       organization_id: context.organization_id,
@@ -1152,7 +1186,13 @@ async function executeSendBeforeAfter(
     }
 
     const smsContent = formatAssetForSMS(photo, leadName, orgName)
-    const result = await sendSMS(phone, smsContent)
+    const sendRes = await sendSMSToLead({
+      supabase, leadId: context.lead_id, to: phone, body: smsContent, caller: 'autopilot.send_asset',
+    })
+    if (!sendRes.sent) {
+      return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Share verbally instead.' }
+    }
+    const result = { sid: sendRes.sid }
 
     const messageId = await storeOutboundMessage(supabase, {
       organization_id: context.organization_id,
@@ -1313,7 +1353,10 @@ async function executeSendPreopInstructions(
 
   if ((channel === 'sms' || channel === 'both') && decryptedPhone) {
     try {
-      await sendSMS(decryptedPhone, preOpSMS)
+      const sendRes = await sendSMSToLead({
+        supabase, leadId: context.lead_id, to: decryptedPhone, body: preOpSMS, caller: 'autopilot.send_preop_instructions',
+      })
+      if (!sendRes.sent) throw new Error(`sms_not_sent:${sendRes.reason}`)
       sentVia.push('SMS')
 
       await storeOutboundMessage(supabase, {

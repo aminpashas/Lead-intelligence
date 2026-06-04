@@ -14,6 +14,7 @@ import type {
   OutboundWebhookConfig,
 } from '../types'
 import { hmacSign } from '../utils'
+import { assertSafeWebhookUrl } from '../url-guard'
 
 /**
  * Send a CRM event to an outbound webhook URL.
@@ -31,6 +32,18 @@ export async function sendOutboundWebhook(
   }
 
   try {
+    // SSRF guard: reject internal / metadata / private destinations before fetching.
+    let safeUrl: URL
+    try {
+      safeUrl = await assertSafeWebhookUrl(config.url)
+    } catch (err) {
+      return {
+        connector: 'outbound_webhook',
+        success: false,
+        error: err instanceof Error ? err.message : 'Unsafe webhook URL',
+      }
+    }
+
     const payload = JSON.stringify({
       event: event.type,
       timestamp: event.timestamp,
@@ -69,20 +82,22 @@ export async function sendOutboundWebhook(
       headers['X-Webhook-Signature'] = signature
     }
 
-    const response = await fetch(config.url, {
+    const response = await fetch(safeUrl, {
       method: 'POST',
       headers,
       body: payload,
+      redirect: 'manual', // a 3xx to an internal host would re-open the SSRF hole
       signal: AbortSignal.timeout(10000), // 10s timeout
     })
 
     if (!response.ok) {
-      const errorBody = await response.text().catch(() => '')
+      // Do NOT echo the response body — for an SSRF probe it would leak the
+      // contents of the internal endpoint back to the caller.
       return {
         connector: 'outbound_webhook',
         success: false,
         statusCode: response.status,
-        error: `Webhook responded with ${response.status}: ${errorBody.substring(0, 200)}`,
+        error: `Webhook responded with ${response.status}`,
       }
     }
 

@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/messaging/resend'
 import { z } from 'zod'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
 import { personalize, PERSONALIZABLE_LEAD_SELECT, type PersonalizableLead } from '@/lib/campaigns/personalization'
+import { claimIdempotencyKey, recordIdempotencyResponse, countTodaysOutbound, DAILY_EMAIL_CAP } from '@/lib/messaging/send-guards'
 
 const massEmailSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
@@ -19,7 +20,7 @@ const massEmailSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.api)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.api, 'email-mass')
   if (rlError) return rlError
 
   const supabase = await createClient()
@@ -43,6 +44,18 @@ export async function POST(request: NextRequest) {
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Idempotency: a retried POST carrying the same Idempotency-Key must not re-send.
+  const idempotencyKey = request.headers.get('Idempotency-Key') || request.headers.get('idempotency-key')
+  if (idempotencyKey) {
+    const claim = await claimIdempotencyKey(supabase, profile.organization_id, idempotencyKey, 'email.mass')
+    if (!claim.claimed) {
+      return NextResponse.json(
+        claim.response ?? { error: 'Duplicate request — this Idempotency-Key was already processed', duplicate: true },
+        { status: claim.response ? 200 : 409 }
+      )
+    }
   }
 
   let targetLeadIds: string[] = []
@@ -89,12 +102,24 @@ export async function POST(request: NextRequest) {
 
   const sendable = leads.filter((l) => {
     const email = decryptField(l.email) || l.email
-    return email && !l.email_opt_out
+    return email && l.email_consent === true && !l.email_opt_out
   })
 
   if (sendable.length === 0) {
-    return NextResponse.json({ error: 'No sendable leads (all opted out or missing email)' }, { status: 400 })
+    return NextResponse.json({ error: 'No sendable leads (no email consent, opted out, or missing email)' }, { status: 400 })
   }
+
+  // Per-org daily email cap. Trim observably (reported in the response).
+  const sentToday = await countTodaysOutbound(supabase, profile.organization_id, 'email')
+  const remainingToday = Math.max(0, DAILY_EMAIL_CAP - sentToday)
+  if (remainingToday === 0) {
+    return NextResponse.json(
+      { error: 'Daily email limit reached for this organization', daily_cap: DAILY_EMAIL_CAP, sent_today: sentToday },
+      { status: 429 }
+    )
+  }
+  const capped = sendable.length > remainingToday
+  const recipients = capped ? sendable.slice(0, remainingToday) : sendable
 
   const { data: campaign } = await supabase
     .from('campaigns')
@@ -106,7 +131,7 @@ export async function POST(request: NextRequest) {
       channel: 'email',
       status: 'active',
       smart_list_id: smart_list_id || null,
-      total_enrolled: sendable.length,
+      total_enrolled: recipients.length,
     })
     .select('id')
     .single()
@@ -122,16 +147,19 @@ export async function POST(request: NextRequest) {
   }[] = []
 
   const results = {
-    total: sendable.length,
+    total: recipients.length,
     sent: 0,
     failed: 0,
     skipped: 0,
+    capped,
+    dropped_for_daily_cap: capped ? sendable.length - recipients.length : 0,
+    daily_cap: DAILY_EMAIL_CAP,
     errors: [] as { lead_id: string; error: string }[],
     campaign_id: campaign?.id || null,
     delivery_log: deliveryLog,
   }
 
-  for (const lead of sendable) {
+  for (const lead of recipients) {
     const email = decryptField(lead.email) || lead.email || ''
     const leadName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'Unknown'
 
@@ -240,6 +268,11 @@ export async function POST(request: NextRequest) {
         },
       })
       .eq('id', campaign.id)
+  }
+
+  // Persist the response so a duplicate retry returns it instead of re-sending.
+  if (idempotencyKey) {
+    await recordIdempotencyResponse(supabase, profile.organization_id, idempotencyKey, results)
   }
 
   return NextResponse.json(results)

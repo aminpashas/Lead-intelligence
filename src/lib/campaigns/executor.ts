@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { processTemplate, buildTemplateContext } from './template'
 import { checkSendWindow } from './send-window'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { generateLeadEngagement } from '@/lib/ai/scoring'
 import { appendEmailFooter } from '@/lib/messaging/email-footer'
@@ -201,11 +201,21 @@ async function executeOneStep(
       return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'error', detail: 'No phone number' }
     }
     try {
-      const result = await withRetry(
-        () => sendSMS(lead.phone_formatted, messageBody),
+      const sendRes = await withRetry(
+        () => sendSMSToLead({
+          supabase, leadId: lead.id, to: lead.phone_formatted, body: messageBody, caller: 'campaign.executor',
+        }),
         RETRY_CONFIGS.twilio
       )
-      externalId = result.sid
+      if (!sendRes.sent) {
+        await supabase.from('campaign_enrollments').update({
+          status: 'exited',
+          exited_at: new Date().toISOString(),
+          exit_reason: `No SMS consent or opted out (${sendRes.reason})`,
+        }).eq('id', enrollment.id)
+        return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: `SMS blocked: ${sendRes.reason}` }
+      }
+      externalId = sendRes.sid
       sendSuccess = true
     } catch (err) {
       return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'error', detail: `SMS failed: ${err instanceof Error ? err.message : 'unknown'}` }

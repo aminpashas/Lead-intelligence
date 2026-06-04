@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAssetById, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail } from '@/lib/content/delivery-templates'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 
@@ -90,7 +90,11 @@ export async function POST(request: NextRequest) {
     const smsContent = formatAssetForSMS(asset, leadName, orgName)
 
     try {
-      const result = await sendSMS(phone, smsContent)
+      const sendRes = await sendSMSToLead({ supabase, leadId: lead_id, to: phone, body: smsContent, caller: 'content.deliver' })
+      if (!sendRes.sent) {
+        return NextResponse.json({ error: 'Message blocked', reason: sendRes.reason }, { status: 403 })
+      }
+      const result = { sid: sendRes.sid }
       await incrementUsage(supabase, content_asset_id)
 
       // Store message

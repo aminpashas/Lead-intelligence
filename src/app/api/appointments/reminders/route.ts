@@ -103,10 +103,14 @@ export async function POST(request: NextRequest) {
   // Send SMS reminder
   if ((!channel || channel === 'sms') && lead.phone) {
     try {
-      const { sendSMS } = await import('@/lib/messaging/twilio')
+      const { sendSMSToLead } = await import('@/lib/messaging/twilio')
       const smsBody = `Hi ${lead.first_name || 'there'}! Reminder: your ${apt.type} at ${practiceName} is scheduled for ${dateTime}. Reply YES to confirm or call us to reschedule.`
 
-      const result = await sendSMS(lead.phone, smsBody)
+      const sendRes = await sendSMSToLead({ supabase, leadId: lead.id, to: lead.phone, body: smsBody, caller: 'appointments.reminders' })
+      if (!sendRes.sent) {
+        results.push({ channel: 'sms', status: 'skipped', detail: `consent:${sendRes.reason}` })
+      } else {
+      const result = { sid: sendRes.sid }
 
       await supabase.from('appointment_reminders').insert({
         organization_id: profile.organization_id,
@@ -120,6 +124,7 @@ export async function POST(request: NextRequest) {
       })
 
       results.push({ channel: 'sms', status: 'sent' })
+      }
     } catch (err) {
       results.push({ channel: 'sms', status: 'error', detail: err instanceof Error ? err.message : 'unknown' })
     }

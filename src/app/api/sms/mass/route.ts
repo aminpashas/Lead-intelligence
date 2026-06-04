@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { z } from 'zod'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
 import { personalize, PERSONALIZABLE_LEAD_SELECT, type PersonalizableLead } from '@/lib/campaigns/personalization'
+import { claimIdempotencyKey, recordIdempotencyResponse, countTodaysOutbound, DAILY_SMS_CAP } from '@/lib/messaging/send-guards'
 
 const massSMSSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
@@ -17,7 +18,7 @@ const massSMSSchema = z.object({
 })
 
 export async function POST(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.api)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.api, 'sms-mass')
   if (rlError) return rlError
 
   const supabase = await createClient()
@@ -41,6 +42,18 @@ export async function POST(request: NextRequest) {
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Idempotency: a retried POST carrying the same Idempotency-Key must not re-send.
+  const idempotencyKey = request.headers.get('Idempotency-Key') || request.headers.get('idempotency-key')
+  if (idempotencyKey) {
+    const claim = await claimIdempotencyKey(supabase, profile.organization_id, idempotencyKey, 'sms.mass')
+    if (!claim.claimed) {
+      return NextResponse.json(
+        claim.response ?? { error: 'Duplicate request — this Idempotency-Key was already processed', duplicate: true },
+        { status: claim.response ? 200 : 409 }
+      )
+    }
   }
 
   // Resolve target leads
@@ -86,15 +99,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No leads found' }, { status: 400 })
   }
 
-  // Filter to leads with valid phone & not opted out
+  // Filter to leads with valid phone AND affirmative SMS consent AND not opted out.
+  // The authoritative TCPA check happens per-send in sendSMSToLead; this pre-filter
+  // avoids creating conversations / personalizing for leads we can't legally text.
   const sendable = leads.filter((l) => {
     const phone = decryptField(l.phone_formatted) || l.phone_formatted
-    return phone && !l.sms_opt_out
+    return phone && l.sms_consent === true && !l.sms_opt_out
   })
 
   if (sendable.length === 0) {
-    return NextResponse.json({ error: 'No sendable leads (all opted out or missing phone)' }, { status: 400 })
+    return NextResponse.json({ error: 'No sendable leads (no SMS consent, opted out, or missing phone)' }, { status: 400 })
   }
+
+  // Per-org daily SMS cap (real-money guardrail). Trim observably rather than
+  // silently — the response reports how many were dropped.
+  const sentToday = await countTodaysOutbound(supabase, profile.organization_id, 'sms')
+  const remainingToday = Math.max(0, DAILY_SMS_CAP - sentToday)
+  if (remainingToday === 0) {
+    return NextResponse.json(
+      { error: 'Daily SMS limit reached for this organization', daily_cap: DAILY_SMS_CAP, sent_today: sentToday },
+      { status: 429 }
+    )
+  }
+  const capped = sendable.length > remainingToday
+  const recipients = capped ? sendable.slice(0, remainingToday) : sendable
 
   // Create broadcast campaign for tracking
   const { data: campaign } = await supabase
@@ -107,7 +135,7 @@ export async function POST(request: NextRequest) {
       channel: 'sms',
       status: 'active',
       smart_list_id: smart_list_id || null,
-      total_enrolled: sendable.length,
+      total_enrolled: recipients.length,
     })
     .select('id')
     .single()
@@ -124,16 +152,19 @@ export async function POST(request: NextRequest) {
   }[] = []
 
   const results = {
-    total: sendable.length,
+    total: recipients.length,
     sent: 0,
     failed: 0,
     skipped: 0,
+    capped,
+    dropped_for_daily_cap: capped ? sendable.length - recipients.length : 0,
+    daily_cap: DAILY_SMS_CAP,
     errors: [] as { lead_id: string; error: string }[],
     campaign_id: campaign?.id || null,
     delivery_log: deliveryLog,
   }
 
-  for (const lead of sendable) {
+  for (const lead of recipients) {
     const phone = decryptField(lead.phone_formatted) || lead.phone_formatted || ''
     const leadName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'Unknown'
 
@@ -178,11 +209,24 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // Send via Twilio
-      const twilioResult = await withRetry(
-        () => sendSMS(phone, personalizedMessage),
+      // Send via Twilio — authoritative TCPA consent gate per lead.
+      const sendResult = await withRetry(
+        () => sendSMSToLead({
+          supabase,
+          leadId: lead.id,
+          to: phone,
+          body: personalizedMessage,
+          caller: 'api.sms.mass',
+        }),
         RETRY_CONFIGS.twilio
       )
+
+      if (!sendResult.sent) {
+        results.skipped++
+        deliveryLog.push({ lead_id: lead.id, lead_name: leadName, phone, status: 'skipped', error: `consent:${sendResult.reason}` })
+        continue
+      }
+      const twilioResult = { sid: sendResult.sid }
 
       // Store message
       await supabase.from('messages').insert({
@@ -233,6 +277,11 @@ export async function POST(request: NextRequest) {
         },
       })
       .eq('id', campaign.id)
+  }
+
+  // Persist the response so a duplicate retry returns it instead of re-sending.
+  if (idempotencyKey) {
+    await recordIdempotencyResponse(supabase, profile.organization_id, idempotencyKey, results)
   }
 
   return NextResponse.json(results)

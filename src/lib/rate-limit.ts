@@ -78,6 +78,54 @@ export function checkRateLimit(key: string, config: RateLimitConfig): RateLimitR
   }
 }
 
+/**
+ * Distributed rate limit check backed by Upstash Redis (REST API).
+ *
+ * The in-memory limiter above only protects a single serverless instance — on
+ * Vercel each concurrent lambda has its own Map, so the global cap is
+ * effectively maxRequests × instanceCount. This uses a shared Redis counter so
+ * the cap holds across all instances.
+ *
+ * Activates only when UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN are set.
+ * If unset or Redis errors, returns null so callers fall back to the in-memory
+ * limiter (fail-open — never block legitimate traffic on an infra hiccup).
+ */
+export async function checkRateLimitRedis(
+  key: string,
+  config: RateLimitConfig,
+): Promise<RateLimitResult | null> {
+  const url = process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+  if (!url || !token) return null
+
+  const windowSec = Math.max(1, Math.ceil(config.windowMs / 1000))
+  const redisKey = `rl:${key}:${windowSec}:${config.maxRequests}`
+
+  try {
+    // Fixed-window counter: INCR then set TTL only on first hit (EXPIRE ... NX).
+    const res = await fetch(`${url}/pipeline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([
+        ['INCR', redisKey],
+        ['EXPIRE', redisKey, String(windowSec), 'NX'],
+      ]),
+      signal: AbortSignal.timeout(2000),
+    })
+
+    if (!res.ok) return null
+    const data = (await res.json()) as Array<{ result?: number }>
+    const count = data[0]?.result ?? 0
+    return {
+      allowed: count <= config.maxRequests,
+      remaining: Math.max(0, config.maxRequests - count),
+      resetAt: Date.now() + config.windowMs,
+    }
+  } catch {
+    return null // network/timeout → fall back to in-memory
+  }
+}
+
 // Preset configurations for different endpoint types
 export const RATE_LIMITS = {
   /** Webhook endpoints: 60 requests per minute per IP */

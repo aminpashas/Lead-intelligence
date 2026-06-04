@@ -10,7 +10,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead, FinancialSignals } from '@/types/database'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { escapeHtml } from '@/lib/utils'
@@ -300,14 +300,21 @@ async function sendFinancingLink(
     ? `We can likely get you to around $${signals.budget_monthly}/mo. `
     : 'Most patients qualify for payments as low as $199/mo. '
 
-  // Try SMS first (higher engagement)
+  // Try SMS first (higher engagement) — through the TCPA consent gate.
   if (!lead.sms_opt_out && lead.phone_formatted) {
     try {
       const phone = decryptField(lead.phone_formatted) || ''
       if (phone) {
         const smsBody = `Hi ${firstName}! 🎉 Great news — ${monthly}It only takes 2 minutes to see your options (soft check, won't affect your credit): ${financeUrl} Questions? Just reply!`
-        await sendSMS(phone, smsBody)
-        return true
+        const res = await sendSMSToLead({
+          supabase,
+          leadId: lead.id,
+          to: phone,
+          body: smsBody,
+          caller: 'financing.readiness',
+        })
+        if (res.sent) return true
+        /* consent denied — fall through to email */
       }
     } catch (err) {
       logger.warn('Financing link SMS failed, trying email', { leadId: lead.id, error: err instanceof Error ? err.message : err })

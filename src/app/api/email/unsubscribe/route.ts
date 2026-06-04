@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { applyRateLimit } from '@/lib/webhooks/verify'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 
 /**
@@ -10,7 +10,7 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
  * Sets email_opt_out = true on the lead and exits active campaign enrollments.
  */
 export async function GET(request: NextRequest) {
-  const rlError = applyRateLimit(request, RATE_LIMITS.publicForm)
+  const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.publicForm, 'unsubscribe')
   if (rlError) return rlError
 
   const token = new URL(request.url).searchParams.get('token')
