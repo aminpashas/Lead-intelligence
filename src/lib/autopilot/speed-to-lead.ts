@@ -10,7 +10,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getAutopilotConfig } from './config'
+import { getAutopilotConfig, getLocalHourAndDay } from './config'
 import { routeToAgent } from '@/lib/ai/agent-handoff'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { checkAgentCapacity } from '@/lib/agents/discipline-engine'
@@ -44,8 +44,16 @@ export async function triggerSpeedToLead(
     return { action: 'skipped' }
   }
 
-  // HIGH-3: Check active hours (TCPA quiet hours compliance)
-  const currentHour = new Date().getHours()
+  // Shadow mode (cutover safety): score/draft are still useful upstream, but
+  // never send outbound while LI runs beside GoHighLevel. Bail before any send.
+  if (config.outreach_suppressed) {
+    logger.info('Speed-to-lead: skipped, outreach_suppressed', { leadId, reason: 'outreach_suppressed' })
+    return { action: 'skipped' }
+  }
+
+  // HIGH-3: Check active hours (TCPA quiet hours compliance).
+  // Hour must be evaluated in the org's local timezone, not UTC (Vercel runs UTC).
+  const { hour: currentHour } = getLocalHourAndDay(config.timezone)
   if (currentHour < config.active_hours_start || currentHour >= config.active_hours_end) {
     logger.info('Speed-to-lead: skipped outside active hours', {
       leadId,
@@ -194,6 +202,7 @@ export async function triggerSpeedToLead(
         body: agentResponse.message,
         caller: 'autopilot.speed_to_lead',
         aiGenerated: true,
+        blockOnReview: true,
       })
       if (!result.sent) {
         logger.warn('Speed-to-lead SMS blocked', { leadId, reason: result.reason })
@@ -210,6 +219,7 @@ export async function triggerSpeedToLead(
         text: agentResponse.message,
         caller: 'autopilot.speed_to_lead',
         aiGenerated: true,
+        blockOnReview: true,
       })
       if (!result.sent) {
         logger.warn('Speed-to-lead email blocked', { leadId, reason: result.reason })

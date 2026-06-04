@@ -28,6 +28,7 @@ import {
   shouldAutoRespond,
   detectStopWord,
   checkMessageRateLimit,
+  getLocalHourAndDay,
   type AutopilotConfig,
 } from './config'
 import { createEscalation } from './escalation'
@@ -129,8 +130,9 @@ export async function processAutoResponse(
     return { action: 'escalated', reason: 'agent_failure' }
   }
 
-  // 7. Evaluate whether to auto-send
-  const currentHour = new Date().getHours()
+  // 7. Evaluate whether to auto-send.
+  // TCPA: quiet-hours must be evaluated in the org's local timezone, not UTC.
+  const { hour: currentHour } = getLocalHourAndDay(config.timezone)
   const messageCount = (conversation.message_count as number) || 0
   const decision = shouldAutoRespond(config, {
     confidence: agentResponse.confidence,
@@ -182,6 +184,31 @@ export async function processAutoResponse(
       agent: agentResponse.agent,
       escalation_id: escalationId,
       reason: 'lead_assist_only_override',
+    }
+  }
+
+  // 7c. Shadow mode (cutover safety): the agent draft is fully built and would
+  // have been auto-sent, but outreach is suppressed (LI running beside GHL).
+  // Route the draft to a human via escalation instead of sending — no double-text.
+  if (config.outreach_suppressed) {
+    const escalationId = await createEscalation(supabase, {
+      organization_id,
+      conversation_id,
+      lead_id,
+      reason: 'compliance_flag',
+      ai_notes: `OUTREACH SUPPRESSED (shadow mode): ${agentResponse.internal_notes || 'AI drafted a response that was approved for auto-send but was not delivered.'}`,
+      ai_draft_response: agentResponse.message,
+      ai_confidence: agentResponse.confidence,
+      agent_type: agentResponse.agent,
+    })
+
+    return {
+      action: 'escalated',
+      message: agentResponse.message,
+      confidence: agentResponse.confidence,
+      agent: agentResponse.agent,
+      escalation_id: escalationId,
+      reason: 'outreach_suppressed',
     }
   }
 
@@ -329,6 +356,7 @@ async function sendAgentResponse(
       body: agentResponse.message,
       caller: 'autopilot.auto_respond',
       aiGenerated: true,
+      blockOnReview: true,
     })
     if (!result.sent) {
       throw new Error(`Cannot send SMS: ${result.reason}`)
@@ -345,6 +373,7 @@ async function sendAgentResponse(
       text: agentResponse.message,
       caller: 'autopilot.auto_respond',
       aiGenerated: true,
+      blockOnReview: true,
     })
     if (!result.sent) {
       throw new Error(`Cannot send email: ${result.reason}`)

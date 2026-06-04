@@ -1,10 +1,15 @@
 import { z } from 'zod'
 
+// Phone format guard: digits plus the usual separators only. Prevents PostgREST
+// filter-injection when a phone value is interpolated into a query, and rejects
+// obviously malformed input. Kept permissive (international + extensions).
+const PHONE_RE = /^[+0-9().\-\s]+$/
+
 export const createLeadSchema = z.object({
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
-  phone: z.string().optional(),
+  phone: z.string().regex(PHONE_RE, 'Invalid phone number').optional(),
 
   // Demographics
   city: z.string().optional(),
@@ -64,8 +69,8 @@ export const updateLeadSchema = createLeadSchema.partial().extend({
 export const webhookLeadSchema = z.object({
   first_name: z.string().optional().default('Unknown'),
   last_name: z.string().optional(),
-  email: z.string().optional(),
-  phone: z.string().optional(),
+  email: z.string().email().optional(),
+  phone: z.string().regex(PHONE_RE, 'Invalid phone number').optional(),
   source_type: z.string().optional(),
   utm_source: z.string().optional(),
   utm_medium: z.string().optional(),

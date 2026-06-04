@@ -29,6 +29,8 @@ vi.mock('@/lib/autopilot/config', () => ({
     stop_words: ['stop', 'unsubscribe', 'opt out'],
     speed_to_lead: true,
     schedule: null,
+    timezone: 'America/New_York',
+    outreach_suppressed: false,
   }),
   detectStopWord: vi.fn().mockReturnValue({ detected: false, word: null }),
 }))
@@ -115,6 +117,8 @@ beforeEach(() => {
     stop_words: ['stop', 'unsubscribe', 'opt out'],
     speed_to_lead: true,
     schedule: null,
+    timezone: 'America/New_York',
+    outreach_suppressed: false,
   })
   vi.mocked(detectPromptInjection).mockReturnValue({ isClean: true, detections: [], sanitizedText: '' })
 })

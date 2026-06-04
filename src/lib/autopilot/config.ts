@@ -37,6 +37,10 @@ export type AutopilotConfig = {
   stop_words: string[]
   speed_to_lead: boolean
   schedule: WeekSchedule | null
+  /** IANA timezone for evaluating quiet hours / day-of-week schedule (TCPA). */
+  timezone: string
+  /** Shadow mode: agents score/draft but never send (cutover safety). */
+  outreach_suppressed: boolean
 }
 
 const DEFAULT_DAY: DaySchedule = { enabled: true, start: 8, end: 21 }
@@ -65,6 +69,50 @@ const DEFAULT_CONFIG: AutopilotConfig = {
   stop_words: ['stop', 'unsubscribe', 'opt out', 'opt-out', 'talk to a person', 'speak to someone', 'cancel'],
   speed_to_lead: true,
   schedule: null,
+  timezone: 'America/New_York',
+  outreach_suppressed: false,
+}
+
+/**
+ * Resolve the current local hour (0-23) and day-of-week (0=Sunday..6=Saturday)
+ * for a given IANA timezone. Used for TCPA quiet-hours / day schedule checks.
+ *
+ * Vercel runs in UTC, so `new Date().getHours()` is wrong for any non-UTC org.
+ */
+export function getLocalHourAndDay(
+  timezone: string,
+  now: Date = new Date()
+): { hour: number; day: number } {
+  let parts: Intl.DateTimeFormatPart[]
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      hour12: false,
+      weekday: 'short',
+    }).formatToParts(now)
+  } catch {
+    // Invalid timezone — fall back to Eastern (Dion Health default).
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      hour12: false,
+      weekday: 'short',
+    }).formatToParts(now)
+  }
+
+  const hourStr = parts.find((p) => p.type === 'hour')?.value ?? '0'
+  // hour12:false can emit "24" at midnight in some environments — normalize to 0.
+  let hour = parseInt(hourStr, 10) % 24
+  if (Number.isNaN(hour)) hour = 0
+
+  const weekdayStr = parts.find((p) => p.type === 'weekday')?.value ?? 'Sun'
+  const weekdayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  }
+  const day = weekdayMap[weekdayStr] ?? 0
+
+  return { hour, day }
 }
 
 /**
@@ -88,7 +136,9 @@ export async function getAutopilotConfig(
       autopilot_active_hours_end,
       autopilot_stop_words,
       autopilot_speed_to_lead,
-      autopilot_schedule
+      autopilot_schedule,
+      timezone,
+      autopilot_outreach_suppressed
     `)
     .eq('id', organizationId)
     .single()
@@ -108,6 +158,8 @@ export async function getAutopilotConfig(
     stop_words: data.autopilot_stop_words ?? DEFAULT_CONFIG.stop_words,
     speed_to_lead: data.autopilot_speed_to_lead ?? true,
     schedule: (data.autopilot_schedule as WeekSchedule | null) ?? null,
+    timezone: data.timezone ?? 'America/New_York',
+    outreach_suppressed: data.autopilot_outreach_suppressed ?? false,
   }
 }
 
@@ -131,7 +183,9 @@ export function shouldAutoRespond(
   // Day-of-week schedule check (takes priority over simple active hours)
   if (config.schedule) {
     const dayNames: Array<keyof WeekSchedule> = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-    const today = dayNames[new Date().getDay()]
+    // TCPA: day-of-week must be evaluated in the org's local timezone, not UTC.
+    const { day: localDay } = getLocalHourAndDay(config.timezone)
+    const today = dayNames[localDay]
     const dayConfig = config.schedule[today]
 
     if (!dayConfig.enabled) {
@@ -182,7 +236,10 @@ export function shouldAutoRespond(
 
 /**
  * Check if a message contains a stop word (opt-out signal).
- * Case-insensitive, checks for exact phrase matches.
+ * Case-insensitive. Matches whole words / phrases only, so "cancel" does NOT
+ * fire on "I don't want to cancel my appointment" — the word/phrase must appear
+ * bounded by non-alphanumeric characters (or be the entire message).
+ * Multi-word phrases like "opt out" still match.
  */
 export function detectStopWord(
   message: string,
@@ -191,7 +248,17 @@ export function detectStopWord(
   const normalized = message.toLowerCase().trim()
 
   for (const word of stopWords) {
-    if (normalized === word || normalized.includes(word)) {
+    const target = word.toLowerCase().trim()
+    if (!target) continue
+    if (normalized === target) {
+      return { detected: true, word }
+    }
+    // Whole-word / whole-phrase boundary match: the phrase must be flanked by
+    // a non-alphanumeric character (or string boundary) on each side. This
+    // keeps "cancel" from matching "cancellation" / "don't cancel my appt".
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const boundary = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i')
+    if (boundary.test(normalized)) {
       return { detected: true, word }
     }
   }

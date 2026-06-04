@@ -8,6 +8,22 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
 import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
+import { logger } from '@/lib/logger'
+
+// FIX 4 — startup guard for a weak/test WEBHOOK_SECRET. We can't rotate the real
+// secret here (operational), but a guessable test value (e.g. the dev default
+// `test-...-2024`) or a too-short key must never ship to production. We log loudly
+// instead of throwing so local/dev (which intentionally uses a test secret) keeps
+// working. ACTION: set a strong (>=24 char, non-test) WEBHOOK_SECRET in prod.
+;(() => {
+  const secret = process.env.WEBHOOK_SECRET ?? ''
+  if (secret && (/^test-|-2024$/.test(secret) || secret.length < 24)) {
+    logger.error('INSECURE WEBHOOK_SECRET — replace before production', {
+      reason: secret.length < 24 ? 'too_short' : 'test_pattern',
+      length: secret.length,
+    })
+  }
+})()
 
 // POST /api/webhooks/form - Universal form webhook
 // Supports: Custom forms, Typeform, JotForm, Google Forms, landing pages
@@ -57,12 +73,12 @@ export async function POST(request: NextRequest) {
       .select('id')
       .eq('organization_id', orgResult.orgId)
       .or(
+        // Hash columns only — searchHash() output is HMAC-SHA256 hex, safe to
+        // interpolate into a PostgREST .or() filter. Raw email/phone are NEVER
+        // interpolated here (filter-injection + they're encrypted at rest anyway).
         [
           emailHash ? `email_hash.eq.${emailHash}` : null,
           phoneHash ? `phone_hash.eq.${phoneHash}` : null,
-          // Fallback for pre-encryption leads
-          parsed.data.email ? `email.eq.${parsed.data.email}` : null,
-          parsed.data.phone ? `phone.eq.${parsed.data.phone}` : null,
         ]
           .filter(Boolean)
           .join(',')
