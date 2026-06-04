@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { randomBytes } from 'crypto'
+import { randomBytes, createHash } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { buildGoogleAuthUrl, googleRedirectUri } from '@/lib/connectors/oauth/google'
@@ -48,6 +48,11 @@ export async function GET(request: NextRequest) {
   // URL-safe base64, 32 bytes → ~43 chars.
   const state = randomBytes(32).toString('base64url')
 
+  // PKCE: bind this authorization to a secret the callback must present, so a
+  // leaked `state` alone can't complete the token exchange.
+  const codeVerifier = randomBytes(32).toString('base64url')
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
+
   const { error: insertErr } = await supabase
     .from('oauth_states')
     .insert({
@@ -55,7 +60,7 @@ export async function GET(request: NextRequest) {
       organization_id: active.orgId,
       user_id: user.id,
       provider: 'google',
-      metadata: {},
+      metadata: { code_verifier: codeVerifier },
     })
   if (insertErr) {
     return errorRedirect(request, `state_insert_failed:${encodeURIComponent(insertErr.message)}`)
@@ -63,7 +68,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const redirectUri = googleRedirectUri(request)
-    const authUrl = buildGoogleAuthUrl({ state, redirectUri })
+    const authUrl = buildGoogleAuthUrl({ state, redirectUri, codeChallenge })
     return NextResponse.redirect(authUrl)
   } catch (err) {
     // Missing GOOGLE_ADS_CLIENT_ID / CLIENT_SECRET or NEXT_PUBLIC_APP_URL.

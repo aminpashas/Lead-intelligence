@@ -100,6 +100,8 @@ export function buildGoogleAuthUrl(params: {
   state: string
   redirectUri: string
   scopes?: string[]
+  /** PKCE S256 code challenge (base64url of sha256(code_verifier)). */
+  codeChallenge?: string
 }): string {
   const { clientId } = requireClientCreds()
   const qs = new URLSearchParams({
@@ -112,6 +114,10 @@ export function buildGoogleAuthUrl(params: {
     include_granted_scopes: 'true',
     state: params.state,
   })
+  if (params.codeChallenge) {
+    qs.set('code_challenge', params.codeChallenge)
+    qs.set('code_challenge_method', 'S256')
+  }
   return `${GOOGLE_AUTH_BASE}?${qs.toString()}`
 }
 
@@ -121,18 +127,22 @@ export function buildGoogleAuthUrl(params: {
 export async function exchangeGoogleAuthCode(params: {
   code: string
   redirectUri: string
+  /** PKCE code_verifier matching the code_challenge sent at /connect. */
+  codeVerifier?: string
 }): Promise<GoogleTokenResponse> {
   const { clientId, clientSecret } = requireClientCreds()
+  const body = new URLSearchParams({
+    code: params.code,
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: params.redirectUri,
+    grant_type: 'authorization_code',
+  })
+  if (params.codeVerifier) body.set('code_verifier', params.codeVerifier)
   const res = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code: params.code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: params.redirectUri,
-      grant_type: 'authorization_code',
-    }),
+    body,
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')

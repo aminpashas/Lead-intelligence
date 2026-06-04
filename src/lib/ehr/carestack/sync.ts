@@ -484,8 +484,13 @@ export async function syncInvoices(
 
         // Emit a payment.received event for each new, non-deleted, non-NSF invoice.
         // Skip if forwarded already (idempotency on resync).
+        // Also EXCLUDE refund/credit/adjustment-type invoices: CareStack records
+        // some of these as positive-amount rows, which would otherwise fire a
+        // positive revenue (Purchase) conversion to Meta CAPI and inflate revenue.
+        const REFUND_LIKE = /refund|credit|adjust|void|revers|charge\s*back|write[\s-]?off/i
+        const isRefundLike = typeof paymentCategory === 'string' && REFUND_LIKE.test(paymentCategory)
         const alreadyForwarded = (existing?.forwarded as boolean) || false
-        if (!alreadyForwarded && !isDeleted && !isNsf && amount > 0) {
+        if (!alreadyForwarded && !isDeleted && !isNsf && !isRefundLike && amount > 0) {
           await emitEvent(supabase, organizationId, patient?.lead_id ?? null, 'lead.payment.received', {
             ehr_source: 'carestack',
             ehr_invoice_id: invoiceId,
