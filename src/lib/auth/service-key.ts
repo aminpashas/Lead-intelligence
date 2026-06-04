@@ -44,6 +44,17 @@ function resolveAllowedOrgIds(caller: string): string[] | '*' {
   const raw = envName ? process.env[envName] : undefined
   const trimmed = (raw ?? '').trim()
   if (!trimmed || trimmed === '*') {
+    // Fail CLOSED in production: an unset allowlist would let the bridge key
+    // touch ANY org. Require an explicit allowlist there; deny (empty) until set.
+    if (process.env.NODE_ENV === 'production' && trimmed !== '*') {
+      if (!unrestrictedWarned.has(caller)) {
+        unrestrictedWarned.add(caller)
+        logger.error(
+          `Service bridge "${caller}" has no ${envName ?? '<allowlist env>'} set in production — denying all orgs. Set the allowlist to enable.`,
+        )
+      }
+      return []
+    }
     if (!unrestrictedWarned.has(caller)) {
       unrestrictedWarned.add(caller)
       logger.warn(

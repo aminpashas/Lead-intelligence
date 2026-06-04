@@ -65,8 +65,10 @@ export async function POST(request: NextRequest) {
           : undefined
 
         return await adapter.getPaymentEstimate(amount, lc.config || {}, credentials)
-      } catch {
-        // Individual lender failure shouldn't block others
+      } catch (err) {
+        // Individual lender failure shouldn't block others — but log it, else a
+        // broken lender (expired creds) silently looks like "no offers".
+        console.error(`[financing/estimate] lender ${lc.lender_slug} failed:`, err instanceof Error ? err.message : err)
         return []
       }
     })

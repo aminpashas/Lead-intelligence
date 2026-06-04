@@ -17,6 +17,9 @@ const bookingSchema = z.object({
   phone: z.string().min(10).max(20),
   email: z.string().email(),
   notes: z.string().max(500).optional(),
+  // Explicit marketing opt-in checkbox. Absent/false → no marketing consent is
+  // granted (the booking confirmation itself is transactional and still sends).
+  marketing_consent: z.boolean().optional(),
 })
 
 // POST /api/booking/[orgId]/book — Public: book an appointment
@@ -36,7 +39,8 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { slot_date, slot_time, first_name, last_name, phone, email, notes } = parsed.data
+  const { slot_date, slot_time, first_name, last_name, phone, email, notes, marketing_consent } = parsed.data
+  const grantConsent = marketing_consent === true
 
   // Get booking settings
   const { data: settings } = await supabase
@@ -97,21 +101,30 @@ export async function POST(
     .limit(1)
     .single()
 
+  // Only grant marketing consent when the booker explicitly opted in. NEVER
+  // overwrite an existing lead's consent from this unauthenticated path (that
+  // would let anyone un-revoke a prior opt-out by booking with the victim's email).
+  const consentFields = grantConsent
+    ? {
+        sms_consent: true,
+        sms_consent_at: new Date().toISOString(),
+        sms_consent_source: 'booking_form',
+        email_consent: true,
+        email_consent_at: new Date().toISOString(),
+        email_consent_source: 'booking_form',
+      }
+    : {}
+
   if (existingLead) {
     leadId = existingLead.id
-    // Update lead info — encrypt PII fields
+    // Update lead info — encrypt PII fields. Consent is intentionally NOT touched
+    // here for existing leads (only set on first creation with explicit opt-in).
     await supabase.from('leads').update(encryptLeadPII({
       first_name,
       last_name,
       phone,
       status: 'consultation_scheduled',
       consultation_date: scheduledAt,
-      sms_consent: true,
-      sms_consent_at: new Date().toISOString(),
-      sms_consent_source: 'booking_form',
-      email_consent: true,
-      email_consent_at: new Date().toISOString(),
-      email_consent_source: 'booking_form',
     })).eq('id', leadId)
   } else {
     const { data: newLead, error: leadError } = await supabase
@@ -125,12 +138,7 @@ export async function POST(
         source_type: 'booking_page',
         status: 'consultation_scheduled',
         consultation_date: scheduledAt,
-        sms_consent: true,
-        sms_consent_at: new Date().toISOString(),
-        sms_consent_source: 'booking_form',
-        email_consent: true,
-        email_consent_at: new Date().toISOString(),
-        email_consent_source: 'booking_form',
+        ...consentFields,
       }))
       .select('id')
       .single()

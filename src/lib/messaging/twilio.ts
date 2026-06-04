@@ -2,6 +2,11 @@ import twilio from 'twilio'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/lib/consent/gate'
 import { checkCompliance } from '@/lib/ai/compliance-filter'
+import { checkSendWindow } from '@/lib/campaigns/send-window'
+
+// TCPA federal quiet hours: no telemarketing before 8am or after 9pm local time.
+const TCPA_START_HOUR = 8
+const TCPA_END_HOUR = 21
 
 function getClient() {
   return twilio(
@@ -38,7 +43,7 @@ export async function sendSMS(to: string, body: string): Promise<{ sid: string; 
 
 export type SendSMSToLeadResult =
   | { sent: true; sid: string; status: string }
-  | { sent: false; reason: ConsentDenyReason | 'compliance_blocked' | 'compliance_review_required' }
+  | { sent: false; reason: ConsentDenyReason | 'compliance_blocked' | 'compliance_review_required' | 'quiet_hours' }
 
 /**
  * SMS send with TCPA consent enforcement (HARD GATE per brief Section 2.2).
@@ -58,6 +63,11 @@ export async function sendSMSToLead(params: {
   aiGenerated?: boolean
   /** When true, soft-flagged content (pricing claims, soft profanity) is also blocked. */
   blockOnReview?: boolean
+  /**
+   * Skip the TCPA quiet-hours gate. Only for human-authored, 1:1, customer-initiated
+   * replies (e.g. a staff member answering a conversation) — NOT automated outreach.
+   */
+  bypassQuietHours?: boolean
 }): Promise<SendSMSToLeadResult> {
   const decision = await assertConsent(params.supabase, params.leadId, 'sms')
   if (!decision.allowed) {
@@ -92,6 +102,35 @@ export async function sendSMSToLead(params: {
         gads_status: 'na',
       }).then(() => undefined, () => undefined)
       return { sent: false, reason: check.allowed ? 'compliance_review_required' : 'compliance_blocked' }
+    }
+  }
+
+  // TCPA quiet hours (8am–9pm in the org's timezone). Checked last (after consent
+  // and content compliance) so timing only blocks an otherwise-sendable message.
+  // Covers every automated/marketing path centrally, not just campaigns.
+  if (!params.bypassQuietHours) {
+    const { data: org } = await params.supabase
+      .from('organizations')
+      .select('timezone')
+      .eq('id', decision.lead.organization_id)
+      .single()
+    const tz = (org?.timezone as string) || 'America/New_York'
+    const window = checkSendWindow({
+      start_hour: TCPA_START_HOUR,
+      end_hour: TCPA_END_HOUR,
+      timezone: tz,
+      days: [0, 1, 2, 3, 4, 5, 6], // quiet-hours apply every day; this gate is hours-only
+    })
+    if (!window.allowed) {
+      await logConsentViolation(params.supabase, {
+        organizationId: decision.lead.organization_id,
+        leadId: params.leadId,
+        channel: 'sms',
+        reason: 'opted_out', // closest existing audit reason; payload notes quiet_hours via caller
+        bodyPreview: params.body,
+        caller: `${params.caller ?? 'sms'}:quiet_hours`,
+      })
+      return { sent: false, reason: 'quiet_hours' }
     }
   }
 

@@ -22,6 +22,28 @@ interface LogEntry {
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production'
 
+// Keys whose values are masked entirely (secrets / direct identifiers).
+const REDACT_KEYS = /(?:authorization|cookie|password|secret|token|api[_-]?key|bearer|ssn|email|phone|first_name|last_name|full_name|patient_name|address|dob)/i
+
+function maskValue(val: string): string {
+  if (val.length <= 4) return '***'
+  return `${val.slice(0, 2)}***${val.slice(-2)}`
+}
+
+/** Recursively redact PII/secret-looking fields from a log context object. */
+function redact(value: unknown, depth = 0): unknown {
+  if (depth > 6 || value == null) return value
+  if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1))
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = REDACT_KEYS.test(k) ? (typeof v === 'string' ? maskValue(v) : '***') : redact(v, depth + 1)
+    }
+    return out
+  }
+  return value
+}
+
 function formatEntry(entry: LogEntry): string {
   if (IS_PRODUCTION) {
     return JSON.stringify(entry)
@@ -37,7 +59,7 @@ function log(level: LogLevel, message: string, context?: LogContext, error?: Err
     level,
     message,
     timestamp: new Date().toISOString(),
-    ...(context && Object.keys(context).length > 0 ? { context } : {}),
+    ...(context && Object.keys(context).length > 0 ? { context: redact(context) as LogContext } : {}),
     ...(error ? { error: { message: error.message, stack: error.stack, name: error.name } } : {}),
   }
 

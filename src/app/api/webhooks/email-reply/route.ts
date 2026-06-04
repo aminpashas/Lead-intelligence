@@ -1,9 +1,18 @@
+import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { exitCampaignsOnReply } from '@/lib/campaigns/enrollments'
 import { searchHash } from '@/lib/encryption'
+
+function timingSafeBearer(authHeader: string | null, secret: string | undefined): boolean {
+  if (!secret) return false // fail-closed: never accept when no secret is configured
+  const expected = `Bearer ${secret}`
+  const a = Buffer.from(authHeader ?? '')
+  const b = Buffer.from(expected)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
 
 /**
  * POST /api/webhooks/email-reply — Inbound email replies
@@ -23,9 +32,8 @@ export async function POST(request: NextRequest) {
   const rlError = applyRateLimit(request, RATE_LIMITS.webhook)
   if (rlError) return rlError
 
-  // Verify webhook secret
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.WEBHOOK_SECRET}`) {
+  // Verify webhook secret (fail-closed if WEBHOOK_SECRET is unset; timing-safe).
+  if (!timingSafeBearer(request.headers.get('authorization'), process.env.WEBHOOK_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

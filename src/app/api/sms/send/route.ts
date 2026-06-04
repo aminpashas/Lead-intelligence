@@ -7,6 +7,7 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
+import { assertActiveSubscription } from '@/lib/auth/entitlement'
 
 const sendSMSSchema = z.object({
   lead_id: z.string().uuid(),
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest) {
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const entError = await assertActiveSubscription(supabase, profile.organization_id)
+  if (entError) return entError
 
   // Get lead — scoped to caller's org (defense-in-depth beyond RLS)
   const { data: lead } = await supabase
@@ -105,6 +109,9 @@ export async function POST(request: NextRequest) {
         body: parsed.data.message,
         caller: 'api.sms.send',
         aiGenerated: parsed.data.ai_generated,
+        // Human-authored 1:1 reply from the dashboard — exempt from quiet-hours
+        // (still consent-gated). Automated paths do NOT set this.
+        bypassQuietHours: !parsed.data.ai_generated,
       }),
       RETRY_CONFIGS.twilio
     )

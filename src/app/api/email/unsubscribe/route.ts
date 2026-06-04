@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { verifyUnsubscribeToken } from '@/lib/messaging/email-footer'
 
 /**
  * GET /api/email/unsubscribe?token=<base64(lead_id:org_id)>
@@ -20,11 +21,19 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  // Decode token
+  // Verify HMAC (legacy unsigned tokens still accepted for grandfathered emails).
+  if (!verifyUnsubscribeToken(token)) {
+    return new NextResponse(renderPage('Invalid unsubscribe link.', false), {
+      headers: { 'Content-Type': 'text/html' },
+    })
+  }
+
+  // Decode token (strip any .signature suffix first)
   let leadId: string
   let orgId: string
   try {
-    const decoded = Buffer.from(token, 'base64').toString('utf-8')
+    const payload = token.includes('.') ? token.slice(0, token.indexOf('.')) : token
+    const decoded = Buffer.from(payload, 'base64').toString('utf-8')
     const parts = decoded.split(':')
     if (parts.length !== 2) throw new Error('Invalid format')
     leadId = parts[0]

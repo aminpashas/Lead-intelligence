@@ -10,9 +10,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createClient } from '@/lib/supabase/server'
 import { preCallCheck, initiateOutboundCall } from '@/lib/voice/call-manager'
+import { assertActiveSubscription } from '@/lib/auth/entitlement'
 import { logger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
@@ -34,12 +36,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No organization found' }, { status: 403 })
   }
 
-  const body = await request.json()
-  const { lead_id, agent_type } = body
+  const entError = await assertActiveSubscription(authClient, profile.organization_id)
+  if (entError) return entError
 
-  if (!lead_id) {
-    return NextResponse.json({ error: 'lead_id is required' }, { status: 400 })
+  const parsed = z.object({
+    lead_id: z.string().uuid(),
+    agent_type: z.enum(['setter', 'closer']).optional(),
+  }).safeParse(await request.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
+  const { lead_id, agent_type } = parsed.data
 
   const supabase = createServiceClient()
 

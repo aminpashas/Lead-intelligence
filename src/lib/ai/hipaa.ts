@@ -18,6 +18,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { detectPromptInjection } from './prompt-guard'
 
 export type PHICategory =
   | 'name' | 'phone' | 'email' | 'address' | 'dob' | 'age'
@@ -159,13 +160,14 @@ export function scrubPHI(text: string, detections?: PHIDetection[]): string {
 export function buildSafeLeadContext(lead: Record<string, unknown>): string {
   const parts: string[] = []
 
-  // Use first name only (partial de-identification)
-  if (lead.first_name) parts.push(`Patient: ${lead.first_name}`)
+  // Use first name only (partial de-identification). Lead-supplied free-text
+  // fields are neutralized for prompt injection before being interpolated.
+  if (lead.first_name) parts.push(`Patient: ${neutralizeUntrusted(String(lead.first_name))}`)
 
   // Keep clinical data (necessary for treatment context)
   if (lead.dental_condition) parts.push(`Dental Condition: ${String(lead.dental_condition).replace(/_/g, ' ')}`)
-  if (lead.dental_condition_details) parts.push(`Details: ${lead.dental_condition_details}`)
-  if (lead.current_dental_situation) parts.push(`Current Situation: ${lead.current_dental_situation}`)
+  if (lead.dental_condition_details) parts.push(`Details: ${neutralizeUntrusted(String(lead.dental_condition_details))}`)
+  if (lead.current_dental_situation) parts.push(`Current Situation: ${neutralizeUntrusted(String(lead.current_dental_situation))}`)
   if (lead.has_dentures != null) parts.push(`Has Dentures: ${lead.has_dentures ? 'Yes' : 'No'}`)
 
   // Financial context (generalized)
@@ -182,7 +184,24 @@ export function buildSafeLeadContext(lead: Record<string, unknown>): string {
   if (lead.total_messages_received) parts.push(`Messages from Patient: ${lead.total_messages_received}`)
   if (lead.total_messages_sent) parts.push(`Messages to Patient: ${lead.total_messages_sent}`)
 
-  return parts.join('\n')
+  // Wrap in explicit data delimiters. When this block is embedded in a system
+  // prompt, the boundary tells the model everything inside is untrusted data,
+  // never instructions.
+  return `<lead_data>\n${parts.join('\n')}\n</lead_data>`
+}
+
+/**
+ * Neutralize prompt-injection markers in a lead-supplied free-text value before
+ * it is interpolated into an AI prompt. Strips override phrases and delimiter
+ * sequences (e.g. "ignore previous instructions", "</system>", "[SYSTEM]").
+ */
+function neutralizeUntrusted(text: string): string {
+  return detectPromptInjection(text)
+    .sanitizedText
+    .replace(/<\/?(?:system|user|assistant|lead_data)>/gi, '')
+    .replace(/```\s*system/gi, '```')
+    .replace(/\[(?:SYSTEM|INST|\/INST)\]/gi, '')
+    .replace(/ignore\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions|rules)/gi, '[redacted]')
 }
 
 /**
@@ -192,10 +211,13 @@ export function buildSafeLeadContext(lead: Record<string, unknown>): string {
 export function buildSafeConversationHistory(
   messages: Array<{ direction: string; body: string; sender_type: string; created_at: string }>
 ): Array<{ role: string; content: string }> {
-  return messages.map((msg) => ({
-    role: msg.direction === 'inbound' ? 'user' : 'assistant',
-    content: scrubPHI(msg.body),
-  }))
+  return messages.map((msg) => {
+    const isInbound = msg.direction === 'inbound'
+    // Inbound = lead-authored (untrusted). Scrub PHI AND neutralize injection on
+    // EVERY inbound turn, not just the latest — replayed history was a bypass.
+    const content = isInbound ? neutralizeUntrusted(scrubPHI(msg.body)) : scrubPHI(msg.body)
+    return { role: isInbound ? 'user' : 'assistant', content }
+  })
 }
 
 // ════════════════════════════════════════════════════════════════

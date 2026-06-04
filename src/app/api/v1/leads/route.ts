@@ -159,6 +159,9 @@ export async function POST(request: NextRequest) {
   const utm_source = asStr(b?.utm_source)
   const gclid = asStr(b?.gclid)
   const fbclid = asStr(b?.fbclid)
+  // Explicit DGS correlation id — preferred over regexing it out of notes for the
+  // conversion writeback trigger. Accept either spelling.
+  const external_ref = asStr(b?.external_ref) ?? asStr(b?.dgs_lead_id)
   // Cross-system correlation id (DGS inbound_leads.id). Stored in its own
   // indexed column so the writeback trigger can match without notes-regex.
   const externalRef = asStr(b?.external_ref)
@@ -241,6 +244,7 @@ export async function POST(request: NextRequest) {
     ...(utm_source ? { utm_source } : {}),
     ...(gclid ? { gclid } : {}),
     ...(fbclid ? { fbclid } : {}),
+    ...(external_ref ? { external_ref } : {}),
   })
 
   const { data: lead, error } = await supabase
@@ -250,6 +254,20 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error || !lead) {
+    // Concurrent ingest race: a unique (org,email_hash) index rejected the loser.
+    // Return the existing lead as a dedup hit instead of a 500.
+    if (error?.code === '23505' && emailHash) {
+      const { data: dupe } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('organization_id', customerId)
+        .eq('email_hash', emailHash)
+        .limit(1)
+        .maybeSingle()
+      if (dupe) {
+        return NextResponse.json({ id: dupe.id, lead_id: dupe.id, deduplicated: true }, { status: 200 })
+      }
+    }
     return NextResponse.json({ error: error?.message ?? 'Insert failed' }, { status: 500 })
   }
 

@@ -23,6 +23,13 @@ function getSupabase() {
 }
 
 export async function GET(req: NextRequest) {
+  // Debug endpoint with a service-role client — require the CRON_SECRET bearer so
+  // it can't be hit anonymously (it fetches arbitrary calls + runs DB lookups).
+  const auth = req.headers.get('authorization')
+  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const callId = req.nextUrl.searchParams.get('call_id')
   if (!callId) return NextResponse.json({ error: 'Missing call_id' }, { status: 400 })
 
@@ -49,7 +56,9 @@ export async function GET(req: NextRequest) {
 
     if (supabase) {
       const fromNumber = (callData.from_number || callData.caller_number || callData.to_number || '') as string
-      const phone = fromNumber
+      // Sanitize to phone chars only before interpolating into a PostgREST .or()
+      // filter (commas/parens/operators would otherwise break out of the filter).
+      const phone = fromNumber.replace(/[^+0-9]/g, '')
       const normalized = phone.replace(/^\+1/, '').replace(/\D/g, '')
       
       const { data: org } = await supabase

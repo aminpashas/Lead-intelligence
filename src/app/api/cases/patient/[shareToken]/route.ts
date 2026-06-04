@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { auditPHIRead } from '@/lib/hipaa-audit'
 
 /**
  * GET /api/cases/patient/[shareToken] — Public endpoint for patient to view their case
@@ -25,7 +26,7 @@ export async function GET(
   const { data: caseData, error } = await supabase
     .from('clinical_cases')
     .select(`
-      id, case_number, patient_name, chief_complaint, status,
+      id, organization_id, case_number, patient_name, chief_complaint, status, share_token_expires_at,
       case_files (id, file_name, file_url, file_type, mime_type),
       case_diagnosis (diagnosis_summary, severity, bone_quality, soft_tissue_status),
       case_treatment_plans (plan_summary, total_estimated_cost, estimated_duration, items),
@@ -38,6 +39,20 @@ export async function GET(
   if (error || !caseData) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
+
+  // Reject expired share links (PHI must not stay reachable forever via a leaked URL).
+  if (caseData.share_token_expires_at && new Date(caseData.share_token_expires_at) < new Date()) {
+    return NextResponse.json({ error: 'This link has expired' }, { status: 410 })
+  }
+
+  // HIPAA §164.312(b): record every PHI access through the patient portal.
+  await auditPHIRead(
+    { supabase, organizationId: caseData.organization_id, actorType: 'system', actorId: `patient_share:${shareToken.slice(0, 8)}…` },
+    'clinical_case',
+    caseData.id,
+    'Patient viewed clinical case via share link',
+    ['name', 'diagnosis', 'dental_specific'],
+  )
 
   // Mark as viewed
   if (!caseData.status || caseData.status !== 'completed') {

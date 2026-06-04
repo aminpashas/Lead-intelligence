@@ -6,6 +6,7 @@ import { enrichLead } from '@/lib/enrichment'
 import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCustomFields, applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
+import { formatToE164 } from '@/lib/leads/phone'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
 import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
 import { logger } from '@/lib/logger'
@@ -63,10 +64,16 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
 
+  // Normalize phone to E.164 ONCE, up front, using the same helper the bridge
+  // (/api/v1/leads) uses. The stored phone_hash is computed from phone_formatted
+  // (see encryptLeadPII), so the dedup lookup must hash the SAME canonical value
+  // — previously it hashed the raw phone, so dedup never matched on phone.
+  const phoneFormatted = formatToE164(parsed.data.phone) ?? undefined
+
   // Check for duplicate (same email or phone in org) using search hashes
-  if (parsed.data.email || parsed.data.phone) {
+  if (parsed.data.email || phoneFormatted) {
     const emailHash = parsed.data.email ? searchHash(parsed.data.email) : null
-    const phoneHash = parsed.data.phone ? searchHash(parsed.data.phone) : null
+    const phoneHash = phoneFormatted ? searchHash(phoneFormatted) : null
 
     const { data: existing } = await supabase
       .from('leads')
@@ -111,12 +118,7 @@ export async function POST(request: NextRequest) {
     .eq('is_default', true)
     .single()
 
-  // Format phone
-  let phoneFormatted: string | undefined
-  if (parsed.data.phone) {
-    const cleaned = parsed.data.phone.replace(/\D/g, '')
-    phoneFormatted = cleaned.startsWith('1') ? `+${cleaned}` : `+1${cleaned}`
-  }
+  // phoneFormatted was already normalized above (shared formatToE164).
 
   // Capture IP address for geolocation enrichment
   const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
@@ -171,6 +173,20 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error) {
+    // Concurrent double-submit: a unique (org,email_hash) index rejected the race
+    // loser. Treat it as a dedup hit rather than a 500 so the caller gets a clean ack.
+    if (error.code === '23505' && (leadData as Record<string, unknown>).email_hash) {
+      const { data: dupe } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('organization_id', orgResult.orgId)
+        .eq('email_hash', (leadData as Record<string, unknown>).email_hash as string)
+        .limit(1)
+        .maybeSingle()
+      if (dupe) {
+        return NextResponse.json({ success: true, lead_id: dupe.id, action: 'deduplicated' }, { status: 200 })
+      }
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

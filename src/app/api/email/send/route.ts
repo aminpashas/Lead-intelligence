@@ -7,6 +7,7 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
+import { assertActiveSubscription } from '@/lib/auth/entitlement'
 
 const sendEmailSchema = z.object({
   lead_id: z.string().uuid(),
@@ -36,6 +37,9 @@ export async function POST(request: NextRequest) {
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const entError = await assertActiveSubscription(supabase, profile.organization_id)
+  if (entError) return entError
 
   const { data: lead } = await supabase
     .from('leads')

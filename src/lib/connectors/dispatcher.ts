@@ -37,6 +37,7 @@ import { sendGA4Event } from './ga4/measurement'
 import { sendOutboundWebhook } from './webhooks/outbound'
 import { sendSlackNotification } from './slack/notify'
 import { decryptCredentials } from './crypto'
+import { logger } from '@/lib/logger'
 
 /**
  * Options to scope which connectors a dispatch runs.
@@ -108,8 +109,15 @@ export async function dispatchConnectorEvent(
     logConnectorEvents(supabase, event, results).catch(() => {
       // Logging failure is non-critical
     })
-  } catch {
-    // Connector dispatch should never crash the caller
+  } catch (err) {
+    // Connector dispatch should never crash the caller — but it MUST be visible.
+    // A swallowed error here (e.g. a rotated encryption key failing decrypt)
+    // silently disables ALL ad-platform conversion forwarding org-wide.
+    logger.error('connector dispatch failed', {
+      organization_id: event.organizationId,
+      event_type: event.type,
+      error: err instanceof Error ? err.message : 'unknown',
+    })
   }
 
   return results

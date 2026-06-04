@@ -22,6 +22,23 @@ const TIER_MAP: Record<string, string> = {
   enterprise: 'enterprise',
 }
 
+/**
+ * Resolve the plan tier from the Stripe Price ID (server-authoritative) rather
+ * than trusting client-supplied metadata.tier — otherwise a buyer who can
+ * influence checkout metadata could self-assign 'enterprise'. Configure the
+ * mapping via STRIPE_PRICE_STARTER / STRIPE_PRICE_PROFESSIONAL / STRIPE_PRICE_ENTERPRISE.
+ * Falls back to the metadata tier when no price map is configured (back-compat).
+ */
+function resolveTier(priceId: string | undefined, metadataTier: string | undefined): string | undefined {
+  const priceMap: Record<string, string> = {}
+  if (process.env.STRIPE_PRICE_STARTER) priceMap[process.env.STRIPE_PRICE_STARTER] = 'starter'
+  if (process.env.STRIPE_PRICE_PROFESSIONAL) priceMap[process.env.STRIPE_PRICE_PROFESSIONAL] = 'professional'
+  if (process.env.STRIPE_PRICE_ENTERPRISE) priceMap[process.env.STRIPE_PRICE_ENTERPRISE] = 'enterprise'
+
+  if (priceId && priceMap[priceId]) return priceMap[priceId]
+  return metadataTier && TIER_MAP[metadataTier] ? TIER_MAP[metadataTier] : undefined
+}
+
 export async function POST(request: NextRequest) {
   const secretKey = process.env.STRIPE_SECRET_KEY
   const webhookSecret = process.env.STRIPE_BILLING_WEBHOOK_SECRET
@@ -146,6 +163,9 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown'
     logger.error('Stripe billing webhook processing failed', { eventId: event.id, type: event.type, err: message })
+    // Return non-2xx so Stripe RETRIES — a transient DB failure must not silently
+    // drop a subscription state change (the signature was already verified).
+    return new NextResponse('Processing failed', { status: 500 })
   }
 
   return NextResponse.json({ received: true })
@@ -156,7 +176,9 @@ async function syncSubscriptionStatus(
   orgId: string,
   sub: Stripe.Subscription
 ) {
-  const tier = sub.metadata?.tier
+  // Tier from the Price ID (server-authoritative), not client metadata.
+  const priceId = sub.items?.data?.[0]?.price?.id
+  const tier = resolveTier(priceId, sub.metadata?.tier)
   const statusMap: Record<string, string> = {
     active: 'active',
     past_due: 'past_due',
@@ -172,8 +194,8 @@ async function syncSubscriptionStatus(
     subscription_status: statusMap[sub.status] || 'active',
     stripe_subscription_id: sub.id,
   }
-  if (tier && TIER_MAP[tier]) {
-    updates.subscription_tier = TIER_MAP[tier]
+  if (tier) {
+    updates.subscription_tier = tier
   }
 
   await supabase

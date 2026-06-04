@@ -9,6 +9,7 @@ import { decryptField } from '@/lib/encryption'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
 import { personalize, PERSONALIZABLE_LEAD_SELECT, type PersonalizableLead } from '@/lib/campaigns/personalization'
 import { claimIdempotencyKey, recordIdempotencyResponse, countTodaysOutbound, DAILY_SMS_CAP } from '@/lib/messaging/send-guards'
+import { assertActiveSubscription } from '@/lib/auth/entitlement'
 
 const massSMSSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
@@ -43,6 +44,9 @@ export async function POST(request: NextRequest) {
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const entError = await assertActiveSubscription(supabase, profile.organization_id)
+  if (entError) return entError
 
   // Idempotency: a retried POST carrying the same Idempotency-Key must not re-send.
   const idempotencyKey = request.headers.get('Idempotency-Key') || request.headers.get('idempotency-key')

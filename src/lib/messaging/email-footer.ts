@@ -3,11 +3,42 @@
  * Required for all marketing/campaign emails.
  */
 
+import crypto from 'crypto'
+
+function unsubSecret(): string {
+  // Falls back to WEBHOOK_SECRET so a dedicated key is optional.
+  return process.env.UNSUBSCRIBE_SECRET || process.env.WEBHOOK_SECRET || ''
+}
+
 /**
- * Generate an unsubscribe token for a lead.
+ * Generate a signed unsubscribe token: base64(leadId:orgId).hmac
+ * The HMAC stops anyone from forging a token for an arbitrary lead (which would
+ * let them suppress a competitor's deliverability). Legacy unsigned tokens are
+ * still accepted by the route so links already in inboxes keep working.
  */
 export function generateUnsubscribeToken(leadId: string, orgId: string): string {
-  return Buffer.from(`${leadId}:${orgId}`).toString('base64')
+  const payload = Buffer.from(`${leadId}:${orgId}`).toString('base64')
+  const secret = unsubSecret()
+  if (!secret) return payload // dev / unconfigured → legacy unsigned
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 32)
+  return `${payload}.${sig}`
+}
+
+/**
+ * Verify an unsubscribe token's HMAC. Returns true if the signature is valid OR
+ * if the token is a legacy unsigned token (no '.'), for backward compatibility.
+ */
+export function verifyUnsubscribeToken(token: string): boolean {
+  const dot = token.indexOf('.')
+  if (dot < 0) return true // legacy unsigned token — accepted (grandfathered)
+  const secret = unsubSecret()
+  if (!secret) return true
+  const payload = token.slice(0, dot)
+  const sig = token.slice(dot + 1)
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 32)
+  const a = Buffer.from(sig)
+  const b = Buffer.from(expected)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
 }
 
 /**

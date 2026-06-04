@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { isAdminRole } from '@/lib/auth/permissions'
 
 /**
  * POST /api/autopilot/kill-switch — Instantly pause all AI auto-sends
@@ -23,7 +24,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  if (profile.role !== 'admin') {
+  // Real practice admins are doctor_admin / office_manager / owner — the old
+  // check for a literal 'admin' role matched nobody, making the emergency stop
+  // unusable. Use the shared role predicate.
+  if (!isAdminRole(profile.role)) {
     return NextResponse.json({ error: 'Only admins can activate the kill switch' }, { status: 403 })
   }
 
