@@ -15,13 +15,21 @@
  *   Splits full_name into first_name/last_name, looks up source by name,
  *   encrypts PII, audits as HIPAA PHI write. Returns { id, lead_id }.
  */
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyServiceKey } from '@/lib/auth/service-key'
-import { encryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
+import { encryptLeadPII, decryptLeadsPII, searchHash } from '@/lib/encryption'
 import { auditPHIRead, auditPHIWrite } from '@/lib/hipaa-audit'
 import { formatToE164 } from '@/lib/leads/phone'
 import { safeParseBody } from '@/lib/body-size'
+import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
+
+function asBool(v: unknown): boolean | undefined {
+  return typeof v === 'boolean' ? v : undefined
+}
+function asStr(v: unknown): string | null {
+  return typeof v === 'string' && v ? v : null
+}
 
 const MAX_LIMIT = 200
 
@@ -132,7 +140,46 @@ export async function POST(request: NextRequest) {
     ? (body as Record<string, string>).notes
     : null
 
+  // Consent + attribution carried by the DGS bridge (all optional, additive).
+  // Consent drives whether the autopilot may ever text/email this lead; it is
+  // set true only for first-party form/ad submits that carried disclosure.
+  const b = body as Record<string, unknown>
+  const sms_consent = asBool(b?.sms_consent)
+  const email_consent = asBool(b?.email_consent)
+  const utm_source = asStr(b?.utm_source)
+  const gclid = asStr(b?.gclid)
+  const fbclid = asStr(b?.fbclid)
+
   const supabase = serviceRoleClient()
+
+  // Idempotency: dedup by contact hash within the org so re-scanning sources
+  // (e.g. the WhatConverts bulk sync, which re-pulls a 90-day window on every
+  // run) return the existing lead instead of creating duplicates. Returning
+  // early here also means speed-to-lead does NOT re-fire on an already-known
+  // lead. Consent is intentionally left untouched on a dedup hit (never
+  // downgraded). searchHash is HMAC-SHA256 hex → safe in a PostgREST or-filter.
+  const emailHash = email ? searchHash(email) : null
+  const phoneHash = (phoneFormatted || phoneRaw) ? searchHash(phoneFormatted || phoneRaw) : null
+  if (emailHash || phoneHash) {
+    const orFilter = [
+      emailHash ? `email_hash.eq.${emailHash}` : null,
+      phoneHash ? `phone_hash.eq.${phoneHash}` : null,
+    ].filter(Boolean).join(',')
+    const { data: existing } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('organization_id', customerId)
+      .or(orFilter)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (existing) {
+      return NextResponse.json(
+        { id: existing.id, lead_id: existing.id, deduplicated: true },
+        { status: 200 },
+      )
+    }
+  }
 
   // Look up source_id by name (or null if not found) — keeps the call
   // idempotent without forcing the caller to know LI's internal source IDs.
@@ -164,7 +211,13 @@ export async function POST(request: NextRequest) {
     phone_formatted: phoneFormatted ?? undefined,
     stage_id: defaultStage?.id,
     source_id,
-    internal_notes: notes,
+    notes,
+    source_type: sourceName,
+    ...(sms_consent !== undefined ? { sms_consent } : {}),
+    ...(email_consent !== undefined ? { email_consent } : {}),
+    ...(utm_source ? { utm_source } : {}),
+    ...(gclid ? { gclid } : {}),
+    ...(fbclid ? { fbclid } : {}),
   })
 
   const { data: lead, error } = await supabase
@@ -191,6 +244,19 @@ export async function POST(request: NextRequest) {
     String(lead.id),
     `Service-key lead creation by ${caller}`,
   )
+
+  // Arm proactive AI first-touch. triggerSpeedToLead self-gates on
+  // autopilot_enabled (org default FALSE), TCPA quiet-hours, agent capacity,
+  // and per-lead sms/email consent — so this sends NOTHING until the org's
+  // autopilot is switched on (post-Twilio approval). Runs after the response
+  // so the bridge call never blocks on the LLM/first-message generation.
+  after(async () => {
+    try {
+      await triggerSpeedToLead(supabase, String(lead.id), customerId)
+    } catch {
+      // Best-effort: a speed-to-lead failure must never affect ingestion.
+    }
+  })
 
   return NextResponse.json({ id: lead.id, lead_id: lead.id }, { status: 201 })
 }
