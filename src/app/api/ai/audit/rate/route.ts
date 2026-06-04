@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
+import { isAdminRole } from '@/lib/auth/permissions'
 
 const rateSchema = z.object({
   conversation_id: z.string().uuid(),
@@ -28,11 +29,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Fetch conversation to get lead_id
+  // Admin-only: these ratings feed avg_call_rating → agent reviews / discipline /
+  // pay-relevant metrics. A non-admin must not be able to rate (and game) them.
+  if (!isAdminRole(profile.role)) {
+    return NextResponse.json({ error: 'Only admins can rate AI conversations' }, { status: 403 })
+  }
+
+  // Fetch conversation to get lead_id — explicitly org-scoped (defense-in-depth).
   const { data: conversation } = await supabase
     .from('conversations')
     .select('id, lead_id, organization_id')
     .eq('id', parsed.data.conversation_id)
+    .eq('organization_id', profile.organization_id)
     .single()
 
   if (!conversation) {

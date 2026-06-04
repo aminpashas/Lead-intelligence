@@ -310,9 +310,16 @@ export function verifyRetellWebhook(
 ): boolean {
   const secret = process.env.RETELL_WEBHOOK_SECRET
   if (!secret) {
-    logger.warn('RETELL_WEBHOOK_SECRET not configured — skipping verification')
-    return true // Fail-open in dev, should be fail-closed in prod
+    // Fail CLOSED in production — an unconfigured secret must not accept forged
+    // call events. Fail-open only in non-production for local testing.
+    if (process.env.NODE_ENV === 'production') {
+      logger.error('RETELL_WEBHOOK_SECRET not configured in production — rejecting webhook')
+      return false
+    }
+    logger.warn('RETELL_WEBHOOK_SECRET not configured — skipping verification (non-production only)')
+    return true
   }
+  if (!signature) return false
 
   try {
     // Retell uses HMAC-SHA256

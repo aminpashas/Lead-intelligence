@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { validateTwilioWebhook } from '@/lib/messaging/twilio'
 
 /**
  * Twilio Voice Webhook — Inbound Call Handler
@@ -35,19 +36,32 @@ function getSupabase() {
 }
 
 export async function POST(req: NextRequest) {
-  // Parse Twilio's form-encoded webhook body
+  // Validate the Twilio signature over the raw form body BEFORE trusting any
+  // field — otherwise anyone can forge an inbound call, plant a consented lead,
+  // and burn Retell minutes. Mirrors the SMS webhook. Mandatory in production.
   let from = '', to = '', callSid = '', callerCity = '', callerState = '', callerCountry = '', callerName = ''
   try {
-    const formData = await req.formData()
-    from = (formData.get('From') as string) || ''
-    to = (formData.get('To') as string) || ''
-    callSid = (formData.get('CallSid') as string) || ''
-    callerCity = (formData.get('CallerCity') as string) || ''
-    callerState = (formData.get('CallerState') as string) || ''
-    callerCountry = (formData.get('CallerCountry') as string) || ''
-    callerName = (formData.get('CallerName') as string) || ''
+    const rawBody = await req.text()
+    const params = Object.fromEntries(new URLSearchParams(rawBody))
+    const twilioSignature = req.headers.get('x-twilio-signature')
+    if (process.env.TWILIO_AUTH_TOKEN) {
+      if (!twilioSignature || !validateTwilioWebhook(twilioSignature, req.url, params)) {
+        return new NextResponse('Invalid Twilio signature', { status: 401 })
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      // No auth token configured in prod = cannot verify = reject (fail closed).
+      return new NextResponse('Voice webhook not configured', { status: 500 })
+    }
+    from = params.From || ''
+    to = params.To || ''
+    callSid = params.CallSid || ''
+    callerCity = params.CallerCity || ''
+    callerState = params.CallerState || ''
+    callerCountry = params.CallerCountry || ''
+    callerName = params.CallerName || ''
   } catch (e) {
-    console.error('[Voice Inbound] Failed to parse form data:', e)
+    console.error('[Voice Inbound] Failed to parse/validate form data:', e)
+    return new NextResponse('Bad request', { status: 400 })
   }
 
   console.log(`[Voice Inbound] Call from ${from} to ${to}, SID: ${callSid}`)
@@ -88,17 +102,19 @@ export async function POST(req: NextRequest) {
         orgId = org.id
         practiceName = org.name || 'our practice'
       } else {
-        // Fallback: first org
-        const { data: firstOrg } = await supabase
+        // Fallback only when genuinely single-tenant. Guessing "first org" in a
+        // multi-tenant deployment would attribute a call (and any created lead /
+        // PHI) to the wrong tenant.
+        const { data: orgs } = await supabase
           .from('organizations')
           .select('id, name, voice_greeting')
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single()
-        if (firstOrg) {
-          orgId = firstOrg.id
-          practiceName = firstOrg.name || 'our practice'
-          console.log(`[Voice Inbound] Org fallback: ${firstOrg.name}`)
+          .limit(2)
+        if (orgs && orgs.length === 1) {
+          orgId = orgs[0].id
+          practiceName = orgs[0].name || 'our practice'
+          console.log(`[Voice Inbound] Single-tenant org fallback: ${orgs[0].name}`)
+        } else {
+          console.warn(`[Voice Inbound] No org matched caller-id ${to} and deployment is multi-tenant — not attributing call`)
         }
       }
 

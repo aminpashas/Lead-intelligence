@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { processEncounter, extractFromTranscript } from '@/lib/ai/encounter-processor'
+import { verifyRetellWebhook } from '@/lib/voice/retell-client'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY || ''
@@ -27,9 +28,19 @@ function getSupabase() {
 }
 
 export async function POST(req: NextRequest) {
+  // CRITICAL: this endpoint drives transcript injection, lead mutation, and real
+  // SMS/email follow-ups. Verify the Retell signature over the RAW body before
+  // doing anything (fails closed in production via verifyRetellWebhook).
+  const rawBody = await req.text()
+  const signature =
+    req.headers.get('x-retell-signature') || req.headers.get('x-retell-signature-256') || ''
+  if (!verifyRetellWebhook(rawBody, signature)) {
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+  }
+
   let body: Record<string, unknown>
   try {
-    body = await req.json()
+    body = JSON.parse(rawBody)
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
@@ -79,15 +90,18 @@ export async function POST(req: NextRequest) {
     let conversationId = callMetadata.conversation_id as string | null
 
     if ((!leadId || !orgId) && callData.from_number) {
-      const callerPhone = callData.from_number as string
+      // Sanitize to phone chars before interpolating into a PostgREST .or() filter.
+      const callerPhone = (callData.from_number as string).replace(/[^+0-9]/g, '')
       const normalizedPhone = callerPhone.replace(/^\+1/, '').replace(/\D/g, '')
       const phoneVariants = [callerPhone, normalizedPhone, `+1${normalizedPhone}`]
 
       if (!orgId) {
-        const { data: firstOrg } = await supabase
-          .from('organizations').select('id')
-          .order('created_at', { ascending: true }).limit(1).single()
-        orgId = firstOrg?.id || null
+        // Only attribute to a sole org when the deployment is genuinely
+        // single-tenant. Guessing "first org" in a multi-tenant deployment would
+        // leak one tenant's call/PHI onto another. Ambiguous → leave null (skip).
+        const { data: orgs } = await supabase
+          .from('organizations').select('id').limit(2)
+        orgId = orgs && orgs.length === 1 ? orgs[0].id : null
       }
 
       if (orgId && !leadId) {

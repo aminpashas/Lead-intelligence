@@ -73,9 +73,28 @@ export async function getCareStackConfig(
     username: creds.username,
     password: creds.password,
     webhook_secret: creds.webhook_secret,
-    base_url: (settings.base_url || 'https://api.carestack.com').replace(/\/$/, ''),
-    identity_url: (settings.identity_url || 'https://id.carestack.com').replace(/\/$/, ''),
+    base_url: assertCareStackHost((settings.base_url || 'https://api.carestack.com').replace(/\/$/, '')),
+    identity_url: assertCareStackHost((settings.identity_url || 'https://id.carestack.com').replace(/\/$/, '')),
   }
+}
+
+/**
+ * SSRF guard: base_url/identity_url are org-configured and get the EHR OAuth
+ * credentials POSTed to them. Restrict to https on a *.carestack.com host so a
+ * malicious/typo'd config can't exfiltrate the token to an internal/attacker host.
+ */
+function assertCareStackHost(rawUrl: string): string {
+  let u: URL
+  try {
+    u = new URL(rawUrl)
+  } catch {
+    throw new Error('Invalid CareStack URL')
+  }
+  const host = u.hostname.toLowerCase()
+  if (u.protocol !== 'https:' || !(host === 'carestack.com' || host.endsWith('.carestack.com'))) {
+    throw new Error(`Refusing non-CareStack URL for EHR requests: ${rawUrl}`)
+  }
+  return rawUrl
 }
 
 /**
