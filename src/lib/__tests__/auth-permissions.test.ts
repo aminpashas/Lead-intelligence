@@ -12,6 +12,7 @@ import {
   type PracticeRole,
   type Permission,
 } from '@/lib/auth/permissions'
+import { isOrgAllowed, type ServiceAuth } from '@/lib/auth/service-key'
 
 // ═══════════════════════════════════════════════════════════════
 // Role Definitions
@@ -302,5 +303,37 @@ describe('agency-only permissions', () => {
   it('client admins can still reach /settings itself (only connectors is gated)', () => {
     expect(canAccessRoute('admin', '/settings')).toBe(true)
     expect(canAccessRoute('owner', '/settings')).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
+// Service-key org allowlist (multi-tenant IDOR guard)
+// A verified bridge caller may only act on its allowlisted org ids.
+// ═══════════════════════════════════════════════════════════════
+
+describe('isOrgAllowed (service-key org scoping)', () => {
+  const ORG_A = '11111111-1111-1111-1111-111111111111'
+  const ORG_B = '22222222-2222-2222-2222-222222222222'
+
+  it('rejects a customer_id outside the allowlist', () => {
+    const auth: ServiceAuth = { caller: 'growth-studio', allowedOrgIds: [ORG_A] }
+    expect(isOrgAllowed(auth, ORG_B)).toBe(false)
+  })
+
+  it('allows a customer_id that is in the allowlist', () => {
+    const auth: ServiceAuth = { caller: 'growth-studio', allowedOrgIds: [ORG_A, ORG_B] }
+    expect(isOrgAllowed(auth, ORG_A)).toBe(true)
+    expect(isOrgAllowed(auth, ORG_B)).toBe(true)
+  })
+
+  it('permits any org when unrestricted ("*")', () => {
+    const auth: ServiceAuth = { caller: 'growth-studio', allowedOrgIds: '*' }
+    expect(isOrgAllowed(auth, ORG_A)).toBe(true)
+    expect(isOrgAllowed(auth, ORG_B)).toBe(true)
+  })
+
+  it('an empty allowlist rejects everything', () => {
+    const auth: ServiceAuth = { caller: 'growth-studio', allowedOrgIds: [] }
+    expect(isOrgAllowed(auth, ORG_A)).toBe(false)
   })
 })

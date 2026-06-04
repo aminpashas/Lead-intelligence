@@ -39,22 +39,45 @@ import { sendSlackNotification } from './slack/notify'
 import { decryptCredentials } from './crypto'
 
 /**
+ * Options to scope which connectors a dispatch runs.
+ *
+ * `only` restricts dispatch to the listed connector types. Connectors not in the
+ * list are not executed at all (their network calls genuinely do not happen) and
+ * produce no result entry. Used by the T3.3 dual-CAPI gate in forward-events to
+ * run Google Ads but skip Meta CAPI for DGS-owned down-funnel conversions.
+ */
+export type DispatchOptions = {
+  only?: ConnectorType[]
+}
+
+/**
  * Dispatch a CRM event to all enabled connectors for the organization.
  * Runs all connectors in parallel. Never throws — always returns results.
+ *
+ * When `opts.only` is provided, only the listed connector types are executed;
+ * all others are filtered out before any network call is made.
  */
 export async function dispatchConnectorEvent(
   supabase: SupabaseClient,
-  event: ConnectorEvent
+  event: ConnectorEvent,
+  opts?: DispatchOptions
 ): Promise<ConnectorResult[]> {
   const results: ConnectorResult[] = []
 
   try {
     // Fetch all enabled connectors for this organization
-    const { data: configs } = await supabase
+    const { data: rawConfigs } = await supabase
       .from('connector_configs')
       .select('*')
       .eq('organization_id', event.organizationId)
       .eq('enabled', true)
+
+    // Backward-compatible connector scoping: when opts.only is set, drop any
+    // connector type not in the allow-list so its module is never invoked.
+    const configs =
+      opts?.only && rawConfigs
+        ? rawConfigs.filter((c) => opts.only!.includes(c.connector_type as ConnectorType))
+        : rawConfigs
 
     if (!configs || configs.length === 0) return results
 

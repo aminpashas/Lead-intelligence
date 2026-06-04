@@ -17,7 +17,7 @@
  */
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { verifyServiceKey } from '@/lib/auth/service-key'
+import { verifyServiceKey, isOrgAllowed } from '@/lib/auth/service-key'
 import { encryptLeadPII, decryptLeadsPII, searchHash } from '@/lib/encryption'
 import { auditPHIRead, auditPHIWrite } from '@/lib/hipaa-audit'
 import { formatToE164 } from '@/lib/leads/phone'
@@ -53,15 +53,20 @@ function splitName(full: string): { first_name: string; last_name: string | null
 
 // GET /api/v1/leads?customer_id=<org-uuid>&limit=<n>
 export async function GET(request: NextRequest) {
-  const caller = verifyServiceKey(request)
-  if (!caller) {
+  const auth = verifyServiceKey(request)
+  if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const caller = auth.caller
 
   const { searchParams } = new URL(request.url)
   const customerId = searchParams.get('customer_id')
   if (!customerId) {
     return NextResponse.json({ error: 'customer_id is required' }, { status: 400 })
+  }
+  // Multi-tenant guard: a caller may only touch its allowlisted orgs.
+  if (!isOrgAllowed(auth, customerId)) {
+    return NextResponse.json({ error: 'forbidden_org' }, { status: 403 })
   }
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(searchParams.get('limit') ?? '50') || 50))
 
@@ -108,10 +113,11 @@ export async function GET(request: NextRequest) {
 
 // POST /api/v1/leads — create a lead via service key
 export async function POST(request: NextRequest) {
-  const caller = verifyServiceKey(request)
-  if (!caller) {
+  const auth = verifyServiceKey(request)
+  if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const caller = auth.caller
 
   const { data: body, error: bodyError } = await safeParseBody(request)
   if (bodyError) return bodyError
@@ -120,6 +126,10 @@ export async function POST(request: NextRequest) {
   const fullName = (body as Record<string, unknown>)?.full_name
   if (typeof customerId !== 'string' || !customerId) {
     return NextResponse.json({ error: 'customer_id is required' }, { status: 400 })
+  }
+  // Multi-tenant guard — before any DB query.
+  if (!isOrgAllowed(auth, customerId)) {
+    return NextResponse.json({ error: 'forbidden_org' }, { status: 403 })
   }
   if (typeof fullName !== 'string' || !fullName.trim()) {
     return NextResponse.json({ error: 'full_name is required' }, { status: 400 })
@@ -149,6 +159,9 @@ export async function POST(request: NextRequest) {
   const utm_source = asStr(b?.utm_source)
   const gclid = asStr(b?.gclid)
   const fbclid = asStr(b?.fbclid)
+  // Cross-system correlation id (DGS inbound_leads.id). Stored in its own
+  // indexed column so the writeback trigger can match without notes-regex.
+  const externalRef = asStr(b?.external_ref)
 
   const supabase = serviceRoleClient()
 
@@ -167,13 +180,22 @@ export async function POST(request: NextRequest) {
     ].filter(Boolean).join(',')
     const { data: existing } = await supabase
       .from('leads')
-      .select('id')
+      .select('id, external_ref')
       .eq('organization_id', customerId)
       .or(orFilter)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
     if (existing) {
+      // Backfill external_ref only when missing — never overwrite an existing
+      // correlation id (the first DGS submit owns it).
+      if (externalRef && !existing.external_ref) {
+        await supabase
+          .from('leads')
+          .update({ external_ref: externalRef })
+          .eq('id', existing.id)
+          .is('external_ref', null)
+      }
       return NextResponse.json(
         { id: existing.id, lead_id: existing.id, deduplicated: true },
         { status: 200 },
@@ -213,6 +235,7 @@ export async function POST(request: NextRequest) {
     source_id,
     notes,
     source_type: sourceName,
+    ...(externalRef ? { external_ref: externalRef } : {}),
     ...(sms_consent !== undefined ? { sms_consent } : {}),
     ...(email_consent !== undefined ? { email_consent } : {}),
     ...(utm_source ? { utm_source } : {}),

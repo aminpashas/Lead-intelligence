@@ -12,8 +12,9 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { verifyServiceKey } from '@/lib/auth/service-key'
+import { verifyServiceKey, isOrgAllowed } from '@/lib/auth/service-key'
 import { auditPHIRead } from '@/lib/hipaa-audit'
+import { logger } from '@/lib/logger'
 
 const MAX_ROWS = 10000
 
@@ -26,15 +27,20 @@ function serviceRoleClient() {
 
 // GET /api/v1/performance?customer_id=<org-uuid>&days=<n>
 export async function GET(request: NextRequest) {
-  const caller = verifyServiceKey(request)
-  if (!caller) {
+  const auth = verifyServiceKey(request)
+  if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const caller = auth.caller
 
   const { searchParams } = new URL(request.url)
   const customerId = searchParams.get('customer_id')
   if (!customerId) {
     return NextResponse.json({ error: 'customer_id is required' }, { status: 400 })
+  }
+  // Multi-tenant guard: a caller may only roll up its allowlisted orgs.
+  if (!isOrgAllowed(auth, customerId)) {
+    return NextResponse.json({ error: 'forbidden_org' }, { status: 403 })
   }
   const days = Math.min(365, Math.max(1, parseInt(searchParams.get('days') ?? '30') || 30))
   const since = new Date(Date.now() - days * 86_400_000).toISOString()
@@ -52,8 +58,9 @@ export async function GET(request: NextRequest) {
   // Lightweight, PII-free lead rows for aggregation.
   const { data: leads, error } = await supabase
     .from('leads')
-    .select('status, stage_id, ai_qualification, source_type, treatment_value, actual_revenue, created_at, lead_source:lead_sources(name)')
+    .select('id, status, stage_id, ai_qualification, source_type, treatment_value, actual_revenue, created_at, lead_source:lead_sources(name)')
     .eq('organization_id', customerId)
+    .gte('created_at', since)
     .order('created_at', { ascending: false })
     .range(0, MAX_ROWS - 1)
 
@@ -63,8 +70,10 @@ export async function GET(request: NextRequest) {
 
   const rows = (leads ?? []) as Record<string, unknown>[]
 
-  // Status-based won/lost fallback for leads with no stage assigned.
-  const WON_STATUS = new Set(['contract_signed', 'scheduled', 'in_treatment', 'completed'])
+  // Status-based won/lost fallback for leads with no stage assigned. "Won" means
+  // realized — only 'completed' counts (treatment delivered). In-flight statuses
+  // like 'scheduled' / 'in_treatment' / 'contract_signed' are pipeline, not won.
+  const WON_STATUS = new Set(['completed'])
   const LOST_STATUS = new Set(['lost', 'disqualified'])
 
   const byStatus: Record<string, number> = {}
@@ -75,7 +84,6 @@ export async function GET(request: NextRequest) {
   let open = 0
   let wonRevenue = 0
   let pipelineValue = 0
-  let newInWindow = 0
 
   for (const l of rows) {
     const status = String(l.status ?? 'new')
@@ -91,22 +99,40 @@ export async function GET(request: NextRequest) {
     bySource[sourceName] = (bySource[sourceName] ?? 0) + 1
 
     const stageId = l.stage_id as string | null
-    const isWon = (stageId !== null && wonStages.has(stageId)) || WON_STATUS.has(status)
-    const isLost = (stageId !== null && lostStages.has(stageId)) || LOST_STATUS.has(status)
+    // Prefer the explicit pipeline STAGE when present (stages are the source of
+    // truth for won/lost); fall back to status only when no won/lost stage applies.
+    const stageWon = stageId !== null && wonStages.has(stageId)
+    const stageLost = stageId !== null && lostStages.has(stageId)
+    const statusWon = WON_STATUS.has(status)
+    const statusLost = LOST_STATUS.has(status)
+
+    // Surface stage/status disagreements so data drift is visible; stage wins.
+    if ((stageWon && statusLost) || (stageLost && statusWon)) {
+      logger.warn('lead won/lost stage and status disagree (using stage)', {
+        lead_id: String(l.id),
+        stage_won: stageWon,
+        stage_lost: stageLost,
+        status,
+      })
+    }
+
+    const isWon = stageWon || (!stageLost && statusWon)
+    const isLost = stageLost || (!stageWon && statusLost)
     if (isWon) {
       won++
-      wonRevenue += Number(l.actual_revenue ?? l.treatment_value ?? 0) || 0
+      // Realized revenue only — actual_revenue, never the treatment_value quote.
+      wonRevenue += Number(l.actual_revenue ?? 0) || 0
     } else if (isLost) {
       lost++
     } else {
       open++
       pipelineValue += Number(l.treatment_value ?? 0) || 0
     }
-
-    if (String(l.created_at) >= since) newInWindow++
   }
 
   const total = rows.length
+  // All rows are now within the window (query is gte since), so new == total.
+  const newInWindow = total
   const decided = won + lost
   const conversionRate = decided > 0 ? won / decided : 0
 

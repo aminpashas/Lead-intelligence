@@ -8,6 +8,7 @@
  */
 
 export { dispatchConnectorEvent } from './dispatcher'
+export type { DispatchOptions } from './dispatcher'
 export { buildConnectorLeadData } from './helpers'
 export { processReviewRequest, getGoogleReviewUrl } from './google-business/reviews'
 export type {

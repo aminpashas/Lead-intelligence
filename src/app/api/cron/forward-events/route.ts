@@ -45,6 +45,25 @@ const FORWARDABLE: Record<string, ConnectorEventType> = {
   // are intentionally NOT forwarded — internal-only events.
 }
 
+// ── T3.3 dual-CAPI gate ─────────────────────────────────────────────
+// The sibling "Dion Growth Studio" (DGS) system receives a writeback from LI
+// (SQL trigger notify_growth_studio_lead_event) and fires Meta CAPI itself for
+// two down-funnel conversions: BookedConsult and TreatmentAccepted. DGS holds
+// the original ad click identifiers (fbc/fbp/gclid) that LI usually lacks, so
+// when the writeback is enabled DGS *owns* those Meta conversions and LI must
+// NOT also fire them — otherwise Meta double-counts.
+//
+// DGS does NOT do Google Ads, and DGS does NOT fire any of the other event
+// types, so for the DGS-owned set we still dispatch Google Ads from LI and we
+// keep firing everything else (lead.created/qualified/scored/treatment_planned/
+// payment.received) on BOTH connectors unchanged.
+const DGS_OWNED_META_EVENT_TYPES = new Set<string>([
+  'lead.booking.created', // → BookedConsult
+  'lead.booking.rescheduled', // → BookedConsult
+  'lead.treatment_accepted', // → TreatmentAccepted
+  'lead.treatment_completed', // → TreatmentAccepted
+])
+
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -52,6 +71,15 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createServiceClient()
+
+  // T3.3: load the global DGS writeback switch once per sweep. When enabled, DGS
+  // owns the down-funnel Meta CAPI conversions (see DGS_OWNED_META_EVENT_TYPES).
+  const { data: dgsConfig } = await supabase
+    .from('growth_studio_webhook_config')
+    .select('enabled')
+    .limit(1)
+    .maybeSingle()
+  const dgsOwnsDownfunnelCapi = !!dgsConfig?.enabled
 
   // Pull the next batch of events that have at least one pending forwarder.
   // Order by occurred_at ASC so we work the queue in arrival order.
@@ -153,14 +181,31 @@ export async function POST(request: NextRequest) {
       },
     }
 
-    // dispatchConnectorEvent runs ALL enabled connectors for the org in parallel
+    // T3.3: when the gate is on and this is a DGS-owned event, exclude Meta CAPI
+    // from the dispatch entirely (Google Ads still fires — DGS does not do it).
+    // The Meta network call genuinely does not happen because we restrict the
+    // dispatcher to only the google_ads connector.
+    const capiSkippedForDgs =
+      dgsOwnsDownfunnelCapi && DGS_OWNED_META_EVENT_TYPES.has(ev.event_type)
+
+    // dispatchConnectorEvent runs the enabled connectors for the org in parallel
     // and returns per-connector results. We translate those into per-target status
     // updates on the event row.
-    const results = await dispatchConnectorEvent(supabase, connectorEvent)
+    const results = await dispatchConnectorEvent(
+      supabase,
+      connectorEvent,
+      capiSkippedForDgs ? { only: ['google_ads'] } : undefined
+    )
 
     const updates: Record<string, unknown> = {}
 
-    if (ev.capi_status === 'pending') {
+    if (ev.capi_status === 'pending' && capiSkippedForDgs) {
+      // T3.3: Meta CAPI was deliberately not dispatched for this DGS-owned event.
+      // Mark it skipped with a clear reason so the row isn't picked up again.
+      updates.capi_status = 'skipped'
+      updates.capi_attempted_at = new Date().toISOString()
+      updates.payload = { ...ev.payload, _capi_skip_reason: 'dgs_owned' }
+    } else if (ev.capi_status === 'pending') {
       const meta = results.find((r) => r.connector === 'meta_capi')
       if (meta) {
         if (meta.success) {
