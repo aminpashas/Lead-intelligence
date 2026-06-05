@@ -12,6 +12,7 @@
  * Our server provides the "brain" (Claude) via webhook.
  */
 
+import Retell from 'retell-sdk'
 import { logger } from '@/lib/logger'
 
 // ═══════════════════════════════════════════════════════════════
@@ -302,37 +303,34 @@ export async function endCall(callId: string): Promise<void> {
 
 /**
  * Verify that a webhook request actually came from Retell.
- * Uses HMAC-SHA256 signature validation.
+ *
+ * Uses the official SDK's `verify()`, which implements Retell's real scheme:
+ * HMAC-SHA256 of (raw_body + timestamp) keyed by the RETELL_API_KEY (the key with
+ * the webhook badge), with the `v={ts},d={hex}` header format and a timestamp
+ * window. The previous hand-rolled HMAC used the wrong secret AND the wrong format,
+ * so it would have rejected every genuine Retell webhook.
+ *
+ * Async because the SDK's verify returns a Promise.
  */
-export function verifyRetellWebhook(
+export async function verifyRetellWebhook(
   payload: string,
   signature: string
-): boolean {
-  const secret = process.env.RETELL_WEBHOOK_SECRET
-  if (!secret) {
-    // Fail CLOSED in production — an unconfigured secret must not accept forged
-    // call events. Fail-open only in non-production for local testing.
+): Promise<boolean> {
+  const apiKey = process.env.RETELL_API_KEY
+  if (!apiKey) {
+    // Fail CLOSED in production — without the key we cannot verify, so we must
+    // not accept forged call events. Fail-open only in non-production.
     if (process.env.NODE_ENV === 'production') {
-      logger.error('RETELL_WEBHOOK_SECRET not configured in production — rejecting webhook')
+      logger.error('RETELL_API_KEY not configured in production — rejecting webhook')
       return false
     }
-    logger.warn('RETELL_WEBHOOK_SECRET not configured — skipping verification (non-production only)')
+    logger.warn('RETELL_API_KEY not configured — skipping verification (non-production only)')
     return true
   }
   if (!signature) return false
 
   try {
-    // Retell uses HMAC-SHA256
-    const crypto = require('crypto')
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(payload)
-      .digest('hex')
-
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    )
+    return await Retell.verify(payload, apiKey, signature)
   } catch {
     return false
   }

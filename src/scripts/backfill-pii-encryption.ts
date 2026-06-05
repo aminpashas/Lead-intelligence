@@ -38,13 +38,14 @@ const DRY_RUN = process.env.DRY_RUN !== 'false'
 const BATCH = 500
 const ENC = 'enc::'
 
+// Only TEXT columns can hold the `enc::` ciphertext. leads.date_of_birth is a
+// `date` column and leads.insurance_details is `jsonb`, so neither can be
+// encrypted-in-place with this scheme — they are intentionally excluded.
 const PLAINTEXT_FIELDS = [
   'email',
   'phone',
   'phone_formatted',
-  'date_of_birth',
   'insurance_provider',
-  'insurance_details',
 ] as const
 
 function isPlaintext(v: unknown): v is string {

@@ -63,12 +63,15 @@ export async function GET(request: NextRequest) {
     return redirectToConnectors(request, 'google_oauth_state_expired')
   }
 
-  // Exchange code → tokens.
+  // Exchange code → tokens. Include the PKCE code_verifier stored at /connect so
+  // a leaked `state` alone cannot complete the exchange.
+  const codeVerifier = (stateRow.metadata as { code_verifier?: string } | null)?.code_verifier
   let tokens
   try {
     tokens = await exchangeGoogleAuthCode({
       code,
       redirectUri: googleRedirectUri(request),
+      codeVerifier,
     })
   } catch (err) {
     return redirectToConnectors(

@@ -32,9 +32,8 @@ export async function POST(req: NextRequest) {
   // SMS/email follow-ups. Verify the Retell signature over the RAW body before
   // doing anything (fails closed in production via verifyRetellWebhook).
   const rawBody = await req.text()
-  const signature =
-    req.headers.get('x-retell-signature') || req.headers.get('x-retell-signature-256') || ''
-  if (!verifyRetellWebhook(rawBody, signature)) {
+  const signature = req.headers.get('x-retell-signature') || ''
+  if (!(await verifyRetellWebhook(rawBody, signature))) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
