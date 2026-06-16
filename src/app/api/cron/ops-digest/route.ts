@@ -3,7 +3,8 @@
  *
  * Does not mutate app data. Counts, over the last 24h where time-bounded:
  *   - events with capi_status='failed' or gads_status='failed'
- *   - growth_studio_outbox rows with status='failed'
+ *   - growth_studio_outbox rows that are failed/unknown (writeback never confirmed
+ *     delivered), or stuck pending >2h (emitted but never reconciled)
  *   - open escalations (status in 'pending'/'claimed')
  *   - unhealthy crons (stale heartbeat or last run failed) via cron_runs
  *
@@ -34,7 +35,8 @@ async function postSlackAlert(
     `:rotating_light: *Lead Intelligence ops-digest* — ${total} issue(s) need attention`,
     `• CAPI failed (24h): ${counts.capi_failed_24h}`,
     `• Google Ads failed (24h): ${counts.gads_failed_24h}`,
-    `• DGS outbox failed: ${counts.outbox_failed}`,
+    `• DGS writeback failed/unknown: ${counts.outbox_failed}`,
+    `• DGS writeback stuck (>2h pending): ${counts.outbox_stuck_pending}`,
     `• Open escalations: ${counts.open_escalations}`,
     `• Unhealthy crons: ${counts.unhealthy_crons}`,
   ]
@@ -73,34 +75,46 @@ export async function POST(request: NextRequest) {
     return count ?? 0
   }
 
-  const [capiFailed, gadsFailed, outboxFailed, openEscalations] = await Promise.all([
-    countOf(
-      supabase
-        .from('events')
-        .select('id', { count: 'exact', head: true })
-        .eq('capi_status', 'failed')
-        .gte('occurred_at', since)
-    ),
-    countOf(
-      supabase
-        .from('events')
-        .select('id', { count: 'exact', head: true })
-        .eq('gads_status', 'failed')
-        .gte('occurred_at', since)
-    ),
-    countOf(
-      supabase
-        .from('growth_studio_outbox')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'failed')
-    ),
-    countOf(
-      supabase
-        .from('escalations')
-        .select('id', { count: 'exact', head: true })
-        .in('status', ['pending', 'claimed'])
-    ),
-  ])
+  // A writeback that never confirmed delivery: terminal failed/unknown, OR stuck
+  // pending past this cutoff (emitted but reconcile never resolved it).
+  const stuckBefore = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+
+  const [capiFailed, gadsFailed, outboxFailed, outboxStuckPending, openEscalations] =
+    await Promise.all([
+      countOf(
+        supabase
+          .from('events')
+          .select('id', { count: 'exact', head: true })
+          .eq('capi_status', 'failed')
+          .gte('occurred_at', since)
+      ),
+      countOf(
+        supabase
+          .from('events')
+          .select('id', { count: 'exact', head: true })
+          .eq('gads_status', 'failed')
+          .gte('occurred_at', since)
+      ),
+      countOf(
+        supabase
+          .from('growth_studio_outbox')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['failed', 'unknown'])
+      ),
+      countOf(
+        supabase
+          .from('growth_studio_outbox')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .lt('created_at', stuckBefore)
+      ),
+      countOf(
+        supabase
+          .from('escalations')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['pending', 'claimed'])
+      ),
+    ])
 
   // Cron heartbeat health — a stale or failing cron is a silent failure the
   // failure counts above can't surface (a dead cron emits nothing at all).
@@ -110,12 +124,18 @@ export async function POST(request: NextRequest) {
     capi_failed_24h: capiFailed,
     gads_failed_24h: gadsFailed,
     outbox_failed: outboxFailed,
+    outbox_stuck_pending: outboxStuckPending,
     open_escalations: openEscalations,
     unhealthy_crons: cronIssues.length,
   }
 
   const total =
-    capiFailed + gadsFailed + outboxFailed + openEscalations + cronIssues.length
+    capiFailed +
+    gadsFailed +
+    outboxFailed +
+    outboxStuckPending +
+    openEscalations +
+    cronIssues.length
 
   if (total > 0) {
     const detail = { ...counts, cron_issues: cronIssues }
