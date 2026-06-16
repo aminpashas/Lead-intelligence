@@ -292,6 +292,34 @@ export async function POST(request: NextRequest) {
   // autopilot is switched on (post-Twilio approval). Runs after the response
   // so the bridge call never blocks on the LLM/first-message generation.
   after(async () => {
+    // Soft financial pre-qualification from any free-text the source carried.
+    // The DGS/GHL bridge pushes the contact's form message as `notes`, so we run
+    // the regex-only qualifier over it (NO LLM cost — safe even on bulk
+    // backfills) and persist a REAL tier + readiness. Without this, every
+    // bridged lead keeps the `leads.financial_qualification_tier` column DEFAULT
+    // ('tier_c'), which is indistinguishable from a genuine assessment. Writing
+    // `financial_signals` (with its `last_updated` stamp) is what lets the UI
+    // tell "assessed, no signal yet" apart from "never assessed".
+    if (notes && notes.trim()) {
+      try {
+        const { extractFinancialSignals, mergeFinancialSignals, determineQualificationTier } =
+          await import('@/lib/ai/financial-qualifier')
+        const signals = mergeFinancialSignals(null, extractFinancialSignals(notes))
+        const tier = determineQualificationTier(signals, {})
+        const update: Record<string, unknown> = {
+          financial_signals: signals,
+          financial_qualification_tier: tier,
+          financing_readiness_score: signals.readiness_score,
+        }
+        if (signals.budget_monthly) update.preferred_monthly_budget = signals.budget_monthly
+        if (signals.has_hsa_fsa !== null) update.has_hsa_fsa = signals.has_hsa_fsa
+        if (signals.down_payment_mentioned) update.estimated_down_payment = signals.down_payment_mentioned
+        await supabase.from('leads').update(update).eq('id', String(lead.id))
+      } catch {
+        // Non-fatal: financial qualification must never affect ingestion.
+      }
+    }
+
     try {
       await triggerSpeedToLead(supabase, String(lead.id), customerId)
     } catch {
