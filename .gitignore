@@ -47,3 +47,6 @@ next-env.d.ts
 
 # supabase CLI scratch state
 supabase/.temp/
+
+# Playwright MCP scratch state
+.playwright-mcp/

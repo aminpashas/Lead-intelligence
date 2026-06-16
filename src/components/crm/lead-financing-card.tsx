@@ -46,6 +46,17 @@ const STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'second
   error: { label: 'Error', variant: 'destructive' },
 }
 
+// Financial-readiness tier surfaced from the AI qualifier. Only shown once the
+// lead has actually been assessed (see `assessed` below) — otherwise the column
+// default `tier_c` would read as a real grade on leads that were never scored
+// (e.g. bulk-imported GHL contacts with no conversation yet).
+const TIER_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }> = {
+  tier_a: { label: 'Tier A · Ready', variant: 'default', className: 'bg-green-600' },
+  tier_b: { label: 'Tier B · Warming', variant: 'secondary' },
+  tier_c: { label: 'Tier C · Early', variant: 'outline' },
+  tier_d: { label: 'Tier D · Barriers', variant: 'destructive' },
+}
+
 export function LeadFinancingCard({ lead }: { lead: Lead }) {
   const [appData, setAppData] = useState<FinancingAppData | null>(null)
   const [estimates, setEstimates] = useState<EstimateData[]>([])
@@ -97,6 +108,13 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
 
   const badgeConfig = appData ? STATUS_BADGE[appData.status] || STATUS_BADGE.pending : null
 
+  // A lead is only "assessed" once the qualifier has written financial_signals
+  // (stamped with last_updated). Bulk-imported leads with no conversation have
+  // financial_signals === null, so their tier_c column default must NOT be shown
+  // as a real grade — we render "Not assessed" instead.
+  const assessed = !!lead.financial_signals?.last_updated
+  const tierConfig = TIER_BADGE[lead.financial_qualification_tier] ?? TIER_BADGE.tier_c
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -128,7 +146,24 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
             <span className="text-muted-foreground">Interest</span>
             <span className="font-medium capitalize">{lead.financing_interest?.replace(/_/g, ' ') || '—'}</span>
           </div>
+          <div className="flex justify-between items-center">
+            <span className="text-muted-foreground">Financial Readiness</span>
+            {assessed ? (
+              <Badge variant={tierConfig.variant} className={`text-xs ${tierConfig.className ?? ''}`}>
+                {tierConfig.label} · {lead.financing_readiness_score}/100
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs text-muted-foreground">
+                Not assessed
+              </Badge>
+            )}
+          </div>
         </div>
+        {!assessed && (
+          <p className="text-[11px] leading-tight text-muted-foreground">
+            No financial signals yet — readiness is inferred from conversation, not a credit check.
+          </p>
+        )}
 
         {/* Approval info */}
         {appData?.status === 'approved' && appData.approved_amount && (
