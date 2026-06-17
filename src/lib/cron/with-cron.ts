@@ -100,6 +100,7 @@ export function withCron(
  */
 export const EXPECTED_CRONS: Record<string, number> = {
   'reconcile-growth-studio-outbox': 40, // every 10 min
+  'a2p-status': 8 * 60, // every 6h + grace
   'carestack-sync': 26 * 60, // daily 04:30 UTC
   'windsor-sync': 26 * 60, // daily 05:00 UTC
   'brex-sync': 26 * 60, // daily 06:00 UTC

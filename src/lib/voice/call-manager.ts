@@ -76,14 +76,12 @@ export async function preCallCheck(
   }
 
   // Consent check. TCPA requires prior express consent for autodialed calls, and
-  // SMS consent is a weak substitute for VOICE-autodial consent. When
-  // VOICE_REQUIRE_EXPLICIT_CONSENT is set, require voice_consent outright;
-  // otherwise fall back to sms_consent (legacy behavior) so enabling strict mode
-  // is a deliberate switch rather than a silent halt of all outbound calling.
-  const requireVoiceConsent = process.env.VOICE_REQUIRE_EXPLICIT_CONSENT === 'true'
-  const hasConsent = requireVoiceConsent
-    ? !!lead.voice_consent
-    : (!!lead.voice_consent || !!lead.sms_consent)
+  // SMS consent is NOT a substitute for VOICE-autodial consent. Strict by default
+  // (Phase 1.4): require explicit voice_consent. The legacy SMS fallback is only
+  // honored when VOICE_ALLOW_SMS_CONSENT_FALLBACK is explicitly set, so loosening
+  // the standard is a deliberate per-deployment switch rather than the default.
+  const allowSmsFallback = process.env.VOICE_ALLOW_SMS_CONSENT_FALLBACK === 'true'
+  const hasConsent = !!lead.voice_consent || (allowSmsFallback && !!lead.sms_consent)
   if (!hasConsent) {
     return { allowed: false, reason: 'no_consent' }
   }

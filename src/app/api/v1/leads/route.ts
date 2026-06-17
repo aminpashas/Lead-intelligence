@@ -23,6 +23,7 @@ import { auditPHIRead, auditPHIWrite } from '@/lib/hipaa-audit'
 import { formatToE164 } from '@/lib/leads/phone'
 import { safeParseBody } from '@/lib/body-size'
 import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
+import { deriveConsentFields } from '@/lib/consent/ingest'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -151,11 +152,18 @@ export async function POST(request: NextRequest) {
     : null
 
   // Consent + attribution carried by the DGS bridge (all optional, additive).
-  // Consent drives whether the autopilot may ever text/email this lead; it is
-  // set true only for first-party form/ad submits that carried disclosure.
+  // Consent drives whether the autopilot may ever text/call/email this lead.
+  // Tri-state: a field set to true is an explicit opt-in; false is an explicit
+  // decline; OMITTED means "no signal" → status 'unknown' (eligible for the
+  // consent-capture flow). We never fabricate a `false` boolean from a missing
+  // field — that was the bug that made every bridged lead look like it declined.
   const b = body as Record<string, unknown>
-  const sms_consent = asBool(b?.sms_consent)
-  const email_consent = asBool(b?.email_consent)
+  const consentFields = deriveConsentFields({
+    sms_consent: asBool(b?.sms_consent),
+    email_consent: asBool(b?.email_consent),
+    voice_consent: asBool(b?.voice_consent),
+    consent_source: asStr(b?.consent_source),
+  })
   const utm_source = asStr(b?.utm_source)
   const gclid = asStr(b?.gclid)
   const fbclid = asStr(b?.fbclid)
@@ -239,8 +247,7 @@ export async function POST(request: NextRequest) {
     notes,
     source_type: sourceName,
     ...(externalRef ? { external_ref: externalRef } : {}),
-    ...(sms_consent !== undefined ? { sms_consent } : {}),
-    ...(email_consent !== undefined ? { email_consent } : {}),
+    ...consentFields,
     ...(utm_source ? { utm_source } : {}),
     ...(gclid ? { gclid } : {}),
     ...(fbclid ? { fbclid } : {}),
@@ -309,6 +316,7 @@ export async function POST(request: NextRequest) {
         const update: Record<string, unknown> = {
           financial_signals: signals,
           financial_qualification_tier: tier,
+          financial_qualification_status: 'assessed',
           financing_readiness_score: signals.readiness_score,
         }
         if (signals.budget_monthly) update.preferred_monthly_budget = signals.budget_monthly

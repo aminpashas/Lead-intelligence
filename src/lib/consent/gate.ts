@@ -18,6 +18,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ConsentChannel = 'sms' | 'email' | 'voice'
 
+export type ConsentStatusValue = 'granted' | 'declined' | 'unknown'
+
 export type ConsentDecision =
   | { allowed: true; lead: ConsentLeadFields }
   | { allowed: false; reason: ConsentDenyReason; lead: ConsentLeadFields | null }
@@ -39,6 +41,10 @@ type ConsentLeadFields = {
   voice_consent: boolean | null
   voice_opt_out: boolean | null
   do_not_call: boolean | null
+  // Tri-state status (additive; the booleans above remain the gate's source of truth)
+  sms_consent_status: ConsentStatusValue | null
+  email_consent_status: ConsentStatusValue | null
+  voice_consent_status: ConsentStatusValue | null
 }
 
 const CONSENT_FIELDS = [
@@ -51,6 +57,9 @@ const CONSENT_FIELDS = [
   'voice_consent',
   'voice_opt_out',
   'do_not_call',
+  'sms_consent_status',
+  'email_consent_status',
+  'voice_consent_status',
 ].join(',')
 
 /**
@@ -124,5 +133,44 @@ export async function logConsentViolation(
     })
   } catch {
     // Logging is best-effort. The deny is what matters.
+  }
+}
+
+// ── Consent-capture eligibility (Phase 1.2) ─────────────────────────────
+// A lead the gate BLOCKS is not necessarily off-limits: if we never asked
+// (status 'unknown') we may still solicit consent on a permitted first touch.
+// A 'declined' lead must never be solicited. This is the targeting predicate
+// for the consent-capture flow / "needs consent" segment.
+
+type ConsentEligibilityFields = {
+  sms_consent_status?: ConsentStatusValue | null
+  email_consent_status?: ConsentStatusValue | null
+  voice_consent_status?: ConsentStatusValue | null
+  sms_opt_out?: boolean | null
+  email_opt_out?: boolean | null
+  voice_opt_out?: boolean | null
+  do_not_call?: boolean | null
+}
+
+/**
+ * True when the lead has not granted and not declined this channel — i.e. we
+ * never captured consent and may run the consent-capture flow. Hard opt-out /
+ * DNC always disqualifies, even if status is somehow stale.
+ */
+export function isEligibleForConsentCapture(
+  lead: ConsentEligibilityFields,
+  channel: ConsentChannel
+): boolean {
+  switch (channel) {
+    case 'sms':
+      return lead.sms_consent_status === 'unknown' && lead.sms_opt_out !== true
+    case 'email':
+      return lead.email_consent_status === 'unknown' && lead.email_opt_out !== true
+    case 'voice':
+      return (
+        lead.voice_consent_status === 'unknown' &&
+        lead.voice_opt_out !== true &&
+        lead.do_not_call !== true
+      )
   }
 }

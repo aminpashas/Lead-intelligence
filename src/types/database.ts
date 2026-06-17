@@ -11,6 +11,7 @@ export type Organization = {
   email: string | null
   address: Record<string, string> | null
   settings: Record<string, unknown>
+  feature_flags: Record<string, boolean>
   subscription_tier: 'trial' | 'starter' | 'professional' | 'enterprise'
   subscription_status: 'active' | 'past_due' | 'canceled' | 'trialing'
   trial_ends_at: string | null
@@ -245,6 +246,11 @@ export type Lead = {
   voice_opt_out_at: string | null
   do_not_call: boolean
 
+  // Consent status (tri-state, additive to the booleans above)
+  sms_consent_status: 'granted' | 'declined' | 'unknown'
+  email_consent_status: 'granted' | 'declined' | 'unknown'
+  voice_consent_status: 'granted' | 'declined' | 'unknown'
+
   // Enrichment
   enrichment_score: number
   enrichment_status: 'pending' | 'partial' | 'complete' | 'failed'
@@ -275,7 +281,8 @@ export type Lead = {
   financing_application_id: string | null
 
   // Financial Qualification (AI-driven)
-  financial_qualification_tier: FinancialQualificationTier
+  financial_qualification_tier: FinancialQualificationTier | null
+  financial_qualification_status: 'unassessed' | 'assessed'
   financing_readiness_score: number
   financial_signals: FinancialSignals | null
   financing_link_sent_at: string | null
