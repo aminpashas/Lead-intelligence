@@ -38,6 +38,8 @@ async function postSlackAlert(
     `• DGS writeback failed/unknown: ${counts.outbox_failed}`,
     `• DGS writeback stuck (>2h pending): ${counts.outbox_stuck_pending}`,
     `• Open escalations: ${counts.open_escalations}`,
+    `• Link-lender apps awaiting outcome (>7d): ${counts.link_sent_stale}`,
+    `• Agents in probation: ${counts.agents_in_probation}`,
     `• Unhealthy crons: ${counts.unhealthy_crons}`,
   ]
   for (const c of cronIssues) {
@@ -78,9 +80,19 @@ export async function POST(request: NextRequest) {
   // A writeback that never confirmed delivery: terminal failed/unknown, OR stuck
   // pending past this cutoff (emitted but reconcile never resolved it).
   const stuckBefore = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  // A link-lender application sat at 'link_sent' for over a week with no recorded
+  // outcome — the honest-link path's silent failure (revenue signal never closed).
+  const linkStaleBefore = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
-  const [capiFailed, gadsFailed, outboxFailed, outboxStuckPending, openEscalations] =
-    await Promise.all([
+  const [
+    capiFailed,
+    gadsFailed,
+    outboxFailed,
+    outboxStuckPending,
+    openEscalations,
+    linkSentStale,
+    agentsProbation,
+  ] = await Promise.all([
       countOf(
         supabase
           .from('events')
@@ -114,6 +126,20 @@ export async function POST(request: NextRequest) {
           .select('id', { count: 'exact', head: true })
           .in('status', ['pending', 'claimed'])
       ),
+      countOf(
+        supabase
+          .from('financing_submissions')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'link_sent')
+          .lt('responded_at', linkStaleBefore)
+      ),
+      // Business-outcome signal: agents the KPI engine put on probation.
+      countOf(
+        supabase
+          .from('agent_status_current')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'probation')
+      ),
     ])
 
   // Cron heartbeat health — a stale or failing cron is a silent failure the
@@ -126,6 +152,8 @@ export async function POST(request: NextRequest) {
     outbox_failed: outboxFailed,
     outbox_stuck_pending: outboxStuckPending,
     open_escalations: openEscalations,
+    link_sent_stale: linkSentStale,
+    agents_in_probation: agentsProbation,
     unhealthy_crons: cronIssues.length,
   }
 
@@ -135,6 +163,8 @@ export async function POST(request: NextRequest) {
     outboxFailed +
     outboxStuckPending +
     openEscalations +
+    linkSentStale +
+    agentsProbation +
     cronIssues.length
 
   if (total > 0) {

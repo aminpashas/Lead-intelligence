@@ -77,6 +77,17 @@ export type AgentContext = {
   previous_assessment?: LeadEngagementAssessment | null
   technique_history?: Array<{ technique_id: string; predicted_effectiveness: string }>
   financing_context?: FinancingContext
+  /** Phase 4: competitors the lead has mentioned, with our positioning. */
+  competitor_context?: CompetitorContext[]
+  /** Phase 4: org-approved negotiation levers selected for this lead's price sensitivity. */
+  negotiation_levers?: string[]
+}
+
+export type CompetitorContext = {
+  name: string
+  our_differentiators: string | null
+  typical_pricing_notes: string | null
+  weaknesses: string | null
 }
 
 export type HandoffContextSnapshot = {

@@ -314,6 +314,23 @@ async function buildAgentContext(
   ])
   const patientProfile = patientProfileRaw as PatientProfile | null
 
+  // Phase 4: competitor positioning + bounded negotiation levers, only when the
+  // org has competitor_intel on. Failures are non-fatal (context just omits them).
+  let competitorContext: import('@/lib/ai/agent-types').CompetitorContext[] | undefined
+  let negotiationLevers: string[] | undefined
+  try {
+    const { isFlagEnabled } = await import('@/lib/org/flags')
+    if (await isFlagEnabled(supabase, organization_id, 'competitor_intel')) {
+      const { loadCompetitorContext, negotiationLeversForProfile } = await import(
+        '@/lib/competitive/context'
+      )
+      competitorContext = await loadCompetitorContext(supabase, lead.id as string, organization_id)
+      negotiationLevers = negotiationLeversForProfile(patientProfile)
+    }
+  } catch {
+    /* non-fatal — agent runs without competitor/negotiation context */
+  }
+
   return {
     lead,
     conversation_id,
@@ -325,6 +342,8 @@ async function buildAgentContext(
     handoff_history: handoffHistory,
     message_count: (conversation.message_count as number) || history.length,
     financing_context: financingCtx,
+    competitor_context: competitorContext && competitorContext.length > 0 ? competitorContext : undefined,
+    negotiation_levers: negotiationLevers && negotiationLevers.length > 0 ? negotiationLevers : undefined,
   }
 }
 

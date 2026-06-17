@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { assertConsent, logConsentViolation, type ConsentChannel } from '@/lib/consent/gate'
+import {
+  assertConsent,
+  logConsentViolation,
+  isEligibleForConsentCapture,
+  type ConsentChannel,
+} from '@/lib/consent/gate'
 
 // ── Supabase mock helpers ────────────────────────────────────────
 
@@ -14,6 +19,9 @@ function makeLeadData(overrides: Record<string, unknown> = {}) {
     voice_consent: null,
     voice_opt_out: null,
     do_not_call: null,
+    sms_consent_status: 'unknown',
+    email_consent_status: 'unknown',
+    voice_consent_status: 'unknown',
     ...overrides,
   }
 }
@@ -297,5 +305,45 @@ describe('logConsentViolation', () => {
         reason: 'opted_out',
       })
     ).resolves.toBeUndefined()
+  })
+})
+
+describe('isEligibleForConsentCapture', () => {
+  it('eligible when status unknown and not opted out (sms)', () => {
+    expect(isEligibleForConsentCapture({ sms_consent_status: 'unknown', sms_opt_out: false }, 'sms')).toBe(true)
+  })
+
+  it('not eligible when already granted', () => {
+    expect(isEligibleForConsentCapture({ sms_consent_status: 'granted' }, 'sms')).toBe(false)
+  })
+
+  it('not eligible when declined', () => {
+    expect(isEligibleForConsentCapture({ sms_consent_status: 'declined' }, 'sms')).toBe(false)
+  })
+
+  it('not eligible when opted out even if status stale-unknown', () => {
+    expect(isEligibleForConsentCapture({ sms_consent_status: 'unknown', sms_opt_out: true }, 'sms')).toBe(false)
+  })
+
+  it('voice: not eligible when do_not_call set, even if status unknown', () => {
+    expect(
+      isEligibleForConsentCapture(
+        { voice_consent_status: 'unknown', voice_opt_out: false, do_not_call: true },
+        'voice'
+      )
+    ).toBe(false)
+  })
+
+  it('voice: eligible when unknown, not opted out, not DNC', () => {
+    expect(
+      isEligibleForConsentCapture(
+        { voice_consent_status: 'unknown', voice_opt_out: false, do_not_call: false },
+        'voice'
+      )
+    ).toBe(true)
+  })
+
+  it('email: eligible when unknown and not opted out', () => {
+    expect(isEligibleForConsentCapture({ email_consent_status: 'unknown', email_opt_out: false }, 'email')).toBe(true)
   })
 })

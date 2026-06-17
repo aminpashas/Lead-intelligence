@@ -260,10 +260,12 @@ export async function processFinancialSignals(
   // Determine qualification tier
   const tier = determineQualificationTier(mergedSignals, lead)
 
-  // Persist to database
+  // Persist to database. Setting status='assessed' is what distinguishes a lead
+  // the qualifier actually ran on from one that merely carries column defaults.
   const updates: Record<string, unknown> = {
     financial_signals: mergedSignals,
     financial_qualification_tier: tier,
+    financial_qualification_status: 'assessed',
     financing_readiness_score: mergedSignals.readiness_score,
   }
 

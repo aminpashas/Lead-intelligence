@@ -108,12 +108,15 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
 
   const badgeConfig = appData ? STATUS_BADGE[appData.status] || STATUS_BADGE.pending : null
 
-  // A lead is only "assessed" once the qualifier has written financial_signals
-  // (stamped with last_updated). Bulk-imported leads with no conversation have
-  // financial_signals === null, so their tier_c column default must NOT be shown
-  // as a real grade — we render "Not assessed" instead.
-  const assessed = !!lead.financial_signals?.last_updated
-  const tierConfig = TIER_BADGE[lead.financial_qualification_tier] ?? TIER_BADGE.tier_c
+  // A lead is only "assessed" once the text-derived qualifier has run (it sets
+  // financial_qualification_status='assessed' and stamps financial_signals).
+  // Never-assessed leads (e.g. bulk-imported GHL contacts) must NOT show a tier —
+  // we render "Not assessed" instead of a fabricated grade.
+  const assessed =
+    lead.financial_qualification_status === 'assessed' || !!lead.financial_signals?.last_updated
+  const tierConfig =
+    (lead.financial_qualification_tier && TIER_BADGE[lead.financial_qualification_tier]) ||
+    TIER_BADGE.tier_c
 
   return (
     <Card>
@@ -147,7 +150,7 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
             <span className="font-medium capitalize">{lead.financing_interest?.replace(/_/g, ' ') || '—'}</span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Financial Readiness</span>
+            <span className="text-muted-foreground">Financing Signal</span>
             {assessed ? (
               <Badge variant={tierConfig.variant} className={`text-xs ${tierConfig.className ?? ''}`}>
                 {tierConfig.label} · {lead.financing_readiness_score}/100

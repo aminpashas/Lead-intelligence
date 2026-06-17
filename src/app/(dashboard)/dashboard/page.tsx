@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { DashboardHome } from '@/components/crm/dashboard-home'
+import { OrgGoalsCard } from '@/components/crm/org-goals-card'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -105,7 +106,9 @@ export default async function DashboardPage() {
   const weekLeads = weekLeadsResult.count || 0
 
   return (
-    <DashboardHome
+    <div className="space-y-4">
+      <OrgGoalsCard />
+      <DashboardHome
       userName={profile.full_name?.split(' ')[0] || 'there'}
       hotLeads={hotLeadsResult.data || []}
       todayAppointments={todayApptsResult.data || []}
@@ -122,6 +125,7 @@ export default async function DashboardPage() {
         todayAppointments: todayApptsResult.data?.length || 0,
         unreadMessages: (unreadConvosResult.data || []).reduce((s, c) => s + c.unread_count, 0),
       }}
-    />
+      />
+    </div>
   )
 }

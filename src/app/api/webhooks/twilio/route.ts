@@ -230,6 +230,19 @@ export async function POST(request: NextRequest) {
     )
     .catch(() => { /* Non-critical — don't block message flow */ })
 
+  // Detect competitor mentions (Phase 4, non-blocking, gated by competitor_intel flag)
+  Promise.all([import('@/lib/org/flags'), import('@/lib/competitive/context')])
+    .then(async ([{ isFlagEnabled }, { persistCompetitorMentions }]) => {
+      if (await isFlagEnabled(supabase, lead.organization_id, 'competitor_intel')) {
+        await persistCompetitorMentions(supabase, {
+          leadId: lead.id,
+          organizationId: lead.organization_id,
+          text: body,
+        })
+      }
+    })
+    .catch(() => { /* Non-critical — don't block message flow */ })
+
   // Auto-respond with AI autopilot system
   if (conversation.ai_enabled) {
     const { processAutoResponse } = await import('@/lib/autopilot/auto-respond')

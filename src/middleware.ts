@@ -33,10 +33,12 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/qualify') ||
+    pathname.startsWith('/optin') ||
     pathname.startsWith('/book') ||
     pathname.startsWith('/all-on-4') ||
     pathname.startsWith('/contract/') ||
     pathname.startsWith('/api/contracts/patient') ||
+    pathname.startsWith('/api/consent') ||
     pathname.startsWith('/api/booking') ||
     pathname.startsWith('/api/webhooks') ||
     pathname.startsWith('/api/cron') ||

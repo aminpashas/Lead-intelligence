@@ -318,6 +318,51 @@ Your approach:
 // SYSTEM PROMPT BUILDER
 // ════════════════════════════════════════════════════════════════
 
+// Phase 4: competitor-aware positioning. Only emitted when the lead actually
+// mentioned a competitor. Strictly truthful — our differentiators only, never
+// fabricated claims about a competitor.
+function formatCompetitorContextForPrompt(context: AgentContext): string {
+  const comps = context.competitor_context
+  if (!comps || comps.length === 0) return ''
+  const lines = comps.map((c) => {
+    const parts: string[] = [`• ${c.name}`]
+    if (c.our_differentiators) parts.push(`  - How we're different: ${c.our_differentiators}`)
+    if (c.typical_pricing_notes) parts.push(`  - Their pricing pattern: ${c.typical_pricing_notes}`)
+    if (c.weaknesses) parts.push(`  - Where we win: ${c.weaknesses}`)
+    return parts.join('\n')
+  })
+  return `
+═══ COMPETITOR CONTEXT (patient is comparing us) ═══
+
+This patient has mentioned the following competitor(s). Address the comparison with
+confidence using OUR concrete differentiators. Be truthful and professional — never
+disparage a competitor with claims you can't back up, and never invent their pricing.
+
+${lines.join('\n')}
+`
+}
+
+// Phase 4: only the org-approved negotiation levers, scaled to price sensitivity.
+function formatNegotiationLeversForPrompt(context: AgentContext): string {
+  const levers = context.negotiation_levers
+  if (!levers || levers.length === 0) return ''
+  const labels: Record<string, string> = {
+    extend_financing_term: 'offer a longer financing term to lower the monthly payment',
+    phased_treatment: 'propose splitting treatment into affordable phases',
+    scheduling_incentive: 'offer a book-this-month scheduling incentive',
+    in_house_plan: 'offer the in-house payment plan',
+  }
+  const list = levers.map((l) => `- You MAY ${labels[l] ?? l}`).join('\n')
+  return `
+═══ APPROVED NEGOTIATION LEVERS ═══
+
+This patient is price-sensitive. You are authorized to use ONLY the levers below —
+do not invent discounts, change the treatment price, or promise terms outside these:
+
+${list}
+`
+}
+
 function buildCloserSystemPrompt(context: AgentContext): string {
   const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>)
   const { skill, instructions } = selectActiveSkill(context)
@@ -351,6 +396,8 @@ Current stage: ${context.lead_status}
 AI Score: ${context.lead.ai_score ?? 'unscored'}
 Messages exchanged: ${context.message_count}
 ${context.financing_context ? formatFinancingContextForPrompt(context.financing_context) : ''}
+${formatCompetitorContextForPrompt(context)}
+${formatNegotiationLeversForPrompt(context)}
 ${(context.lead_status === 'contract_signed' || context.lead_status === 'scheduled') ? `
 ═══ TREATMENT CLOSING WORKFLOW ═══
 
