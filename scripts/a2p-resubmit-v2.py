@@ -10,7 +10,10 @@ MG = "MGf6d04811cd838cad5cbb51b9b3d42c6b"
 EXISTING_SID = "QE2c6890da8086d771620e9b13fadeba0b"
 BASE = f"https://messaging.twilio.com/v1/Services/{MG}/Compliance/Usa2p"
 
-# v2 message_flow — verbatim from docs/a2p-message-flow-v2.md
+# v3 message_flow — quoted checkbox now matches the UPDATED live forms (Wasif added the
+# "See our Messaging Terms and Privacy Policy" links into the consent checkbox label on
+# both forms, 2026-06-18). This is the first attempt where the consent CTA itself carries
+# the T&C links (CTIA-recommended). Absolute per-site URLs retained.
 MESSAGE_FLOW = (
     "Patients opt in to SMS by submitting the contact / appointment-request form at "
     "https://www.sfdentistry.com/contact/ or https://www.tmjandsleepapneasanfrancisco.com/contact/. "
@@ -19,9 +22,10 @@ MESSAGE_FLOW = (
     "optional). The SMS Consent checkbox reads: \"By checking this box, I agree to receive text messages "
     "from Dion Health about appointment scheduling, reminders, and treatment follow-ups at the mobile "
     "number provided. Message frequency varies. Message and data rates may apply. Reply STOP to opt out "
-    "or HELP for help.\" (the practice name — Samadian Cosmetic & Advanced Dentistry, or TMJ & Sleep "
-    "— appears in parentheses after \"Dion Health\"). The Messaging Terms and Privacy Policy are "
-    "linked in the footer of every page on both sites and are available at "
+    "or HELP for help. See our Messaging Terms and Privacy Policy.\" (the practice name — Samadian "
+    "Cosmetic & Advanced Dentistry, or TMJ & Sleep — appears in parentheses after \"Dion Health\"). "
+    "The \"Messaging Terms\" and \"Privacy Policy\" words in the checkbox link directly to that site's "
+    "Messaging Terms and Privacy Policy pages, which are also linked in the footer of every page: "
     "https://www.sfdentistry.com/sms-terms/, https://www.sfdentistry.com/privacy-policy/, "
     "https://www.tmjandsleepapneasanfrancisco.com/sms-terms/, and "
     "https://www.tmjandsleepapneasanfrancisco.com/privacy-policy/. The Privacy Policy states that mobile "

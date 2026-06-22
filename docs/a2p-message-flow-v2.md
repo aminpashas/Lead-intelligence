@@ -1,9 +1,22 @@
-# A2P 10DLC message_flow — v2 (SUBMITTED 2026-06-17, status IN_PROGRESS)
+# A2P 10DLC message_flow — v3 (SUBMITTED 2026-06-18, status IN_PROGRESS)
 
-> Resubmitted 2026-06-17T17:42Z via `scripts/a2p-resubmit-v2.py` (DELETE 204 → POST 201).
+> **v3 resubmitted 2026-06-18T19:0xZ** via `scripts/a2p-resubmit-v2.py` (DELETE 204 → POST 201).
 > Campaign back to IN_PROGRESS in carrier vetting, no errors. SID unchanged
 > (`QE2c6890…`, deterministic per Messaging Service). Monitor manually — poll the
 > Compliance/Usa2p endpoint until VERIFIED or FAILED.
+>
+> **v2 (2026-06-17) was REJECTED again — 30882 / MESSAGE_FLOW (3rd strike).** v2's flow
+> was accurate to the then-live forms + absolute URLs, yet still failed. v3 is materially
+> different: Wasif added the "See our Messaging Terms and Privacy Policy" links INTO the
+> consent checkbox on BOTH forms (verified live 2026-06-18), so the consent CTA itself now
+> carries the T&C links (CTIA-recommended) — no prior attempt had this. v3's quoted checkbox
+> matches the updated live form exactly.
+>
+> **ESCALATION IF v3 FAILS:** do NOT blind-resubmit a 4th time. The Twilio Compliance API
+> exposes no free-text reviewer note. Pull the actual TCR rejection detail from the Twilio
+> Console (Messaging → Regulatory Compliance → A2P 10DLC → campaign `QE2c6890…`) or open a
+> Twilio Support ticket referencing campaign `QE2c6890…` / TCR brand `BBDNXDR` (brand is
+> APPROVED/VETTED_VERIFIED, score 29) and ask for the specific 30882 reason.
 
 Campaign: `QE2c6890da8086d771620e9b13fadeba0b` (Messaging Service `MGf6d04811cd838cad5cbb51b9b3d42c6b`, Brand `BNcd0b132357f0fee26e1190b6c7b7a350`)
 
