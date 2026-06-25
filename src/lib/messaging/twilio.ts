@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/lib/consent/gate'
 import { checkCompliance } from '@/lib/ai/compliance-filter'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
+import { isFlagEnabled } from '@/lib/org/flags'
 
 // TCPA federal quiet hours: no telemarketing before 8am or after 9pm local time.
 const TCPA_START_HOUR = 8
@@ -43,7 +44,7 @@ export async function sendSMS(to: string, body: string): Promise<{ sid: string; 
 
 export type SendSMSToLeadResult =
   | { sent: true; sid: string; status: string }
-  | { sent: false; reason: ConsentDenyReason | 'compliance_blocked' | 'compliance_review_required' | 'quiet_hours' }
+  | { sent: false; reason: ConsentDenyReason | 'compliance_blocked' | 'compliance_review_required' | 'quiet_hours' | 'us_sms_disabled' }
 
 /**
  * SMS send with TCPA consent enforcement (HARD GATE per brief Section 2.2).
@@ -131,6 +132,26 @@ export async function sendSMSToLead(params: {
         caller: `${params.caller ?? 'sms'}:quiet_hours`,
       })
       return { sent: false, reason: 'quiet_hours' }
+    }
+  }
+
+  // US A2P 10DLC hard gate (final pre-flight, after consent/compliance/quiet-hours):
+  // until the org's 10DLC campaign is VERIFIED (flipped on via the `us_sms_enabled`
+  // flag), refuse SMS to US (+1) numbers. Sending on an unregistered campaign risks
+  // carrier error 30034 + TCPA exposure. Defense-in-depth — blocks the send path
+  // itself, not just autopilot. Non-US numbers and system sends (sendSMS) are exempt.
+  if (params.to.replace(/[\s\-()]/g, '').startsWith('+1')) {
+    const usEnabled = await isFlagEnabled(params.supabase, decision.lead.organization_id, 'us_sms_enabled')
+    if (!usEnabled) {
+      await logConsentViolation(params.supabase, {
+        organizationId: decision.lead.organization_id,
+        leadId: params.leadId,
+        channel: 'sms',
+        reason: 'opted_out', // closest existing audit reason; caller notes the real cause
+        bodyPreview: params.body,
+        caller: `${params.caller ?? 'sms'}:us_sms_disabled`,
+      })
+      return { sent: false, reason: 'us_sms_disabled' }
     }
   }
 
