@@ -49,10 +49,11 @@ Validated on a throwaway Supabase branch (Postgres 17), then torn down:
 
 ---
 
-## 4. NEW issues surfaced during prod pre-flight (NOT yet fixed)
+## 4. Follow-ups surfaced during prod pre-flight — RESOLVED 2026-06-27
 
-- **R1 🟠 — `user_profiles_delete` is org-wide, not admin-gated.** Policy is `USING (organization_id = get_user_org_id())`, so any authenticated org member can hard-DELETE any colleague's profile in their org via PostgREST. App soft-deletes; RLS doesn't enforce that. Fix: restrict delete to admins (or rank), or remove direct delete and force soft-delete.
-- **R2 🟠 (functional) — team management may be non-functional under prod RLS.** Prod has **no admin-manage policy** on `user_profiles` — only `user_profiles_update USING (id = auth.uid())`. The `team/[id]` routes use the auth'd client, so an admin updating/deactivating *another* user likely affects 0 rows. Confirm whether there's a service-role path; if not, team management is silently broken (fails closed). Note: the in-repo migration files reference `"Admins can manage user profiles"` which does **not** exist on prod under that name.
+- **R1 🟠 — `user_profiles_delete` was org-wide, not admin-gated.** ✅ **Fixed + applied to prod.** Policy now `USING ((organization_id = get_user_org_id()) AND is_admin_role())` — only in-org admins can hard-DELETE a profile. (App still soft-deletes via UPDATE.) Migration: `supabase/migrations/20260627_user_profiles_team_rls.sql`.
+- **R2 🟠 — team management was non-functional under prod RLS.** ✅ **Fixed + applied to prod.** Prod had no admin policy (only `user_profiles_update USING (id = auth.uid())`), so admins couldn't manage other members. Added `user_profiles_admin_update` (UPDATE, `USING`+`WITH CHECK ((organization_id = get_user_org_id()) AND is_admin_role())`). Also (re)created `is_admin_role()` which was missing on prod (drift). The C1 trigger + app `canActOnRole` rank guard remain in force on top. *Note:* prod currently has exactly 1 user (agency_admin), so this was latent.
+  - Verified: policy defs correct in `pg_policies`; `is_admin_role()` → true for the real admin, false for an unknown caller.
 
 ---
 
@@ -76,9 +77,9 @@ Branch replay reached `MIGRATIONS_FAILED` after only **17 migrations** and was m
 
 ## 7. Pick up here (next actions, recommended order)
 
-1. **Commit + PR the 6 fixes** (A1/T1/P1/P2/P3 + the C1 migration file) — the app-layer fixes are NOT live until shipped. *(asked; awaiting go-ahead)*
-2. **Fix R1 + R2** the same way (admin-gate `user_profiles_delete`; add/repair the admin-manage UPDATE policy so team management works and is org+rank scoped).
-3. **Reconcile migration drift** (§5) so environments are reproducible.
+1. ~~Commit + PR the 6 fixes~~ ✅ **Done** — committed (`8eb4985`) and merged to `main` (`cbe209c`).
+2. ~~Fix R1 + R2~~ ✅ **Done** — applied to prod + verified (see §4). Migration `20260627_user_profiles_team_rls.sql` (commit pending push).
+3. **Reconcile migration drift** — assessment + plan in [`docs/MIGRATION_DRIFT.md`](MIGRATION_DRIFT.md). Recommended: Option A (re-baseline from live DB) in a branch. Left for explicit go-ahead — it rewrites the migrations dir.
 4. **External blocker:** A2P 10DLC — US SMS stays gated until the campaign is VERIFIED and `us_sms_enabled` is flipped (pending Twilio, not code).
 5. **Cleanup (non-blocking):** consolidate the ~4 auth patterns into one `requireAdmin()` helper (A1 was drift from that); tighten middleware `pathname.includes('.')` bypass.
 
