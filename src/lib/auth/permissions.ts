@@ -203,6 +203,41 @@ export function isAdminRole(role: PracticeRole | string): boolean {
   return ['doctor_admin', 'office_manager', 'owner', 'admin', 'agency_admin'].includes(role)
 }
 
+/**
+ * Privilege ranking for "can actor act on target" decisions (deactivate / change
+ * role). Higher wins. Used to stop a practice-level admin from deactivating the
+ * practice owner or the overseeing agency_admin, and to protect the last admin.
+ */
+const ROLE_RANK: Record<PracticeRole, number> = {
+  agency_admin: 100,
+  owner: 90,
+  doctor_admin: 80,
+  admin: 80,
+  office_manager: 70,
+  manager: 50,
+  doctor: 40,
+  treatment_coordinator: 30,
+  nurse: 20,
+  assistant: 20,
+  member: 10,
+}
+
+export function roleRank(role: PracticeRole | string): number {
+  return ROLE_RANK[role as PracticeRole] ?? 0
+}
+
+/**
+ * True if `actorRole` outranks `targetRole` and may therefore deactivate them or
+ * change their role. Equal rank is NOT sufficient (an admin cannot act on a peer
+ * admin), which keeps the agency_admin and owner out of practice-admin reach.
+ */
+export function canActOnRole(
+  actorRole: PracticeRole | string,
+  targetRole: PracticeRole | string,
+): boolean {
+  return roleRank(actorRole) > roleRank(targetRole)
+}
+
 /** Check if a role can manage the team */
 export function canManageTeam(role: PracticeRole | string): boolean {
   return hasPermission(role as PracticeRole, 'team:manage')

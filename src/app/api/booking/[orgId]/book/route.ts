@@ -117,15 +117,15 @@ export async function POST(
 
   if (existingLead) {
     leadId = existingLead.id
-    // Update lead info — encrypt PII fields. Consent is intentionally NOT touched
-    // here for existing leads (only set on first creation with explicit opt-in).
-    await supabase.from('leads').update(encryptLeadPII({
-      first_name,
-      last_name,
-      phone,
+    // Existing lead: attach the appointment only. We deliberately do NOT
+    // overwrite identity fields (first/last/phone) from this unauthenticated
+    // path — knowing a victim's email + the public orgId would otherwise let
+    // anyone rewrite that lead's phone (the SMS destination) or name. Identity
+    // edits require an authenticated staff session. Consent is likewise untouched.
+    await supabase.from('leads').update({
       status: 'consultation_scheduled',
       consultation_date: scheduledAt,
-    })).eq('id', leadId)
+    }).eq('id', leadId)
   } else {
     const { data: newLead, error: leadError } = await supabase
       .from('leads')

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { isAdminRole } from '@/lib/auth/permissions'
+import { isAdminRole, canActOnRole } from '@/lib/auth/permissions'
 
 /**
  * PATCH /api/team/[id] — Update a team member's role/info
@@ -73,12 +73,28 @@ export async function PATCH(
   // Ensure the target is in the same org
   const { data: target } = await supabase
     .from('user_profiles')
-    .select('organization_id')
+    .select('organization_id, role')
     .eq('id', id)
     .single()
 
   if (!target || target.organization_id !== profile.organization_id) {
     return NextResponse.json({ error: 'Member not found' }, { status: 404 })
+  }
+
+  // Rank guard: you may only modify a member you outrank. This stops a
+  // practice admin from editing the owner or the overseeing agency_admin, and
+  // stops promoting a member into a role at/above your own.
+  if (!canActOnRole(profile.role, target.role)) {
+    return NextResponse.json(
+      { error: 'Forbidden: you cannot modify a member at or above your role' },
+      { status: 403 }
+    )
+  }
+  if (role && !canActOnRole(profile.role, role)) {
+    return NextResponse.json(
+      { error: 'Forbidden: you cannot assign a role at or above your own' },
+      { status: 403 }
+    )
   }
 
   const { data: updated, error } = await supabase
@@ -131,12 +147,37 @@ export async function DELETE(
   // Ensure the target is in the same org
   const { data: target } = await supabase
     .from('user_profiles')
-    .select('organization_id')
+    .select('organization_id, role')
     .eq('id', id)
     .single()
 
   if (!target || target.organization_id !== profile.organization_id) {
     return NextResponse.json({ error: 'Member not found' }, { status: 404 })
+  }
+
+  // Rank guard: cannot deactivate a member at or above your own role (e.g. a
+  // doctor_admin deactivating the owner or the overseeing agency_admin).
+  if (!canActOnRole(profile.role, target.role)) {
+    return NextResponse.json(
+      { error: 'Forbidden: you cannot deactivate a member at or above your role' },
+      { status: 403 }
+    )
+  }
+
+  // Last-admin protection: never let the org be left with no active admin.
+  if (isAdminRole(target.role)) {
+    const { count } = await supabase
+      .from('user_profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', profile.organization_id)
+      .eq('is_active', true)
+      .in('role', ['doctor_admin', 'office_manager', 'owner', 'admin'])
+    if ((count ?? 0) <= 1) {
+      return NextResponse.json(
+        { error: 'Cannot deactivate the last active admin in the organization' },
+        { status: 409 }
+      )
+    }
   }
 
   // Soft-delete: set is_active to false
