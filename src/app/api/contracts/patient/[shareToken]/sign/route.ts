@@ -86,9 +86,14 @@ export async function POST(
   }
 
   const now = new Date().toISOString()
+  // Prefer the platform-injected client IP (Vercel sets x-vercel-forwarded-for /
+  // x-real-ip and the client cannot forge them). x-forwarded-for's first hop is
+  // attacker-controlled, so it's only a last-resort fallback — this is signature
+  // audit-trail evidence, so the source must be trustworthy.
   const signerIp =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
+    request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip')?.trim() ||
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     null
   const userAgent = request.headers.get('user-agent') ?? null
 

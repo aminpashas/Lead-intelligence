@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { isAdminRole } from '@/lib/auth/permissions'
 
 // Day schedule schema for per-day-of-week settings
 const dayScheduleSchema = z.object({
@@ -103,17 +104,25 @@ export async function PATCH(request: NextRequest) {
 
   const supabase = await createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('organization_id, role')
+    .eq('id', user.id)
     .single()
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Only admins can modify autopilot settings
-  if (profile.role !== 'admin') {
+  // Only admins can modify autopilot settings. Use the shared admin-role check
+  // (doctor_admin / office_manager / owner / admin / agency_admin) — the old
+  // bare `role !== 'admin'` locked out every real admin in the healthcare model.
+  if (!isAdminRole(profile.role)) {
     return NextResponse.json({ error: 'Only admins can modify autopilot settings' }, { status: 403 })
   }
 

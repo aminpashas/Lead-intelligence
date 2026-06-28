@@ -24,12 +24,20 @@ export async function POST(
 
   const { data: caseData, error } = await supabase
     .from('clinical_cases')
-    .select('id, organization_id, patient_accepted_at')
+    .select('id, organization_id, patient_accepted_at, status, share_token_expires_at')
     .eq('share_token', shareToken)
+    .in('status', ['patient_review', 'completed'])
     .single()
 
   if (error || !caseData) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  // Mirror the GET route: a leaked/expired share link must not stay actionable.
+  // Accepting flips the case to completed and triggers AI contract generation,
+  // so an expired token must be rejected here too.
+  if (caseData.share_token_expires_at && new Date(caseData.share_token_expires_at) < new Date()) {
+    return NextResponse.json({ error: 'This link has expired' }, { status: 410 })
   }
 
   const firstAcceptance = !caseData.patient_accepted_at
