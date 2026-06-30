@@ -70,6 +70,33 @@ export function consentGrantFields(
   return fields
 }
 
+/**
+ * Map opted-out channels → the `leads` columns to set. Only ever sets the hard
+ * opt-out boolean TRUE + a timestamp; the sync_consent_status trigger flips
+ * status to 'declined' and log_consent_change appends the revoke to consent_log.
+ * This is the inverse of consentGrantFields and is what gives LI a real,
+ * timestamped opt-out record (vs. the status-only 'declined' the bridge wrote).
+ */
+export function consentRevokeFields(
+  channels: ConsentCaptureChannel[],
+  now: string = new Date().toISOString()
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {}
+  if (channels.includes('sms')) {
+    fields.sms_opt_out = true
+    fields.sms_opt_out_at = now
+  }
+  if (channels.includes('email')) {
+    fields.email_opt_out = true
+    fields.email_opt_out_at = now
+  }
+  if (channels.includes('voice')) {
+    fields.voice_opt_out = true
+    fields.voice_opt_out_at = now
+  }
+  return fields
+}
+
 const CHANNEL_REACH_VERB: Record<ConsentCaptureChannel, string> = {
   sms: 'text',
   email: 'email',
