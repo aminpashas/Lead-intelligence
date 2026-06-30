@@ -197,7 +197,7 @@ async function main() {
         phone_formatted: phoneFormatted,
         status: 'contacted',
         source_type: 'ghl_full_arch_cold',
-        source_id: o.id,
+        external_ref: `ghl_opp:${o.id}`,
         tags: [IMPORT_TAG],
         // Consent: NOTHING granted. Earned later via /optin re-permission.
         sms_consent: false,
@@ -208,38 +208,60 @@ async function main() {
     })
   }
 
-  // Dedupe against existing LI leads by hash (idempotent re-runs).
+  // Match candidates against existing LI leads by hash. Existing ones get the
+  // `full-arch-cold` tag ADDED (so the whole cold pool lands in the segment, not
+  // just the brand-new ones); genuinely new ones are inserted. Idempotent re-runs.
   const emailHashes = candidates.map((c) => c.emailHash).filter(Boolean) as string[]
   const phoneHashes = candidates.map((c) => c.phoneHash).filter(Boolean) as string[]
-  const existing = new Set<string>()
+  const byHash = new Map<string, { id: string; tags: string[] }>()
   for (const [col, vals] of [['email_hash', emailHashes], ['phone_hash', phoneHashes]] as const) {
     for (let i = 0; i < vals.length; i += 200) {
       const chunk = vals.slice(i, i + 200)
       if (!chunk.length) continue
-      const { data } = await supabase.from('leads').select(col).eq('organization_id', ORG_ID).in(col, chunk)
+      const { data } = await supabase
+        .from('leads')
+        .select(`id, tags, ${col}`)
+        .eq('organization_id', ORG_ID)
+        .in(col, chunk)
       for (const row of data || []) {
-        const v = (row as Record<string, string | null>)[col]
-        if (v) existing.add(v)
+        const r = row as Record<string, unknown>
+        const hv = r[col] as string | null
+        if (hv) byHash.set(hv, { id: r.id as string, tags: (r.tags as string[] | null) || [] })
       }
     }
   }
-  const fresh = candidates.filter(
-    (c) => !(c.emailHash && existing.has(c.emailHash)) && !(c.phoneHash && existing.has(c.phoneHash)),
-  )
+
+  const fresh: Candidate[] = []
+  const toTag: { id: string; tags: string[] }[] = []
+  const seenExistingId = new Set<string>()
+  let alreadyTagged = 0
+  for (const c of candidates) {
+    const match = (c.emailHash && byHash.get(c.emailHash)) || (c.phoneHash && byHash.get(c.phoneHash))
+    if (match) {
+      if (seenExistingId.has(match.id)) continue
+      seenExistingId.add(match.id)
+      if (match.tags.includes(IMPORT_TAG)) alreadyTagged++
+      else toTag.push(match)
+    } else {
+      fresh.push(c)
+    }
+  }
 
   console.log(`\nSummary:`)
   console.log(`  cold opportunities:        ${opps.length}`)
   console.log(`  skipped (no email/phone):  ${noContact}`)
   console.log(`  unique candidates:         ${candidates.length}`)
-  console.log(`  already in LI (deduped):   ${candidates.length - fresh.length}`)
-  console.log(`  → to import:               ${fresh.length}`)
+  console.log(`  new → insert:              ${fresh.length}`)
+  console.log(`  existing in LI → add tag:  ${toTag.length}`)
+  console.log(`  existing already tagged:   ${alreadyTagged}`)
+  console.log(`  → total in "${IMPORT_TAG}" segment after run: ${fresh.length + toTag.length + alreadyTagged}`)
 
   if (DRY_RUN) {
-    console.log(`\n📋 DRY RUN — no rows inserted. Sample of up to 5:`)
+    console.log(`\n📋 DRY RUN — no rows written. Sample of up to 5 new inserts:`)
     for (const c of fresh.slice(0, 5)) {
       console.log(`   • ${c.insert.first_name} ${c.insert.last_name ?? ''}  email=${c.insert.email ? 'yes' : 'no'} phone=${c.insert.phone_formatted ?? 'no'}`)
     }
-    console.log(`\nRe-run with DRY_RUN=false to insert.`)
+    console.log(`\nRe-run with DRY_RUN=false to insert + tag.`)
     return
   }
 
@@ -254,8 +276,21 @@ async function main() {
     inserted += data?.length || 0
     process.stdout.write(`\r  inserted ${inserted}/${fresh.length}…`)
   }
-  console.log(`\n✅ Imported ${inserted} cold full-arch leads into LI, tagged "${IMPORT_TAG}", consent unknown.`)
-  console.log(`   Next: flip org consent_capture flag + run the re-permission cron to earn consent.`)
+  if (fresh.length) console.log('')
+
+  let tagged = 0
+  for (const t of toTag) {
+    const newTags = Array.from(new Set([...t.tags, IMPORT_TAG]))
+    const { error } = await supabase.from('leads').update({ tags: newTags }).eq('id', t.id).eq('organization_id', ORG_ID)
+    if (error) {
+      console.error(`❌ Tag update failed for ${t.id}: ${error.message}`)
+      continue
+    }
+    tagged++
+    if (tagged % 50 === 0) process.stdout.write(`\r  tagged ${tagged}/${toTag.length}…`)
+  }
+  console.log(`\n✅ Loaded the "${IMPORT_TAG}" segment (consent unknown): ${inserted} inserted + ${tagged} existing re-tagged = ${inserted + tagged} (+ ${alreadyTagged} already tagged).`)
+  console.log(`   Next: re-permission cron emails the opt-in to earn consent — still gated by CONSENT_CAPTURE_SEND + counsel/DNC.`)
 }
 
 main().catch((err) => {
