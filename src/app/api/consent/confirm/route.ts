@@ -11,7 +11,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { isTokenUsable, consentGrantFields, type ConsentCaptureChannel } from '@/lib/consent/capture'
+import {
+  isTokenUsable,
+  consentGrantFields,
+  optInDisclosureSentence,
+  type ConsentCaptureChannel,
+} from '@/lib/consent/capture'
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { token?: string } | null
@@ -34,6 +39,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: usable.reason }, { status })
   }
 
+  const channels = (row.channels ?? ['sms', 'email']).filter(
+    (c: string): c is ConsentCaptureChannel => c === 'sms' || c === 'email' || c === 'voice'
+  )
+
   // Claim the token (pending → confirmed) atomically. If no row comes back, a
   // concurrent request already claimed it — treat as already used.
   const nowIso = new Date().toISOString()
@@ -46,9 +55,6 @@ export async function POST(request: NextRequest) {
     .maybeSingle()
   if (!claimed) return NextResponse.json({ error: 'already_used' }, { status: 409 })
 
-  const channels = (row.channels ?? ['sms', 'email']).filter(
-    (c: string): c is ConsentCaptureChannel => c === 'sms' || c === 'email'
-  )
   const grant = consentGrantFields(channels, nowIso)
 
   const { error: updErr } = await service
@@ -59,6 +65,32 @@ export async function POST(request: NextRequest) {
 
   if (updErr) {
     return NextResponse.json({ error: 'consent_write_failed', detail: updErr.message }, { status: 500 })
+  }
+
+  // Best-effort consent artifact: store exactly what was disclosed + who confirmed
+  // (IP / user-agent). The consent grant above + consent_log are the operative
+  // record, so never fail the opt-in if this supplementary write errors (e.g. if
+  // the columns aren't migrated yet).
+  try {
+    const { data: org } = await service
+      .from('organizations')
+      .select('name')
+      .eq('id', row.organization_id)
+      .maybeSingle()
+    const confirmedIp =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      null
+    await service
+      .from('consent_capture_tokens')
+      .update({
+        confirmed_ip: confirmedIp,
+        confirmed_user_agent: request.headers.get('user-agent'),
+        disclosure_text: optInDisclosureSentence(channels, org?.name ?? ''),
+      })
+      .eq('id', row.id)
+  } catch {
+    // Artifact is supplementary; the consent grant is already recorded.
   }
 
   return NextResponse.json({ ok: true, channels })

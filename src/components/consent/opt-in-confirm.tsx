@@ -16,12 +16,18 @@ export function OptInConfirm({
   const [state, setState] = useState<State>('idle')
   const [message, setMessage] = useState('')
 
+  const channelNoun: Record<string, string> = {
+    sms: 'text messages',
+    email: 'emails',
+    voice: 'phone calls',
+  }
+  const channelLabels = channels.map((c) => channelNoun[c]).filter(Boolean)
   const channelLabel =
-    channels.includes('sms') && channels.includes('email')
-      ? 'text messages and emails'
-      : channels.includes('sms')
-        ? 'text messages'
-        : 'emails'
+    channelLabels.length <= 1
+      ? channelLabels[0] ?? 'messages'
+      : channelLabels.length === 2
+        ? `${channelLabels[0]} and ${channelLabels[1]}`
+        : `${channelLabels.slice(0, -1).join(', ')}, and ${channelLabels[channelLabels.length - 1]}`
 
   async function confirm() {
     setState('loading')

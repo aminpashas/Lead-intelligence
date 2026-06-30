@@ -6,6 +6,9 @@ import {
   buildOptInUrl,
   consentGrantFields,
   optInEmailTemplate,
+  optInReachPhrase,
+  optInDisclosurePhrase,
+  optInDisclosureSentence,
   CONSENT_TOKEN_TTL_HOURS,
 } from '@/lib/consent/capture'
 
@@ -80,5 +83,63 @@ describe('optInEmailTemplate', () => {
     const t = optInEmailTemplate({ orgName: '', url: 'https://x/optin/t' })
     expect(t.text).toContain('there')
     expect(t.subject).toContain('our team')
+  })
+})
+
+describe('voice channel (AI-voice consent)', () => {
+  const NOW = '2026-06-17T12:00:00.000Z'
+
+  it('consentGrantFields grants voice consent with source + timestamp, nothing else', () => {
+    const f = consentGrantFields(['voice'], NOW)
+    expect(f.voice_consent).toBe(true)
+    expect(f.voice_consent_at).toBe(NOW)
+    expect(f.voice_consent_source).toBe('optin_page')
+    expect(f.sms_consent).toBeUndefined()
+    expect(f.email_consent).toBeUndefined()
+  })
+
+  it('consentGrantFields can grant all three channels at once', () => {
+    const f = consentGrantFields(['sms', 'email', 'voice'], NOW)
+    expect(f.sms_consent).toBe(true)
+    expect(f.email_consent).toBe(true)
+    expect(f.voice_consent).toBe(true)
+  })
+
+  it('optInEmailTemplate discloses automated / AI phone calls when voice is included', () => {
+    const t = optInEmailTemplate({
+      orgName: 'Dion Health',
+      firstName: 'Sam',
+      url: 'https://x/optin/t',
+      channels: ['sms', 'email', 'voice'],
+    })
+    expect(t.text.toLowerCase()).toContain('phone calls')
+    expect(t.text.toLowerCase()).toContain('ai voice')
+    expect(t.text).toContain('Consent is not a condition of any purchase or treatment')
+    expect(t.html.toLowerCase()).toContain('phone calls')
+  })
+
+  it('optInEmailTemplate omits call language when voice is NOT included', () => {
+    const t = optInEmailTemplate({
+      orgName: 'Dion Health',
+      url: 'https://x/optin/t',
+      channels: ['sms', 'email'],
+    })
+    expect(t.text.toLowerCase()).not.toContain('phone call')
+  })
+
+  it('phrase helpers oxford-join the channels and default to sms+email', () => {
+    expect(optInReachPhrase(['sms', 'email', 'voice'])).toBe('text, email, and call')
+    expect(optInReachPhrase(['sms', 'voice'])).toBe('text and call')
+    expect(optInReachPhrase([])).toBe('text and email')
+    expect(optInDisclosurePhrase(['voice'])).toContain('AI voice')
+  })
+
+  it('optInDisclosureSentence renders the full page disclosure (stored verbatim as the artifact)', () => {
+    const s = optInDisclosureSentence(['sms', 'email', 'voice'], 'Dion Health')
+    expect(s).toContain('Dion Health')
+    expect(s.toLowerCase()).toContain('ai voice')
+    expect(s).toContain('Consent is not a condition of any purchase or treatment')
+    expect(s).toContain('Reply STOP')
+    expect(optInDisclosureSentence(['email'], '')).toContain('our team')
   })
 })

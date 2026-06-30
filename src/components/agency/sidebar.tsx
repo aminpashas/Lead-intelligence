@@ -12,12 +12,11 @@ import {
   Plug,
   Settings,
   Zap,
-  ChevronRight,
   X,
   Crosshair,
+  Activity,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 
 const agencyNavigation = [
   {
@@ -50,29 +49,23 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
 
   return (
-    <>
-      {/* Logo */}
-      <div className="flex h-16 items-center gap-2 border-b border-agency-border px-6 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg">
-            <Zap className="h-4 w-4 text-white" />
-          </div>
-          <div>
-            <span className="text-sm font-bold text-white">Lead Intelligence</span>
-            <div className="flex items-center gap-1 mt-0.5">
-              <Badge className="h-4 text-[10px] px-1.5 bg-violet-500/20 text-violet-300 border-violet-500/30 border font-semibold tracking-wide">
-                AGENCY
-              </Badge>
-            </div>
-          </div>
+    <div className="flex h-full flex-col">
+      {/* Brand mark */}
+      <div className="px-5 pt-6 pb-5 border-b border-aurea-border">
+        <div className="flex items-baseline gap-2">
+          <Activity className="h-[18px] w-[18px] self-center text-aurea-ink" strokeWidth={2} />
+          <span className="text-[15px] font-medium tracking-tight text-aurea-ink">
+            Lead Intelligence
+          </span>
+          <span className="aurea-eyebrow">Agency</span>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-6 p-4 overflow-y-auto">
+      <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
         {agencyNavigation.map((section) => (
           <div key={section.group}>
-            <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            <p className="px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-aurea-ink-3">
               {section.group}
             </p>
             <div className="space-y-0.5">
@@ -85,21 +78,24 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                     key={item.name}
                     href={item.href}
                     onClick={onNavigate}
+                    aria-current={isActive ? 'page' : undefined}
                     className={cn(
-                      'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
+                      'group flex items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors duration-150',
                       isActive
-                        ? 'bg-gradient-to-r from-violet-500/20 to-indigo-500/10 text-white shadow-sm border border-violet-500/20'
-                        : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                        ? 'bg-aurea-surface-2 font-semibold text-aurea-ink'
+                        : 'font-medium text-aurea-ink-2 hover:bg-aurea-surface-2/60 hover:text-aurea-ink'
                     )}
                   >
                     <item.icon
                       className={cn(
-                        'h-4 w-4 shrink-0 transition-colors',
-                        isActive ? 'text-violet-400' : 'text-slate-500 group-hover:text-slate-300'
+                        'h-[17px] w-[17px] shrink-0 transition-colors',
+                        isActive
+                          ? 'text-aurea-primary'
+                          : 'text-aurea-ink-3 group-hover:text-aurea-ink'
                       )}
+                      strokeWidth={2}
                     />
-                    <span className="flex-1">{item.name}</span>
-                    {isActive && <ChevronRight className="h-3 w-3 text-violet-400/60" />}
+                    <span className="flex-1 truncate">{item.name}</span>
                   </Link>
                 )
               })}
@@ -109,25 +105,23 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-slate-800 p-4 shrink-0">
-        <div className="rounded-xl bg-gradient-to-r from-violet-500/10 to-indigo-500/5 border border-violet-500/10 p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Zap className="h-3 w-3 text-violet-400" />
-            <span className="text-xs font-semibold text-violet-300">Agency Admin Mode</span>
-          </div>
-          <p className="text-[10px] text-slate-500 leading-relaxed">
-            Full platform access. Changes here affect all practices.
-          </p>
+      <div className="border-t border-aurea-border px-5 py-4">
+        <div className="flex items-center gap-2">
+          <Shield className="h-3.5 w-3.5 text-aurea-primary" strokeWidth={2} />
+          <p className="text-[11px] font-medium text-aurea-ink-2">Agency Admin · Full access</p>
         </div>
+        <p className="mt-1 text-[10.5px] leading-relaxed text-aurea-ink-3">
+          Changes here affect all practices.
+        </p>
       </div>
-    </>
+    </div>
   )
 }
 
-// Desktop sidebar
+// Desktop sidebar — flat editorial rail
 export function AgencySidebar() {
   return (
-    <aside className="hidden lg:flex h-full w-64 flex-col bg-slate-950 border-r border-slate-800">
+    <aside className="aurea-rail hidden lg:flex h-full w-64 flex-col border-r">
       <SidebarContent />
     </aside>
   )
@@ -145,20 +139,20 @@ export function AgencyMobileSidebar({
     <>
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 lg:hidden animate-in fade-in-0 duration-200"
+          className="fixed inset-0 z-40 bg-aurea-ink/30 backdrop-blur-sm lg:hidden animate-in fade-in-0 duration-200"
           onClick={onClose}
         />
       )}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-slate-950 shadow-2xl border-r border-slate-800 lg:hidden transition-transform duration-300 ease-in-out',
+          'aurea-rail fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r lg:hidden transition-transform duration-300 ease-in-out',
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-3 right-3 h-8 w-8 z-10 text-slate-400 hover:text-white hover:bg-slate-800"
+          className="absolute top-4 right-3 h-8 w-8 z-10 text-aurea-ink-3 hover:text-aurea-ink hover:bg-aurea-surface-2"
           onClick={onClose}
         >
           <X className="h-4 w-4" />
