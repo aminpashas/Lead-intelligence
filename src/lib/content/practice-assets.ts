@@ -111,6 +111,25 @@ export async function getPracticeInfo(
   return assets[0] || null
 }
 
+/**
+ * Resolve the org's physical postal address as a single line — required in the
+ * CAN-SPAM email footer. Reads the practice_info asset's content
+ * {address, city, state, zip}; falls back to the CONSENT_FOOTER_POSTAL_ADDRESS
+ * env var; returns null if neither is set (footer then omits the line).
+ */
+export async function getOrgPostalAddress(
+  supabase: SupabaseClient,
+  organizationId: string
+): Promise<string | null> {
+  const info = await getPracticeInfo(supabase, organizationId)
+  const c = (info?.content as Record<string, unknown> | undefined) ?? {}
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const cityState = [str(c.city), str(c.state)].filter(Boolean).join(', ')
+  const line = [str(c.address), cityState, str(c.zip)].filter(Boolean).join(', ')
+  if (line) return line
+  return process.env.CONSENT_FOOTER_POSTAL_ADDRESS?.trim() || null
+}
+
 // ═══════════════════════════════════════════════════════════════
 // MUTATIONS
 // ═══════════════════════════════════════════════════════════════

@@ -21,6 +21,7 @@ import { withCron } from '@/lib/cron/with-cron'
 import { decryptField } from '@/lib/encryption'
 import { sendEmail } from '@/lib/messaging/resend'
 import { appendEmailFooter, getUnsubscribeHeaders } from '@/lib/messaging/email-footer'
+import { getOrgPostalAddress } from '@/lib/content/practice-assets'
 import {
   generateConsentToken,
   consentTokenExpiry,
@@ -128,6 +129,7 @@ export const POST = withCron('consent-capture', async ({ supabase }) => {
       continue
     }
 
+    const orgAddress = await getOrgPostalAddress(supabase, org.id)
     let orgSent = 0
     for (const lead of batch) {
       const email = decryptField(lead.email) || lead.email
@@ -155,7 +157,7 @@ export const POST = withCron('consent-capture', async ({ supabase }) => {
           url,
           channels: CONSENT_CAPTURE_CHANNELS,
         })
-        const html = appendEmailFooter(tmpl.html, { leadId: lead.id, orgId: org.id, orgName: org.name ?? '' })
+        const html = appendEmailFooter(tmpl.html, { leadId: lead.id, orgId: org.id, orgName: org.name ?? '', address: orgAddress })
         await sendEmail({
           to: email,
           subject: tmpl.subject,

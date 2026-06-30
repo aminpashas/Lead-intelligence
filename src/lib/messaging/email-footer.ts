@@ -60,15 +60,17 @@ export function appendEmailFooter(
     leadId: string
     orgId: string
     orgName: string
+    address?: string | null
   }
 ): string {
   const unsubscribeUrl = getUnsubscribeUrl(options.leadId, options.orgId)
+  const addressLine = options.address ? `${options.address}<br>` : ''
 
   const footer = `
     <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e7eb;">
       <p style="color: #9ca3af; font-size: 11px; line-height: 1.5; text-align: center;">
         ${options.orgName}<br>
-        You received this email because you submitted an inquiry with us.<br>
+        ${addressLine}You received this email because you submitted an inquiry with us.<br>
         <a href="${unsubscribeUrl}" style="color: #9ca3af; text-decoration: underline;">Unsubscribe</a> from future emails.
       </p>
     </div>`

@@ -15,6 +15,7 @@ import { decryptField } from '@/lib/encryption'
 import { getOrgFlags, flagOn } from '@/lib/org/flags'
 import { sendEmail } from '@/lib/messaging/resend'
 import { appendEmailFooter, getUnsubscribeHeaders } from '@/lib/messaging/email-footer'
+import { getOrgPostalAddress } from '@/lib/content/practice-assets'
 import {
   generateConsentToken,
   consentTokenExpiry,
@@ -96,7 +97,8 @@ export async function POST(request: NextRequest) {
   if (!baseUrl) return NextResponse.json({ error: 'app_url_not_configured' }, { status: 500 })
   const url = buildOptInUrl(baseUrl, token)
   const tmpl = optInEmailTemplate({ orgName: org?.name ?? '', firstName: lead.first_name, url, channels })
-  const html = appendEmailFooter(tmpl.html, { leadId, orgId: organizationId, orgName: org?.name ?? '' })
+  const orgAddress = await getOrgPostalAddress(service, organizationId)
+  const html = appendEmailFooter(tmpl.html, { leadId, orgId: organizationId, orgName: org?.name ?? '', address: orgAddress })
 
   try {
     await sendEmail({
