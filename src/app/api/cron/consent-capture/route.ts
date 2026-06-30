@@ -20,6 +20,7 @@
 import { withCron } from '@/lib/cron/with-cron'
 import { decryptField } from '@/lib/encryption'
 import { sendEmail } from '@/lib/messaging/resend'
+import { appendEmailFooter, getUnsubscribeHeaders } from '@/lib/messaging/email-footer'
 import {
   generateConsentToken,
   consentTokenExpiry,
@@ -154,7 +155,14 @@ export const POST = withCron('consent-capture', async ({ supabase }) => {
           url,
           channels: CONSENT_CAPTURE_CHANNELS,
         })
-        await sendEmail({ to: email, subject: tmpl.subject, html: tmpl.html, text: tmpl.text })
+        const html = appendEmailFooter(tmpl.html, { leadId: lead.id, orgId: org.id, orgName: org.name ?? '' })
+        await sendEmail({
+          to: email,
+          subject: tmpl.subject,
+          html,
+          text: tmpl.text,
+          headers: getUnsubscribeHeaders(lead.id, org.id),
+        })
         orgSent++
         sent++
       } catch {

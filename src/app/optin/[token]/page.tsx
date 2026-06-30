@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { isTokenUsable, optInReachPhrase, optInDisclosurePhrase, type ConsentCaptureChannel } from '@/lib/consent/capture'
+import { isTokenUsable, optInReachPhrase, optInDisclosureSentence, type ConsentCaptureChannel } from '@/lib/consent/capture'
 import { OptInConfirm } from '@/components/consent/opt-in-confirm'
 
 export const dynamic = 'force-dynamic'
@@ -90,9 +90,7 @@ export default async function OptInPage({ params }: { params: Promise<{ token: s
       </p>
       <OptInConfirm token={token} orgName={orgName} channels={channels} />
       <p style={{ fontSize: 11, color: '#a8a29e', marginTop: 20 }}>
-        By confirming you agree to receive automated marketing {optInDisclosurePhrase(channels)} from{' '}
-        {orgName || 'our team'}. Consent is not a condition of any purchase or treatment. Message &amp;
-        data rates may apply. Reply STOP to any text to opt out at any time.
+        {optInDisclosureSentence(channels, orgName)}
       </p>
     </>
   )

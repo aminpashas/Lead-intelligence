@@ -8,6 +8,7 @@ import {
   optInEmailTemplate,
   optInReachPhrase,
   optInDisclosurePhrase,
+  optInDisclosureSentence,
   CONSENT_TOKEN_TTL_HOURS,
 } from '@/lib/consent/capture'
 
@@ -131,5 +132,14 @@ describe('voice channel (AI-voice consent)', () => {
     expect(optInReachPhrase(['sms', 'voice'])).toBe('text and call')
     expect(optInReachPhrase([])).toBe('text and email')
     expect(optInDisclosurePhrase(['voice'])).toContain('AI voice')
+  })
+
+  it('optInDisclosureSentence renders the full page disclosure (stored verbatim as the artifact)', () => {
+    const s = optInDisclosureSentence(['sms', 'email', 'voice'], 'Dion Health')
+    expect(s).toContain('Dion Health')
+    expect(s.toLowerCase()).toContain('ai voice')
+    expect(s).toContain('Consent is not a condition of any purchase or treatment')
+    expect(s).toContain('Reply STOP')
+    expect(optInDisclosureSentence(['email'], '')).toContain('our team')
   })
 })

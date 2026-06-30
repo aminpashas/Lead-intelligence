@@ -19,6 +19,7 @@ export async function sendEmail(params: {
   text?: string
   from?: string
   replyTo?: string
+  headers?: Record<string, string>
 }): Promise<{ id: string }> {
   const { data, error } = await getResend().emails.send({
     from: params.from || process.env.RESEND_FROM_EMAIL!,
@@ -27,6 +28,7 @@ export async function sendEmail(params: {
     html: params.html,
     text: params.text,
     replyTo: params.replyTo,
+    headers: params.headers,
   })
 
   if (error) {

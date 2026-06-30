@@ -14,6 +14,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { decryptField } from '@/lib/encryption'
 import { getOrgFlags, flagOn } from '@/lib/org/flags'
 import { sendEmail } from '@/lib/messaging/resend'
+import { appendEmailFooter, getUnsubscribeHeaders } from '@/lib/messaging/email-footer'
 import {
   generateConsentToken,
   consentTokenExpiry,
@@ -95,9 +96,16 @@ export async function POST(request: NextRequest) {
   if (!baseUrl) return NextResponse.json({ error: 'app_url_not_configured' }, { status: 500 })
   const url = buildOptInUrl(baseUrl, token)
   const tmpl = optInEmailTemplate({ orgName: org?.name ?? '', firstName: lead.first_name, url, channels })
+  const html = appendEmailFooter(tmpl.html, { leadId, orgId: organizationId, orgName: org?.name ?? '' })
 
   try {
-    await sendEmail({ to: email, subject: tmpl.subject, html: tmpl.html, text: tmpl.text })
+    await sendEmail({
+      to: email,
+      subject: tmpl.subject,
+      html,
+      text: tmpl.text,
+      headers: getUnsubscribeHeaders(leadId, organizationId),
+    })
   } catch (err) {
     return NextResponse.json(
       { error: 'email_send_failed', detail: err instanceof Error ? err.message : 'unknown' },

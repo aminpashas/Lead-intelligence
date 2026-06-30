@@ -103,6 +103,16 @@ export function optInDisclosurePhrase(channels: ConsentCaptureChannel[]): string
 }
 
 /**
+ * The full disclosure sentence shown on the /optin page. Rendered on the page AND
+ * stored verbatim as the consent artifact at confirm time — both call this so the
+ * record can never drift from what the patient actually saw.
+ */
+export function optInDisclosureSentence(channels: ConsentCaptureChannel[], orgName?: string | null): string {
+  const org = orgName?.trim() || 'our team'
+  return `By confirming you agree to receive automated marketing ${optInDisclosurePhrase(channels)} from ${org}. Consent is not a condition of any purchase or treatment. Message & data rates may apply. Reply STOP to any text to opt out at any time.`
+}
+
+/**
  * TCPA/CAN-SPAM-friendly opt-in email. Copy is channel-aware: when 'voice' is
  * among the channels, the disclosure explicitly authorizes automated / AI phone
  * calls — required for the confirmation to count as valid voice consent.
