@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { postLoginPath } from '@/lib/auth/post-login-path'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,8 +18,10 @@ export default function LoginPage() {
   const supabase = createClient()
 
   /**
-   * After a successful login, fetch the user's role and redirect accordingly:
-   * - agency_admin → /agency (Agency Control Panel)
+   * After a successful login, fetch the user's role + active-practice
+   * selection and redirect accordingly:
+   * - agency_admin with no active practice → /agency (Agency Control Panel)
+   * - agency_admin who has entered a practice → /dashboard (resume that CRM)
    * - all other roles → /dashboard (Practice Dashboard)
    */
   async function redirectBasedOnRole() {
@@ -34,11 +37,16 @@ export default function LoginPage() {
       .eq('id', user.id)
       .single()
 
+    let actingAsClient = false
     if (profile?.role === 'agency_admin') {
-      router.push('/agency')
-    } else {
-      router.push('/dashboard')
+      const { data: active } = await supabase
+        .from('agency_active_org')
+        .select('active_org_id')
+        .maybeSingle()
+      actingAsClient = !!active?.active_org_id
     }
+
+    router.push(postLoginPath({ role: profile?.role, actingAsClient }))
     router.refresh()
   }
 
