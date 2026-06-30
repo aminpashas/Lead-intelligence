@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
   if (!leadId) return NextResponse.json({ error: 'lead_id is required' }, { status: 400 })
 
   const channels: ConsentCaptureChannel[] = (body?.channels ?? ['sms', 'email']).filter(
-    (c): c is ConsentCaptureChannel => c === 'sms' || c === 'email'
+    (c): c is ConsentCaptureChannel => c === 'sms' || c === 'email' || c === 'voice'
   )
 
   const service = createServiceClient()
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   if (!baseUrl) return NextResponse.json({ error: 'app_url_not_configured' }, { status: 500 })
   const url = buildOptInUrl(baseUrl, token)
-  const tmpl = optInEmailTemplate({ orgName: org?.name ?? '', firstName: lead.first_name, url })
+  const tmpl = optInEmailTemplate({ orgName: org?.name ?? '', firstName: lead.first_name, url, channels })
 
   try {
     await sendEmail({ to: email, subject: tmpl.subject, html: tmpl.html, text: tmpl.text })

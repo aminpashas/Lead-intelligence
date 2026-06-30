@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   if (!claimed) return NextResponse.json({ error: 'already_used' }, { status: 409 })
 
   const channels = (row.channels ?? ['sms', 'email']).filter(
-    (c: string): c is ConsentCaptureChannel => c === 'sms' || c === 'email'
+    (c: string): c is ConsentCaptureChannel => c === 'sms' || c === 'email' || c === 'voice'
   )
   const grant = consentGrantFields(channels, nowIso)
 

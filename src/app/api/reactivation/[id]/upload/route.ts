@@ -145,8 +145,19 @@ export async function POST(
             utm_source: lead.utm_source || 'reactivation_campaign',
             utm_campaign: lead.utm_campaign || reactivation.name,
             status: 'contacted',
-            sms_consent: !!lead.phone,
+            // TCPA: a phone number is NOT consent to text or call. Imported/cold
+            // leads must EARN sms + voice consent via the /optin re-permission flow
+            // before any automated message. Keeping these false leaves
+            // *_consent_status at 'unknown' (eligible for consent-capture) rather
+            // than manufacturing a grant the lead never gave. See
+            // docs/re-permission-campaign-playbook.md.
+            sms_consent: false,
+            // voice_consent intentionally unset → defaults false (earned via opt-in).
+            // CAN-SPAM (opt-out regime) permits emailing a prior inquirer; this is
+            // the channel the re-permission email itself rides on. Opt-outs still
+            // suppress, and the source is recorded for the consent_log audit trail.
             email_consent: !!lead.email,
+            email_consent_source: lead.email ? 'reactivation_import' : null,
             tags: parsed.data.tag_name ? [parsed.data.tag_name] : [],
           })
           .select('id')

@@ -1,5 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
-import { isTokenUsable } from '@/lib/consent/capture'
+import { isTokenUsable, optInReachPhrase, optInDisclosurePhrase, type ConsentCaptureChannel } from '@/lib/consent/capture'
 import { OptInConfirm } from '@/components/consent/opt-in-confirm'
 
 export const dynamic = 'force-dynamic'
@@ -77,18 +77,22 @@ export default async function OptInPage({ params }: { params: Promise<{ token: s
     )
   }
 
+  const channels = (row.channels ?? ['sms', 'email']) as ConsentCaptureChannel[]
+
   return shell(
     <>
       <h1 style={{ fontSize: 21, fontWeight: 800, color: '#1f1a15', marginBottom: 8 }}>
         Confirm how {orgName || 'we'} can reach you
       </h1>
       <p style={{ fontSize: 14, color: '#78716c', marginBottom: 24 }}>
-        Tap below so our care team can text and email you about appointments, financing options, and
-        your questions.
+        Tap below so our care team can {optInReachPhrase(channels)} you about appointments, financing
+        options, and your questions.
       </p>
-      <OptInConfirm token={token} orgName={orgName} channels={row.channels ?? ['sms', 'email']} />
+      <OptInConfirm token={token} orgName={orgName} channels={channels} />
       <p style={{ fontSize: 11, color: '#a8a29e', marginTop: 20 }}>
-        Message &amp; data rates may apply. Reply STOP to any text to opt out at any time.
+        By confirming you agree to receive automated marketing {optInDisclosurePhrase(channels)} from{' '}
+        {orgName || 'our team'}. Consent is not a condition of any purchase or treatment. Message &amp;
+        data rates may apply. Reply STOP to any text to opt out at any time.
       </p>
     </>
   )
