@@ -12,10 +12,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Badge } from '@/components/ui/badge'
 import {
   Menu,
-  Zap,
   LogOut,
   User,
   LayoutDashboard,
@@ -52,73 +50,77 @@ export function AgencyTopbar({ userProfile, onMenuClick }: AgencyTopbarProps) {
     .slice(0, 2)
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-slate-800 bg-slate-950 px-4 shrink-0">
+    <header className="aurea-topbar flex h-16 items-center justify-between border-b px-4 sm:px-6 shrink-0">
       {/* Left — mobile menu + breadcrumb */}
       <div className="flex items-center gap-3">
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden h-8 w-8 text-slate-400 hover:text-white hover:bg-slate-800"
+          className="lg:hidden h-8 w-8 text-aurea-ink-2 hover:text-aurea-ink hover:bg-aurea-surface-2"
           onClick={onMenuClick}
         >
           <Menu className="h-4 w-4" />
         </Button>
 
-        <div className="hidden lg:flex items-center gap-2">
-          <Zap className="h-4 w-4 text-violet-400" />
-          <span className="text-sm font-medium text-slate-300">Agency Control Panel</span>
-        </div>
+        <nav className="hidden lg:flex items-baseline gap-2.5">
+          <span className="text-[13px] font-medium tracking-tight text-aurea-ink">Aurea Console</span>
+          <span className="aurea-eyebrow">Agency</span>
+        </nav>
       </div>
 
       {/* Right — status + user menu */}
-      <div className="flex items-center gap-3">
-        {/* Live status badge */}
-        <div className="hidden sm:flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1">
-          <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[11px] font-medium text-emerald-400">Platform Online</span>
+      <div className="flex items-center gap-3 sm:gap-5">
+        {/* Live status */}
+        <div className="hidden sm:flex items-center gap-2">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-aurea-primary opacity-60" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-aurea-primary" />
+          </span>
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-aurea-ink-3">
+            Platform Online
+          </span>
         </div>
 
         {/* User dropdown */}
         <DropdownMenu>
-          <DropdownMenuTrigger
-            className="flex items-center gap-2 h-9 px-3 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer border-0 bg-transparent"
-          >
-            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-xs font-bold text-white shadow-sm">
-              {initials}
+          <DropdownMenuTrigger className="flex items-center gap-2.5 h-11 pl-1 pr-2 rounded-lg text-aurea-ink hover:bg-aurea-surface-2 transition-colors cursor-pointer border-0 bg-transparent">
+            <div className="relative shrink-0">
+              <div className="h-9 w-9 rounded-full bg-aurea-surface-2 ring-1 ring-aurea-border flex items-center justify-center text-[12px] font-semibold text-aurea-ink">
+                {initials}
+              </div>
+              <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-aurea-primary ring-2 ring-aurea-canvas" />
             </div>
-            <div className="hidden sm:block text-left">
-              <p className="text-xs font-medium leading-none">{userProfile.full_name}</p>
-              <Badge className="mt-0.5 h-3.5 text-[9px] px-1 bg-violet-500/20 text-violet-300 border-violet-500/30 border font-semibold tracking-wide">
-                AGENCY
-              </Badge>
+            <div className="hidden sm:block text-left leading-tight">
+              <p className="text-[13px] font-semibold text-aurea-ink">{userProfile.full_name}</p>
+              <p className="aurea-eyebrow">Agency Admin</p>
             </div>
-            <ChevronDown className="h-3 w-3 text-slate-500" />
+            <ChevronDown className="h-3.5 w-3.5 text-aurea-ink-3" />
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="w-56 bg-slate-900 border-slate-800 text-slate-200"
+            className="w-60 rounded-lg bg-aurea-surface border-aurea-border text-aurea-ink-2"
           >
-            <DropdownMenuLabel className="text-xs text-slate-500">
+            <DropdownMenuLabel className="text-[11px] font-normal text-aurea-ink-3 truncate">
               {userProfile.email}
             </DropdownMenuLabel>
-            <DropdownMenuSeparator className="bg-slate-800" />
+            <DropdownMenuSeparator className="bg-aurea-border" />
             <DropdownMenuItem
-              className="hover:bg-slate-800 cursor-pointer"
+              className="rounded-md text-aurea-ink-2 focus:bg-aurea-surface-2 focus:text-aurea-ink cursor-pointer"
               onClick={() => router.push('/agency/settings')}
             >
-              <User className="mr-2 h-4 w-4 text-slate-400" />
+              <User className="mr-2 h-4 w-4 text-aurea-ink-3" />
               Agency Settings
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="hover:bg-slate-800 cursor-pointer"
+              className="rounded-md text-aurea-ink-2 focus:bg-aurea-surface-2 focus:text-aurea-ink cursor-pointer"
               onClick={() => router.push('/dashboard')}
             >
-              <LayoutDashboard className="mr-2 h-4 w-4 text-slate-400" />
+              <LayoutDashboard className="mr-2 h-4 w-4 text-aurea-ink-3" />
               Switch to Practice View
             </DropdownMenuItem>
-            <DropdownMenuSeparator className="bg-slate-800" />
+            <DropdownMenuSeparator className="bg-aurea-border" />
             <DropdownMenuItem
-              className="hover:bg-red-950/50 text-red-400 cursor-pointer"
+              className="rounded-md text-aurea-rose focus:bg-aurea-rose-soft focus:text-aurea-rose cursor-pointer"
               onClick={handleLogout}
               disabled={loggingOut}
             >
