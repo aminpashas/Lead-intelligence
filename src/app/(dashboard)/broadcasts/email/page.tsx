@@ -1,5 +1,5 @@
-import { MassEmailComposer } from '@/components/crm/mass-email-composer'
+import { redirect } from 'next/navigation'
 
-export default function MassEmailPage() {
-  return <MassEmailComposer />
+export default function LegacyMassEmail() {
+  redirect('/campaigns/broadcasts/email')
 }

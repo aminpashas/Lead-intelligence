@@ -1,5 +1,5 @@
-import { BroadcastAudit } from '@/components/crm/broadcast-audit'
+import { redirect } from 'next/navigation'
 
-export default function BroadcastAuditPage() {
-  return <BroadcastAudit />
+export default function LegacyBroadcastAudit() {
+  redirect('/campaigns/broadcasts/audit')
 }

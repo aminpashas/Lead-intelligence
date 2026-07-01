@@ -1,5 +1,5 @@
-import { MassSMSComposer } from '@/components/crm/mass-sms-composer'
+import { redirect } from 'next/navigation'
 
-export default function MassSMSPage() {
-  return <MassSMSComposer />
+export default function LegacyMassSMS() {
+  redirect('/campaigns/broadcasts/sms')
 }

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-// The Broadcasts hub has no landing view of its own — send visitors to SMS.
-export default function BroadcastsIndexPage() {
-  redirect('/broadcasts/sms')
+// Broadcasts moved under the Campaigns hub. Preserve old links/bookmarks.
+export default function LegacyBroadcastsIndex() {
+  redirect('/campaigns/broadcasts/sms')
 }

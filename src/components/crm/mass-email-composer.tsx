@@ -258,7 +258,7 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
             <Button variant="outline" onClick={() => {
               setStatus('idle'); setResults(null); setSubject(''); setBody(''); setBroadcastName('')
             }}>Send Another</Button>
-            <Button variant="outline" onClick={() => window.location.href = '/broadcasts/audit'}>
+            <Button variant="outline" onClick={() => window.location.href = '/campaigns/broadcasts/audit'}>
               View Audit Log
             </Button>
             {onClose && <Button onClick={onClose}>Done</Button>}
