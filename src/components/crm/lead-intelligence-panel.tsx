@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
 import { Button } from '@/components/ui/button'
-import { Brain, Sparkles, AlertTriangle, Target, Loader2, RefreshCw, Send } from 'lucide-react'
+import { Brain, Sparkles, AlertTriangle, Target, Loader2, RefreshCw, Send, CalendarClock } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Lead, PatientProfile, ConversationAnalysis } from '@/types/database'
 import type { FollowUpPlan } from '@/lib/ai/patient-psychology'
@@ -31,6 +31,8 @@ export function LeadIntelligencePanel({
   const [running, setRunning] = useState(false)
   const [planning, setPlanning] = useState(false)
   const [followUp, setFollowUp] = useState<FollowUpPlan | null>(null)
+  const [sendingNow, setSendingNow] = useState(false)
+  const [enrolling, setEnrolling] = useState(false)
   const router = useRouter()
 
   async function runAnalysis() {
@@ -67,6 +69,45 @@ export function LeadIntelligencePanel({
       toast.error(err instanceof Error ? err.message : 'Failed to generate follow-up')
     } finally {
       setPlanning(false)
+    }
+  }
+
+  async function sendNow() {
+    if (!followUp) return
+    const channel = followUp.recommended_channel === 'call' ? 'email' : followUp.recommended_channel
+    setSendingNow(true)
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/follow-up-send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel,
+          subject: channel === 'email' ? `Following up, ${lead.first_name ?? ''}`.trim() : undefined,
+          message: followUp.opening_message,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Send failed')
+      if (data.sent === false) throw new Error(data.reason || 'Blocked by a send gate')
+      toast.success(`Follow-up sent (${channel})`)
+      router.refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Send failed')
+    } finally {
+      setSendingNow(false)
+    }
+  }
+
+  async function startSequence() {
+    setEnrolling(true)
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/follow-up-enroll`, { method: 'POST' })
+      if (!res.ok) throw new Error('Enroll failed')
+      toast.success('Enrolled in the follow-up sequence')
+    } catch {
+      toast.error('Failed to start sequence')
+    } finally {
+      setEnrolling(false)
     }
   }
 
@@ -212,6 +253,16 @@ export function LeadIntelligencePanel({
               {followUp.closing_strategy && (
                 <p className="mt-2 text-[12px] text-aurea-ink-3"><span className="text-aurea-ink-2">Close:</span> {followUp.closing_strategy}</p>
               )}
+              <div className="mt-3 flex items-center gap-1.5">
+                <Button onClick={sendNow} disabled={sendingNow} size="sm" className="gap-1.5">
+                  {sendingNow ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" strokeWidth={1.75} />}
+                  Send now
+                </Button>
+                <Button onClick={startSequence} disabled={enrolling} variant="outline" size="sm" className="gap-1.5">
+                  {enrolling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" strokeWidth={1.75} />}
+                  Start sequence
+                </Button>
+              </div>
             </div>
           )}
         </div>
