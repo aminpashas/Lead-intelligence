@@ -26,6 +26,7 @@ import {
   AlertTriangle, Sparkles, Phone, XCircle, Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { A2P_PENDING_MESSAGE } from '@/lib/messaging/a2p-gate'
 import { cn } from '@/lib/utils'
 import { previewPersonalize } from '@/lib/campaigns/personalization'
 import { VariablePicker } from './variable-picker'
@@ -83,16 +84,25 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [previewCount, setPreviewCount] = useState<number | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [usSmsBlocked, setUsSmsBlocked] = useState(false)
+  const [eligibility, setEligibility] = useState<null | {
+    sms: { total: number; eligible: number; no_consent: number; opted_out: number; no_contact: number }
+    list_total: number
+    capped: boolean
+  }>(null)
 
   useEffect(() => {
     fetchSmartLists()
+    fetchFlags()
   }, [])
 
   useEffect(() => {
     if (selectedListId) {
       fetchPreviewCount()
+      fetchEligibility()
     } else {
       setPreviewCount(null)
+      setEligibility(null)
     }
   }, [selectedListId])
 
@@ -105,6 +115,19 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Best-effort UI gate; the /api/sms/mass route is the authoritative A2P block.
+  async function fetchFlags() {
+    try {
+      const res = await fetch('/api/org/flags')
+      if (res.ok) {
+        const { flags } = await res.json()
+        setUsSmsBlocked(flags?.us_sms_enabled !== true)
+      }
+    } catch {
+      /* leave banner hidden on error — the server still hard-blocks the send */
     }
   }
 
@@ -122,6 +145,17 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
     }
   }
 
+  // Consent/eligibility breakdown — how many recipients are actually reachable by SMS.
+  async function fetchEligibility() {
+    if (!selectedListId) return
+    try {
+      const res = await fetch(`/api/smart-lists/${selectedListId}/eligibility`)
+      if (res.ok) setEligibility(await res.json())
+    } catch {
+      /* non-fatal — the plain count still shows */
+    }
+  }
+
   function insertVariable(v: string) {
     setMessage((prev) => prev + v)
   }
@@ -136,7 +170,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
   const selectedList = smartLists.find((l) => l.id === selectedListId)
   const charCount = message.length
   const segmentCount = Math.ceil(charCount / 160) || 1
-  const canSend = selectedListId && message.trim().length > 0 && status === 'idle'
+  const canSend = !usSmsBlocked && selectedListId && message.trim().length > 0 && status === 'idle'
 
   function handleSendClick() {
     if (!canSend) return
@@ -244,6 +278,13 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
         </p>
       </div>
 
+      {usSmsBlocked && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-aurea-amber/40 bg-aurea-amber/10 px-3.5 py-3 text-[13px] text-aurea-ink-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-aurea-amber" strokeWidth={1.75} />
+          <span>{A2P_PENDING_MESSAGE}</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Left: Compose */}
         <div className="lg:col-span-2 space-y-4">
@@ -304,6 +345,27 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
                         </>
                       )}
                     </p>
+                    {eligibility && (
+                      <p className="mt-0.5 text-[11px] text-aurea-ink-3">
+                        <span className="font-medium text-aurea-primary">
+                          {eligibility.sms.eligible.toLocaleString()} SMS-eligible
+                        </span>
+                        {eligibility.sms.total > eligibility.sms.eligible && (
+                          <>
+                            {' · '}
+                            {(eligibility.sms.total - eligibility.sms.eligible).toLocaleString()} excluded
+                            {' ('}
+                            {[
+                              eligibility.sms.no_consent > 0 ? `${eligibility.sms.no_consent} no consent` : null,
+                              eligibility.sms.opted_out > 0 ? `${eligibility.sms.opted_out} opted out` : null,
+                              eligibility.sms.no_contact > 0 ? `${eligibility.sms.no_contact} no phone` : null,
+                            ].filter(Boolean).join(', ')}
+                            {')'}
+                          </>
+                        )}
+                        {eligibility.capped && <>{' · '}sampled from {eligibility.list_total.toLocaleString()}</>}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
