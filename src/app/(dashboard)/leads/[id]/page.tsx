@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { LeadDetail } from '@/components/crm/lead-detail'
+import { buildTimeline } from '@/lib/timeline/build-timeline'
 
 export default async function LeadDetailPage({
   params,
@@ -39,6 +40,28 @@ export default async function LeadDetailPage({
     .eq('lead_id', id)
     .order('last_message_at', { ascending: false })
 
+  // Fetch messages (all channels) for the unified timeline
+  const { data: messages } = await supabase
+    .from('messages')
+    .select('id, created_at, channel, direction, body, subject, status, ai_generated, sender_type, sender_name')
+    .eq('lead_id', id)
+    .order('created_at', { ascending: true })
+    .limit(300)
+
+  // Fetch logged voice calls for the unified timeline
+  const { data: voiceCalls } = await supabase
+    .from('voice_calls')
+    .select('id, created_at, started_at, direction, outcome, duration_seconds, outcome_notes, transcript_summary, recording_url, status')
+    .eq('lead_id', id)
+    .order('created_at', { ascending: true })
+    .limit(300)
+
+  const timeline = buildTimeline({
+    messages: messages || [],
+    calls: voiceCalls || [],
+    activities: activities || [],
+  })
+
   // Fetch pipeline stages
   const { data: stages } = await supabase
     .from('pipeline_stages')
@@ -58,6 +81,7 @@ export default async function LeadDetailPage({
       lead={lead}
       activities={activities || []}
       conversations={conversations || []}
+      timeline={timeline}
       stages={stages || []}
       teamMembers={teamMembers || []}
     />
