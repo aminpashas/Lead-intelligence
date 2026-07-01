@@ -2,8 +2,13 @@ import { createClient } from '@/lib/supabase/server'
 import { CampaignsList } from '@/components/crm/campaigns-list'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 
-export default async function CampaignsPage() {
+export default async function CampaignsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ smart_list_id?: string }>
+}) {
   const supabase = await createClient()
+  const { smart_list_id } = await searchParams
 
   // Effective org honors an agency_admin's entered client account.
   const { orgId } = await resolveActiveOrg(supabase)
@@ -23,6 +28,6 @@ export default async function CampaignsPage() {
   }))
 
   return (
-    <CampaignsList campaigns={enriched} />
+    <CampaignsList campaigns={enriched} initialSmartListId={smart_list_id} />
   )
 }
