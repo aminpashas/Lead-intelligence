@@ -103,6 +103,7 @@ export const EXPECTED_CRONS: Record<string, number> = {
   'a2p-status': 8 * 60, // every 6h + grace
   'reengagement': 90, // hourly + grace
   'carestack-sync': 26 * 60, // daily 04:30 UTC
+  'ghl-sync': 40, // every 15 min + grace
   'windsor-sync': 26 * 60, // daily 05:00 UTC
   'brex-sync': 26 * 60, // daily 06:00 UTC
   disqualify: 26 * 60, // daily 08:00 UTC

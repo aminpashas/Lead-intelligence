@@ -7,7 +7,7 @@ import { encryptCredentials } from '@/lib/connectors/crypto'
 import { requireAgencyClientOrg } from '@/lib/auth/active-org'
 
 const VALID_CONNECTOR_TYPES: ConnectorType[] = [
-  'google_ads', 'meta_capi', 'ga4', 'outbound_webhook', 'slack', 'google_reviews', 'callrail',
+  'google_ads', 'meta_capi', 'ga4', 'outbound_webhook', 'slack', 'google_reviews', 'callrail', 'ghl',
 ]
 
 // GET /api/connectors — List all connector configs for the org

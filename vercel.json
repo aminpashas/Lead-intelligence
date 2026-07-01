@@ -37,6 +37,10 @@
       "schedule": "30 4 * * *"
     },
     {
+      "path": "/api/cron/ghl-sync",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/windsor-sync",
       "schedule": "0 5 * * *"
     },

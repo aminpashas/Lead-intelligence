@@ -76,6 +76,7 @@ export type ConnectorType =
   | 'slack'
   | 'google_reviews'
   | 'callrail'
+  | 'ghl'
 
 export type ConnectorConfig = {
   id: string
