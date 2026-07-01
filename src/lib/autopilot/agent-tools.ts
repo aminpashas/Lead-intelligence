@@ -19,6 +19,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
+import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
+import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
@@ -671,6 +673,7 @@ async function executeCreateBooking(
     lead_id: string
     lead: Record<string, unknown>
     conversation_id: string
+    channel?: string
   },
   date: string,
   time: string
@@ -689,6 +692,24 @@ async function executeCreateBooking(
 
   if (!settings) {
     return { success: false, data: {}, message: 'Booking is not available. Please have the patient call to schedule.' }
+  }
+
+  // Phone-first gate: on text channels (SMS/email) the AI may NOT book a
+  // consultation until a real phone conversation has happened. On a live voice
+  // call the conversation IS happening now, so booking is allowed. This hard
+  // stop makes the agent pivot to scheduling a call instead (see message).
+  if (isCallGateEnabled(settings) && context.channel !== 'voice') {
+    const talked = await hasQualifyingCall(supabase, context.organization_id, context.lead_id)
+    if (!talked) {
+      return {
+        success: false,
+        data: { requires_phone_call: true },
+        message:
+          'This practice books consultations by phone, not by text. Do NOT create a booking now. ' +
+          'Instead, warmly offer to set up a quick phone call with a coordinator to go over their situation ' +
+          'and answer questions, and ask for the best time to reach them.',
+      }
+    }
   }
 
   const scheduledAt = `${date}T${time}:00`
@@ -738,6 +759,8 @@ async function executeCreateBooking(
       duration_minutes: settings.slot_duration_minutes,
       location: settings.location || null,
       status: 'scheduled',
+      booked_via: 'ai',
+      no_show_fee_cents: settings.no_show_fee_enabled ? settings.no_show_fee_cents : null,
       notes: 'Booked via AI agent during conversation',
     })
     .select('id')
@@ -803,6 +826,17 @@ async function executeCreateBooking(
       body: `✅ Confirmed! Your consultation at ${orgName} is booked for ${displayDate} at ${displayTime}. We look forward to seeing you!`,
       caller: 'autopilot.book_appointment',
     }).catch(() => { /* Non-critical; consent denial is handled inside the gate */ })
+
+    // No-show fee: text a card-on-file link (charged only on a no-show).
+    if (settings.no_show_fee_enabled) {
+      await sendCardCaptureLink(supabase, context.organization_id, {
+        appointmentId: appointment!.id,
+        leadId: context.lead_id,
+        feeCents: settings.no_show_fee_cents ?? 5000,
+        phone,
+        orgName,
+      })
+    }
   }
 
   const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -1345,6 +1379,54 @@ async function executeSendTestimonial(
   // Get a random testimonial (for variety)
   const testimonials = await getRandomAssets(supabase, context.organization_id, 'testimonial_video', 1)
   if (testimonials.length === 0) {
+    // Fallback: a practice may configure a single doctor testimonial URL in
+    // Settings → Booking protocol instead of uploading testimonial assets.
+    const { data: bs } = await supabase
+      .from('booking_settings')
+      .select('youtube_testimonial_url')
+      .eq('organization_id', context.organization_id)
+      .maybeSingle()
+    const url = (bs?.youtube_testimonial_url as string | null) || null
+
+    if (url) {
+      if (deliveryChannel === 'sms') {
+        if (!context.lead.sms_consent || context.lead.sms_opt_out || !phone) {
+          return { success: false, data: {}, message: 'Cannot send SMS — no consent or no phone. Mention the testimonials verbally.' }
+        }
+        const body = `${leadName ? leadName + ', ' : ''}here are real ${orgName} patients sharing their full-arch journey: ${url}`
+        const sendRes = await sendSMSToLead({ supabase, leadId: context.lead_id, to: phone, body, caller: 'autopilot.send_asset' })
+        if (!sendRes.sent) {
+          return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Share verbally instead.' }
+        }
+        await supabase.from('lead_activities').insert({
+          organization_id: context.organization_id,
+          lead_id: context.lead_id,
+          activity_type: 'cross_channel_testimonial_sent',
+          title: 'AI sent doctor testimonial video via SMS',
+          metadata: { tool: 'send_testimonial', url, delivery_channel: 'sms', source: 'configured_url' },
+        })
+        return { success: true, data: { url }, message: 'Sent the practice testimonial video link to the patient via SMS.' }
+      }
+
+      if (!context.lead.email_consent || context.lead.email_opt_out || !email) {
+        return { success: false, data: {}, message: 'Cannot send email — no consent or no email. Mention the testimonials verbally.' }
+      }
+      await sendEmail({
+        to: email,
+        subject: `Patient stories from ${orgName}`,
+        html: `<p>Hi ${leadName || 'there'},</p><p>Here are real patients sharing their full-arch experience:</p><p><a href="${url}">Watch patient testimonials</a></p>`,
+        text: `Hi ${leadName || 'there'}, here are real patients sharing their experience: ${url}`,
+      })
+      await supabase.from('lead_activities').insert({
+        organization_id: context.organization_id,
+        lead_id: context.lead_id,
+        activity_type: 'cross_channel_testimonial_sent',
+        title: 'AI sent doctor testimonial video via email',
+        metadata: { tool: 'send_testimonial', url, delivery_channel: 'email', source: 'configured_url' },
+      })
+      return { success: true, data: { url }, message: 'Emailed the practice testimonial video link to the patient.' }
+    }
+
     return { success: false, data: {}, message: 'No testimonial videos configured. Mention verbally that you have many happy patients and offer to share more during the consultation.' }
   }
 

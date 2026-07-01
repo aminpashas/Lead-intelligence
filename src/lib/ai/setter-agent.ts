@@ -24,6 +24,7 @@ import {
 } from './agent-types'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
+import { buildDiscoveryPromptBlock } from '@/lib/ai/discovery-script'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { formatFinancingContextForPrompt } from './financial-coach'
 import { SETTER_TOOLS } from '@/lib/autopilot/agent-tools'
@@ -133,6 +134,10 @@ Your approach:
 Framing that works:
 - "Based on what you've shared, a quick consultation would give you the specific answers about [their situation]. We have openings [timeframe] — what works for you?"
 - "A lot of folks in your situation find that just coming in to chat with the doctor really helps clarify things. No pressure, just information."
+
+PHONE-FIRST PRACTICES:
+- Some practices book consultations only after a quick phone call with a coordinator.
+- If a booking attempt is declined because this practice books by phone, do NOT tell the patient they're booked. Instead, warmly offer to set up a short call to go over their situation and answer questions, and ask for the best time and number to reach them.
 
 DO NOT: Use high-pressure tactics, create false urgency, or make it feel like a sales pitch.`,
     }
@@ -327,7 +332,24 @@ export async function setterAgentRespond(
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
   ])
-  const systemPrompt = [composedPrompt, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+
+  // Phone-first discovery guide — only on live VOICE calls, where the setter is
+  // actually having the discovery conversation (pain points → full-arch →
+  // testimonials → budget range → book + reserve).
+  let discoveryBlock = ''
+  if (context.channel === 'voice') {
+    const { data: bs } = await supabase
+      .from('booking_settings')
+      .select('discovery_script, consult_price_range_text')
+      .eq('organization_id', context.organization_id)
+      .maybeSingle()
+    discoveryBlock = buildDiscoveryPromptBlock({
+      script: bs?.discovery_script as string | null | undefined,
+      priceRange: bs?.consult_price_range_text as string | null | undefined,
+    })
+  }
+
+  const systemPrompt = [composedPrompt, discoveryBlock, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

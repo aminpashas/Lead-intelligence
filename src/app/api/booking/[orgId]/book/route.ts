@@ -7,6 +7,7 @@ import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment, formatTimeDisplay } from '@/lib/booking/availability'
 import { encryptLeadPII } from '@/lib/encryption'
+import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { escapeHtml } from '@/lib/utils'
 
 const bookingSchema = z.object({
@@ -51,6 +52,61 @@ export async function POST(
 
   if (!settings || !settings.is_enabled) {
     return NextResponse.json({ error: 'Booking is not available' }, { status: 404 })
+  }
+
+  // Phone-first gate: when the practice books by phone, the public widget must
+  // NOT self-confirm a consultation. Capture the lead + their preferred time as
+  // a call request; staff will call to qualify and book.
+  if (settings.require_call_before_booking) {
+    const { data: gateOrg } = await supabase.from('organizations').select('name').eq('id', orgId).single()
+    const gateOrgName = gateOrg?.name || 'Our Practice'
+
+    // Never overwrite an existing lead's identity or consent from this
+    // unauthenticated route (same safety rule as the booking path below).
+    const { data: existing } = await supabase
+      .from('leads').select('id').eq('organization_id', orgId).eq('email', email).limit(1).single()
+
+    let requestLeadId: string
+    if (existing) {
+      requestLeadId = existing.id
+    } else {
+      const newLeadConsent = grantConsent
+        ? {
+            sms_consent: true, sms_consent_at: new Date().toISOString(), sms_consent_source: 'booking_form',
+            email_consent: true, email_consent_at: new Date().toISOString(), email_consent_source: 'booking_form',
+          }
+        : {}
+      const { data: newLead, error: newLeadErr } = await supabase
+        .from('leads')
+        .insert(encryptLeadPII({
+          organization_id: orgId, first_name, last_name, phone, email,
+          source_type: 'booking_page', status: 'new', ...newLeadConsent,
+        }))
+        .select('id').single()
+      if (newLeadErr || !newLead) return NextResponse.json({ error: 'Failed to create lead' }, { status: 500 })
+      requestLeadId = newLead.id
+    }
+
+    await supabase.from('lead_activities').insert({
+      organization_id: orgId,
+      lead_id: requestLeadId,
+      activity_type: 'call_requested',
+      title: 'Consultation call requested via booking page',
+      description: `Preferred time: ${slot_date} ${slot_time}`,
+      metadata: { source: 'booking_page', preferred_date: slot_date, preferred_time: slot_time },
+    })
+
+    try {
+      await sendSMS(phone, `Hi ${first_name}! Thanks for reaching out to ${gateOrgName}. A coordinator will call you shortly to go over your options and get your consultation booked. Reply STOP to opt out.`)
+    } catch {
+      // Non-fatal: the lead + call request are already recorded for staff follow-up.
+    }
+
+    return NextResponse.json({
+      success: true,
+      call_requested: true,
+      message: 'Thanks! A coordinator will call you shortly to confirm your consultation.',
+    }, { status: 200 })
   }
 
   // Verify the slot is still available (atomic check)
@@ -161,6 +217,8 @@ export async function POST(
       location: settings.location || null,
       notes: notes || null,
       status: 'scheduled',
+      booked_via: 'public',
+      no_show_fee_cents: settings.no_show_fee_enabled ? settings.no_show_fee_cents : null,
     })
     .select('id')
     .single()
@@ -234,6 +292,19 @@ export async function POST(
       activity_type: 'notification_failed',
       title: 'Booking confirmation email failed',
       metadata: { error: err instanceof Error ? err.message : 'unknown', channel: 'email' },
+    })
+  }
+
+  // No-show fee: text the patient a card-on-file link (charged only on no-show).
+  if (settings.no_show_fee_enabled) {
+    await sendCardCaptureLink(supabase, orgId, {
+      appointmentId: appointment.id,
+      leadId,
+      feeCents: settings.no_show_fee_cents ?? 5000,
+      phone,
+      email,
+      name: `${first_name} ${last_name}`.trim(),
+      orgName,
     })
   }
 
