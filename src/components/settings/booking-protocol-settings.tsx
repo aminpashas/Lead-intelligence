@@ -15,6 +15,10 @@ type ProtocolSettings = {
   youtube_testimonial_url: string | null
   consult_price_range_text: string | null
   discovery_script: string | null
+  feedback_request_enabled: boolean
+  google_review_url: string | null
+  feedback_promoter_threshold: number
+  feedback_delay_hours: number
 }
 
 const DEFAULTS: ProtocolSettings = {
@@ -24,6 +28,10 @@ const DEFAULTS: ProtocolSettings = {
   youtube_testimonial_url: null,
   consult_price_range_text: null,
   discovery_script: null,
+  feedback_request_enabled: false,
+  google_review_url: null,
+  feedback_promoter_threshold: 4,
+  feedback_delay_hours: 2,
 }
 
 export function BookingProtocolSettings() {
@@ -60,6 +68,10 @@ export function BookingProtocolSettings() {
           youtube_testimonial_url: settings.youtube_testimonial_url || '',
           consult_price_range_text: settings.consult_price_range_text || '',
           discovery_script: settings.discovery_script || '',
+          feedback_request_enabled: settings.feedback_request_enabled,
+          google_review_url: settings.google_review_url || '',
+          feedback_promoter_threshold: settings.feedback_promoter_threshold,
+          feedback_delay_hours: settings.feedback_delay_hours,
         }),
       })
       if (!res.ok) {
@@ -164,6 +176,60 @@ export function BookingProtocolSettings() {
           value={settings.discovery_script || ''}
           onChange={(e) => update('discovery_script', e.target.value)}
         />
+      </div>
+
+      {/* Patient feedback */}
+      <div className="space-y-4 border-t border-aurea-border pt-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <Label className="text-[14px] text-aurea-ink">Request feedback after consults</Label>
+            <p className="text-[13px] leading-relaxed text-aurea-ink-2">
+              Text/email attendees a quick rating; happy patients are invited to leave a public review.
+            </p>
+          </div>
+          <Switch
+            checked={settings.feedback_request_enabled}
+            onCheckedChange={(v) => update('feedback_request_enabled', v)}
+          />
+        </div>
+
+        {settings.feedback_request_enabled && (
+          <>
+            <div className="space-y-2 pl-1">
+              <Label className="aurea-eyebrow">Google review link</Label>
+              <Input
+                type="url"
+                placeholder="https://g.page/r/…/review"
+                value={settings.google_review_url || ''}
+                onChange={(e) => update('google_review_url', e.target.value)}
+              />
+              <p className="text-[12px] text-aurea-ink-2">Required — no feedback is sent until this is set.</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 pl-1">
+              <div className="space-y-2">
+                <Label className="aurea-eyebrow">Send feedback after (hours)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={168}
+                  value={settings.feedback_delay_hours}
+                  onChange={(e) => update('feedback_delay_hours', Math.max(0, Math.min(168, Math.round(Number(e.target.value) || 0))))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="aurea-eyebrow">Route to review at (stars)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={settings.feedback_promoter_threshold}
+                  onChange={(e) => update('feedback_promoter_threshold', Math.max(1, Math.min(5, Math.round(Number(e.target.value) || 4))))}
+                />
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-3 border-t border-aurea-border pt-5">
