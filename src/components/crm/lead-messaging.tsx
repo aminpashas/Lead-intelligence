@@ -115,14 +115,14 @@ export function LeadMessaging({ lead }: { lead: Lead }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger>
-        <span className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent cursor-pointer">
-          <MessageSquare className="h-4 w-4" />
+        <span className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-aurea-border px-3 py-2 text-sm font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2">
+          <MessageSquare className="h-4 w-4" strokeWidth={1.75} />
           Send Message
         </span>
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="aurea-display text-[22px] text-aurea-ink">
             Message {lead.first_name} {lead.last_name}
           </DialogTitle>
         </DialogHeader>
@@ -130,15 +130,15 @@ export function LeadMessaging({ lead }: { lead: Lead }) {
         <Tabs value={tab} onValueChange={(v) => v && setTab(v)} className="mt-2">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="sms" disabled={!lead.phone}>
-              <MessageSquare className="h-4 w-4 mr-1.5" /> SMS
+              <MessageSquare className="mr-1.5 h-4 w-4" strokeWidth={1.75} /> SMS
             </TabsTrigger>
             <TabsTrigger value="email" disabled={!lead.email}>
-              <Mail className="h-4 w-4 mr-1.5" /> Email
+              <Mail className="mr-1.5 h-4 w-4" strokeWidth={1.75} /> Email
             </TabsTrigger>
           </TabsList>
 
           {/* AI Generate */}
-          <div className="flex items-center gap-2 mt-4">
+          <div className="mt-4 flex items-center gap-2">
             <Select value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
               <SelectTrigger className="flex-1">
                 <SelectValue />
@@ -155,32 +155,32 @@ export function LeadMessaging({ lead }: { lead: Lead }) {
               size="sm"
               onClick={generateAI}
               disabled={generating}
-              className="gap-1.5 shrink-0"
+              className="shrink-0 gap-1.5"
             >
-              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" />}
+              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" strokeWidth={1.75} />}
               AI Draft
             </Button>
           </div>
 
-          <TabsContent value="sms" className="space-y-3 mt-3">
+          <TabsContent value="sms" className="mt-3 space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">To: {lead.phone}</Label>
+              <Label className="text-xs text-aurea-ink-3">To: {lead.phone}</Label>
               <Textarea
                 value={smsBody}
                 onChange={(e) => setSmsBody(e.target.value)}
                 placeholder="Type your SMS message..."
                 rows={4}
               />
-              <p className="text-xs text-muted-foreground text-right">
+              <p className="text-right text-xs text-aurea-ink-3">
                 {smsBody.length}/160 characters
                 {smsBody.length > 160 && ` (${Math.ceil(smsBody.length / 160)} segments)`}
               </p>
             </div>
           </TabsContent>
 
-          <TabsContent value="email" className="space-y-3 mt-3">
+          <TabsContent value="email" className="mt-3 space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">To: {lead.email}</Label>
+              <Label className="text-xs text-aurea-ink-3">To: {lead.email}</Label>
               <Input
                 placeholder="Subject line"
                 value={emailSubject}
@@ -196,10 +196,10 @@ export function LeadMessaging({ lead }: { lead: Lead }) {
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end gap-2 mt-2">
+        <div className="mt-2 flex justify-end gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button onClick={sendMessage} disabled={sending} className="gap-1.5">
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" strokeWidth={1.75} />}
             Send {tab === 'sms' ? 'SMS' : 'Email'}
           </Button>
         </div>

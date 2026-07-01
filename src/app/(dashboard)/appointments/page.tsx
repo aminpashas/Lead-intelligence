@@ -199,12 +199,13 @@ export default function AppointmentsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in-0 duration-500">
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Appointments & Reminders</h1>
-          <p className="text-muted-foreground">
+          <p className="aurea-eyebrow mb-1">Scheduling</p>
+          <h1 className="aurea-display text-[40px] text-aurea-ink">Appointments &amp; Reminders</h1>
+          <p className="text-aurea-ink-2 text-[16px]">
             Multi-channel reminders, confirmation tracking, and no-show prevention
           </p>
         </div>
@@ -216,77 +217,59 @@ export default function AppointmentsPage() {
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <Calendar className="h-5 w-5 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{todayApts.length}</p>
-                <p className="text-xs text-muted-foreground">Today</p>
-              </div>
+        <div className="aurea-card p-4">
+          <div className="flex items-center gap-3">
+            <Calendar className="text-aurea-ink-3 h-[17px] w-[17px]" strokeWidth={1.75} />
+            <div>
+              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{todayApts.length}</p>
+              <p className="aurea-eyebrow">Today</p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{confirmedRate}%</p>
-                <p className="text-xs text-muted-foreground">Confirmed</p>
-              </div>
+        <div className="aurea-card p-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="text-aurea-primary h-[17px] w-[17px]" strokeWidth={1.75} />
+            <div>
+              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{confirmedRate}%</p>
+              <p className="aurea-eyebrow">Confirmed</p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-amber-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{pendingCount}</p>
-                <p className="text-xs text-muted-foreground">Pending</p>
-              </div>
+        <div className="aurea-card p-4">
+          <div className="flex items-center gap-3">
+            <Clock className="text-aurea-amber h-[17px] w-[17px]" strokeWidth={1.75} />
+            <div>
+              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{pendingCount}</p>
+              <p className="aurea-eyebrow">Pending</p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center">
-                <AlertTriangle className="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{atRiskCount}</p>
-                <p className="text-xs text-muted-foreground">At Risk</p>
-              </div>
+        <div className="aurea-card p-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="text-aurea-rose h-[17px] w-[17px]" strokeWidth={1.75} />
+            <div>
+              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{atRiskCount}</p>
+              <p className="aurea-eyebrow">At Risk</p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                {noShowRate > 10
-                  ? <TrendingDown className="h-5 w-5 text-red-500" />
-                  : <TrendingUp className="h-5 w-5 text-emerald-500" />}
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{noShowRate}%</p>
-                <p className="text-xs text-muted-foreground">No-Show Rate</p>
-              </div>
+        <div className="aurea-card p-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-aurea-surface-2 rounded-lg p-1.5 flex items-center justify-center">
+              {noShowRate > 10
+                ? <TrendingDown className="h-[17px] w-[17px] text-aurea-rose" strokeWidth={1.75} />
+                : <TrendingUp className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />}
             </div>
-          </CardContent>
-        </Card>
+            <div>
+              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{noShowRate}%</p>
+              <p className="aurea-eyebrow">No-Show Rate</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* ── Tabs ── */}
@@ -303,7 +286,7 @@ export default function AppointmentsPage() {
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
               activeTab === tab.key
                 ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted'
+                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-aurea-border'
             }`}
           >
             <tab.icon className="h-4 w-4" />
@@ -414,8 +397,8 @@ function AppointmentCard({
           <div className="flex-1 p-5">
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <User className="h-5 w-5 text-primary" />
+                <div className="h-10 w-10 rounded-full bg-aurea-surface-2 flex items-center justify-center">
+                  <User className="h-5 w-5 text-aurea-ink-3" />
                 </div>
                 <div>
                   <h3 className="font-semibold text-sm">
@@ -439,7 +422,7 @@ function AppointmentCard({
               <div className="flex items-center gap-2">
                 <StatusBadge status={apt.status} />
                 {apt.confirmation_received && (
-                  <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50 text-xs">
+                  <Badge variant="outline" className="bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20 text-xs">
                     ✅ Confirmed
                     {apt.confirmed_via && (
                       <span className="ml-1 opacity-70">
@@ -449,7 +432,7 @@ function AppointmentCard({
                   </Badge>
                 )}
                 {apt.reschedule_requested && (
-                  <Badge variant="outline" className="text-amber-600 border-amber-200 bg-amber-50 text-xs">
+                  <Badge variant="outline" className="bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20 text-xs">
                     📅 Reschedule Requested
                   </Badge>
                 )}
@@ -461,7 +444,7 @@ function AppointmentCard({
             <div className="flex items-center gap-4 text-sm mb-3">
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Calendar className="h-3.5 w-3.5" />
-                <span className={isToday ? 'text-primary font-semibold' : ''}>
+                <span className={isToday ? 'text-aurea-primary font-semibold' : ''}>
                   {formatDate(apt.scheduled_at)}
                 </span>
               </div>
@@ -490,7 +473,7 @@ function AppointmentCard({
               {!apt.confirmation_received && (
                 <Button
                   size="sm"
-                  className="flex-1 lg:flex-none text-xs bg-emerald-600 hover:bg-emerald-700"
+                  className="flex-1 lg:flex-none text-xs bg-aurea-primary hover:bg-aurea-primary/90"
                   onClick={() => onConfirm(apt.id)}
                   disabled={isLoading}
                 >
@@ -511,7 +494,7 @@ function AppointmentCard({
               <Button
                 size="sm"
                 variant="outline"
-                className="flex-1 lg:flex-none text-xs text-amber-600 hover:text-amber-700"
+                className="flex-1 lg:flex-none text-xs text-aurea-amber hover:text-aurea-amber/80"
                 onClick={() => onStatusChange(apt.id, 'rescheduled')}
                 disabled={isLoading}
               >
@@ -521,7 +504,7 @@ function AppointmentCard({
               <Button
                 size="sm"
                 variant="outline"
-                className="flex-1 lg:flex-none text-xs text-red-600 hover:text-red-700"
+                className="flex-1 lg:flex-none text-xs text-aurea-rose hover:text-aurea-rose/80"
                 onClick={() => onStatusChange(apt.id, 'no_show')}
                 disabled={isLoading}
               >
@@ -565,13 +548,13 @@ function ReminderTimeline({
         let dotColor = 'bg-muted text-muted-foreground'
         let label = 'Pending'
         if (confirmed) {
-          dotColor = 'bg-emerald-100 text-emerald-600 ring-2 ring-emerald-500/30'
+          dotColor = 'bg-aurea-primary/10 text-aurea-primary ring-2 ring-aurea-primary/20'
           label = 'Confirmed'
         } else if (sent) {
-          dotColor = 'bg-blue-100 text-blue-600'
+          dotColor = 'bg-aurea-surface-2 text-aurea-ink-2'
           label = 'Sent'
         } else if (failed) {
-          dotColor = 'bg-red-100 text-red-600'
+          dotColor = 'bg-aurea-rose/10 text-aurea-rose'
           label = 'Failed'
         }
 
@@ -584,7 +567,7 @@ function ReminderTimeline({
               <span className="text-[10px] text-muted-foreground whitespace-nowrap">{stage.label}</span>
             </div>
             {i < stages.length - 1 && (
-              <div className={`h-px w-6 mx-1 mt-[-14px] ${sent ? 'bg-blue-300' : 'bg-muted'}`} />
+              <div className={`h-px w-6 mx-1 mt-[-14px] ${sent ? 'bg-aurea-primary/30' : 'bg-muted'}`} />
             )}
           </div>
         )
@@ -665,10 +648,10 @@ function ReminderLogTab({
                         variant="outline"
                         className={`text-xs ${
                           r.confirmation_status === 'confirmed'
-                            ? 'text-emerald-600 border-emerald-200'
+                            ? 'text-aurea-primary border-aurea-primary/20'
                             : r.confirmation_status === 'declined'
-                            ? 'text-red-600 border-red-200'
-                            : 'text-amber-600 border-amber-200'
+                            ? 'text-aurea-rose border-aurea-rose/20'
+                            : 'text-aurea-amber border-aurea-amber/20'
                         }`}
                       >
                         {r.confirmation_status}
@@ -678,7 +661,7 @@ function ReminderLogTab({
                       {r.sent_at ? formatRelative(r.sent_at) : 'Pending'}
                     </span>
                     {r.error_message && (
-                      <span className="text-xs text-red-500 max-w-[200px] truncate" title={r.error_message}>
+                      <span className="text-xs text-aurea-rose max-w-[200px] truncate" title={r.error_message}>
                         ⚠️ {r.error_message}
                       </span>
                     )}
@@ -730,28 +713,28 @@ function NoShowAnalyticsTab({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-5 pb-4 text-center">
-            <p className="text-3xl font-bold text-foreground">{pastApts.length}</p>
-            <p className="text-sm text-muted-foreground mt-1">Total Past Appointments</p>
+            <p className="aurea-display text-[36px] tabular-nums text-aurea-ink">{pastApts.length}</p>
+            <p className="text-[12px] text-aurea-ink-3 mt-1">Total Past Appointments</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-5 pb-4 text-center">
-            <p className="text-3xl font-bold text-emerald-600">{completionRate}%</p>
-            <p className="text-sm text-muted-foreground mt-1">Completion Rate</p>
+            <p className="aurea-display text-[36px] tabular-nums text-aurea-primary">{completionRate}%</p>
+            <p className="text-[12px] text-aurea-ink-3 mt-1">Completion Rate</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-5 pb-4 text-center">
-            <p className={`text-3xl font-bold ${noShowRate > 15 ? 'text-red-600' : noShowRate > 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+            <p className={`aurea-display text-[36px] tabular-nums ${noShowRate > 15 ? 'text-aurea-rose' : noShowRate > 5 ? 'text-aurea-amber' : 'text-aurea-primary'}`}>
               {noShowRate}%
             </p>
-            <p className="text-sm text-muted-foreground mt-1">No-Show Rate</p>
+            <p className="text-[12px] text-aurea-ink-3 mt-1">No-Show Rate</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-5 pb-4 text-center">
-            <p className="text-3xl font-bold text-muted-foreground">{cancelRate}%</p>
-            <p className="text-sm text-muted-foreground mt-1">Cancellation Rate</p>
+            <p className="aurea-display text-[36px] tabular-nums text-aurea-ink-3">{cancelRate}%</p>
+            <p className="text-[12px] text-aurea-ink-3 mt-1">Cancellation Rate</p>
           </CardContent>
         </Card>
       </div>
@@ -767,19 +750,19 @@ function NoShowAnalyticsTab({
               label="📱 SMS Reminders"
               total={smsReminders.length}
               confirmed={smsConfirmed}
-              color="bg-blue-500"
+              color="bg-aurea-ink-2"
             />
             <ChannelEffectivenessBar
               label="📧 Email Reminders"
               total={emailReminders.length}
               confirmed={emailConfirmed}
-              color="bg-purple-500"
+              color="bg-aurea-ink-3"
             />
             <ChannelEffectivenessBar
               label="📞 AI Voice Calls"
               total={voiceReminders.length}
               confirmed={voiceConfirmed}
-              color="bg-emerald-500"
+              color="bg-aurea-primary"
             />
           </div>
         </CardContent>
@@ -851,16 +834,16 @@ function ChannelEffectivenessBar({ label, total, confirmed, color }: { label: st
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    scheduled: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-    confirmed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
-    completed: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-    no_show: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
-    canceled: 'bg-gray-50 text-gray-400 dark:bg-gray-900 dark:text-gray-500',
-    rescheduled: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+    scheduled: 'bg-aurea-surface-2 text-aurea-ink-2',
+    confirmed: 'bg-aurea-primary/10 text-aurea-primary',
+    completed: 'bg-aurea-surface-2 text-aurea-ink-3',
+    no_show: 'bg-aurea-rose/10 text-aurea-rose',
+    canceled: 'bg-aurea-surface-2 text-aurea-ink-3',
+    rescheduled: 'bg-aurea-amber/10 text-aurea-amber',
   }
 
   return (
-    <Badge className={`text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-600'}`}>
+    <Badge className={`text-xs font-medium ${colors[status] || 'bg-aurea-surface-2 text-aurea-ink-3'}`}>
       {status.replace('_', ' ')}
     </Badge>
   )
@@ -869,16 +852,16 @@ function StatusBadge({ status }: { status: string }) {
 function RiskBadge({ score }: { score: number }) {
   if (score <= 0) return null
 
-  let color = 'text-emerald-600 bg-emerald-50'
+  let color = 'bg-aurea-surface-2 text-aurea-ink-3'
   let label = 'Low Risk'
   if (score >= 70) {
-    color = 'text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-400'
+    color = 'bg-aurea-rose/10 text-aurea-rose'
     label = 'High Risk'
   } else if (score >= 40) {
-    color = 'text-amber-600 bg-amber-50 dark:bg-amber-950 dark:text-amber-400'
+    color = 'bg-aurea-amber/10 text-aurea-amber'
     label = 'Med Risk'
   } else if (score > 10) {
-    color = 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400'
+    color = 'bg-aurea-surface-2 text-aurea-ink-3'
     label = 'Low Risk'
   } else {
     return null
@@ -893,15 +876,15 @@ function RiskBadge({ score }: { score: number }) {
 
 function ReminderStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    sent: 'bg-blue-100 text-blue-700',
-    delivered: 'bg-emerald-100 text-emerald-700',
-    failed: 'bg-red-100 text-red-700',
-    skipped: 'bg-gray-100 text-gray-500',
-    pending: 'bg-amber-100 text-amber-700',
+    sent: 'bg-aurea-surface-2 text-aurea-ink-2',
+    delivered: 'bg-aurea-primary/10 text-aurea-primary',
+    failed: 'bg-aurea-rose/10 text-aurea-rose',
+    skipped: 'bg-aurea-surface-2 text-aurea-ink-3',
+    pending: 'bg-aurea-amber/10 text-aurea-amber',
   }
 
   return (
-    <Badge className={`text-xs ${styles[status] || 'bg-gray-100 text-gray-600'}`}>
+    <Badge className={`text-xs ${styles[status] || 'bg-aurea-surface-2 text-aurea-ink-3'}`}>
       {status}
     </Badge>
   )
@@ -910,11 +893,11 @@ function ReminderStatusBadge({ status }: { status: string }) {
 function ChannelIcon({ channel }: { channel: string }) {
   switch (channel) {
     case 'sms':
-      return <MessageSquare className="h-4 w-4 text-blue-500" />
+      return <MessageSquare className="h-4 w-4 text-aurea-ink-3" />
     case 'email':
-      return <Mail className="h-4 w-4 text-purple-500" />
+      return <Mail className="h-4 w-4 text-aurea-ink-2" />
     case 'voice_confirmation':
-      return <PhoneCall className="h-4 w-4 text-emerald-500" />
+      return <PhoneCall className="h-4 w-4 text-aurea-primary" />
     default:
       return <Send className="h-4 w-4 text-muted-foreground" />
   }

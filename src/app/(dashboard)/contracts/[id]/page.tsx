@@ -5,9 +5,7 @@ import { useRouter } from 'next/navigation'
 import { RoleGuard } from '@/components/auth/role-guard'
 import { useOrgStore } from '@/lib/store/use-org'
 import { hasPermission, type PracticeRole } from '@/lib/auth/permissions'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
@@ -129,13 +127,13 @@ function ContractReviewContent({ id }: { id: string }) {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-5 w-5 animate-spin text-slate-500" />
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-aurea-ink-3" />
       </div>
     )
   }
   if (!contract || !data) {
-    return <div className="p-6 text-sm text-slate-500">Not found.</div>
+    return <div className="text-[13px] text-aurea-ink-3">Not found.</div>
   }
 
   const editable = ['draft', 'pending_review', 'changes_requested'].includes(contract.status)
@@ -143,48 +141,75 @@ function ContractReviewContent({ id }: { id: string }) {
     contract.status
   )
 
+  // contract/signature status pill styles
+  const STATUS_STYLES: Record<string, string> = {
+    pending_review: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+    changes_requested: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+    approved: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+    sent: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+    viewed: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+    signed: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+    executed: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+    voided: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+    expired: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+    declined: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+    draft: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  }
+
   return (
-    <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="animate-in fade-in-0 duration-500 grid grid-cols-1 gap-6 lg:grid-cols-3">
       {/* Left: sections */}
-      <div className="lg:col-span-2 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">
-              Contract for {data.case?.patient_name}
-            </h1>
-            <div className="text-xs text-slate-500 mt-1">
-              {data.case?.case_number} • template v{contract.template_version} •{' '}
-              <Badge variant="outline" className="ml-1">{contract.status}</Badge>
-              {contract.needs_manual_draft && (
-                <Badge variant="outline" className="ml-2 text-amber-700 border-amber-300">
-                  <AlertTriangle className="h-3 w-3 mr-1 inline" />
-                  Needs manual draft
-                </Badge>
-              )}
-            </div>
+      <div className="space-y-5 lg:col-span-2">
+        {/* Page header */}
+        <header className="border-b border-aurea-border pb-6">
+          <p className="aurea-eyebrow mb-2">Patient Agreement</p>
+          <h1 className="aurea-display text-[32px] text-aurea-ink">
+            Contract for {data.case?.patient_name}
+          </h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[12px] text-aurea-ink-3">{data.case?.case_number}</span>
+            <span className="text-aurea-ink-3">&middot;</span>
+            <span className="font-mono text-[12px] text-aurea-ink-3">template v{contract.template_version}</span>
+            <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium capitalize ${STATUS_STYLES[contract.status] ?? 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border'}`}>
+              {contract.status.replace(/_/g, ' ')}
+            </span>
+            {contract.needs_manual_draft && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-aurea-amber/20 bg-aurea-amber/10 px-2 py-0.5 text-[11px] font-medium text-aurea-amber">
+                <AlertTriangle className="h-3 w-3" strokeWidth={1.75} />
+                Needs manual draft
+              </span>
+            )}
           </div>
-        </div>
+        </header>
 
         {contract.needs_manual_draft && (
-          <Card className="border-amber-300 bg-amber-50">
-            <CardContent className="pt-4 pb-4 text-sm text-amber-900">
-              The AI assistant was unable to produce a clean draft automatically. Please fill in each
-              narrative section manually, then click Approve & Send.
-            </CardContent>
-          </Card>
+          <div className="rounded-lg border border-aurea-amber/30 bg-aurea-amber/5 p-4 text-[13px] text-aurea-ink-2">
+            The AI assistant was unable to produce a clean draft automatically. Please fill in each
+            narrative section manually, then click Approve &amp; Send.
+          </div>
         )}
 
         {sections.map((s) => (
-          <Card key={s.section_id}>
-            <CardHeader className="flex-row flex items-center justify-between pb-2">
-              <CardTitle className="text-base">{s.title}</CardTitle>
-              {s.ai_generated && <Badge variant="outline" className="text-violet-700 border-violet-300 text-xs">AI draft</Badge>}
-              {s.kind === 'data_table' && <Badge variant="outline" className="text-xs">Data</Badge>}
-            </CardHeader>
-            <CardContent>
+          <section key={s.section_id} className="aurea-card overflow-hidden">
+            <div className="flex items-center justify-between gap-3 border-b border-aurea-border px-5 py-4">
+              <h2 className="aurea-display text-[18px] text-aurea-ink">{s.title}</h2>
+              <div className="flex items-center gap-2">
+                {s.ai_generated && (
+                  <span className="inline-flex items-center rounded-md border border-aurea-primary/20 bg-aurea-primary/10 px-2 py-0.5 text-[10.5px] font-medium text-aurea-primary">
+                    AI draft
+                  </span>
+                )}
+                {s.kind === 'data_table' && (
+                  <span className="inline-flex items-center rounded-md border border-aurea-border bg-aurea-surface-2 px-2 py-0.5 text-[10.5px] font-medium text-aurea-ink-3">
+                    Data
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="px-5 py-4">
               {s.kind === 'data_table' ? (
                 <div
-                  className="prose prose-sm max-w-none text-slate-700"
+                  className="prose prose-sm max-w-none text-aurea-ink-2"
                   dangerouslySetInnerHTML={{ __html: s.rendered_html }}
                 />
               ) : editable && (s.kind === 'ai_narrative' || s.kind === 'boilerplate') ? (
@@ -192,22 +217,22 @@ function ContractReviewContent({ id }: { id: string }) {
                   value={edits[s.section_id] ?? s.rendered_text}
                   onChange={(e) => setEdits((prev) => ({ ...prev, [s.section_id]: e.target.value }))}
                   rows={Math.max(4, Math.min(16, Math.ceil((s.rendered_text || '').length / 80)))}
-                  className="text-sm"
+                  className="text-[13px]"
                 />
               ) : (
-                <div className="whitespace-pre-wrap text-sm text-slate-700">
+                <div className="whitespace-pre-wrap text-[13px] text-aurea-ink-2">
                   {s.rendered_text}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         ))}
 
         {editable && Object.keys(edits).length > 0 && (
-          <div className="sticky bottom-4 bg-white border rounded-lg p-3 flex items-center justify-between shadow-lg">
-            <div className="text-sm text-slate-600">
+          <div className="sticky bottom-4 flex items-center justify-between rounded-lg border border-aurea-border-strong bg-aurea-surface p-3">
+            <p className="text-[13px] text-aurea-ink-2">
               {Object.keys(edits).length} section{Object.keys(edits).length === 1 ? '' : 's'} edited
-            </div>
+            </p>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setEdits({})}>Discard</Button>
               <Button size="sm" onClick={saveEdits} disabled={savingEdits}>
@@ -220,30 +245,48 @@ function ContractReviewContent({ id }: { id: string }) {
 
       {/* Right: metadata + actions */}
       <div className="space-y-4">
-        <Card>
-          <CardHeader><CardTitle className="text-base">Financials</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500">Total</span><span className="font-medium">{formatCurrency(contract.contract_amount)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Deposit</span><span className="font-medium">{formatCurrency(contract.deposit_amount)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Financing</span><span className="font-medium">{contract.financing_type ?? '—'}</span></div>
+        {/* Financials */}
+        <section className="aurea-card overflow-hidden">
+          <div className="border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[18px] text-aurea-ink">Financials</h2>
+          </div>
+          <div className="px-5">
+            <div className="flex items-center justify-between border-b border-aurea-border py-3">
+              <span className="text-[13px] text-aurea-ink-3">Total</span>
+              <span className="font-mono text-[13px] tabular-nums text-aurea-ink">{formatCurrency(contract.contract_amount)}</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-aurea-border py-3">
+              <span className="text-[13px] text-aurea-ink-3">Deposit</span>
+              <span className="font-mono text-[13px] tabular-nums text-aurea-ink">{formatCurrency(contract.deposit_amount)}</span>
+            </div>
+            <div className={`flex items-center justify-between py-3 ${contract.financing_monthly_payment != null ? 'border-b border-aurea-border' : ''}`}>
+              <span className="text-[13px] text-aurea-ink-3">Financing</span>
+              <span className="font-mono text-[13px] text-aurea-ink">{contract.financing_type ?? '—'}</span>
+            </div>
             {contract.financing_monthly_payment != null && (
-              <div className="flex justify-between"><span className="text-slate-500">Monthly</span><span className="font-medium">{formatCurrency(contract.financing_monthly_payment)}</span></div>
+              <div className="flex items-center justify-between py-3">
+                <span className="text-[13px] text-aurea-ink-3">Monthly</span>
+                <span className="font-mono text-[13px] tabular-nums text-aurea-ink">{formatCurrency(contract.financing_monthly_payment)}</span>
+              </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card>
-          <CardHeader><CardTitle className="text-base">Actions</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
+        {/* Actions */}
+        <section className="aurea-card overflow-hidden">
+          <div className="border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[18px] text-aurea-ink">Actions</h2>
+          </div>
+          <div className="space-y-2 px-5 py-4">
             {canApprove && ['pending_review', 'changes_requested'].includes(contract.status) && (
               <Button onClick={approveAndSend} disabled={approving || sending} className="w-full">
-                {approving || sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                {approving || sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" strokeWidth={1.75} />}
                 Approve &amp; Send
               </Button>
             )}
             {canApprove && ['sent', 'viewed'].includes(contract.status) && (
               <Button onClick={approveAndSend} variant="outline" disabled={sending} className="w-full">
-                {sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                {sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" strokeWidth={1.75} />}
                 Resend link
               </Button>
             )}
@@ -254,45 +297,53 @@ function ContractReviewContent({ id }: { id: string }) {
                 className="w-full"
                 disabled={regenerating}
               >
-                {regenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                {regenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" strokeWidth={1.75} />}
                 Regenerate draft
               </Button>
             )}
             {canVoid && !['signed', 'executed', 'voided'].includes(contract.status) && (
-              <Button onClick={voidContract} variant="outline" className="w-full text-red-700 border-red-300">
-                <XCircle className="h-4 w-4 mr-2" /> Void contract
+              <Button onClick={voidContract} variant="outline" className="w-full text-aurea-rose border-aurea-rose/30 hover:bg-aurea-rose/5">
+                <XCircle className="h-4 w-4 mr-2" strokeWidth={1.75} /> Void contract
               </Button>
             )}
             {contract.status === 'executed' && (
-              <div className="text-sm text-emerald-700 flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4" /> Executed
+              <div className="flex items-center gap-2 text-[13px] text-aurea-primary">
+                <CheckCircle2 className="h-4 w-4" strokeWidth={1.75} /> Executed
               </div>
             )}
             {terminal && contract.status !== 'executed' && (
-              <div className="text-sm text-slate-500">No actions available for status <strong>{contract.status}</strong>.</div>
+              <p className="text-[13px] text-aurea-ink-3">
+                No actions available for status <strong className="text-aurea-ink">{contract.status}</strong>.
+              </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card>
-          <CardHeader><CardTitle className="text-base">Timeline</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-xs">
+        {/* Timeline */}
+        <section className="aurea-card overflow-hidden">
+          <div className="border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[18px] text-aurea-ink">Timeline</h2>
+          </div>
+          <div className="px-5">
             {data.events.length === 0 ? (
-              <div className="text-slate-500">No events.</div>
+              <p className="py-6 text-[13px] text-aurea-ink-3">No events.</p>
             ) : (
               data.events.map((e) => (
-                <div key={e.id} className="flex justify-between">
-                  <span className="font-medium">{e.event_type}</span>
-                  <span className="text-slate-500">{new Date(e.created_at).toLocaleString()}</span>
+                <div key={e.id} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">
+                  <span className="text-[12px] font-medium text-aurea-ink">{e.event_type}</span>
+                  <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                    {new Date(e.created_at).toLocaleString()}
+                  </span>
                 </div>
               ))
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
+
         <Separator />
-        <div className="text-xs text-slate-400">
-          AI model: {contract.ai_model ?? '—'} • in {contract.ai_tokens_in ?? 0}tk • out {contract.ai_tokens_out ?? 0}tk
-        </div>
+        <p className="font-mono text-[11px] text-aurea-ink-3">
+          AI model: {contract.ai_model ?? '—'} &middot; in {contract.ai_tokens_in ?? 0}tk &middot; out {contract.ai_tokens_out ?? 0}tk
+        </p>
       </div>
     </div>
   )

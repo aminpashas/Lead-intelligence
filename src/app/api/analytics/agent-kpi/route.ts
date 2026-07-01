@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import {
@@ -31,7 +32,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const orgId = profile.organization_id
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const startParam = request.nextUrl.searchParams.get('start')
   const endParam = request.nextUrl.searchParams.get('end')

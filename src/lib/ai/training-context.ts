@@ -132,3 +132,62 @@ export function buildTrainingSystemPrompt(
 
   return systemPrompt
 }
+
+/**
+ * Assemble the org's active memories + query-relevant knowledge into a
+ * system-prompt block for the LIVE setter/closer agents.
+ *
+ * Previously this org-authored guidance only reached the training playground
+ * and roleplay simulator — the agents messaging real patients never saw it, so
+ * "train your AI" was cosmetic. This closes that gap: the same memories and
+ * knowledge base now govern production conversations. Returns '' when the org
+ * has configured neither (so callers can append unconditionally).
+ *
+ * The `query` (typically the latest inbound patient message) is used only for
+ * server-side full-text ranking of knowledge articles — it is not persisted.
+ * Memories/knowledge are org configuration, not patient PHI.
+ */
+export async function buildLiveAgentKnowledgeBlock(
+  supabase: SupabaseClient,
+  orgId: string,
+  query: string
+): Promise<string> {
+  const [memories, articles] = await Promise.all([
+    getActiveMemories(supabase, orgId),
+    getRelevantKnowledge(supabase, orgId, query || ''),
+  ])
+  if (memories.length === 0 && articles.length === 0) return ''
+  // Reuse the training formatter with an empty base to get just the sections.
+  return buildTrainingSystemPrompt('', memories, articles).trimStart()
+}
+
+/**
+ * Format the agency-wide AI persona (name / tone / systemPromptSuffix, set on
+ * the agency AI-config screen) into a system-prompt block. Pure + testable.
+ * Returns '' when nothing meaningful is configured.
+ */
+export function formatAgencyPersonaBlock(
+  value: { name?: string; tone?: string; systemPromptSuffix?: string } | null | undefined
+): string {
+  if (!value) return ''
+  const parts: string[] = []
+  if (value.systemPromptSuffix && value.systemPromptSuffix.trim()) parts.push(value.systemPromptSuffix.trim())
+  if (value.tone && value.tone.trim()) parts.push(`Maintain a ${value.tone.trim()} tone throughout.`)
+  if (parts.length === 0) return ''
+  return `## Agency Voice & Persona\n${parts.join('\n')}`
+}
+
+/**
+ * Load the agency-wide persona and format it for the LIVE agents. The agency
+ * AI-config screen told operators this "applies to all practices" and "takes
+ * effect on every AI conversation" — but no live agent ever read it. This makes
+ * that claim true. `agency_settings` is a global key-value table.
+ */
+export async function buildAgencyPersonaBlock(supabase: SupabaseClient): Promise<string> {
+  const { data } = await supabase
+    .from('agency_settings')
+    .select('value')
+    .eq('key', 'ai_persona')
+    .maybeSingle<{ value: { name?: string; tone?: string; systemPromptSuffix?: string } | null }>()
+  return formatAgencyPersonaBlock(data?.value)
+}

@@ -23,7 +23,9 @@ import { formatAssessmentForPrompt } from './technique-tracker'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
 import { formatFinancingContextForPrompt } from './financial-coach'
 import { getTreatmentClosing, formatClosingForPrompt } from '@/lib/treatment/treatment-closing'
-import { CLOSER_TOOLS, executeAgentTool } from '@/lib/autopilot/agent-tools'
+import { CLOSER_TOOLS } from '@/lib/autopilot/agent-tools'
+import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
+import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -521,12 +523,15 @@ After composing your response, report which techniques you used and assess the l
 
 ═══ OUTPUT FORMAT ═══
 
+"self_confidence" is YOUR honest 0.0-1.0 estimate of how confident you are that this exact reply is correct, on-policy, compliant, and safe to send to the patient WITHOUT a human reviewing it first. Be calibrated: high only when the message is routine and clearly safe; lower it for anything clinical, legal, financial (pricing/commitments), emotional, ambiguous, or uncertain. This score gates auto-send vs. human escalation — do not inflate it.
+
 Respond with ONLY valid JSON (no markdown, no code blocks):
 {
   "message": "your response to the patient",
   "action_taken": "${skill === 'treatment_reinforcement' ? 'reinforced_treatment' : skill === 'objection_handling' ? 'handled_objection' : skill === 'financing_guidance' ? 'guided_financing' : skill === 'commitment_driving' ? 'drove_commitment' : 'responded'}",
   "should_handoff": false,
   "handoff_reason": null,
+  "self_confidence": 0.9,
   "internal_notes": "brief note about your strategy and what to do next (staff-visible only)",
   "techniques_used": [
     {"technique_id": "closing_trial_close", "confidence": 0.85, "effectiveness": "effective", "context_note": "why you chose this"}
@@ -555,7 +560,16 @@ export async function closerAgentRespond(
   // Phase C: optional protocol override — see setter-agent.ts for
   // rationale. Default returns null → behavior unchanged.
   const protocol = await getActiveProtocol(supabase, context.organization_id, 'closer')
-  const systemPrompt = composeSystemPrompt(baselinePrompt, protocol, 'append')
+  const composedPrompt = composeSystemPrompt(baselinePrompt, protocol, 'append')
+
+  // Inject the org's trained memories + knowledge base into the LIVE closer, so
+  // trained guidance governs real conversations (not just the playground).
+  const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
+  const [knowledgeBlock, personaBlock] = await Promise.all([
+    buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
+    buildAgencyPersonaBlock(supabase),
+  ])
+  const systemPrompt = [composedPrompt, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({
@@ -563,57 +577,30 @@ export async function closerAgentRespond(
     content: scrubPHI(msg.content),
   }))
 
-  const response = await getAnthropic().messages.create({
+  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 2048
+
+  // Multi-round agentic loop: lets the closer chain tool calls (e.g.
+  // check_financing_status → send_financing_link, or check_closing_progress →
+  // schedule_follow_up_consultation) within a single turn. See agent-loop.ts.
+  const loop = await runAgentToolLoop({
+    anthropic: getAnthropic(),
+    supabase,
     model: 'claude-sonnet-4-20250514',
-    max_tokens: context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 2048,
+    maxTokens,
     system: systemPrompt,
     messages: safeHistory,
     tools: CLOSER_TOOLS,
+    toolContext: {
+      organization_id: context.organization_id,
+      lead_id: context.lead.id!,
+      lead: context.lead as Record<string, unknown>,
+      conversation_id: context.conversation_id,
+      channel: context.channel,
+    },
   })
 
-  // Handle tool use — execute financing tools if Claude calls them
-  let finalResponse = response
-  const toolMessages = [...safeHistory]
-
-  if (response.stop_reason === 'tool_use') {
-    toolMessages.push({ role: 'assistant' as const, content: response.content as unknown as string })
-
-    const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = []
-    for (const block of response.content) {
-      if (block.type === 'tool_use') {
-        const result = await executeAgentTool(
-          supabase,
-          block.name,
-          block.input as Record<string, unknown>,
-          {
-            organization_id: context.organization_id,
-            lead_id: context.lead.id!,
-            lead: context.lead as Record<string, unknown>,
-            conversation_id: context.conversation_id,
-            channel: context.channel,
-          }
-        )
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: result.message,
-        })
-      }
-    }
-
-    toolMessages.push({ role: 'user' as const, content: toolResults as unknown as string })
-
-    finalResponse = await getAnthropic().messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 2048,
-      system: systemPrompt,
-      messages: toolMessages,
-      tools: CLOSER_TOOLS,
-    })
-  }
-
-  const text = finalResponse.content.find(b => b.type === 'text')
-  const responseText = text && text.type === 'text' ? text.text : ''
+  const finalResponse = loop.finalResponse
+  const responseText = loop.responseText
 
   // Parse JSON response
   let parsed: {
@@ -621,6 +608,7 @@ export async function closerAgentRespond(
     action_taken: string
     should_handoff: boolean
     handoff_reason: string | null
+    self_confidence?: number
     internal_notes: string | null
     techniques_used?: Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>
     lead_assessment?: {
@@ -669,20 +657,27 @@ export async function closerAgentRespond(
     lead_id: context.lead.id,
     interaction_type: 'closer_agent_response',
     model: 'claude-sonnet-4-20250514',
-    prompt_tokens: finalResponse.usage?.input_tokens || 0,
-    completion_tokens: finalResponse.usage?.output_tokens || 0,
+    prompt_tokens: loop.usage.input_tokens,
+    completion_tokens: loop.usage.output_tokens,
     success: true,
     metadata: {
       agent: 'closer',
       action: parsed.action_taken,
       channel: context.channel,
       should_handoff: parsed.should_handoff,
+      tool_rounds: loop.rounds,
+      tools_called: loop.toolCalls.map((t) => t.name),
+      hit_round_cap: loop.hitRoundCap,
     },
   })
 
   return {
     message: finalMessage,
-    confidence: hasCriticalIssue ? 0.5 : 0.88,
+    confidence: deriveConfidence({
+      selfConfidence: parsed.self_confidence,
+      hasCriticalCompliance: hasCriticalIssue,
+      hitRoundCap: loop.hitRoundCap,
+    }),
     agent: 'closer',
     action_taken: (parsed.action_taken || 'responded') as AgentResponse['action_taken'],
     should_handoff: parsed.should_handoff || false,

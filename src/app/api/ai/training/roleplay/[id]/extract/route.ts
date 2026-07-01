@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { extractTrainingExamples, generateSessionSummary } from '@/lib/ai/roleplay-engine'
 import type { AIRolePlaySession } from '@/types/database'
 
@@ -9,6 +10,8 @@ type RouteParams = { params: Promise<{ id: string }> }
 export async function POST(_request: NextRequest, { params }: RouteParams) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -17,7 +20,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     .from('ai_roleplay_sessions')
     .select('*')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (sessionError || !session) {
@@ -39,7 +42,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         .from('ai_training_examples')
         .insert(
           examples.map((ex) => ({
-            organization_id: profile.organization_id,
+            organization_id: orgId,
             session_id: id,
             category: ex.category,
             scenario_context: ex.scenario_context,

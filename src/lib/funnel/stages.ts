@@ -1115,17 +1115,17 @@ export function getNextStage(currentSlug: string): string | null {
 
 export function getStageUrgencyColor(urgency: FunnelStageStrategy['urgency']): string {
   switch (urgency) {
-    case 'critical': return 'text-red-600 bg-red-50'
-    case 'high': return 'text-orange-600 bg-orange-50'
-    case 'medium': return 'text-blue-600 bg-blue-50'
-    case 'low': return 'text-gray-600 bg-gray-50'
+    case 'critical': return 'text-aurea-rose bg-aurea-rose/10'
+    case 'high': return 'text-aurea-amber bg-aurea-amber/10'
+    case 'medium': return 'text-aurea-ink-2 bg-aurea-surface-2'
+    case 'low': return 'text-aurea-ink-3 bg-aurea-surface-2'
   }
 }
 
 export function getIntensityBadge(intensity: FunnelStageStrategy['engagementIntensity']): { label: string; color: string } {
   switch (intensity) {
-    case 'intensive': return { label: 'Intensive', color: 'bg-red-100 text-red-700' }
-    case 'moderate': return { label: 'Moderate', color: 'bg-yellow-100 text-yellow-700' }
-    case 'light': return { label: 'Light', color: 'bg-green-100 text-green-700' }
+    case 'intensive': return { label: 'Intensive', color: 'bg-aurea-rose/10 text-aurea-rose' }
+    case 'moderate': return { label: 'Moderate', color: 'bg-aurea-amber/10 text-aurea-amber' }
+    case 'light': return { label: 'Light', color: 'bg-aurea-primary/10 text-aurea-primary' }
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { confirmAppointment } from '@/lib/campaigns/reminders'
 
 /**
@@ -113,11 +114,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const result = await confirmAppointment(
     supabase,
     appointment_id,
     method || 'manual',
-    profile.organization_id
+    orgId
   )
 
   if (result.success) {

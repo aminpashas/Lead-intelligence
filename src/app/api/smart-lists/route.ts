@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
 
@@ -37,6 +38,8 @@ const createSmartListSchema = z.object({
 // GET /api/smart-lists — List all Smart Lists
 export async function GET() {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -50,7 +53,7 @@ export async function GET() {
   const { data: smartLists, error } = await supabase
     .from('smart_lists')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('is_pinned', { ascending: false })
     .order('name')
 
@@ -64,6 +67,8 @@ export async function GET() {
 // POST /api/smart-lists — Create a new Smart List
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = createSmartListSchema.safeParse(body)
 
@@ -86,7 +91,7 @@ export async function POST(request: NextRequest) {
   // Resolve count for this criteria
   const { count } = await resolveSmartListLeads(
     supabase,
-    profile.organization_id,
+    orgId,
     parsed.data.criteria,
     { countOnly: true }
   )
@@ -94,7 +99,7 @@ export async function POST(request: NextRequest) {
   const { data: smartList, error } = await supabase
     .from('smart_lists')
     .insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       name: parsed.data.name,
       description: parsed.data.description || null,
       icon: parsed.data.icon || 'list-filter',

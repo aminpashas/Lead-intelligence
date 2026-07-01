@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { ANALYSIS_PROMPTS } from '@/lib/ai/personality-types'
@@ -14,6 +15,8 @@ export async function POST(
 
   const { id: leadId } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -29,7 +32,7 @@ export async function POST(
     .from('leads')
     .select('id, first_name, last_name, organization_id')
     .eq('id', leadId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!lead) {
@@ -41,7 +44,7 @@ export async function POST(
     .from('messages')
     .select('body, direction, channel, created_at, sender_type')
     .eq('lead_id', leadId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: true })
     .limit(200)
 
@@ -166,7 +169,7 @@ export async function POST(
       .from('leads')
       .update({ personality_profile: personalityProfile as unknown as Record<string, unknown> })
       .eq('id', leadId)
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
 
     if (updateError) {
       return NextResponse.json({ error: 'Failed to save profile', detail: updateError.message }, { status: 500 })
@@ -174,7 +177,7 @@ export async function POST(
 
     // Log activity
     await supabase.from('lead_activities').insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       lead_id: leadId,
       user_id: profile.id,
       activity_type: 'personality_analyzed',
@@ -196,6 +199,8 @@ export async function GET(
 ) {
   const { id: leadId } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -210,7 +215,7 @@ export async function GET(
     .from('leads')
     .select('personality_profile')
     .eq('id', leadId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!lead) {

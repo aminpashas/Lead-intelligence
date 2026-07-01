@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { recordTreatmentOutcome, type TreatmentOutcomeValue } from '@/lib/treatment/outcomes'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
 
@@ -19,7 +20,10 @@ async function authCtx() {
     .eq('id', user.id)
     .single()
   if (!profile) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
-  return { supabase, user, organizationId: profile.organization_id as string }
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+  return { supabase, user, organizationId: orgId }
 }
 
 // GET /api/treatment-outcomes?lead_id=... — outcomes for a lead (RLS-scoped to org).

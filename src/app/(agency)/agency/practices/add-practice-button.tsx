@@ -76,7 +76,7 @@ export function AddPracticeButton() {
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label htmlFor="practice-name">
-              Practice name <span className="text-red-500">*</span>
+              Practice name <span className="text-aurea-rose">*</span>
             </Label>
             <Input
               id="practice-name"

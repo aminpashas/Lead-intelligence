@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { sendEmail } from '@/lib/messaging/resend'
 import { z } from 'zod'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
@@ -25,6 +26,8 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = massEmailSchema.safeParse(body)
 
@@ -47,13 +50,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const entError = await assertActiveSubscription(supabase, profile.organization_id)
+  const entError = await assertActiveSubscription(supabase, orgId)
   if (entError) return entError
 
   // Idempotency: a retried POST carrying the same Idempotency-Key must not re-send.
   const idempotencyKey = request.headers.get('Idempotency-Key') || request.headers.get('idempotency-key')
   if (idempotencyKey) {
-    const claim = await claimIdempotencyKey(supabase, profile.organization_id, idempotencyKey, 'email.mass')
+    const claim = await claimIdempotencyKey(supabase, orgId, idempotencyKey, 'email.mass')
     if (!claim.claimed) {
       return NextResponse.json(
         claim.response ?? { error: 'Duplicate request — this Idempotency-Key was already processed', duplicate: true },
@@ -69,7 +72,7 @@ export async function POST(request: NextRequest) {
       .from('smart_lists')
       .select('criteria')
       .eq('id', smart_list_id)
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .single()
 
     if (!smartList) {
@@ -78,7 +81,7 @@ export async function POST(request: NextRequest) {
 
     const { leadIds } = await resolveSmartListLeads(
       supabase,
-      profile.organization_id,
+      orgId,
       smartList.criteria,
       { limit: 2000 }
     )
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest) {
     .from('leads')
     .select(PERSONALIZABLE_LEAD_SELECT)
     .in('id', targetLeadIds.slice(0, 2000))
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   const leads = (leadsRaw || []) as unknown as PersonalizableLead[]
 
@@ -114,7 +117,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Per-org daily email cap. Trim observably (reported in the response).
-  const sentToday = await countTodaysOutbound(supabase, profile.organization_id, 'email')
+  const sentToday = await countTodaysOutbound(supabase, orgId, 'email')
   const remainingToday = Math.max(0, DAILY_EMAIL_CAP - sentToday)
   if (remainingToday === 0) {
     return NextResponse.json(
@@ -128,7 +131,7 @@ export async function POST(request: NextRequest) {
   const { data: campaign } = await supabase
     .from('campaigns')
     .insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       created_by: profile.id,
       name: broadcast_name || `Mass Email — ${new Date().toLocaleDateString()}`,
       type: 'broadcast',
@@ -191,7 +194,7 @@ export async function POST(request: NextRequest) {
         const { data: newConvo } = await supabase
           .from('conversations')
           .insert({
-            organization_id: profile.organization_id,
+            organization_id: orgId,
             lead_id: lead.id,
             channel: 'email',
             status: 'active',
@@ -221,7 +224,7 @@ export async function POST(request: NextRequest) {
       )
 
       await supabase.from('messages').insert({
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         conversation_id: conversationId,
         lead_id: lead.id,
         direction: 'outbound',
@@ -276,7 +279,7 @@ export async function POST(request: NextRequest) {
 
   // Persist the response so a duplicate retry returns it instead of re-sending.
   if (idempotencyKey) {
-    await recordIdempotencyResponse(supabase, profile.organization_id, idempotencyKey, results)
+    await recordIdempotencyResponse(supabase, orgId, idempotencyKey, results)
   }
 
   return NextResponse.json(results)

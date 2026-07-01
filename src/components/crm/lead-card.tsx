@@ -1,17 +1,17 @@
 'use client'
 
 import { formatDistanceToNow } from 'date-fns'
-import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Phone, Mail, Brain } from 'lucide-react'
 import type { Lead } from '@/types/database'
 
+// Lead qualification chips — hot=rose, warm=amber, cold=neutral ink
 const qualificationColors: Record<string, string> = {
-  hot: 'bg-red-500/10 text-red-700 border-red-200',
-  warm: 'bg-orange-500/10 text-orange-700 border-orange-200',
-  cold: 'bg-blue-500/10 text-blue-700 border-blue-200',
-  unqualified: 'bg-gray-500/10 text-gray-700 border-gray-200',
-  unscored: 'bg-gray-500/10 text-gray-500 border-gray-200',
+  hot: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  warm: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  cold: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
+  unqualified: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  unscored: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
 export function LeadCard({
@@ -25,54 +25,54 @@ export function LeadCard({
 
   return (
     <div
-      className="rounded-lg border bg-card p-3 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
+      className="aurea-card cursor-pointer p-3 transition-colors hover:bg-aurea-surface-2"
       onClick={onClick}
     >
       <div className="flex items-start gap-3">
         <Avatar className="h-9 w-9 shrink-0">
           <AvatarFallback className="text-xs">{initials}</AvatarFallback>
         </Avatar>
-        <div className="flex-1 min-w-0">
-          <p className="font-medium text-sm truncate">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-medium text-aurea-ink">
             {lead.first_name} {lead.last_name}
           </p>
-          <div className="flex items-center gap-2 mt-0.5">
-            {lead.phone && <Phone className="h-3 w-3 text-muted-foreground" />}
-            {lead.email && <Mail className="h-3 w-3 text-muted-foreground" />}
-            <span className="text-xs text-muted-foreground truncate">
+          <div className="mt-0.5 flex items-center gap-2">
+            {lead.phone && <Phone className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />}
+            {lead.email && <Mail className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />}
+            <span className="truncate text-[11px] text-aurea-ink-3">
               {lead.city ? `${lead.city}, ${lead.state}` : lead.source_type?.replace(/_/g, ' ')}
             </span>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-2 mt-2.5">
+      <div className="mt-2.5 flex items-center gap-2">
         {lead.ai_qualification !== 'unscored' && (
-          <Badge variant="outline" className={qualificationColors[lead.ai_qualification]}>
-            <Brain className="h-3 w-3 mr-1" />
-            {lead.ai_score}
-          </Badge>
+          <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${qualificationColors[lead.ai_qualification]}`}>
+            <Brain className="h-3 w-3" strokeWidth={1.75} />
+            <span className="font-mono tabular-nums">{lead.ai_score}</span>
+          </span>
         )}
 
         {lead.dental_condition && (
-          <Badge variant="secondary" className="text-xs truncate max-w-[120px]">
+          <span className="max-w-[120px] truncate rounded-md bg-aurea-surface-2 px-2 py-0.5 text-[11px] text-aurea-ink-2 ring-1 ring-aurea-border">
             {lead.dental_condition.replace(/_/g, ' ')}
-          </Badge>
+          </span>
         )}
       </div>
 
       {lead.ai_summary && (
-        <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
+        <p className="mt-2 line-clamp-2 text-[11.5px] text-aurea-ink-3">
           {lead.ai_summary}
         </p>
       )}
 
-      <div className="flex items-center justify-between mt-2 pt-2 border-t">
-        <span className="text-xs text-muted-foreground">
+      <div className="mt-2 flex items-center justify-between border-t border-aurea-border pt-2">
+        <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
           {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
         </span>
         {lead.treatment_value && (
-          <span className="text-xs font-medium text-green-600">
+          <span className="font-mono text-[12px] font-medium tabular-nums text-aurea-primary">
             ${lead.treatment_value.toLocaleString()}
           </span>
         )}

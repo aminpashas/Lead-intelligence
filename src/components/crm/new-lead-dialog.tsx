@@ -109,14 +109,14 @@ export function NewLeadDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger>
-        <span className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer">
-          <Plus className="h-4 w-4" />
+        <span className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 cursor-pointer">
+          <Plus className="h-4 w-4" strokeWidth={1.75} />
           Add Lead
         </span>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add New Lead</DialogTitle>
+          <DialogTitle className="aurea-display text-[22px] text-aurea-ink">Add New Lead</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit}>
@@ -129,7 +129,7 @@ export function NewLeadDialog() {
             </TabsList>
 
             {/* Contact Info */}
-            <TabsContent value="contact" className="space-y-4 mt-4">
+            <TabsContent value="contact" className="mt-4 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="first_name">First Name *</Label>
@@ -210,7 +210,7 @@ export function NewLeadDialog() {
             </TabsContent>
 
             {/* Dental Info */}
-            <TabsContent value="dental" className="space-y-4 mt-4">
+            <TabsContent value="dental" className="mt-4 space-y-4">
               <div className="space-y-2">
                 <Label>Dental Condition</Label>
                 <Select
@@ -262,7 +262,7 @@ export function NewLeadDialog() {
             </TabsContent>
 
             {/* Financial */}
-            <TabsContent value="financial" className="space-y-4 mt-4">
+            <TabsContent value="financial" className="mt-4 space-y-4">
               <div className="flex items-center justify-between">
                 <Label>Has Dental Insurance</Label>
                 <Switch
@@ -322,7 +322,7 @@ export function NewLeadDialog() {
             </TabsContent>
 
             {/* Source */}
-            <TabsContent value="source" className="space-y-4 mt-4">
+            <TabsContent value="source" className="mt-4 space-y-4">
               <div className="space-y-2">
                 <Label>Lead Source</Label>
                 <Select
@@ -368,12 +368,12 @@ export function NewLeadDialog() {
             </TabsContent>
           </Tabs>
 
-          <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+          <div className="mt-6 flex justify-end gap-3 border-t border-aurea-border pt-4">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={loading || !form.first_name}>
-              {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" strokeWidth={1.75} />}
               Create Lead
             </Button>
           </div>

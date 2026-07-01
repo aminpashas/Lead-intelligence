@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -43,12 +43,13 @@ const CATEGORY_LABELS: Record<TagCategory, string> = {
   custom: 'Custom',
 }
 
+// Aurea-aligned category chips: neutral/emerald-tinted, no blue/purple
 const CATEGORY_COLORS: Record<TagCategory, string> = {
-  pipeline_stage: 'bg-blue-100 text-blue-700',
-  score: 'bg-amber-100 text-amber-700',
-  interest: 'bg-green-100 text-green-700',
-  behavior: 'bg-purple-100 text-purple-700',
-  custom: 'bg-gray-100 text-gray-700',
+  pipeline_stage: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  score: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  interest: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
+  behavior: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
+  custom: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
 const PRESET_COLORS = [
@@ -69,7 +70,7 @@ export function TagManager() {
 
   // Form state
   const [formName, setFormName] = useState('')
-  const [formColor, setFormColor] = useState('#6366F1')
+  const [formColor, setFormColor] = useState('#10B981')
   const [formCategory, setFormCategory] = useState<TagCategory>('custom')
   const [formDescription, setFormDescription] = useState('')
 
@@ -90,7 +91,7 @@ export function TagManager() {
   function openCreateDialog() {
     setEditingTag(null)
     setFormName('')
-    setFormColor('#6366F1')
+    setFormColor('#10B981')
     setFormCategory('custom')
     setFormDescription('')
     setDialogOpen(true)
@@ -177,26 +178,33 @@ export function TagManager() {
   ).sort(([a], [b]) => a.localeCompare(b))
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in-0 duration-500">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between border-b border-aurea-border pb-6">
         <div>
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <Tags className="h-5 w-5" /> Tag Manager
+          <p className="aurea-eyebrow mb-2">Label Management</p>
+          <h2 className="aurea-display text-[28px] text-aurea-ink flex items-center gap-2">
+            <Tags className="h-[18px] w-[18px] text-aurea-ink-3" strokeWidth={1.75} />
+            Tag Manager
           </h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-[13px] text-aurea-ink-2 mt-1">
             Organize leads with tags for filtering, Smart Lists, and campaign targeting
           </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger>
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer" onClick={openCreateDialog}>
-              <Plus className="h-4 w-4" /> New Tag
+            <span
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer"
+              onClick={openCreateDialog}
+            >
+              <Plus className="h-4 w-4" strokeWidth={1.75} /> New Tag
             </span>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>{editingTag ? 'Edit Tag' : 'Create Tag'}</DialogTitle>
+              <DialogTitle className="aurea-display text-[20px] text-aurea-ink">
+                {editingTag ? 'Edit Tag' : 'Create Tag'}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 mt-2">
               <div className="space-y-2">
@@ -231,7 +239,7 @@ export function TagManager() {
                       onClick={() => setFormColor(color)}
                       className={cn(
                         'h-7 w-7 rounded-full transition-all',
-                        formColor === color && 'ring-2 ring-offset-2 ring-primary scale-110'
+                        formColor === color && 'ring-2 ring-offset-2 ring-aurea-primary scale-110'
                       )}
                       style={{ backgroundColor: color }}
                     />
@@ -249,15 +257,15 @@ export function TagManager() {
               </div>
 
               {/* Preview */}
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
-                <span className="text-xs text-muted-foreground">Preview:</span>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-background">
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-aurea-surface-2 border border-aurea-border">
+                <span className="text-[11px] text-aurea-ink-3">Preview:</span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-aurea-border text-xs font-medium bg-aurea-surface text-aurea-ink-2">
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: formColor }} />
                   {formName || 'Tag Name'}
                 </span>
               </div>
 
-              <div className="flex gap-2 justify-end pt-2 border-t">
+              <div className="flex gap-2 justify-end pt-2 border-t border-aurea-border">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
                 <Button onClick={handleSave} disabled={saving} className="gap-1.5">
                   {saving && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -272,7 +280,7 @@ export function TagManager() {
       {/* Filters */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-aurea-ink-3" strokeWidth={1.75} />
           <Input
             placeholder="Search tags..."
             value={search}
@@ -296,18 +304,18 @@ export function TagManager() {
       {/* Tags table */}
       {loading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <Loader2 className="h-6 w-6 animate-spin text-aurea-ink-3" />
         </div>
       ) : tags.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center py-16">
-            <Tags className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="font-medium">No tags yet</p>
-            <p className="text-sm text-muted-foreground">
+        <div className="aurea-card">
+          <div className="flex flex-col items-center py-16">
+            <Tags className="h-10 w-10 text-aurea-ink-3 mb-3" strokeWidth={1.75} />
+            <p className="font-medium text-aurea-ink">No tags yet</p>
+            <p className="text-[13px] text-aurea-ink-3 mt-1">
               Create tags to organize your leads for campaigns and Smart Lists
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : (
         <Card>
           <CardContent className="p-0">
@@ -325,27 +333,27 @@ export function TagManager() {
                 {filtered.map((tag) => (
                   <TableRow key={tag.id}>
                     <TableCell>
-                      <span className="inline-flex items-center gap-2 font-medium">
+                      <span className="inline-flex items-center gap-2 font-medium text-aurea-ink">
                         <span
-                          className="h-3 w-3 rounded-full ring-1 ring-black/10"
+                          className="h-3 w-3 rounded-full ring-1 ring-black/10 shrink-0"
                           style={{ backgroundColor: tag.color }}
                         />
                         {tag.name}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge className={cn('text-xs', CATEGORY_COLORS[tag.category])}>
+                      <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium', CATEGORY_COLORS[tag.category])}>
                         {CATEGORY_LABELS[tag.category]}
-                      </Badge>
+                      </span>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm text-muted-foreground">
+                      <span className="text-[13px] text-aurea-ink-3">
                         {tag.description || '—'}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <span className="inline-flex items-center gap-1 text-sm">
-                        <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="inline-flex items-center gap-1 font-mono text-[12px] tabular-nums text-aurea-ink-2">
+                        <Users className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />
                         {tag.lead_count}
                       </span>
                     </TableCell>
@@ -354,22 +362,22 @@ export function TagManager() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className="h-8 w-8 text-aurea-ink-3 hover:text-aurea-ink"
                           onClick={() => openEditDialog(tag)}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 hover:text-destructive"
+                          className="h-8 w-8 text-aurea-ink-3 hover:text-aurea-rose"
                           onClick={() => handleDelete(tag.id)}
                           disabled={deleting === tag.id}
                         >
                           {deleting === tag.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                           )}
                         </Button>
                       </div>
@@ -391,13 +399,11 @@ export function TagManager() {
               .filter((t) => t.category === key)
               .reduce((sum, t) => sum + t.lead_count, 0)
             return (
-              <Card key={key}>
-                <CardContent className="pt-4 text-center">
-                  <p className="text-lg font-bold">{count}</p>
-                  <p className="text-xs text-muted-foreground">{label} tags</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{leadsCount} leads</p>
-                </CardContent>
-              </Card>
+              <div key={key} className="aurea-card p-4 text-center">
+                <p className="aurea-display text-[24px] tabular-nums text-aurea-ink">{count}</p>
+                <p className="text-[11px] text-aurea-ink-3 mt-0.5">{label} tags</p>
+                <p className="font-mono text-[11px] tabular-nums text-aurea-ink-3 mt-0.5">{leadsCount} leads</p>
+              </div>
             )
           })}
         </div>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const saveConversationSchema = z.object({
@@ -17,13 +18,15 @@ const saveConversationSchema = z.object({
 
 export async function GET() {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data, error } = await supabase
     .from('ai_test_conversations')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -34,6 +37,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase.from('user_profiles').select('id, organization_id').single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -46,7 +51,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase
     .from('ai_test_conversations')
     .insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       created_by: profile.id,
       ...parsed.data,
     })

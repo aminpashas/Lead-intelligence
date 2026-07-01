@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { bulkImportRequestSchema, bulkImportLeadSchema } from '@/lib/validators/lead'
 import { encryptLeadPII } from '@/lib/encryption'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
@@ -55,8 +56,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Effective org honors an agency_admin's entered client account. All bulk
+  // inserts + the service-client writes below are scoped to this value.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { rows, consent, defaults, post_actions, dedupe } = parsed.data
-  const orgId = profile.organization_id
 
   // Resolve default pipeline stage once
   const { data: defaultStage } = await supabase

@@ -2,20 +2,27 @@ import { createClient } from '@/lib/supabase/server'
 import {
   Building2,
   Users,
-  Zap,
-  TrendingUp,
   Brain,
-  CheckCircle2,
-  AlertCircle,
+  MessagesSquare,
+  Plug,
+  GraduationCap,
   ArrowRight,
+  ArrowUpRight,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 
 export const metadata = {
   title: 'Agency Home | Lead Intelligence',
+}
+
+function initialsOf(name: string) {
+  return name
+    .split(' ')
+    .map((w) => w[0])
+    .filter(Boolean)
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
 }
 
 export default async function AgencyHomePage() {
@@ -58,232 +65,224 @@ export default async function AgencyHomePage() {
 
   const practiceCount = organizations?.length ?? 0
   const activeCount = organizations?.filter((o) => o.subscription_status === 'active').length ?? 0
+  const personaName = aiPersona?.name ?? 'Aria'
 
-  const kpis = [
+  const kpis: {
+    index: string
+    label: string
+    value: string
+    sub: string
+    progress?: number
+    icon: typeof Building2
+  }[] = [
     {
+      index: '01',
       label: 'Active Practices',
-      value: activeCount,
-      total: practiceCount,
+      value: activeCount.toLocaleString(),
+      sub: `of ${practiceCount} total`,
+      progress: practiceCount > 0 ? activeCount / practiceCount : 0,
       icon: Building2,
-      color: 'text-violet-400',
-      bg: 'bg-violet-500/10',
     },
     {
+      index: '02',
       label: 'Total Leads',
-      value: totalLeads ?? 0,
+      value: (totalLeads ?? 0).toLocaleString(),
+      sub: 'across all practices',
       icon: Users,
-      color: 'text-blue-400',
-      bg: 'bg-blue-500/10',
     },
     {
+      index: '03',
       label: 'Conversations',
-      value: totalConversations ?? 0,
-      icon: TrendingUp,
-      color: 'text-emerald-400',
-      bg: 'bg-emerald-500/10',
+      value: (totalConversations ?? 0).toLocaleString(),
+      sub: 'AI-assisted threads',
+      icon: MessagesSquare,
     },
     {
+      index: '04',
       label: 'AI Agent',
-      value: aiPersona?.name ?? 'Aria',
+      value: personaName,
+      sub: 'Active persona',
       icon: Brain,
-      color: 'text-amber-400',
-      bg: 'bg-amber-500/10',
-      isText: true,
     },
   ]
 
-  return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <Zap className="h-5 w-5 text-violet-400" />
-          <h1 className="text-2xl font-bold text-white">Agency Control Panel</h1>
-        </div>
-        <p className="text-slate-400 text-sm">
-          Manage all practices, AI configuration, and platform-wide settings.
-        </p>
-      </div>
+  const platformStatus = [
+    { label: 'AI Model', value: aiModel?.model ?? 'claude-3-5-sonnet-20241022', ok: true },
+    { label: 'Agent Persona', value: personaName, ok: true },
+    { label: 'Anthropic API', value: process.env.ANTHROPIC_API_KEY ? 'Connected' : 'Not configured', ok: !!process.env.ANTHROPIC_API_KEY },
+    { label: 'Twilio SMS', value: process.env.TWILIO_ACCOUNT_SID ? 'Connected' : 'Not configured', ok: !!process.env.TWILIO_ACCOUNT_SID },
+    { label: 'Resend Email', value: process.env.RESEND_API_KEY ? 'Connected' : 'Not configured', ok: !!process.env.RESEND_API_KEY },
+  ]
+  const attention = platformStatus.filter((s) => !s.ok).length
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+  const quickActions: { label: string; desc: string; href: string; icon: typeof Building2 }[] = [
+    { label: 'Manage Practices', desc: 'Onboard & configure', href: '/agency/practices', icon: Building2 },
+    { label: 'AI Configuration', desc: 'Model & persona', href: '/agency/ai-config', icon: Brain },
+    { label: 'Integrations', desc: 'Channels & keys', href: '/agency/integrations', icon: Plug },
+    { label: 'AI Training', desc: 'Tune responses', href: '/agency/ai-training', icon: GraduationCap },
+  ]
+
+  return (
+    <div className="animate-in fade-in-0 duration-500">
+      {/* ── Header ─────────────────────────────────────────── */}
+      <header className="flex flex-col gap-5 border-b border-aurea-border pb-8 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="aurea-eyebrow mb-3">Platform Overview</p>
+          <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px]">
+            Agency Control Panel
+          </h1>
+          <p className="mt-4 max-w-2xl text-[16px] leading-relaxed text-aurea-ink-2">
+            Manage every practice, your AI configuration, and platform-wide settings — one quiet
+            command center for the whole network.
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <span className={`h-1.5 w-1.5 rounded-full ${attention === 0 ? 'bg-aurea-primary' : 'bg-aurea-amber'}`} />
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-aurea-ink-3">
+            {attention === 0 ? 'All systems operational' : `${attention} need attention`}
+          </span>
+        </div>
+      </header>
+
+      {/* ── KPI grid ───────────────────────────────────────── */}
+      <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((kpi) => (
-          <Card
-            key={kpi.label}
-            className="bg-slate-900 border-slate-800 hover:border-slate-700 transition-colors"
-          >
-            <CardContent className="pt-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-slate-500 font-medium mb-1">{kpi.label}</p>
-                  <p className={`text-2xl font-bold ${kpi.color}`}>
-                    {kpi.isText
-                      ? kpi.value
-                      : typeof kpi.value === 'number'
-                        ? kpi.value.toLocaleString()
-                        : kpi.value}
-                  </p>
-                  {kpi.total !== undefined && (
-                    <p className="text-xs text-slate-500 mt-0.5">{kpi.total} total</p>
-                  )}
+          <div key={kpi.label} className="aurea-card p-5">
+            <div className="flex items-center justify-between">
+              <p className="aurea-eyebrow">{kpi.label}</p>
+              <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">/{kpi.index}</span>
+            </div>
+            <div className="mt-4 flex items-end justify-between">
+              <p className="aurea-display text-[40px] tabular-nums text-aurea-ink">{kpi.value}</p>
+              <kpi.icon className="mb-1.5 h-[18px] w-[18px] text-aurea-ink-3" strokeWidth={1.75} />
+            </div>
+            {kpi.progress !== undefined ? (
+              <div className="mt-4">
+                <div className="h-[3px] w-full overflow-hidden rounded-full bg-aurea-surface-2">
+                  <div
+                    className="h-full rounded-full bg-aurea-primary"
+                    style={{ width: `${Math.round(kpi.progress * 100)}%` }}
+                  />
                 </div>
-                <div className={`h-9 w-9 rounded-xl ${kpi.bg} flex items-center justify-center`}>
-                  <kpi.icon className={`h-4 w-4 ${kpi.color}`} />
-                </div>
+                <p className="mt-2 text-[11.5px] text-aurea-ink-3">{kpi.sub}</p>
               </div>
-            </CardContent>
-          </Card>
+            ) : (
+              <p className="mt-3 text-[11.5px] text-aurea-ink-3">{kpi.sub}</p>
+            )}
+          </div>
         ))}
       </div>
 
-      {/* Two-column layout: Practices + AI Config */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ── Practices + AI Platform ────────────────────────── */}
+      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Practices */}
-        <Card className="bg-slate-900 border-slate-800">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <section className="aurea-card overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b border-aurea-border px-5 py-4">
             <div>
-              <CardTitle className="text-white text-base">Practices</CardTitle>
-              <CardDescription className="text-slate-500 text-xs">
-                All customer practices on the platform
-              </CardDescription>
+              <h2 className="aurea-display text-[22px] text-aurea-ink">Practices</h2>
+              <p className="mt-0.5 text-[12px] text-aurea-ink-3">All customer practices on the platform</p>
             </div>
-            <Link href="/agency/practices">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
-              >
-                View All <ArrowRight className="ml-1 h-3 w-3" />
-              </Button>
+            <Link
+              href="/agency/practices"
+              className="group inline-flex items-center gap-1.5 text-[12px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink"
+            >
+              View all
+              <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
-          </CardHeader>
-          <CardContent className="space-y-2">
+          </div>
+          <div className="px-5">
             {organizations && organizations.length > 0 ? (
-              organizations.slice(0, 5).map((org) => (
-                <div
-                  key={org.id}
-                  className="flex items-center justify-between py-2 border-b border-slate-800 last:border-0"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="h-7 w-7 rounded-lg bg-slate-800 flex items-center justify-center">
-                      <Building2 className="h-3.5 w-3.5 text-slate-400" />
+              organizations.slice(0, 5).map((org) => {
+                const active = org.subscription_status === 'active'
+                return (
+                  <div
+                    key={org.id}
+                    className="flex items-center justify-between gap-3 border-b border-aurea-border py-3.5 last:border-0"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 text-[11px] font-semibold text-aurea-ink-2 ring-1 ring-aurea-border">
+                        {initialsOf(org.name)}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-medium text-aurea-ink">{org.name}</p>
+                        <p className="truncate font-mono text-[11px] text-aurea-ink-3">{org.slug}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-200">{org.name}</p>
-                      <p className="text-xs text-slate-500">{org.slug}</p>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className="hidden font-mono text-[10px] uppercase tracking-wide text-aurea-ink-3 sm:inline">
+                        {org.subscription_tier}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium capitalize">
+                        <span className={`h-1.5 w-1.5 rounded-full ${active ? 'bg-aurea-primary' : 'bg-aurea-amber'}`} />
+                        <span className={active ? 'text-aurea-primary' : 'text-aurea-amber'}>
+                          {org.subscription_status}
+                        </span>
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      className="capitalize text-[10px] h-4 px-1.5"
-                      variant={org.subscription_status === 'active' ? 'default' : 'secondary'}
-                    >
-                      {org.subscription_tier}
-                    </Badge>
-                    {org.subscription_status === 'active' ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    ) : (
-                      <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
-                    )}
-                  </div>
-                </div>
-              ))
+                )
+              })
             ) : (
-              <p className="text-sm text-slate-500 py-4 text-center">
+              <p className="py-10 text-center text-[13px] text-aurea-ink-3">
                 No practices yet. Add your first practice.
               </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        {/* AI Platform Status */}
-        <Card className="bg-slate-900 border-slate-800">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
+        {/* AI Platform */}
+        <section className="aurea-card overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b border-aurea-border px-5 py-4">
             <div>
-              <CardTitle className="text-white text-base">AI Platform</CardTitle>
-              <CardDescription className="text-slate-500 text-xs">
-                Current configuration across all practices
-              </CardDescription>
+              <h2 className="aurea-display text-[22px] text-aurea-ink">AI Platform</h2>
+              <p className="mt-0.5 text-[12px] text-aurea-ink-3">Current configuration across all practices</p>
             </div>
-            <Link href="/agency/ai-config">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
-              >
-                Configure <ArrowRight className="ml-1 h-3 w-3" />
-              </Button>
+            <Link
+              href="/agency/ai-config"
+              className="group inline-flex items-center gap-1.5 text-[12px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink"
+            >
+              Configure
+              <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              {
-                label: 'AI Model',
-                value: aiModel?.model ?? 'claude-3-5-sonnet-20241022',
-                status: 'active',
-              },
-              {
-                label: 'Agent Persona',
-                value: aiPersona?.name ?? 'Aria',
-                status: 'active',
-              },
-              {
-                label: 'Anthropic API',
-                value: process.env.ANTHROPIC_API_KEY ? 'Connected' : 'Not configured',
-                status: process.env.ANTHROPIC_API_KEY ? 'active' : 'error',
-              },
-              {
-                label: 'Twilio SMS',
-                value: process.env.TWILIO_ACCOUNT_SID ? 'Connected' : 'Not configured',
-                status: process.env.TWILIO_ACCOUNT_SID ? 'active' : 'error',
-              },
-              {
-                label: 'Resend Email',
-                value: process.env.RESEND_API_KEY ? 'Connected' : 'Not configured',
-                status: process.env.RESEND_API_KEY ? 'active' : 'error',
-              },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between py-1">
-                <span className="text-sm text-slate-400">{item.label}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-300">{item.value}</span>
-                  {item.status === 'active' ? (
-                    <div className="h-2 w-2 rounded-full bg-emerald-400" />
-                  ) : (
-                    <div className="h-2 w-2 rounded-full bg-red-400" />
-                  )}
+          </div>
+          <div className="px-5">
+            {platformStatus.map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center justify-between gap-3 border-b border-aurea-border py-3.5 last:border-0"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${item.ok ? 'bg-aurea-primary' : 'bg-aurea-rose'}`} />
+                  <span className="text-[13px] text-aurea-ink-2">{item.label}</span>
                 </div>
+                <span className="font-mono text-[12px] text-aurea-ink">{item.value}</span>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </div>
 
-      {/* Quick Actions */}
-      <div>
-        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
-          Quick Actions
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { label: 'Manage Practices', href: '/agency/practices', icon: Building2 },
-            { label: 'AI Configuration', href: '/agency/ai-config', icon: Brain },
-            { label: 'Integrations', href: '/agency/integrations', icon: Zap },
-            { label: 'AI Training', href: '/agency/ai-training', icon: TrendingUp },
-          ].map((action) => (
-            <Link key={action.label} href={action.href}>
-              <div className="group flex items-center gap-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-violet-500/30 hover:bg-slate-800/60 p-4 cursor-pointer transition-all duration-200">
-                <div className="h-8 w-8 rounded-lg bg-violet-500/10 flex items-center justify-center group-hover:bg-violet-500/20 transition-colors">
-                  <action.icon className="h-4 w-4 text-violet-400" />
-                </div>
-                <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">
-                  {action.label}
-                </span>
+      {/* ── Quick actions ──────────────────────────────────── */}
+      <section className="mt-10">
+        <p className="aurea-eyebrow mb-3">Quick Actions</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {quickActions.map((action) => (
+            <Link
+              key={action.label}
+              href={action.href}
+              className="aurea-card group flex items-center gap-3.5 p-4 transition-colors hover:bg-aurea-surface-2"
+            >
+              <action.icon className="h-[18px] w-[18px] shrink-0 text-aurea-ink-2" strokeWidth={1.75} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13.5px] font-medium text-aurea-ink">{action.label}</p>
+                <p className="truncate text-[11px] text-aurea-ink-3">{action.desc}</p>
               </div>
+              <ArrowUpRight className="h-4 w-4 shrink-0 text-aurea-ink-3 transition-colors group-hover:text-aurea-primary" />
             </Link>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   )
 }

@@ -37,26 +37,27 @@ export default function GlobalError({
   return (
     <html lang="en">
       <body>
-        <div className="flex min-h-screen items-center justify-center bg-background p-4">
-          <div className="mx-auto max-w-md text-center space-y-6">
+        <div className="aurea aurea-floor flex min-h-screen items-center justify-center p-4">
+          <div className="mx-auto max-w-md space-y-6 text-center">
             <div className="flex justify-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10">
-                <AlertCircle className="h-8 w-8 text-red-500" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-aurea-rose/10 ring-1 ring-aurea-rose/20">
+                <AlertCircle className="h-8 w-8 text-aurea-rose" strokeWidth={1.75} />
               </div>
             </div>
             <div className="space-y-2">
-              <h1 className="text-2xl font-bold tracking-tight">Something went wrong</h1>
-              <p className="text-muted-foreground text-sm">
+              <p className="aurea-eyebrow">Error</p>
+              <h1 className="aurea-display text-[30px] text-aurea-ink">Something went wrong</h1>
+              <p className="text-[14px] text-aurea-ink-2">
                 An unexpected error occurred. Our team has been notified and is looking into it.
               </p>
               {error.digest && (
-                <p className="text-xs text-muted-foreground/60 font-mono">
+                <p className="font-mono text-[11px] text-aurea-ink-3">
                   Error ID: {error.digest}
                 </p>
               )}
             </div>
             <Button onClick={reset} className="gap-2">
-              <RefreshCw className="h-4 w-4" />
+              <RefreshCw className="h-4 w-4" strokeWidth={1.75} />
               Try Again
             </Button>
           </div>

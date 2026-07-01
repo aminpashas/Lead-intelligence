@@ -2,32 +2,35 @@
 
 import Link from 'next/link'
 import { formatDistanceToNow, format } from 'date-fns'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Users, Flame, TrendingUp, DollarSign, Calendar, MessageSquare,
   ArrowRight, Clock, Phone, Mail, Zap, Brain, Bell,
-  CheckCircle2, AlertCircle, UserPlus, Megaphone,
+  CheckCircle2, AlertCircle, UserPlus, Megaphone, type LucideIcon,
 } from 'lucide-react'
 
+// Lead qualification chips — kept monochrome-adjacent: urgency reads rose,
+// warmth reads amber, everything cooler is neutral ink. No blue/purple.
 const qualColors: Record<string, string> = {
-  hot: 'bg-red-500/10 text-red-700 border-red-200',
-  warm: 'bg-orange-500/10 text-orange-700 border-orange-200',
-  cold: 'bg-blue-500/10 text-blue-700 border-blue-200',
-  unqualified: 'bg-gray-100 text-gray-600 border-gray-200',
-  unscored: 'bg-gray-50 text-gray-400 border-gray-100',
+  hot: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  warm: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  cold: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
+  unqualified: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  unscored: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
+// Activity glyphs — a single emerald accent for the positive beats, amber for
+// scheduling, rose for disqualification; the rest stay quiet ink.
 const activityIcons: Record<string, React.ReactNode> = {
-  lead_created: <UserPlus className="h-3.5 w-3.5 text-green-600" />,
-  status_changed: <TrendingUp className="h-3.5 w-3.5 text-blue-600" />,
-  message_sent: <MessageSquare className="h-3.5 w-3.5 text-purple-600" />,
-  message_received: <MessageSquare className="h-3.5 w-3.5 text-green-600" />,
-  appointment_scheduled: <Calendar className="h-3.5 w-3.5 text-orange-600" />,
-  ai_scored: <Brain className="h-3.5 w-3.5 text-indigo-600" />,
-  disqualified: <AlertCircle className="h-3.5 w-3.5 text-red-600" />,
-  campaign_enrolled: <Megaphone className="h-3.5 w-3.5 text-amber-600" />,
+  lead_created: <UserPlus className="h-3.5 w-3.5 text-aurea-primary" strokeWidth={1.75} />,
+  status_changed: <TrendingUp className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />,
+  message_sent: <MessageSquare className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />,
+  message_received: <MessageSquare className="h-3.5 w-3.5 text-aurea-primary" strokeWidth={1.75} />,
+  appointment_scheduled: <Calendar className="h-3.5 w-3.5 text-aurea-amber" strokeWidth={1.75} />,
+  ai_scored: <Brain className="h-3.5 w-3.5 text-aurea-primary" strokeWidth={1.75} />,
+  disqualified: <AlertCircle className="h-3.5 w-3.5 text-aurea-rose" strokeWidth={1.75} />,
+  campaign_enrolled: <Megaphone className="h-3.5 w-3.5 text-aurea-amber" strokeWidth={1.75} />,
 }
 
 function formatCurrency(n: number) {
@@ -69,353 +72,366 @@ export function DashboardHome({
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   return (
-    <div className="space-y-6 animate-in fade-in-0 duration-500">
-      {/* Greeting + Quick Stats */}
-      <div>
-        <h1 className="text-2xl font-bold">{greeting}, {userName}</h1>
-        <p className="text-muted-foreground">Here&apos;s what&apos;s happening with your leads today.</p>
-      </div>
+    <div className="animate-in fade-in-0 duration-500">
+      {/* ── Header ─────────────────────────────────────────── */}
+      <header className="border-b border-aurea-border pb-8">
+        <p className="aurea-eyebrow mb-3">Practice Dashboard</p>
+        <h1 className="aurea-display text-[36px] text-aurea-ink sm:text-[46px]">
+          {greeting}, {userName}
+        </h1>
+        <p className="mt-4 max-w-2xl text-[16px] leading-relaxed text-aurea-ink-2">
+          Here&apos;s what&apos;s happening with your leads today.
+        </p>
+      </header>
 
-      {/* KPI Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+      {/* ── KPI Row ────────────────────────────────────────── */}
+      <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
         <MiniKPI icon={Users} label="Total Leads" value={kpis.totalLeads} />
-        <MiniKPI icon={Flame} label="Hot Leads" value={kpis.hotLeads} color="text-red-500" />
-        <MiniKPI icon={TrendingUp} label="This Week" value={`+${kpis.weekLeads}`} color="text-green-600" />
-        <MiniKPI icon={CheckCircle2} label="Converted" value={kpis.converted} color="text-purple-600" />
-        <MiniKPI icon={DollarSign} label="Pipeline" value={formatCurrency(kpis.pipelineValue)} color="text-emerald-600" />
-        <MiniKPI icon={Calendar} label="Today Appts" value={kpis.todayAppointments} color="text-orange-500" />
-        <MiniKPI icon={Bell} label="Unread" value={kpis.unreadMessages} color={kpis.unreadMessages > 0 ? 'text-red-500' : 'text-gray-400'} />
+        <MiniKPI icon={Flame} label="Hot Leads" value={kpis.hotLeads} accent="rose" />
+        <MiniKPI icon={TrendingUp} label="This Week" value={`+${kpis.weekLeads}`} accent="emerald" />
+        <MiniKPI icon={CheckCircle2} label="Converted" value={kpis.converted} />
+        <MiniKPI icon={DollarSign} label="Pipeline" value={formatCurrency(kpis.pipelineValue)} accent="emerald" />
+        <MiniKPI icon={Calendar} label="Today Appts" value={kpis.todayAppointments} accent="amber" />
+        <MiniKPI icon={Bell} label="Unread" value={kpis.unreadMessages} accent={kpis.unreadMessages > 0 ? 'rose' : undefined} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column — Priority Items */}
-        <div className="lg:col-span-2 space-y-6">
+      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+        {/* ── Left column — priority items ─────────────────── */}
+        <div className="space-y-5 lg:col-span-2">
           {/* Unread Messages */}
           {unreadConversations.length > 0 && (
-            <Card className="border-red-200 bg-red-50/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Bell className="h-4 w-4 text-red-500" />
-                  Unread Messages ({kpis.unreadMessages})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {unreadConversations.map((convo: any) => (
-                    <Link key={convo.id} href={`/conversations/${convo.id}`}>
-                      <div className="flex items-center justify-between p-2 rounded-lg hover:bg-white/80 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <Badge variant="destructive" className="text-xs h-5 w-5 p-0 flex items-center justify-center">
-                            {convo.unread_count}
-                          </Badge>
-                          <div>
-                            <p className="text-sm font-medium">
-                              {convo.lead?.first_name} {convo.lead?.last_name}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate max-w-xs">
-                              {convo.last_message_preview}
-                            </p>
-                          </div>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {convo.last_message_at
-                            ? formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })
-                            : ''}
-                        </span>
+            <section className="aurea-card overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+                <span className="flex h-1.5 w-1.5 rounded-full bg-aurea-rose" />
+                <h2 className="aurea-display text-[18px] text-aurea-ink">
+                  Unread Messages
+                </h2>
+                <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
+                  ({kpis.unreadMessages})
+                </span>
+              </div>
+              <div className="px-5">
+                {unreadConversations.map((convo: any) => (
+                  <Link
+                    key={convo.id}
+                    href={`/conversations/${convo.id}`}
+                    className="flex items-center justify-between gap-3 border-b border-aurea-border py-3 transition-colors last:border-0 hover:bg-aurea-surface-2 -mx-5 px-5"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-aurea-rose/10 px-1 text-[11px] font-semibold tabular-nums text-aurea-rose ring-1 ring-aurea-rose/20">
+                        {convo.unread_count}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-medium text-aurea-ink">
+                          {convo.lead?.first_name} {convo.lead?.last_name}
+                        </p>
+                        <p className="max-w-xs truncate text-[12px] text-aurea-ink-3">
+                          {convo.last_message_preview}
+                        </p>
                       </div>
-                    </Link>
-                  ))}
-                </div>
-                <Link href="/conversations">
-                  <Button variant="ghost" size="sm" className="mt-2 w-full gap-1">
-                    View all conversations <ArrowRight className="h-3.5 w-3.5" />
-                  </Button>
+                    </div>
+                    <span className="shrink-0 font-mono text-[11px] text-aurea-ink-3">
+                      {convo.last_message_at
+                        ? formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })
+                        : ''}
+                    </span>
+                  </Link>
+                ))}
+                <Link
+                  href="/conversations"
+                  className="group flex items-center justify-center gap-1.5 py-3 text-[12px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink"
+                >
+                  View all conversations
+                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                 </Link>
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           )}
 
           {/* Hot Leads */}
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Flame className="h-4 w-4 text-red-500" />
-                  Hot Leads — Priority Follow-up
-                </CardTitle>
-                <Link href="/leads?qualification=hot">
-                  <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                    View all <ArrowRight className="h-3 w-3" />
-                  </Button>
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {hotLeads.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No hot leads right now. Keep nurturing!</p>
-              ) : (
-                <div className="space-y-2">
-                  {hotLeads.slice(0, 6).map((lead: any) => {
-                    const needsAction = !lead.last_responded_at && lead.last_contacted_at
-                    const neverContacted = !lead.last_contacted_at
-                    return (
-                      <Link key={lead.id} href={`/leads/${lead.id}`}>
-                        <div className="flex items-center justify-between p-2 rounded-lg hover:bg-accent/50 transition-colors">
-                          <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center text-xs font-bold text-red-700">
-                              {lead.ai_score}
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium">
-                                {lead.first_name} {lead.last_name}
-                              </p>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span className="capitalize">{lead.status.replace(/_/g, ' ')}</span>
-                                {lead.phone && <Phone className="h-3 w-3" />}
-                                {lead.email && <Mail className="h-3 w-3" />}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            {neverContacted && (
-                              <Badge variant="destructive" className="text-xs">New — Contact Now</Badge>
-                            )}
-                            {needsAction && (
-                              <Badge variant="outline" className="text-xs text-amber-700 border-amber-300">
-                                <Clock className="h-3 w-3 mr-1" />
-                                Awaiting reply
-                              </Badge>
-                            )}
-                            {lead.last_responded_at && (
-                              <span className="text-xs text-muted-foreground">
-                                Replied {formatDistanceToNow(new Date(lead.last_responded_at), { addSuffix: true })}
-                              </span>
-                            )}
-                          </div>
+          <SectionCard
+            title="Hot Leads"
+            subtitle="Priority follow-up"
+            dot="rose"
+            action={{ label: 'View all', href: '/leads?qualification=hot' }}
+          >
+            {hotLeads.length === 0 ? (
+              <EmptyRow>No hot leads right now. Keep nurturing.</EmptyRow>
+            ) : (
+              hotLeads.slice(0, 6).map((lead: any) => {
+                const needsAction = !lead.last_responded_at && lead.last_contacted_at
+                const neverContacted = !lead.last_contacted_at
+                return (
+                  <Link
+                    key={lead.id}
+                    href={`/leads/${lead.id}`}
+                    className="-mx-5 flex items-center justify-between gap-3 border-b border-aurea-border px-5 py-3 transition-colors last:border-0 hover:bg-aurea-surface-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aurea-rose/10 text-[12px] font-semibold tabular-nums text-aurea-rose ring-1 ring-aurea-rose/20">
+                        {lead.ai_score}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-medium text-aurea-ink">
+                          {lead.first_name} {lead.last_name}
+                        </p>
+                        <div className="flex items-center gap-2 text-[12px] text-aurea-ink-3">
+                          <span className="capitalize">{lead.status.replace(/_/g, ' ')}</span>
+                          {lead.phone && <Phone className="h-3 w-3" strokeWidth={1.75} />}
+                          {lead.email && <Mail className="h-3 w-3" strokeWidth={1.75} />}
                         </div>
-                      </Link>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      {neverContacted && (
+                        <span className="inline-flex items-center rounded-md bg-aurea-rose/10 px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-aurea-rose ring-1 ring-aurea-rose/20">
+                          New — Contact Now
+                        </span>
+                      )}
+                      {needsAction && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-aurea-amber/10 px-2 py-0.5 text-[10.5px] font-medium text-aurea-amber ring-1 ring-aurea-amber/20">
+                          <Clock className="h-3 w-3" strokeWidth={1.75} />
+                          Awaiting reply
+                        </span>
+                      )}
+                      {lead.last_responded_at && (
+                        <span className="font-mono text-[11px] text-aurea-ink-3">
+                          Replied {formatDistanceToNow(new Date(lead.last_responded_at), { addSuffix: true })}
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                )
+              })
+            )}
+          </SectionCard>
 
           {/* Today's Appointments */}
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-orange-500" />
-                  Today&apos;s Appointments ({todayAppointments.length})
-                </CardTitle>
-                <Link href="/appointments">
-                  <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                    View all <ArrowRight className="h-3 w-3" />
-                  </Button>
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {todayAppointments.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No appointments today.</p>
-              ) : (
-                <div className="space-y-2">
-                  {todayAppointments.map((apt: any) => (
-                    <div key={apt.id} className="flex items-center justify-between p-2 rounded-lg bg-orange-50/50">
-                      <div className="flex items-center gap-3">
-                        <div className="text-center leading-tight">
-                          <p className="text-lg font-bold text-orange-700">
-                            {format(new Date(apt.scheduled_at), 'h:mm')}
-                          </p>
-                          <p className="text-xs text-orange-600">
-                            {format(new Date(apt.scheduled_at), 'a')}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">
-                            {apt.lead?.first_name} {apt.lead?.last_name}
-                          </p>
-                          <p className="text-xs text-muted-foreground capitalize">{apt.type}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={apt.status === 'confirmed' ? 'default' : 'secondary'} className="text-xs">
-                          {apt.status}
-                        </Badge>
-                        {apt.lead?.phone && (
-                          <a href={`tel:${apt.lead.phone}`}>
-                            <Button variant="outline" size="icon" className="h-7 w-7">
-                              <Phone className="h-3 w-3" />
-                            </Button>
-                          </a>
-                        )}
-                      </div>
+          <SectionCard
+            title="Today's Appointments"
+            subtitle={`${todayAppointments.length} scheduled`}
+            dot="amber"
+            action={{ label: 'View all', href: '/appointments' }}
+          >
+            {todayAppointments.length === 0 ? (
+              <EmptyRow>No appointments today.</EmptyRow>
+            ) : (
+              todayAppointments.map((apt: any) => (
+                <div
+                  key={apt.id}
+                  className="-mx-5 flex items-center justify-between gap-3 border-b border-aurea-border px-5 py-3 last:border-0"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="text-center leading-none">
+                      <p className="aurea-display text-[22px] tabular-nums text-aurea-amber">
+                        {format(new Date(apt.scheduled_at), 'h:mm')}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wide text-aurea-ink-3">
+                        {format(new Date(apt.scheduled_at), 'a')}
+                      </p>
                     </div>
-                  ))}
+                    <div>
+                      <p className="text-[14px] font-medium text-aurea-ink">
+                        {apt.lead?.first_name} {apt.lead?.last_name}
+                      </p>
+                      <p className="text-[12px] capitalize text-aurea-ink-3">{apt.type}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium capitalize">
+                      <span className={`h-1.5 w-1.5 rounded-full ${apt.status === 'confirmed' ? 'bg-aurea-primary' : 'bg-aurea-ink-3'}`} />
+                      <span className={apt.status === 'confirmed' ? 'text-aurea-primary' : 'text-aurea-ink-3'}>
+                        {apt.status}
+                      </span>
+                    </span>
+                    {apt.lead?.phone && (
+                      <a href={`tel:${apt.lead.phone}`}>
+                        <Button variant="outline" size="icon" className="h-7 w-7">
+                          <Phone className="h-3 w-3" strokeWidth={1.75} />
+                        </Button>
+                      </a>
+                    )}
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              ))
+            )}
+          </SectionCard>
 
           {/* Recent Leads */}
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <UserPlus className="h-4 w-4 text-green-600" />
-                  New Leads (Last 48h)
-                </CardTitle>
-                <Link href="/leads">
-                  <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                    View all <ArrowRight className="h-3 w-3" />
-                  </Button>
+          <SectionCard
+            title="New Leads"
+            subtitle="Last 48 hours"
+            dot="emerald"
+            action={{ label: 'View all', href: '/leads' }}
+          >
+            {recentLeads.length === 0 ? (
+              <EmptyRow>No new leads in the last 48 hours.</EmptyRow>
+            ) : (
+              recentLeads.map((lead: any) => (
+                <Link
+                  key={lead.id}
+                  href={`/leads/${lead.id}`}
+                  className="-mx-5 flex items-center justify-between gap-3 border-b border-aurea-border px-5 py-3 transition-colors last:border-0 hover:bg-aurea-surface-2"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-[11px] font-semibold tabular-nums ${qualColors[lead.ai_qualification] ?? qualColors.unscored}`}>
+                      {lead.ai_score}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[14px] font-medium text-aurea-ink">
+                        {lead.first_name} {lead.last_name}
+                      </p>
+                      <p className="truncate text-[12px] capitalize text-aurea-ink-3">
+                        {lead.source_type?.replace(/_/g, ' ') || 'unknown'} &middot; {lead.status.replace(/_/g, ' ')}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 font-mono text-[11px] text-aurea-ink-3">
+                    {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
+                  </span>
                 </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {recentLeads.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">No new leads in the last 48 hours.</p>
-              ) : (
-                <div className="space-y-2">
-                  {recentLeads.map((lead: any) => (
-                    <Link key={lead.id} href={`/leads/${lead.id}`}>
-                      <div className="flex items-center justify-between p-2 rounded-lg hover:bg-accent/50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <Badge className={`text-xs ${qualColors[lead.ai_qualification]}`}>
-                            {lead.ai_score}
-                          </Badge>
-                          <div>
-                            <p className="text-sm font-medium">
-                              {lead.first_name} {lead.last_name}
-                            </p>
-                            <p className="text-xs text-muted-foreground capitalize">
-                              {lead.source_type?.replace(/_/g, ' ') || 'unknown'} &middot; {lead.status.replace(/_/g, ' ')}
-                            </p>
-                          </div>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
-                        </span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              ))
+            )}
+          </SectionCard>
         </div>
 
-        {/* Right Column — Campaigns + Activity Feed */}
-        <div className="space-y-6">
+        {/* ── Right column — campaigns + activity ──────────── */}
+        <div className="space-y-5">
           {/* Active Campaigns */}
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Megaphone className="h-4 w-4 text-amber-500" />
-                  Active Campaigns
-                </CardTitle>
+          <SectionCard
+            title="Active Campaigns"
+            dot="amber"
+            action={{ label: 'Manage', href: '/campaigns' }}
+          >
+            {activeCampaigns.length === 0 ? (
+              <div className="py-6 text-center">
+                <p className="mb-3 text-[13px] text-aurea-ink-3">No active campaigns</p>
                 <Link href="/campaigns">
-                  <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                    Manage <ArrowRight className="h-3 w-3" />
+                  <Button variant="outline" size="sm" className="gap-1.5">
+                    <Zap className="h-3.5 w-3.5" strokeWidth={1.75} /> Deploy a Campaign
                   </Button>
                 </Link>
               </div>
-            </CardHeader>
-            <CardContent>
-              {activeCampaigns.length === 0 ? (
-                <div className="text-center py-4">
-                  <p className="text-sm text-muted-foreground mb-2">No active campaigns</p>
-                  <Link href="/campaigns">
-                    <Button variant="outline" size="sm" className="gap-1.5">
-                      <Zap className="h-3.5 w-3.5" /> Deploy a Campaign
-                    </Button>
-                  </Link>
+            ) : (
+              activeCampaigns.map((c: any) => (
+                <div key={c.id} className="border-b border-aurea-border py-3 last:border-0">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <p className="truncate text-[14px] font-medium text-aurea-ink">{c.name}</p>
+                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-aurea-ink-3">
+                      {c.channel}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                    <span>{c.total_enrolled} enrolled</span>
+                    <span>{c.total_converted} converted</span>
+                  </div>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {activeCampaigns.map((c: any) => (
-                    <div key={c.id} className="p-2.5 rounded-lg border">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-sm font-medium">{c.name}</p>
-                        <Badge variant="outline" className="text-xs">{c.channel}</Badge>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <span>{c.total_enrolled} enrolled</span>
-                        <span>{c.total_converted} converted</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              ))
+            )}
+          </SectionCard>
 
           {/* Activity Feed */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {recentActivities.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">No recent activity.</p>
-                ) : (
-                  recentActivities.map((act: any) => (
-                    <div key={act.id} className="flex items-start gap-2.5">
-                      <div className="mt-0.5 shrink-0">
-                        {activityIcons[act.activity_type] || <CheckCircle2 className="h-3.5 w-3.5 text-gray-400" />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs">
-                          <span className="font-medium">
-                            {act.lead?.first_name} {act.lead?.last_name}
-                          </span>
-                          {' '}&mdash; {act.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(act.created_at), { addSuffix: true })}
-                        </p>
-                      </div>
+          <SectionCard title="Recent Activity">
+            {recentActivities.length === 0 ? (
+              <EmptyRow>No recent activity.</EmptyRow>
+            ) : (
+              <div className="space-y-3 py-1">
+                {recentActivities.map((act: any) => (
+                  <div key={act.id} className="flex items-start gap-2.5">
+                    <div className="mt-0.5 shrink-0">
+                      {activityIcons[act.activity_type] || <CheckCircle2 className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />}
                     </div>
-                  ))
-                )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12.5px] text-aurea-ink-2">
+                        <span className="font-medium text-aurea-ink">
+                          {act.lead?.first_name} {act.lead?.last_name}
+                        </span>
+                        {' '}&mdash; {act.title}
+                      </p>
+                      <p className="font-mono text-[11px] text-aurea-ink-3">
+                        {formatDistanceToNow(new Date(act.created_at), { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </CardContent>
-          </Card>
+            )}
+          </SectionCard>
 
           {/* Quick Actions */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Link href="/leads" className="block">
-                <Button variant="outline" size="sm" className="w-full justify-start gap-2">
-                  <Users className="h-3.5 w-3.5" /> View All Leads
-                </Button>
-              </Link>
-              <Link href="/pipeline" className="block">
-                <Button variant="outline" size="sm" className="w-full justify-start gap-2">
-                  <TrendingUp className="h-3.5 w-3.5" /> Pipeline Board
-                </Button>
-              </Link>
-              <Link href="/campaigns" className="block">
-                <Button variant="outline" size="sm" className="w-full justify-start gap-2">
-                  <Megaphone className="h-3.5 w-3.5" /> Deploy Campaign
-                </Button>
-              </Link>
-              <Link href="/analytics" className="block">
-                <Button variant="outline" size="sm" className="w-full justify-start gap-2">
-                  <Brain className="h-3.5 w-3.5" /> View Analytics
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
+          <SectionCard title="Quick Actions">
+            <div className="space-y-2 py-1">
+              <QuickAction href="/leads" icon={Users} label="View All Leads" />
+              <QuickAction href="/pipeline" icon={TrendingUp} label="Pipeline Board" />
+              <QuickAction href="/campaigns" icon={Megaphone} label="Deploy Campaign" />
+              <QuickAction href="/analytics" icon={Brain} label="View Analytics" />
+            </div>
+          </SectionCard>
         </div>
       </div>
     </div>
+  )
+}
+
+/* ── Primitives ─────────────────────────────────────────── */
+
+const dotColor: Record<string, string> = {
+  emerald: 'bg-aurea-primary',
+  amber: 'bg-aurea-amber',
+  rose: 'bg-aurea-rose',
+}
+
+function SectionCard({
+  title,
+  subtitle,
+  dot,
+  action,
+  children,
+}: {
+  title: string
+  subtitle?: string
+  dot?: 'emerald' | 'amber' | 'rose'
+  action?: { label: string; href: string }
+  children: React.ReactNode
+}) {
+  return (
+    <section className="aurea-card overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-aurea-border px-5 py-4">
+        <div className="flex items-center gap-2">
+          {dot && <span className={`h-1.5 w-1.5 rounded-full ${dotColor[dot]}`} />}
+          <div>
+            <h2 className="aurea-display text-[18px] leading-tight text-aurea-ink">{title}</h2>
+            {subtitle && <p className="text-[12px] text-aurea-ink-3">{subtitle}</p>}
+          </div>
+        </div>
+        {action && (
+          <Link
+            href={action.href}
+            className="group inline-flex shrink-0 items-center gap-1.5 text-[12px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink"
+          >
+            {action.label}
+            <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+          </Link>
+        )}
+      </div>
+      <div className="px-5">{children}</div>
+    </section>
+  )
+}
+
+function EmptyRow({ children }: { children: React.ReactNode }) {
+  return <p className="py-8 text-center text-[13px] text-aurea-ink-3">{children}</p>
+}
+
+function QuickAction({ href, icon: Icon, label }: { href: string; icon: LucideIcon; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="group flex items-center gap-2.5 rounded-lg border border-aurea-border px-3 py-2 transition-colors hover:bg-aurea-surface-2"
+    >
+      <Icon className="h-4 w-4 shrink-0 text-aurea-ink-3 transition-colors group-hover:text-aurea-primary" strokeWidth={1.75} />
+      <span className="text-[13px] font-medium text-aurea-ink">{label}</span>
+    </Link>
   )
 }
 
@@ -423,22 +439,25 @@ function MiniKPI({
   icon: Icon,
   label,
   value,
-  color = 'text-foreground',
+  accent,
 }: {
-  icon: React.ComponentType<{ className?: string }>
+  icon: LucideIcon
   label: string
   value: string | number
-  color?: string
+  accent?: 'emerald' | 'amber' | 'rose'
 }) {
+  const valueColor =
+    accent === 'emerald' ? 'text-aurea-primary'
+    : accent === 'amber' ? 'text-aurea-amber'
+    : accent === 'rose' ? 'text-aurea-rose'
+    : 'text-aurea-ink'
   return (
-    <Card className="transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
-      <CardContent className="pt-3 pb-2 px-3">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <Icon className={`h-3.5 w-3.5 ${color}`} />
-          <span className="text-[11px] text-muted-foreground">{label}</span>
-        </div>
-        <p className={`text-xl font-bold ${color}`}>{value}</p>
-      </CardContent>
-    </Card>
+    <div className="aurea-card p-4">
+      <div className="flex items-center justify-between">
+        <p className="aurea-eyebrow">{label}</p>
+        <Icon className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
+      </div>
+      <p className={`mt-3 aurea-display text-[26px] tabular-nums ${valueColor}`}>{value}</p>
+    </div>
   )
 }

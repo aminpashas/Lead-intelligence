@@ -101,9 +101,9 @@ export function MetaSelectForm({
         </CardHeader>
         <CardContent className="space-y-4">
           {adAccountsError && (
-            <div className="text-xs rounded-md border border-amber-500/40 bg-amber-500/10 p-3 flex gap-2 items-start">
-              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-              <span className="text-amber-700 dark:text-amber-300">
+            <div className="text-xs rounded-md border border-aurea-amber/40 bg-aurea-amber/10 p-3 flex gap-2 items-start">
+              <AlertTriangle className="h-4 w-4 text-aurea-amber mt-0.5 shrink-0" />
+              <span className="text-aurea-amber">
                 Couldn&apos;t list ad accounts: {adAccountsError}. You can still enter a
                 Pixel ID manually below.
               </span>
@@ -126,7 +126,7 @@ export function MetaSelectForm({
                         )}
                         {acct.currency && <span className="opacity-60">· {acct.currency}</span>}
                         {acct.accountStatus !== 1 && (
-                          <span className="text-amber-600">· Inactive</span>
+                          <span className="text-aurea-amber">· Inactive</span>
                         )}
                       </div>
                       {pixels.map((p) => (

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { analyzeDentalImage, aggregateCaseAnalysis } from '@/lib/ai/case-analyzer'
 
 /**
@@ -12,6 +13,8 @@ export async function POST(
 ) {
   const { id: caseId } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -27,7 +30,7 @@ export async function POST(
     .from('clinical_cases')
     .select('id, organization_id, chief_complaint')
     .eq('id', caseId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!existingCase) {
@@ -51,7 +54,7 @@ export async function POST(
 
     // Upload to Supabase Storage
     const fileExt = file.name.split('.').pop() || 'bin'
-    const storagePath = `${profile.organization_id}/${caseId}/${crypto.randomUUID()}.${fileExt}`
+    const storagePath = `${orgId}/${caseId}/${crypto.randomUUID()}.${fileExt}`
 
     const arrayBuffer = await file.arrayBuffer()
     const { error: uploadError } = await supabase.storage
@@ -78,7 +81,7 @@ export async function POST(
       .from('case_files')
       .insert({
         case_id: caseId,
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         file_name: file.name,
         file_url: fileUrl,
         file_size: file.size,

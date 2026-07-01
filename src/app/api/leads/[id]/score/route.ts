@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { scoreLead } from '@/lib/ai/scoring'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // POST /api/leads/[id]/score - Score a lead with AI
 export async function POST(
@@ -20,12 +21,17 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   // Get lead data — scoped to org
   const { data: lead, error } = await supabase
     .from('leads')
     .select('*')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (error || !lead) {
@@ -33,7 +39,9 @@ export async function POST(
   }
 
   try {
-    const scoreResult = await scoreLead(lead)
+    // Pass supabase so scoring includes the lead's enrichment signals AND writes
+    // the HIPAA audit log — both were skipped when called with just the lead.
+    const scoreResult = await scoreLead(lead, supabase)
 
     // Update lead with score
     await supabase

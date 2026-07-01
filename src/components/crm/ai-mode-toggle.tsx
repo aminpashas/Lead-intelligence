@@ -11,34 +11,35 @@ const MODE_CONFIG = {
     label: 'Auto',
     description: 'AI responds autonomously',
     icon: Bot,
-    dotColor: 'bg-emerald-500',
+    // emerald = AI is live/active
+    dotColor: 'bg-aurea-primary',
     dotPulse: true,
-    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
-    borderColor: 'border-emerald-200 dark:border-emerald-800',
-    textColor: 'text-emerald-700 dark:text-emerald-300',
-    activeRing: 'ring-emerald-500/30',
+    bgColor: 'bg-aurea-primary/10',
+    borderColor: 'border-aurea-primary/30',
+    textColor: 'text-aurea-primary',
+    activeRing: 'ring-aurea-primary/20',
   },
   assist: {
     label: 'Assist',
     description: 'AI drafts, you review & send',
     icon: BrainCircuit,
-    dotColor: 'bg-amber-500',
+    dotColor: 'bg-aurea-amber',
     dotPulse: false,
-    bgColor: 'bg-amber-50 dark:bg-amber-950/30',
-    borderColor: 'border-amber-200 dark:border-amber-800',
-    textColor: 'text-amber-700 dark:text-amber-300',
-    activeRing: 'ring-amber-500/30',
+    bgColor: 'bg-aurea-amber/10',
+    borderColor: 'border-aurea-amber/30',
+    textColor: 'text-aurea-amber',
+    activeRing: 'ring-aurea-amber/20',
   },
   off: {
     label: 'Off',
     description: 'Human only — AI disabled',
     icon: UserRound,
-    dotColor: 'bg-gray-400',
+    dotColor: 'bg-aurea-ink-3',
     dotPulse: false,
-    bgColor: 'bg-gray-50 dark:bg-gray-900/50',
-    borderColor: 'border-gray-200 dark:border-gray-700',
-    textColor: 'text-gray-600 dark:text-gray-400',
-    activeRing: 'ring-gray-400/30',
+    bgColor: 'bg-aurea-surface-2',
+    borderColor: 'border-aurea-border',
+    textColor: 'text-aurea-ink-3',
+    activeRing: 'ring-aurea-border',
   },
 } as const
 
@@ -118,9 +119,9 @@ export function AIModeToggle({
       {/* Segmented toggle */}
       <div
         className={cn(
-          'inline-flex items-center rounded-lg border p-0.5',
+          'inline-flex items-center rounded-lg border border-aurea-border bg-aurea-surface p-0.5',
           isSmall ? 'gap-0' : 'gap-0.5',
-          disabled ? 'opacity-50 cursor-not-allowed' : ''
+          disabled ? 'cursor-not-allowed opacity-50' : ''
         )}
       >
         {(Object.keys(MODE_CONFIG) as AIMode[]).map((m) => {
@@ -139,13 +140,13 @@ export function AIModeToggle({
                 isSmall ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs',
                 isActive
                   ? `${c.bgColor} ${c.textColor} ${c.borderColor} border ring-2 ${c.activeRing}`
-                  : 'text-muted-foreground hover:bg-accent border border-transparent'
+                  : 'border border-transparent text-aurea-ink-3 hover:bg-aurea-surface-2'
               )}
             >
               {loading && isActive ? (
                 <Loader2 className={cn('animate-spin', isSmall ? 'h-2.5 w-2.5' : 'h-3 w-3')} />
               ) : (
-                <Icon className={cn(isSmall ? 'h-2.5 w-2.5' : 'h-3 w-3')} />
+                <Icon className={cn(isSmall ? 'h-2.5 w-2.5' : 'h-3 w-3')} strokeWidth={1.75} />
               )}
               {showLabel && c.label}
             </button>
@@ -196,10 +197,10 @@ export function AIStatusDot({ mode, size = 'sm' }: { mode: AIMode; size?: 'sm' |
 export type LeadAIOverride = 'default' | 'force_on' | 'force_off' | 'assist_only'
 
 const OVERRIDE_CONFIG = {
-  default: { label: 'Use Org Default', description: 'Follow organization autopilot settings', color: 'text-muted-foreground' },
-  force_on: { label: 'Force AI On', description: 'AI always active for this lead, even if org is paused', color: 'text-emerald-600' },
-  force_off: { label: 'Force AI Off', description: 'No AI responses for this lead — human only', color: 'text-red-600' },
-  assist_only: { label: 'Assist Only', description: 'AI drafts but never auto-sends for this lead', color: 'text-amber-600' },
+  default: { label: 'Use Org Default', description: 'Follow organization autopilot settings', color: 'text-aurea-ink-3' },
+  force_on: { label: 'Force AI On', description: 'AI always active for this lead, even if org is paused', color: 'text-aurea-primary' },
+  force_off: { label: 'Force AI Off', description: 'No AI responses for this lead — human only', color: 'text-aurea-rose' },
+  assist_only: { label: 'Assist Only', description: 'AI drafts but never auto-sends for this lead', color: 'text-aurea-amber' },
 } as const
 
 type LeadAIOverrideToggleProps = {
@@ -246,7 +247,7 @@ export function LeadAIOverrideToggle({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <span className={cn('text-xs font-medium', config.color)}>{config.label}</span>
-        {loading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+        {loading && <Loader2 className="h-3 w-3 animate-spin text-aurea-ink-3" />}
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         {(Object.keys(OVERRIDE_CONFIG) as LeadAIOverride[]).map((o) => {
@@ -258,16 +259,16 @@ export function LeadAIOverrideToggle({
               onClick={() => handleChange(o)}
               disabled={loading}
               className={cn(
-                'text-left px-2.5 py-2 rounded-lg border text-xs transition-all',
+                'rounded-lg border px-2.5 py-2 text-left text-xs transition-all',
                 isActive
-                  ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
-                  : 'border-border hover:bg-accent'
+                  ? 'border-aurea-primary bg-aurea-primary/5 ring-1 ring-aurea-primary/20'
+                  : 'border-aurea-border hover:bg-aurea-surface-2'
               )}
             >
-              <span className={cn('font-medium block', isActive ? c.color : 'text-foreground')}>
+              <span className={cn('block font-medium', isActive ? c.color : 'text-aurea-ink')}>
                 {c.label}
               </span>
-              <span className="text-[10px] text-muted-foreground leading-tight block mt-0.5">
+              <span className="mt-0.5 block text-[10px] leading-tight text-aurea-ink-3">
                 {c.description}
               </span>
             </button>

@@ -1,8 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -23,15 +21,17 @@ import {
   type PersonalityType,
 } from '@/lib/ai/personality-types'
 
-const TRAIT_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-  decisiveness: { label: 'Decisiveness', icon: <Zap className="h-3 w-3" />, color: '#ef4444' },
-  price_sensitivity: { label: 'Price Focus', icon: <DollarSign className="h-3 w-3" />, color: '#f59e0b' },
-  trust_level: { label: 'Trust', icon: <Shield className="h-3 w-3" />, color: '#22c55e' },
-  emotional_expressiveness: { label: 'Emotional', icon: <Heart className="h-3 w-3" />, color: '#ec4899' },
-  detail_orientation: { label: 'Detail Focus', icon: <Search className="h-3 w-3" />, color: '#3b82f6' },
-  urgency: { label: 'Urgency', icon: <Clock className="h-3 w-3" />, color: '#f97316' },
-  research_tendency: { label: 'Research', icon: <Search className="h-3 w-3" />, color: '#06b6d4' },
-  social_proof_need: { label: 'Social Proof', icon: <Users className="h-3 w-3" />, color: '#8b5cf6' },
+// Trait bars use Aurea tokens via inline CSS vars; no hard-coded hex colors.
+// The trait `color` field is now an Aurea semantic token class.
+const TRAIT_CONFIG: Record<string, { label: string; icon: React.ReactNode; barClass: string }> = {
+  decisiveness:            { label: 'Decisiveness', icon: <Zap className="h-3 w-3" strokeWidth={1.75} />,         barClass: 'bg-aurea-rose' },
+  price_sensitivity:       { label: 'Price Focus',  icon: <DollarSign className="h-3 w-3" strokeWidth={1.75} />,  barClass: 'bg-aurea-amber' },
+  trust_level:             { label: 'Trust',         icon: <Shield className="h-3 w-3" strokeWidth={1.75} />,      barClass: 'bg-aurea-primary' },
+  emotional_expressiveness:{ label: 'Emotional',     icon: <Heart className="h-3 w-3" strokeWidth={1.75} />,       barClass: 'bg-aurea-rose' },
+  detail_orientation:      { label: 'Detail Focus',  icon: <Search className="h-3 w-3" strokeWidth={1.75} />,      barClass: 'bg-aurea-ink-2' },
+  urgency:                 { label: 'Urgency',        icon: <Clock className="h-3 w-3" strokeWidth={1.75} />,       barClass: 'bg-aurea-amber' },
+  research_tendency:       { label: 'Research',       icon: <Search className="h-3 w-3" strokeWidth={1.75} />,      barClass: 'bg-aurea-ink-3' },
+  social_proof_need:       { label: 'Social Proof',   icon: <Users className="h-3 w-3" strokeWidth={1.75} />,       barClass: 'bg-aurea-ink-2' },
 }
 
 const EMOTIONAL_EMOJI: Record<string, string> = {
@@ -39,9 +39,9 @@ const EMOTIONAL_EMOJI: Record<string, string> = {
 }
 
 const CHANNEL_ICONS: Record<string, React.ReactNode> = {
-  sms: <MessageSquare className="h-3 w-3" />,
-  email: <Mail className="h-3 w-3" />,
-  phone: <Phone className="h-3 w-3" />,
+  sms:   <MessageSquare className="h-3 w-3" strokeWidth={1.75} />,
+  email: <Mail className="h-3 w-3" strokeWidth={1.75} />,
+  phone: <Phone className="h-3 w-3" strokeWidth={1.75} />,
 }
 
 interface PersonalityProfileCardProps {
@@ -94,37 +94,33 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
 
   if (loading) {
     return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-8">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
+      <div className="aurea-card flex items-center justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-aurea-ink-3" />
+      </div>
     )
   }
 
   // No profile yet
   if (!profile) {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-amber-500" />
-            Personality Profile
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-center space-y-3 py-4">
-          <p className="text-xs text-muted-foreground">
+      <div className="aurea-card overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+          <Sparkles className="h-[17px] w-[17px] text-aurea-amber" strokeWidth={1.75} />
+          <h3 className="aurea-display text-[18px] text-aurea-ink">Personality Profile</h3>
+        </div>
+        <div className="flex flex-col items-center space-y-3 py-8 px-5 text-center">
+          <p className="text-[12.5px] text-aurea-ink-3">
             Analyze this lead&apos;s communication style to get personalized engagement tips.
           </p>
           <Button size="sm" onClick={analyzePersonality} disabled={analyzing} className="gap-1.5">
             {analyzing ? (
               <><Loader2 className="h-3 w-3 animate-spin" /> Analyzing...</>
             ) : (
-              <><Brain className="h-3 w-3" /> Analyze Personality</>
+              <><Brain className="h-3 w-3" strokeWidth={1.75} /> Analyze Personality</>
             )}
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     )
   }
 
@@ -133,99 +129,86 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
   const traits = profile.traits
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-amber-500" />
-            Personality Profile
-          </CardTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-[10px] gap-1"
-            onClick={analyzePersonality}
-            disabled={analyzing}
-          >
-            {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            Re-analyze
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {/* Primary Type Badge */}
+    <div className="aurea-card overflow-hidden">
+      <div className="flex items-center justify-between border-b border-aurea-border px-5 py-4">
         <div className="flex items-center gap-2">
-          <div
-            className="h-10 w-10 rounded-lg flex items-center justify-center text-lg"
-            style={{ backgroundColor: typeInfo.color + '15' }}
-          >
+          <Sparkles className="h-[17px] w-[17px] text-aurea-amber" strokeWidth={1.75} />
+          <h3 className="aurea-display text-[18px] text-aurea-ink">Personality Profile</h3>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 text-[10px] gap-1"
+          onClick={analyzePersonality}
+          disabled={analyzing}
+        >
+          {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" strokeWidth={1.75} />}
+          Re-analyze
+        </Button>
+      </div>
+      <div className="space-y-4 p-5">
+        {/* Primary Type Badge */}
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-aurea-surface-2 text-lg ring-1 ring-aurea-border">
             {typeInfo.emoji}
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-sm" style={{ color: typeInfo.color }}>
+              <span className="font-semibold text-[13.5px] text-aurea-ink">
                 {typeInfo.label}
               </span>
               {secondaryInfo && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[11px] text-aurea-ink-3">
                   / {secondaryInfo.label}
                 </span>
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground line-clamp-1">{typeInfo.description}</p>
+            <p className="text-[10.5px] text-aurea-ink-3 line-clamp-1">{typeInfo.description}</p>
           </div>
-          <Badge variant="outline" className="text-[9px] h-5 shrink-0">
-            {profile.confidence}% conf
-          </Badge>
+          <span className="font-mono text-[10px] tabular-nums text-aurea-ink-3 shrink-0">
+            {profile.confidence}%
+          </span>
         </div>
 
         {/* Quick Stats Row */}
         <div className="grid grid-cols-3 gap-2">
-          <div className="text-center p-1.5 rounded bg-muted/50">
-            <p className="text-[10px] text-muted-foreground">Mood</p>
-            <p className="text-xs font-medium capitalize">
+          <div className="rounded-lg bg-aurea-surface-2 p-2 text-center">
+            <p className="aurea-eyebrow mb-0.5">Mood</p>
+            <p className="text-[11px] font-medium text-aurea-ink capitalize">
               {EMOTIONAL_EMOJI[profile.emotional_state] || '😐'} {profile.emotional_state}
             </p>
           </div>
-          <div className="text-center p-1.5 rounded bg-muted/50">
-            <p className="text-[10px] text-muted-foreground">Decisions</p>
-            <p className="text-xs font-medium capitalize">{profile.decision_style}</p>
+          <div className="rounded-lg bg-aurea-surface-2 p-2 text-center">
+            <p className="aurea-eyebrow mb-0.5">Decisions</p>
+            <p className="text-[11px] font-medium text-aurea-ink capitalize">{profile.decision_style}</p>
           </div>
-          <div className="text-center p-1.5 rounded bg-muted/50">
-            <p className="text-[10px] text-muted-foreground">Tempo</p>
-            <p className="text-xs font-medium capitalize">{profile.communication_tempo}</p>
+          <div className="rounded-lg bg-aurea-surface-2 p-2 text-center">
+            <p className="aurea-eyebrow mb-0.5">Tempo</p>
+            <p className="text-[11px] font-medium text-aurea-ink capitalize">{profile.communication_tempo}</p>
           </div>
         </div>
 
         {/* Trait Bars */}
         <div className="space-y-1.5">
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-            Behavioral Traits
-          </p>
+          <p className="aurea-eyebrow">Behavioral Traits</p>
           <TooltipProvider>
             {Object.entries(traits).map(([key, value]) => {
               const config = TRAIT_CONFIG[key]
               if (!config) return null
               return (
                 <Tooltip key={key}>
-                  <TooltipTrigger>
-                    <span className="flex items-center gap-2 w-full">
-                      <span className="text-[10px] text-muted-foreground w-16 truncate flex items-center gap-1">
-                        {config.icon}
-                        {config.label}
-                      </span>
-                      <span className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <span
-                          className="block h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${value}%`,
-                            backgroundColor: config.color,
-                            opacity: 0.8,
-                          }}
-                        />
-                      </span>
-                      <span className="text-[9px] text-muted-foreground w-6 text-right">{value}</span>
+                  <TooltipTrigger render={<span className="flex items-center gap-2 w-full" />}>
+                    <span className="flex w-16 shrink-0 items-center gap-1 text-[10px] text-aurea-ink-3 truncate">
+                      {config.icon}
+                      {config.label}
                     </span>
+                    <span className="flex-1 h-[3px] rounded-full bg-aurea-surface-2 overflow-hidden">
+                      <span
+                        className={cn('block h-full rounded-full transition-all duration-500', config.barClass)}
+                        style={{ width: `${value}%`, opacity: 0.8 }}
+                      />
+                    </span>
+                    <span className="font-mono text-[9px] tabular-nums text-aurea-ink-3 w-6 text-right">{value}</span>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="text-xs">
                     {config.label}: {value}/100
@@ -238,14 +221,14 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
 
         {/* Preferred Channel */}
         {profile.preferred_channel && (
-          <div className="flex items-center gap-2 p-2 rounded bg-accent/50">
-            {CHANNEL_ICONS[profile.preferred_channel]}
-            <span className="text-xs">
-              Prefers <span className="font-medium capitalize">{profile.preferred_channel}</span>
+          <div className="flex items-center gap-2 rounded-lg border border-aurea-border bg-aurea-surface-2 p-2.5">
+            <span className="text-aurea-ink-3">{CHANNEL_ICONS[profile.preferred_channel]}</span>
+            <span className="text-[12px] text-aurea-ink-2">
+              Prefers <span className="font-medium text-aurea-ink capitalize">{profile.preferred_channel}</span>
             </span>
             {profile.avg_response_time_minutes && (
-              <span className="text-[10px] text-muted-foreground ml-auto">
-                Avg response: {profile.avg_response_time_minutes < 60
+              <span className="font-mono text-[10px] text-aurea-ink-3 ml-auto">
+                Avg: {profile.avg_response_time_minutes < 60
                   ? `${profile.avg_response_time_minutes}m`
                   : `${Math.round(profile.avg_response_time_minutes / 60)}h`}
               </span>
@@ -255,15 +238,15 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
 
         {/* Buying Signals */}
         {profile.buying_signals.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-[10px] font-medium text-green-600 flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" /> Buying Signals
+          <div className="space-y-1.5">
+            <p className="flex items-center gap-1 text-[10.5px] font-medium text-aurea-primary">
+              <TrendingUp className="h-3 w-3" strokeWidth={1.75} /> Buying Signals
             </p>
             <div className="flex flex-wrap gap-1">
               {profile.buying_signals.slice(0, 3).map((sig, i) => (
-                <Badge key={i} variant="outline" className="text-[9px] bg-green-50 dark:bg-green-950/20 text-green-700">
+                <span key={i} className="inline-flex rounded border border-aurea-primary/20 bg-aurea-primary/10 px-1.5 py-0 text-[9px] text-aurea-primary">
                   {sig}
-                </Badge>
+                </span>
               ))}
             </div>
           </div>
@@ -271,15 +254,15 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
 
         {/* Objections */}
         {profile.objections_raised.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-[10px] font-medium text-amber-600 flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" /> Objections
+          <div className="space-y-1.5">
+            <p className="flex items-center gap-1 text-[10.5px] font-medium text-aurea-amber">
+              <AlertTriangle className="h-3 w-3" strokeWidth={1.75} /> Objections
             </p>
             <div className="flex flex-wrap gap-1">
               {profile.objections_raised.slice(0, 3).map((obj, i) => (
-                <Badge key={i} variant="outline" className="text-[9px] bg-amber-50 dark:bg-amber-950/20 text-amber-700">
+                <span key={i} className="inline-flex rounded border border-aurea-amber/20 bg-aurea-amber/10 px-1.5 py-0 text-[9px] text-aurea-amber">
                   {obj}
-                </Badge>
+                </span>
               ))}
             </div>
           </div>
@@ -287,11 +270,11 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
 
         {/* AI Recommendation */}
         {profile.recommended_approach && (
-          <div className="p-2 rounded-lg bg-primary/5 border border-primary/10">
-            <p className="text-[10px] font-medium text-primary flex items-center gap-1 mb-1">
-              <Lightbulb className="h-3 w-3" /> AI Recommendation
+          <div className="rounded-lg border border-aurea-primary/20 bg-aurea-primary/5 p-3">
+            <p className="mb-1.5 flex items-center gap-1 text-[10.5px] font-medium text-aurea-primary">
+              <Lightbulb className="h-3 w-3" strokeWidth={1.75} /> AI Recommendation
             </p>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <p className="text-[11px] text-aurea-ink-2 leading-relaxed">
               {profile.recommended_approach}
             </p>
           </div>
@@ -300,11 +283,11 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
         {/* Communication Tips */}
         {profile.communication_tips.length > 0 && (
           <div className="space-y-1">
-            <p className="text-[10px] font-medium text-muted-foreground">Quick Tips</p>
+            <p className="aurea-eyebrow">Quick Tips</p>
             <ul className="space-y-0.5">
               {profile.communication_tips.slice(0, 3).map((tip, i) => (
-                <li key={i} className="text-[10px] text-muted-foreground flex items-start gap-1">
-                  <span className="text-primary mt-0.5">•</span>
+                <li key={i} className="flex items-start gap-1 text-[10.5px] text-aurea-ink-3">
+                  <span className="mt-0.5 text-aurea-primary">•</span>
                   {tip}
                 </li>
               ))}
@@ -313,10 +296,10 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
         )}
 
         {/* Footer */}
-        <p className="text-[9px] text-muted-foreground text-center">
+        <p className="font-mono text-[9px] tabular-nums text-aurea-ink-3 text-center">
           Based on {profile.messages_analyzed} messages
         </p>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

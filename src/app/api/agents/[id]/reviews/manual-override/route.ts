@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { isAdminRole } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // POST /api/agents/[id]/reviews/manual-override
 // Body: { grade: 'green'|'yellow'|'red'|'probation', notes: string }
@@ -42,6 +43,11 @@ export async function POST(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   if (!isAdminRole(profile.role)) {
     return NextResponse.json({ error: 'Admin role required' }, { status: 403 })
   }
@@ -64,7 +70,7 @@ export async function POST(
     .eq('id', agentId)
     .maybeSingle()
 
-  if (!agent || agent.organization_id !== profile.organization_id) {
+  if (!agent || agent.organization_id !== orgId) {
     return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
   }
 
@@ -77,7 +83,7 @@ export async function POST(
     .from('agent_performance_reviews')
     .insert({
       agent_id: agentId,
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       period_start: periodStartDate.toISOString().slice(0, 10),
       period_end: today.toISOString().slice(0, 10),
       kpi_scores: [],
@@ -104,7 +110,7 @@ export async function POST(
   const { error: statusErr } = await supabase.from('agent_status_current').upsert(
     {
       agent_id: agentId,
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       status: body.grade,
       since: new Date().toISOString(),
       consecutive_red_periods: body.grade === 'red' || body.grade === 'probation' ? 1 : 0,

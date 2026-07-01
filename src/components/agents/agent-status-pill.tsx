@@ -34,28 +34,28 @@ type CurrentStatusResponse = {
 
 const PILL_STYLES: Record<AgentGrade, { bg: string; text: string; icon: typeof ShieldCheck }> = {
   green: {
-    bg: 'bg-emerald-500/15 border-emerald-500/25',
-    text: 'text-emerald-700 dark:text-emerald-400',
+    bg: 'bg-aurea-primary/15 border-aurea-primary/25',
+    text: 'text-aurea-primary',
     icon: ShieldCheck,
   },
   yellow: {
-    bg: 'bg-amber-500/15 border-amber-500/25',
-    text: 'text-amber-700 dark:text-amber-400',
+    bg: 'bg-aurea-amber/15 border-aurea-amber/25',
+    text: 'text-aurea-amber',
     icon: AlertTriangle,
   },
   red: {
-    bg: 'bg-rose-500/15 border-rose-500/25',
-    text: 'text-rose-700 dark:text-rose-400',
+    bg: 'bg-aurea-rose/15 border-aurea-rose/25',
+    text: 'text-aurea-rose',
     icon: ShieldAlert,
   },
   probation: {
-    bg: 'bg-rose-700/20 border-rose-700/30',
-    text: 'text-rose-800 dark:text-rose-300',
+    bg: 'bg-aurea-rose/20 border-aurea-rose/30',
+    text: 'text-aurea-rose',
     icon: ShieldAlert,
   },
   unrated: {
-    bg: 'bg-slate-500/10 border-slate-500/20',
-    text: 'text-slate-600 dark:text-slate-400',
+    bg: 'bg-aurea-surface-2 border-aurea-border',
+    text: 'text-aurea-ink-3',
     icon: ShieldQuestion,
   },
 }
@@ -138,7 +138,7 @@ export function AgentStatusPill({
               <span
                 className={cn(
                   'inline-block w-1.5 h-1.5 rounded-full',
-                  r.severity === 'critical' ? 'bg-rose-500' : 'bg-amber-500'
+                  r.severity === 'critical' ? 'bg-aurea-rose' : 'bg-aurea-amber'
                 )}
               />
               <span>

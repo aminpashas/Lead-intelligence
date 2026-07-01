@@ -185,7 +185,7 @@ export function FinancingLendersSettings() {
           <div className="flex items-center gap-2">
             <span className="font-semibold text-sm">{lender.info?.name || lender.display_name}</span>
             {API_LENDER_SLUGS.includes(lender.lender_slug as typeof API_LENDER_SLUGS[number]) ? (
-              <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-emerald-200 gap-0.5">
+              <Badge className="text-[10px] bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20 gap-0.5">
                 <Zap className="h-2.5 w-2.5" /> API
               </Badge>
             ) : (
@@ -285,7 +285,7 @@ export function FinancingLendersSettings() {
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
-          <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="flex items-center gap-2 rounded-lg border border-aurea-rose/30 bg-aurea-rose/10 px-3 py-2 text-sm text-aurea-rose">
             <AlertCircle className="h-4 w-4 shrink-0" />
             {error}
           </div>
@@ -294,8 +294,8 @@ export function FinancingLendersSettings() {
         {/* API Lenders — primary tier */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <Zap className="h-3.5 w-3.5 text-emerald-600" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">API Lenders</span>
+            <Zap className="h-3.5 w-3.5 text-aurea-primary" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-aurea-primary">API Lenders</span>
             <span className="text-xs text-muted-foreground">— fully automated, end-to-end tracking</span>
           </div>
           {apiLenders.map((lender, idx) => renderLender(lender, idx, apiLenders))}

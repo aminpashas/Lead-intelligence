@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // GET /api/ai/audit — Fetch AI conversation audit data
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -31,7 +34,7 @@ export async function GET(request: NextRequest) {
       created_at,
       lead:leads!inner(id, first_name, last_name, status, ai_score, ai_qualification)
     `, { count: 'exact' })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('ai_enabled', true)
     .order('last_message_at', { ascending: false })
 
@@ -142,13 +145,13 @@ export async function GET(request: NextRequest) {
   const { count: totalAIConversations } = await supabase
     .from('conversations')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('ai_enabled', true)
 
   const { data: allRatings } = await supabase
     .from('ai_conversation_ratings')
     .select('rating, flagged')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   const avgRating = allRatings && allRatings.length > 0
     ? +(allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length).toFixed(1)
@@ -159,14 +162,14 @@ export async function GET(request: NextRequest) {
   const { count: setterCount } = await supabase
     .from('conversations')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('active_agent', 'setter')
     .eq('ai_enabled', true)
 
   const { count: closerCount } = await supabase
     .from('conversations')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('active_agent', 'closer')
     .eq('ai_enabled', true)
 

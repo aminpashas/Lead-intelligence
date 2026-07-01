@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -28,12 +26,12 @@ const CATEGORY_LABELS: Record<AIKnowledgeCategory, string> = {
 }
 
 const CATEGORY_COLORS: Record<AIKnowledgeCategory, string> = {
-  procedures: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  pricing: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  faqs: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-  aftercare: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
-  financing: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-  general: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300',
+  procedures: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  pricing: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  faqs: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  aftercare: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  financing: 'bg-aurea-gold/10 text-aurea-gold border border-aurea-gold/20',
+  general: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
 export function KnowledgeBase() {
@@ -142,12 +140,12 @@ export function KnowledgeBase() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <p className="text-sm text-muted-foreground">
+        <p className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
           {enabledCount} active / {articles.length} total articles
         </p>
         <div className="flex items-center gap-3">
           <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
             <Input
               placeholder="Search articles..."
               value={searchQuery}
@@ -178,72 +176,70 @@ export function KnowledgeBase() {
 
       {/* Articles List */}
       {loading ? (
-        <div className="text-center py-12 text-muted-foreground">Loading articles...</div>
+        <div className="py-12 text-center text-[13px] text-aurea-ink-3">Loading articles...</div>
       ) : articles.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <BookOpen className="h-12 w-12 text-muted-foreground/50 mb-3" />
-            <h3 className="font-medium text-lg">No knowledge articles yet</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-md">
+        <div className="aurea-card">
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <BookOpen className="h-10 w-10 text-aurea-ink-3/40 mb-3" strokeWidth={1.75} />
+            <h3 className="aurea-display text-[18px] text-aurea-ink">No knowledge articles yet</h3>
+            <p className="mt-1 max-w-md text-[13px] text-aurea-ink-3">
               Add articles about your procedures, pricing, FAQs, and more. The AI will reference these when responding to conversations.
             </p>
-            <div className="flex gap-3 mt-4">
+            <div className="mt-4 flex gap-3">
               <Button onClick={() => { setEditingArticle(null); setDialogOpen(true) }}>
                 <Plus className="h-4 w-4 mr-1" />
                 Add Your First Article
               </Button>
               <Button variant="outline" onClick={handleSeedFAQs} disabled={seeding}>
-                {seeding ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" />}
+                {seeding ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" strokeWidth={1.75} />}
                 {seeding ? 'Loading...' : 'Load 200 Sample FAQs'}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {articles.map((article) => (
-            <Card key={article.id} className={!article.is_enabled ? 'opacity-60' : ''}>
-              <CardContent className="py-4">
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Switch
-                      checked={article.is_enabled}
-                      onCheckedChange={() => handleToggle(article)}
-                    />
-                    <h4 className="font-medium text-sm truncate">{article.title}</h4>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setEditingArticle(article)
-                        setDialogOpen(true)
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(article.id)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
+            <div key={article.id} className={`aurea-card p-4${!article.is_enabled ? ' opacity-60' : ''}`}>
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Switch
+                    checked={article.is_enabled}
+                    onCheckedChange={() => handleToggle(article)}
+                  />
+                  <h4 className="text-[14px] font-medium text-aurea-ink truncate">{article.title}</h4>
                 </div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Badge variant="secondary" className={CATEGORY_COLORS[article.category]}>
-                    {CATEGORY_LABELS[article.category]}
-                  </Badge>
-                  {article.tags.slice(0, 3).map((tag) => (
-                    <Badge key={tag} variant="outline" className="text-xs">
-                      {tag}
-                    </Badge>
-                  ))}
-                  {article.tags.length > 3 && (
-                    <span className="text-xs text-muted-foreground">+{article.tags.length - 3}</span>
-                  )}
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditingArticle(article)
+                      setDialogOpen(true)
+                    }}
+                  >
+                    <Pencil className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(article.id)}>
+                    <Trash2 className="h-4 w-4 text-aurea-rose" strokeWidth={1.75} />
+                  </Button>
                 </div>
-                <p className="text-sm text-muted-foreground line-clamp-3">{article.content}</p>
-              </CardContent>
-            </Card>
+              </div>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-medium ${CATEGORY_COLORS[article.category]}`}>
+                  {CATEGORY_LABELS[article.category]}
+                </span>
+                {article.tags.slice(0, 3).map((tag) => (
+                  <span key={tag} className="inline-flex items-center rounded border border-aurea-border px-2 py-0.5 text-[11px] text-aurea-ink-3">
+                    {tag}
+                  </span>
+                ))}
+                {article.tags.length > 3 && (
+                  <span className="text-[11px] text-aurea-ink-3">+{article.tags.length - 3}</span>
+                )}
+              </div>
+              <p className="text-[13px] text-aurea-ink-2 line-clamp-3">{article.content}</p>
+            </div>
           ))}
         </div>
       )}

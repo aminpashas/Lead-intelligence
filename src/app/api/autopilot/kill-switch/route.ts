@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { isAdminRole } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 /**
  * POST /api/autopilot/kill-switch — Instantly pause all AI auto-sends
@@ -31,10 +32,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Only admins can activate the kill switch' }, { status: 403 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   await supabase
     .from('organizations')
     .update({ autopilot_paused: true })
-    .eq('id', profile.organization_id)
+    .eq('id', orgId)
 
   return NextResponse.json({
     ok: true,

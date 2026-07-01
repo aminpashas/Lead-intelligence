@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { hasPermission } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export const runtime = 'nodejs'
 
@@ -16,7 +17,10 @@ async function ctx() {
   if (!profile || !hasPermission(profile.role, 'contract_templates:manage')) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
-  return { supabase, profile, user }
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  return { supabase, profile, user, orgId }
 }
 
 export async function GET() {
@@ -25,7 +29,7 @@ export async function GET() {
   const { data, error } = await c.supabase
     .from('contract_templates')
     .select('id, name, slug, version, status, sections, required_variables, published_at, updated_at')
-    .eq('organization_id', c.profile.organization_id)
+    .eq('organization_id', c.orgId)
     .order('slug')
     .order('version', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -44,7 +48,7 @@ export async function POST(request: NextRequest) {
   const { data: existing } = await c.supabase
     .from('contract_templates')
     .select('version')
-    .eq('organization_id', c.profile.organization_id)
+    .eq('organization_id', c.orgId)
     .eq('slug', slug)
     .order('version', { ascending: false })
     .limit(1)
@@ -54,7 +58,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await c.supabase
     .from('contract_templates')
     .insert({
-      organization_id: c.profile.organization_id,
+      organization_id: c.orgId,
       slug,
       name,
       version: nextVersion,

@@ -1,15 +1,11 @@
 'use client'
 
 import { useOrgStore } from '@/lib/store/use-org'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
-import { Copy, Check, Plug, ChevronRight } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 import { useState } from 'react'
-import Link from 'next/link'
 
 export default function SettingsPage() {
   const { organization } = useOrgStore()
@@ -25,178 +21,173 @@ export default function SettingsPage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
+  // Subscription tier badge color
+  const tier = organization?.subscription_tier || 'trial'
+  const tierClass = tier === 'trial'
+    ? 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20'
+    : 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20'
+
   return (
-    <div className="max-w-2xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">
-          Manage your practice settings and integrations
+    <div className="animate-in fade-in-0 duration-500 max-w-2xl space-y-8">
+      {/* ── Header ──────────────────────────────────────────── */}
+      <header className="border-b border-aurea-border pb-8">
+        <p className="aurea-eyebrow mb-3">Account</p>
+        <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[48px]">Settings</h1>
+        <p className="mt-4 text-[15px] leading-relaxed text-aurea-ink-2">
+          Manage your practice settings and integrations.
         </p>
-      </div>
+      </header>
 
-      <div className="space-y-6">
-        {/* Organization */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Practice Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Practice Name</Label>
-              <Input value={organization?.name || ''} readOnly />
+      {/* ── Practice information ─────────────────────────────── */}
+      <section className="aurea-card overflow-hidden">
+        <div className="border-b border-aurea-border px-5 py-4">
+          <h2 className="aurea-display text-[22px] text-aurea-ink">Practice Information</h2>
+        </div>
+        <div className="px-5 py-5 space-y-5">
+          <div className="space-y-2">
+            <Label className="aurea-eyebrow">Practice Name</Label>
+            <Input value={organization?.name || ''} readOnly />
+          </div>
+          <div className="space-y-2">
+            <Label className="aurea-eyebrow">Subscription</Label>
+            <div>
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold capitalize ${tierClass}`}>
+                {tier}
+              </span>
             </div>
-            <div className="space-y-2">
-              <Label>Subscription</Label>
-              <div>
-                <Badge variant="secondary" className="capitalize">
-                  {organization?.subscription_tier || 'trial'}
-                </Badge>
-              </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Webhook integration ──────────────────────────────── */}
+      <section className="aurea-card overflow-hidden">
+        <div className="border-b border-aurea-border px-5 py-4">
+          <h2 className="aurea-display text-[22px] text-aurea-ink">Webhook Integration</h2>
+          <p className="mt-0.5 text-[12px] text-aurea-ink-3">
+            Use these URLs to connect your landing pages, Google Ads, and Meta Lead Ads
+          </p>
+        </div>
+        <div className="px-5 py-5 space-y-5">
+          {/* Universal form webhook */}
+          <div className="space-y-2">
+            <Label className="aurea-eyebrow">Universal Form Webhook</Label>
+            <div className="flex gap-2">
+              <Input value={webhookUrl} readOnly className="font-mono text-xs" />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => copyToClipboard(webhookUrl, 'form')}
+              >
+                {copied === 'form' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Webhook URLs */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Webhook Integration</CardTitle>
-            <CardDescription>
-              Use these URLs to connect your landing pages, Google Ads, and Meta Lead Ads
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Universal Form Webhook</Label>
-              <div className="flex gap-2">
-                <Input value={webhookUrl} readOnly className="font-mono text-xs" />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => copyToClipboard(webhookUrl, 'form')}
-                >
-                  {copied === 'form' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                POST JSON with: first_name, last_name, email, phone, source_type, utm_source, dental_condition
-              </p>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-2">
-              <Label>Twilio SMS Webhook</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/twilio` : ''}
-                  readOnly
-                  className="font-mono text-xs"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => copyToClipboard(
-                    typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/twilio` : '',
-                    'twilio'
-                  )}
-                >
-                  {copied === 'twilio' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Set this as your Twilio phone number&apos;s SMS webhook URL
-              </p>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-2">
-              <Label>Resend Email Webhook</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/resend` : ''}
-                  readOnly
-                  className="font-mono text-xs"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => copyToClipboard(
-                    typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/resend` : '',
-                    'resend'
-                  )}
-                >
-                  {copied === 'resend' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Set this in Resend dashboard &gt; Webhooks. Tracks email opens, clicks, bounces, and complaints.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Marketing Connectors */}
-        <Card className="group hover:border-primary/30 transition-colors">
-          <Link href="/settings/connectors" className="block">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                    <Plug className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <CardTitle>Marketing Connectors</CardTitle>
-                    <CardDescription>
-                      Connect Google Ads, Meta, GA4, Slack, and webhooks for closed-loop ROI tracking
-                    </CardDescription>
-                  </div>
-                </div>
-                <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground transition-colors" />
-              </div>
-            </CardHeader>
-          </Link>
-        </Card>
-
-        {/* Booking Link */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Online Booking</CardTitle>
-            <CardDescription>
-              Share this link with leads so they can self-book consultations
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Public Booking Page</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={typeof window !== 'undefined' ? `${window.location.origin}/book/${organization?.id}` : ''}
-                  readOnly
-                  className="font-mono text-xs"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => copyToClipboard(
-                    typeof window !== 'undefined' ? `${window.location.origin}/book/${organization?.id}` : '',
-                    'booking'
-                  )}
-                >
-                  {copied === 'booking' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Leads can book directly from this page. Use <code className="bg-muted px-1 rounded">{'{{booking_link}}'}</code> in campaign templates.
-              </p>
-            </div>
-            <Separator />
-            <p className="text-xs text-muted-foreground">
-              To configure availability (office hours, slot duration, blocked dates), update the <code className="bg-muted px-1 rounded">booking_settings</code> table in your Supabase dashboard. Default: Mon-Fri 9am-5pm, 60-minute slots, 15-minute buffer.
+            <p className="text-[12px] text-aurea-ink-3">
+              POST JSON with: first_name, last_name, email, phone, source_type, utm_source, dental_condition
             </p>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+
+          <div className="h-px bg-aurea-border" />
+
+          {/* Twilio webhook */}
+          <div className="space-y-2">
+            <Label className="aurea-eyebrow">Twilio SMS Webhook</Label>
+            <div className="flex gap-2">
+              <Input
+                value={typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/twilio` : ''}
+                readOnly
+                className="font-mono text-xs"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => copyToClipboard(
+                  typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/twilio` : '',
+                  'twilio'
+                )}
+              >
+                {copied === 'twilio' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+            <p className="text-[12px] text-aurea-ink-3">
+              Set this as your Twilio phone number&apos;s SMS webhook URL
+            </p>
+          </div>
+
+          <div className="h-px bg-aurea-border" />
+
+          {/* Resend webhook */}
+          <div className="space-y-2">
+            <Label className="aurea-eyebrow">Resend Email Webhook</Label>
+            <div className="flex gap-2">
+              <Input
+                value={typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/resend` : ''}
+                readOnly
+                className="font-mono text-xs"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => copyToClipboard(
+                  typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/resend` : '',
+                  'resend'
+                )}
+              >
+                {copied === 'resend' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+            <p className="text-[12px] text-aurea-ink-3">
+              Set this in Resend dashboard &gt; Webhooks. Tracks email opens, clicks, bounces, and complaints.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Marketing Connectors, Team, Billing, AI Control, Legal and Contract
+          Templates are now tabs of the Settings hub (see settings/layout.tsx),
+          so they no longer need link cards here. */}
+
+      {/* ── Online booking ───────────────────────────────────── */}
+      <section className="aurea-card overflow-hidden">
+        <div className="border-b border-aurea-border px-5 py-4">
+          <h2 className="aurea-display text-[22px] text-aurea-ink">Online Booking</h2>
+          <p className="mt-0.5 text-[12px] text-aurea-ink-3">
+            Share this link with leads so they can self-book consultations
+          </p>
+        </div>
+        <div className="px-5 py-5 space-y-5">
+          <div className="space-y-2">
+            <Label className="aurea-eyebrow">Public Booking Page</Label>
+            <div className="flex gap-2">
+              <Input
+                value={typeof window !== 'undefined' ? `${window.location.origin}/book/${organization?.id}` : ''}
+                readOnly
+                className="font-mono text-xs"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => copyToClipboard(
+                  typeof window !== 'undefined' ? `${window.location.origin}/book/${organization?.id}` : '',
+                  'booking'
+                )}
+              >
+                {copied === 'booking' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+            <p className="text-[12px] text-aurea-ink-3">
+              Leads can book directly from this page. Use{' '}
+              <code className="bg-aurea-surface-2 px-1 rounded text-aurea-ink font-mono">{'{{booking_link}}'}</code>{' '}
+              in campaign templates.
+            </p>
+          </div>
+          <div className="h-px bg-aurea-border" />
+          <p className="text-[12px] text-aurea-ink-3">
+            To configure availability (office hours, slot duration, blocked dates), update the{' '}
+            <code className="bg-aurea-surface-2 px-1 rounded text-aurea-ink font-mono">booking_settings</code>{' '}
+            table in your Supabase dashboard. Default: Mon–Fri 9am–5pm, 60-minute slots, 15-minute buffer.
+          </p>
+        </div>
+      </section>
     </div>
   )
 }

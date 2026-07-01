@@ -250,45 +250,69 @@ export function canViewBilling(role: PracticeRole | string): boolean {
 
 // ── Route → Permission Mapping ──────────────────────────────────
 
-/** Map dashboard routes to the permission required to view them */
+/**
+ * Map dashboard routes to the permission required to view them.
+ *
+ * Routes are consolidated into section hubs (see the sidebar + hub layouts):
+ * Broadcasts (SMS/Email/Audit), Leads (+ Smart Lists), Campaigns (+ Funnel
+ * Playbook), Analytics (+ Agent KPI), and Settings (Team/Billing/AI/Connectors/
+ * Legal/Templates). canAccessRoute resolves the most specific matching prefix,
+ * so a nested subtree gate (e.g. /settings/connectors) wins over its parent.
+ */
 const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/agency': 'agency:console',
-  '/settings/connectors': 'connectors:manage',
   '/dashboard': 'dashboard:view',
   '/pipeline': 'pipeline:read',
-  '/funnel': 'funnel:read',
+  // Leads + Smart Lists
   '/leads': 'leads:read',
+  '/leads/lists': 'smart_lists:read',
   '/conversations': 'conversations:read',
   '/call-center': 'call_center:read',
-  '/campaigns': 'campaigns:read',
-  '/reactivation': 'reactivation:read',
-  '/smart-lists': 'smart_lists:read',
-  '/mass-sms': 'mass_sms:write',
-  '/mass-email': 'mass_email:write',
-  '/broadcast-audit': 'broadcast_audit:read',
   '/appointments': 'schedule:read',
-  '/analytics': 'analytics:read',
-  '/agent-kpi': 'analytics:read',
-  '/ai-control': 'ai_control:read',
-  '/settings': 'settings:read',
-  '/team': 'team:manage',
-  '/billing': 'billing:read',
+  // Campaigns + Funnel Playbook
+  '/campaigns': 'campaigns:read',
+  '/campaigns/playbook': 'funnel:read',
+  '/reactivation': 'reactivation:read',
+  // Broadcasts hub
+  '/broadcasts': 'mass_sms:write',
+  '/broadcasts/sms': 'mass_sms:write',
+  '/broadcasts/email': 'mass_email:write',
+  '/broadcasts/audit': 'broadcast_audit:read',
+  // Revenue
   '/cases': 'cases:read',
   '/contracts': 'contracts:read',
+  // Analytics + Agent KPI
+  '/analytics': 'analytics:read',
+  '/analytics/agents': 'analytics:read',
+  // Settings hub
+  '/settings': 'settings:read',
+  '/settings/team': 'team:manage',
+  '/settings/billing': 'billing:read',
+  '/settings/ai': 'ai_control:read',
+  '/settings/connectors': 'connectors:manage',
   '/settings/legal': 'legal_settings:manage',
-  '/settings/contracts': 'contract_templates:manage',
+  // Key matches the real page + the Settings hub tab href. There is no
+  // /settings/contracts index page, so pointing the key at .../templates keeps
+  // the map from advertising a phantom route while still gating the [id] detail
+  // via the longest-prefix scan.
+  '/settings/contracts/templates': 'contract_templates:manage',
 }
 
 /** Check if a role can access a given route */
 export function canAccessRoute(role: PracticeRole | string, pathname: string): boolean {
-  // Find the matching route (check exact match, then prefix match)
+  // Exact match wins outright.
   const exactPermission = ROUTE_PERMISSION_MAP[pathname]
   if (exactPermission) {
     return hasPermission(role as PracticeRole, exactPermission)
   }
 
-  // Prefix match (e.g., /leads/123 should check /leads permission)
-  for (const [route, permission] of Object.entries(ROUTE_PERMISSION_MAP)) {
+  // Prefix match, most-specific first, so a nested gate (e.g. /settings/connectors)
+  // is checked before its looser parent (/settings). Without the length sort,
+  // /settings/connectors/events could incorrectly resolve to settings:read.
+  const bySpecificity = Object.entries(ROUTE_PERMISSION_MAP).sort(
+    (a, b) => b[0].length - a[0].length
+  )
+  for (const [route, permission] of bySpecificity) {
     if (pathname.startsWith(route + '/')) {
       return hasPermission(role as PracticeRole, permission)
     }

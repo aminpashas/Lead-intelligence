@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createClient } from '@/lib/supabase/server'
 import { populateCampaignQueue, processVoiceCampaign } from '@/lib/voice/campaign-dialer'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { logger } from '@/lib/logger'
 
 // ── GET: List voice campaigns ────────────────────────────────
@@ -25,11 +26,14 @@ export async function GET() {
     .single()
 
   if (!profile) return NextResponse.json({ error: 'No org' }, { status: 403 })
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(authClient)
+  if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
 
   const { data: campaigns } = await authClient
     .from('voice_campaigns')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   return NextResponse.json({ campaigns: campaigns || [] })
@@ -48,6 +52,9 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (!profile) return NextResponse.json({ error: 'No org' }, { status: 403 })
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(authClient)
+  if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
   if (!['owner', 'admin', 'manager'].includes(profile.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
@@ -78,7 +85,7 @@ export async function POST(request: NextRequest) {
   const { data: campaign, error } = await supabase
     .from('voice_campaigns')
     .insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       created_by: user.id,
       name,
       description: description || null,
@@ -127,6 +134,9 @@ export async function PATCH(request: NextRequest) {
     .single()
 
   if (!profile) return NextResponse.json({ error: 'No org' }, { status: 403 })
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(authClient)
+  if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
   if (!['owner', 'admin', 'manager'].includes(profile.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
@@ -145,7 +155,7 @@ export async function PATCH(request: NextRequest) {
     .from('voice_campaigns')
     .select('id, status, organization_id')
     .eq('id', campaign_id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!campaign) {

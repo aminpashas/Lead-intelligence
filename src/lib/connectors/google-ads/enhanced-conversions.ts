@@ -27,6 +27,7 @@ import type {
   ConnectorEventType,
 } from '../types'
 import { hashForMatching } from '../utils'
+import { resolveConversionActionResource, conversionActionError } from './conversion-action'
 
 const GOOGLE_ADS_API_VERSION = 'v18'
 const GOOGLE_ADS_API_BASE = 'https://googleads.googleapis.com'
@@ -122,9 +123,21 @@ export async function uploadEnhancedConversionForLead(
       userIdentifiers.push({ addressInfo })
     }
 
+    const conversionActionResource = resolveConversionActionResource(
+      conversionAction?.conversionActionResourceName,
+      config.customerId,
+      conversionName
+    )
+    if (!conversionActionResource) {
+      return {
+        connector: 'google_ads',
+        success: false,
+        error: conversionActionError(event.type, conversionName),
+      }
+    }
+
     const adjustment: Record<string, unknown> = {
-      conversionAction: conversionAction?.conversionActionResourceName
-        || `customers/${config.customerId}/conversionActions/${conversionName}`,
+      conversionAction: conversionActionResource,
       adjustmentType: 'ENHANCEMENT',
       adjustmentDateTime: formatGoogleAdsDate(event.timestamp),
       userIdentifiers,

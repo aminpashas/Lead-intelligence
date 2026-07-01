@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const updateArticleSchema = z.object({
@@ -16,6 +17,8 @@ export async function PATCH(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -29,7 +32,7 @@ export async function PATCH(
     .from('ai_knowledge_articles')
     .update(parsed.data)
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .select()
     .single()
 
@@ -45,6 +48,8 @@ export async function DELETE(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -52,7 +57,7 @@ export async function DELETE(
     .from('ai_knowledge_articles')
     .delete()
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

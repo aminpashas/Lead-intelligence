@@ -87,10 +87,11 @@ export default async function GoogleSelectPage({
   const ga4Accounts = metadata.ga4_accounts || []
 
   return (
-    <div className="max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">Finish connecting Google</h1>
-        <p className="text-muted-foreground">
+    <div className="max-w-3xl animate-in fade-in-0 duration-500">
+      <div className="mb-8">
+        <p className="aurea-eyebrow mb-2">Connectors</p>
+        <h1 className="aurea-display text-[32px] text-aurea-ink mb-3">Finish connecting Google</h1>
+        <p className="text-[14px] leading-relaxed text-aurea-ink-2">
           Pick which Google Ads account and GA4 property to bind to your organization.
           You can reconnect later to change these.
         </p>

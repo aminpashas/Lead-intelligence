@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { DashboardShell } from '@/components/dashboard/shell'
+import { aureaFontVars } from '@/lib/fonts'
 
 export default async function DashboardLayout({
   children,
@@ -68,6 +69,7 @@ export default async function DashboardLayout({
 
   return (
     <DashboardShell
+      fontClassName={aureaFontVars}
       userProfile={profile}
       organization={organization}
       actingAsClient={actingAsClient}

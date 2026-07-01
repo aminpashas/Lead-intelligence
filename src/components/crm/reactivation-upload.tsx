@@ -1,8 +1,6 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -213,34 +211,35 @@ export function ReactivationUpload({
   return (
     <div className="space-y-6" id="reactivation-upload">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 border-b border-aurea-border pb-6">
         <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">Upload Lead Database</h1>
-          <p className="text-sm text-muted-foreground">
-            Upload leads to <span className="font-medium text-foreground">{campaignName}</span>
+          <p className="aurea-eyebrow mb-2">Reactivation</p>
+          <h1 className="aurea-display text-[32px] text-aurea-ink">Upload Lead Database</h1>
+          <p className="mt-1.5 text-[13px] text-aurea-ink-3">
+            Upload leads to <span className="font-medium text-aurea-ink-2">{campaignName}</span>
           </p>
         </div>
       </div>
 
       {/* Upload Step */}
       {step === 'upload' && (
-        <Card>
-          <CardContent className="py-16">
+        <div className="aurea-card">
+          <div className="py-16">
             <div className="flex flex-col items-center gap-6 max-w-md mx-auto">
-              <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center">
-                <FileSpreadsheet className="h-10 w-10 text-purple-500" />
-              </div>
+              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-aurea-surface-2 text-aurea-ink-2 ring-1 ring-aurea-border">
+                <FileSpreadsheet className="h-7 w-7" strokeWidth={1.5} />
+              </span>
 
               <div className="text-center">
-                <p className="font-semibold text-lg">Upload your spreadsheet</p>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-[15px] font-medium text-aurea-ink">Upload your spreadsheet</p>
+                <p className="mt-1.5 text-[13px] leading-relaxed text-aurea-ink-3">
                   Drag and drop or click to select a CSV file with your leads database.
                 </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Required: <span className="font-medium">First Name</span>. Optional: Last Name, Email, Phone, City, State, ZIP, Notes
+                <p className="mt-2 text-[12px] text-aurea-ink-3">
+                  Required: <span className="font-medium text-aurea-ink-2">First Name</span>. Optional: Last Name, Email, Phone, City, State, ZIP, Notes
                 </p>
               </div>
 
@@ -255,25 +254,25 @@ export function ReactivationUpload({
               <div className="flex items-center gap-3">
                 <Button
                   onClick={() => fileRef.current?.click()}
-                  className="gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
+                  className="gap-2"
                   size="lg"
                 >
-                  <Upload className="h-5 w-5" />
+                  <Upload className="h-5 w-5" strokeWidth={1.75} />
                   Choose CSV File
                 </Button>
                 <Button variant="outline" onClick={downloadTemplate} className="gap-2">
-                  <Download className="h-4 w-4" />
+                  <Download className="h-4 w-4" strokeWidth={1.75} />
                   Template
                 </Button>
               </div>
 
               {/* Drop zone visual hint */}
-              <div className="w-full border-2 border-dashed border-muted-foreground/20 rounded-xl p-8 text-center"
-                onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('border-purple-400', 'bg-purple-50') }}
-                onDragLeave={e => { e.currentTarget.classList.remove('border-purple-400', 'bg-purple-50') }}
+              <div className="w-full border-2 border-dashed border-aurea-border rounded-xl p-8 text-center transition-colors"
+                onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('border-aurea-primary', 'bg-aurea-primary-soft') }}
+                onDragLeave={e => { e.currentTarget.classList.remove('border-aurea-primary', 'bg-aurea-primary-soft') }}
                 onDrop={e => {
                   e.preventDefault()
-                  e.currentTarget.classList.remove('border-purple-400', 'bg-purple-50')
+                  e.currentTarget.classList.remove('border-aurea-primary', 'bg-aurea-primary-soft')
                   const file = e.dataTransfer.files[0]
                   if (file && file.name.endsWith('.csv')) {
                     const reader = new FileReader()
@@ -292,22 +291,21 @@ export function ReactivationUpload({
                   }
                 }}
               >
-                <p className="text-sm text-muted-foreground">Or drag and drop your CSV file here</p>
+                <p className="text-[13px] text-aurea-ink-3">Or drag and drop your CSV file here</p>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Preview Step */}
       {step === 'preview' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Badge className="bg-purple-100 text-purple-700 text-sm gap-1">
-                <Users className="h-3.5 w-3.5" />
-                {rows.length} leads found
-              </Badge>
+            <div className="flex items-center gap-2 text-[13px] font-medium text-aurea-ink">
+              <Users className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+              <span className="aurea-display text-[22px] tabular-nums">{rows.length}</span>
+              <span className="text-aurea-ink-3">leads found</span>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={resetUpload}>Cancel</Button>
@@ -315,29 +313,27 @@ export function ReactivationUpload({
                 size="sm"
                 onClick={handleUpload}
                 disabled={importing}
-                className="gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
+                className="gap-1.5"
               >
-                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" strokeWidth={1.75} />}
                 Upload & Enroll {rows.length} Leads
               </Button>
             </div>
           </div>
 
           {/* Tag input */}
-          <Card>
-            <CardContent className="py-3 flex items-center gap-3">
-              <Label className="text-sm shrink-0">Auto-tag leads as:</Label>
-              <Input
-                value={tagName}
-                onChange={e => setTagName(e.target.value)}
-                placeholder="e.g., spring-reactivation-2026"
-                className="h-8 max-w-xs"
-              />
-            </CardContent>
-          </Card>
+          <div className="aurea-card px-4 py-3 flex items-center gap-3">
+            <Label className="text-[13px] shrink-0 text-aurea-ink-2">Auto-tag leads as:</Label>
+            <Input
+              value={tagName}
+              onChange={e => setTagName(e.target.value)}
+              placeholder="e.g., spring-reactivation-2026"
+              className="h-8 max-w-xs"
+            />
+          </div>
 
           {/* Preview Table */}
-          <div className="rounded-lg border max-h-[50vh] overflow-auto">
+          <div className="aurea-card max-h-[50vh] overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -369,111 +365,102 @@ export function ReactivationUpload({
             )}
           </div>
 
-          <Card className="bg-amber-50 border-amber-200">
-            <CardContent className="py-3 flex items-start gap-2 text-sm">
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium text-amber-800">Deduplication</p>
-                <p className="text-amber-700 text-xs">
-                  If a lead already exists (matched by email or phone), they will be enrolled into the campaign without creating a duplicate.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="rounded-lg border border-aurea-amber/40 bg-aurea-amber-soft px-4 py-3 flex items-start gap-2.5 text-sm">
+            <AlertTriangle className="h-4 w-4 text-aurea-amber shrink-0 mt-0.5" strokeWidth={1.75} />
+            <div>
+              <p className="font-medium text-aurea-ink">Deduplication</p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-aurea-ink-2">
+                If a lead already exists (matched by email or phone), they will be enrolled into the campaign without creating a duplicate.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Uploading Progress */}
       {step === 'uploading' && (
-        <Card>
-          <CardContent className="py-16 flex flex-col items-center gap-6">
-            <Loader2 className="h-12 w-12 animate-spin text-purple-600" />
+        <div className="aurea-card">
+          <div className="py-16 flex flex-col items-center gap-6">
+            <Loader2 className="h-10 w-10 animate-spin text-aurea-primary" />
             <div className="text-center">
-              <p className="font-semibold text-lg">Uploading & enrolling leads...</p>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-[15px] font-medium text-aurea-ink">Uploading &amp; enrolling leads…</p>
+              <p className="mt-1 text-[13px] text-aurea-ink-3">
                 This may take a moment for larger databases
               </p>
             </div>
 
             {/* Progress bar */}
             <div className="w-full max-w-md">
-              <div className="h-2 rounded-full bg-purple-100 overflow-hidden">
+              <div className="h-1.5 rounded-full bg-aurea-surface-2 overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all duration-500"
+                  className="h-full bg-aurea-primary rounded-full transition-all duration-500"
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <p className="text-xs text-muted-foreground text-center mt-2">
+              <p className="mt-2 text-center font-mono text-[11px] tabular-nums text-aurea-ink-3">
                 {Math.round(progress)}% complete
               </p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Results */}
       {step === 'results' && uploadResult && (
         <div className="space-y-4">
-          <Card className="bg-gradient-to-br from-emerald-50 to-green-50 border-emerald-200">
-            <CardContent className="py-6">
-              <div className="flex items-center gap-3 mb-4">
-                <CheckCircle className="h-8 w-8 text-emerald-600" />
-                <div>
-                  <p className="font-semibold text-lg text-emerald-800">Upload Complete!</p>
-                  <p className="text-sm text-emerald-700">
-                    {uploadResult.summary.enrolled} leads enrolled into the campaign
-                  </p>
-                </div>
+          <div className="aurea-card p-6">
+            <div className="flex items-center gap-3 mb-5">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-aurea-primary-soft text-aurea-primary ring-1 ring-aurea-primary/30">
+                <CheckCircle className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <div>
+                <p className="text-[15px] font-medium text-aurea-ink">Upload complete</p>
+                <p className="text-[13px] text-aurea-ink-3">
+                  {uploadResult.summary.enrolled} leads enrolled into the campaign
+                </p>
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="rounded-lg bg-white/70 p-3 text-center">
-                  <p className="text-2xl font-bold text-slate-800">{uploadResult.summary.total}</p>
-                  <p className="text-xs text-muted-foreground">Total Rows</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-px overflow-hidden rounded-lg bg-aurea-border">
+              {[
+                { v: uploadResult.summary.total, l: 'Total Rows', accent: 'text-aurea-ink' },
+                { v: uploadResult.summary.created, l: 'New Leads Created', accent: 'text-aurea-primary' },
+                { v: uploadResult.summary.matched, l: 'Existing Matched', accent: 'text-aurea-ink' },
+                { v: uploadResult.summary.enrolled, l: 'Enrolled', accent: 'text-aurea-primary' },
+              ].map((s) => (
+                <div key={s.l} className="bg-aurea-surface p-3.5 text-center">
+                  <p className={`aurea-display text-[26px] tabular-nums ${s.accent}`}>{s.v}</p>
+                  <p className="aurea-eyebrow mt-1 !tracking-[0.1em]">{s.l}</p>
                 </div>
-                <div className="rounded-lg bg-white/70 p-3 text-center">
-                  <p className="text-2xl font-bold text-emerald-600">{uploadResult.summary.created}</p>
-                  <p className="text-xs text-muted-foreground">New Leads Created</p>
-                </div>
-                <div className="rounded-lg bg-white/70 p-3 text-center">
-                  <p className="text-2xl font-bold text-blue-600">{uploadResult.summary.matched}</p>
-                  <p className="text-xs text-muted-foreground">Existing Matched</p>
-                </div>
-                <div className="rounded-lg bg-white/70 p-3 text-center">
-                  <p className="text-2xl font-bold text-purple-600">{uploadResult.summary.enrolled}</p>
-                  <p className="text-xs text-muted-foreground">Enrolled</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          </div>
 
           {uploadResult.summary.failed > 0 && (
-            <Card className="border-red-200">
-              <CardContent className="py-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <XCircle className="h-4 w-4 text-red-500" />
-                  <p className="text-sm font-medium text-red-700">
-                    {uploadResult.summary.failed} rows failed
+            <div className="rounded-lg border border-aurea-rose/40 bg-aurea-rose-soft px-4 py-4">
+              <div className="flex items-center gap-2 mb-2">
+                <XCircle className="h-4 w-4 text-aurea-rose" strokeWidth={1.75} />
+                <p className="text-[13px] font-medium text-aurea-ink">
+                  {uploadResult.summary.failed} rows failed
+                </p>
+              </div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {uploadResult.results.filter(r => !r.success).map(r => (
+                  <p key={r.row} className="text-[12px] text-aurea-ink-2">
+                    Row {r.row}: {r.error}
                   </p>
-                </div>
-                <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {uploadResult.results.filter(r => !r.success).map(r => (
-                    <p key={r.row} className="text-xs text-muted-foreground">
-                      Row {r.row}: {r.error}
-                    </p>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                ))}
+              </div>
+            </div>
           )}
 
           <div className="flex items-center justify-between">
             <Button variant="outline" onClick={resetUpload} className="gap-2">
-              <Upload className="h-4 w-4" />
+              <Upload className="h-4 w-4" strokeWidth={1.75} />
               Upload More Leads
             </Button>
             <Button onClick={onBack} className="gap-2">
-              <CheckCircle className="h-4 w-4" />
+              <CheckCircle className="h-4 w-4" strokeWidth={1.75} />
               Done
             </Button>
           </div>

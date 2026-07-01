@@ -3,9 +3,8 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { FinancingWaterfallTracker } from './financing-waterfall-tracker'
-import { DollarSign, Send, RefreshCw, ExternalLink, Copy, Check } from 'lucide-react'
+import { DollarSign, Send, RefreshCw, Copy, Check } from 'lucide-react'
 import type { Lead } from '@/types/database'
 
 type FinancingAppData = {
@@ -37,24 +36,30 @@ type EstimateData = {
   term_months: number
 }
 
-const STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  approved: { label: 'Approved', variant: 'default' },
-  denied: { label: 'Denied', variant: 'destructive' },
-  in_progress: { label: 'In Progress', variant: 'secondary' },
-  pending: { label: 'Pending', variant: 'outline' },
-  expired: { label: 'Expired', variant: 'destructive' },
-  error: { label: 'Error', variant: 'destructive' },
+// Application status pill styles — emerald=approved, amber=in_progress/pending, rose=denied/error/expired
+const STATUS_PILL: Record<string, string> = {
+  approved:    'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  denied:      'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  in_progress: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  pending:     'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  expired:     'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  error:       'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  approved: 'Approved', denied: 'Denied', in_progress: 'In Progress',
+  pending: 'Pending', expired: 'Expired', error: 'Error',
 }
 
 // Financial-readiness tier surfaced from the AI qualifier. Only shown once the
 // lead has actually been assessed (see `assessed` below) — otherwise the column
 // default `tier_c` would read as a real grade on leads that were never scored
 // (e.g. bulk-imported GHL contacts with no conversation yet).
-const TIER_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className?: string }> = {
-  tier_a: { label: 'Tier A · Ready', variant: 'default', className: 'bg-green-600' },
-  tier_b: { label: 'Tier B · Warming', variant: 'secondary' },
-  tier_c: { label: 'Tier C · Early', variant: 'outline' },
-  tier_d: { label: 'Tier D · Barriers', variant: 'destructive' },
+const TIER_PILL: Record<string, { label: string; className: string }> = {
+  tier_a: { label: 'Tier A · Ready',    className: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },
+  tier_b: { label: 'Tier B · Warming',  className: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
+  tier_c: { label: 'Tier C · Early',    className: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border' },
+  tier_d: { label: 'Tier D · Barriers', className: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
 }
 
 export function LeadFinancingCard({ lead }: { lead: Lead }) {
@@ -106,7 +111,8 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const badgeConfig = appData ? STATUS_BADGE[appData.status] || STATUS_BADGE.pending : null
+  const statusPillClass = appData ? (STATUS_PILL[appData.status] ?? STATUS_PILL.pending) : null
+  const statusLabel = appData ? (STATUS_LABEL[appData.status] ?? 'Pending') : null
 
   // A lead is only "assessed" once the text-derived qualifier has run (it sets
   // financial_qualification_status='assessed' and stamps financial_signals).
@@ -115,76 +121,84 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
   const assessed =
     lead.financial_qualification_status === 'assessed' || !!lead.financial_signals?.last_updated
   const tierConfig =
-    (lead.financial_qualification_tier && TIER_BADGE[lead.financial_qualification_tier]) ||
-    TIER_BADGE.tier_c
+    (lead.financial_qualification_tier && TIER_PILL[lead.financial_qualification_tier]) ||
+    TIER_PILL.tier_c
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <DollarSign className="h-4 w-4" /> Financing
+        <CardTitle className="flex items-center justify-between text-[14px]">
+          <span className="flex items-center gap-2 text-aurea-ink">
+            <DollarSign className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+            Financing
           </span>
-          {badgeConfig && (
-            <Badge variant={badgeConfig.variant} className="text-xs">
-              {badgeConfig.label}
-            </Badge>
+          {statusPillClass && (
+            <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${statusPillClass}`}>
+              {statusLabel}
+            </span>
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 text-sm">
+      <CardContent className="space-y-3">
         {/* Basic financial info */}
-        <div className="space-y-1.5">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Budget Range</span>
-            <span className="font-medium capitalize">{lead.budget_range?.replace(/_/g, ' ') || '—'}</span>
+        <div className="space-y-0">
+          <div className="flex items-center justify-between border-b border-aurea-border py-2 last:border-0">
+            <span className="text-[12px] text-aurea-ink-3">Budget Range</span>
+            <span className="text-[12px] font-medium capitalize text-aurea-ink">
+              {lead.budget_range?.replace(/_/g, ' ') || '—'}
+            </span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Treatment Value</span>
-            <span className="font-medium text-green-600">
+          <div className="flex items-center justify-between border-b border-aurea-border py-2 last:border-0">
+            <span className="text-[12px] text-aurea-ink-3">Treatment Value</span>
+            <span className="font-mono text-[12px] tabular-nums font-medium text-aurea-primary">
               {lead.treatment_value ? `$${lead.treatment_value.toLocaleString()}` : '—'}
             </span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Interest</span>
-            <span className="font-medium capitalize">{lead.financing_interest?.replace(/_/g, ' ') || '—'}</span>
+          <div className="flex items-center justify-between border-b border-aurea-border py-2 last:border-0">
+            <span className="text-[12px] text-aurea-ink-3">Interest</span>
+            <span className="text-[12px] font-medium capitalize text-aurea-ink">
+              {lead.financing_interest?.replace(/_/g, ' ') || '—'}
+            </span>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Financing Signal</span>
+          <div className="flex items-center justify-between py-2">
+            <span className="text-[12px] text-aurea-ink-3">Financing Signal</span>
             {assessed ? (
-              <Badge variant={tierConfig.variant} className={`text-xs ${tierConfig.className ?? ''}`}>
-                {tierConfig.label} · {lead.financing_readiness_score}/100
-              </Badge>
+              <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${tierConfig.className}`}>
+                {tierConfig.label} &middot; {lead.financing_readiness_score}/100
+              </span>
             ) : (
-              <Badge variant="outline" className="text-xs text-muted-foreground">
+              <span className="inline-flex items-center rounded-md border border-aurea-border bg-aurea-surface-2 px-2 py-0.5 text-[11px] text-aurea-ink-3">
                 Not assessed
-              </Badge>
+              </span>
             )}
           </div>
         </div>
+
         {!assessed && (
-          <p className="text-[11px] leading-tight text-muted-foreground">
+          <p className="text-[11px] leading-tight text-aurea-ink-3">
             No financial signals yet — readiness is inferred from conversation, not a credit check.
           </p>
         )}
 
         {/* Approval info */}
         {appData?.status === 'approved' && appData.approved_amount && (
-          <div className="rounded-lg border border-green-200 bg-green-50 p-3">
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Approved</span>
-              <span className="text-lg font-bold text-green-700">${appData.approved_amount.toLocaleString()}</span>
+          <div className="rounded-lg border border-aurea-primary/20 bg-aurea-primary/5 p-3">
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="aurea-eyebrow text-aurea-primary">Approved</p>
+              <p className="aurea-display text-[22px] tabular-nums text-aurea-primary">
+                ${appData.approved_amount.toLocaleString()}
+              </p>
             </div>
             {appData.approved_terms && (
-              <div className="text-xs text-green-600 space-y-0.5">
+              <div className="space-y-0.5 font-mono text-[11px] tabular-nums text-aurea-ink-2">
                 <p>${appData.approved_terms.monthly_payment}/mo &bull; {appData.approved_terms.apr}% APR &bull; {appData.approved_terms.term_months} months</p>
                 {appData.approved_terms.promo_period_months && (
-                  <p className="font-semibold">0% promo for {appData.approved_terms.promo_period_months} months</p>
+                  <p className="font-semibold text-aurea-primary">0% promo for {appData.approved_terms.promo_period_months} months</p>
                 )}
               </div>
             )}
             {appData.approved_lender_slug && (
-              <p className="text-xs text-green-600 mt-1">via {appData.approved_lender_slug}</p>
+              <p className="mt-1 text-[11px] text-aurea-ink-3">via {appData.approved_lender_slug}</p>
             )}
           </div>
         )}
@@ -192,7 +206,7 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
         {/* Waterfall tracker */}
         {appData && appData.waterfall_config && (
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Waterfall Progress</p>
+            <p className="aurea-eyebrow mb-2 text-aurea-ink-3">Waterfall Progress</p>
             <FinancingWaterfallTracker
               waterfallConfig={appData.waterfall_config as any}
               submissions={appData.submissions as any}
@@ -204,13 +218,17 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
         {/* Payment estimates */}
         {estimates.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Payment Estimates</p>
+            <p className="aurea-eyebrow mb-2 text-aurea-ink-3">Payment Estimates</p>
             <div className="space-y-1.5">
               {estimates.slice(0, 4).map((est, i) => (
-                <div key={i} className="flex justify-between items-center text-xs rounded-md border px-2 py-1.5">
-                  <span className="text-muted-foreground">{est.lender_name}</span>
-                  <span className="font-semibold">
-                    ${est.monthly_payment}/mo <span className="text-muted-foreground font-normal">{est.apr}% · {est.term_months}mo</span>
+                <div
+                  key={i}
+                  className="flex items-center justify-between rounded-lg border border-aurea-border bg-aurea-surface px-3 py-2"
+                >
+                  <span className="text-[12px] text-aurea-ink-3">{est.lender_name}</span>
+                  <span className="font-mono text-[12px] tabular-nums font-medium text-aurea-ink">
+                    ${est.monthly_payment}/mo{' '}
+                    <span className="font-normal text-aurea-ink-3">{est.apr}% · {est.term_months}mo</span>
                   </span>
                 </div>
               ))}
@@ -225,26 +243,28 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
               // In production: open a dialog to start financing application
               window.open(`/qualify/${lead.organization_id}?lead_id=${lead.id}`, '_blank')
             }}>
-              <Send className="h-3.5 w-3.5 mr-1.5" />
+              <Send className="h-3.5 w-3.5 mr-1.5" strokeWidth={1.75} />
               Send Financing Link
             </Button>
           )}
 
           {appData && (
             <Button variant="outline" size="sm" className="w-full" onClick={copyFinancingLink}>
-              {copied ? <Check className="h-3.5 w-3.5 mr-1.5" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
+              {copied
+                ? <Check className="h-3.5 w-3.5 mr-1.5" strokeWidth={1.75} />
+                : <Copy className="h-3.5 w-3.5 mr-1.5" strokeWidth={1.75} />}
               {copied ? 'Copied!' : 'Copy Financing Link'}
             </Button>
           )}
 
           <Button variant="outline" size="sm" className="w-full" onClick={loadEstimates} disabled={loading}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Loading...' : estimates.length > 0 ? 'Refresh Estimates' : 'Get Payment Estimates'}
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} strokeWidth={1.75} />
+            {loading ? 'Loading…' : estimates.length > 0 ? 'Refresh Estimates' : 'Get Payment Estimates'}
           </Button>
 
           {appData && (
-            <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => loadApplication(appData.id)}>
-              <RefreshCw className="h-3 w-3 mr-1" /> Refresh Status
+            <Button variant="ghost" size="sm" className="w-full text-[12px] text-aurea-ink-3" onClick={() => loadApplication(appData.id)}>
+              <RefreshCw className="h-3 w-3 mr-1" strokeWidth={1.75} /> Refresh Status
             </Button>
           )}
         </div>

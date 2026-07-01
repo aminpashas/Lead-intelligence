@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // GET /api/agents/protocol-changes?limit=50&agent_id=uuid?
 //
@@ -23,6 +24,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const limitParam = Number(request.nextUrl.searchParams.get('limit') ?? '50')
   const limit = Math.min(Math.max(limitParam, 1), 200)
   const agentIdParam = request.nextUrl.searchParams.get('agent_id')
@@ -30,7 +36,7 @@ export async function GET(request: NextRequest) {
   let changesQuery = supabase
     .from('agent_protocol_changes')
     .select('id, agent_id, change_type, triggered_by, from_protocol_id, to_protocol_id, from_multiplier, to_multiplier, reason, reference_review_id, created_by, created_at')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(limit)
 
@@ -43,11 +49,11 @@ export async function GET(request: NextRequest) {
     supabase
       .from('agent_lead_caps')
       .select('agent_id, base_daily_cap, multiplier, autopilot_mode_override, updated_at')
-      .eq('organization_id', profile.organization_id),
+      .eq('organization_id', orgId),
     supabase
       .from('ai_agents')
       .select('id, name, role')
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .eq('is_active', true),
   ])
 

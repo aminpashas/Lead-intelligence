@@ -313,3 +313,234 @@ path,
 circle {
   transition: none !important;
 }
+
+/* ═══════════════════════════════════════════════════════════ */
+/* AUREA HEALTH — Agency theme                                  */
+/* The real Aurea system: editorial monochrome — warm stone     */
+/* surface, zinc ink, a single emerald accent used sparingly,   */
+/* warm gold for editorial moments. Flat surfaces; hairline     */
+/* borders carry the structure, not shadows. Instrument Serif   */
+/* display. Scoped to `.aurea`; flips light ⇄ dark cleanly.     */
+/* ═══════════════════════════════════════════════════════════ */
+
+/* Register Aurea tokens as Tailwind utilities (bg-aurea-*, text-aurea-*, …) */
+@theme inline {
+  --color-aurea-canvas: var(--aurea-canvas);
+  --color-aurea-surface: var(--aurea-surface);
+  --color-aurea-surface-2: var(--aurea-surface-2);
+  --color-aurea-border: var(--aurea-border);
+  --color-aurea-border-strong: var(--aurea-border-strong);
+  --color-aurea-ink: var(--aurea-ink);
+  --color-aurea-ink-2: var(--aurea-ink-2);
+  --color-aurea-ink-3: var(--aurea-ink-3);
+  --color-aurea-primary: var(--aurea-primary);
+  --color-aurea-primary-soft: var(--aurea-primary-soft);
+  --color-aurea-gold: var(--aurea-gold);
+  --color-aurea-gold-soft: var(--aurea-gold-soft);
+  --color-aurea-amber: var(--aurea-amber);
+  --color-aurea-amber-soft: var(--aurea-amber-soft);
+  --color-aurea-rose: var(--aurea-rose);
+  --color-aurea-rose-soft: var(--aurea-rose-soft);
+  --font-display: var(--font-instrument-serif);
+}
+
+/* ── Light mode — stone-white floor, zinc ink, emerald accent ── */
+.aurea {
+  --aurea-canvas: oklch(0.985 0.002 100);     /* stone-white #fafaf9 */
+  --aurea-surface: oklch(1 0 0);              /* white card */
+  --aurea-surface-2: oklch(0.967 0.001 286);  /* zinc-100 inset / active */
+  --aurea-border: oklch(0.92 0.004 286);      /* zinc-200 hairline */
+  --aurea-border-strong: oklch(0.871 0.006 286); /* zinc-300 */
+
+  --aurea-ink: oklch(0.18 0.004 285);         /* zinc-950 */
+  --aurea-ink-2: oklch(0.37 0.012 286);       /* zinc-700 body */
+  --aurea-ink-3: oklch(0.552 0.016 286);      /* zinc-500 muted */
+
+  --aurea-primary: oklch(0.66 0.15 162);      /* emerald-600 — sparingly */
+  --aurea-primary-soft: oklch(0.66 0.15 162 / 0.1);
+  --aurea-gold: oklch(0.66 0.09 80);          /* warm gold — editorial */
+  --aurea-gold-soft: oklch(0.93 0.045 82);
+  --aurea-amber: oklch(0.62 0.13 66);         /* trial / pending */
+  --aurea-amber-soft: oklch(0.93 0.05 75);
+  --aurea-rose: oklch(0.55 0.2 27);           /* error */
+  --aurea-rose-soft: oklch(0.94 0.03 25);
+
+  /* Remap shadcn semantic tokens onto Aurea so the CRM's existing
+     bg-card / text-muted-foreground / bg-primary / border-border
+     surfaces re-skin to the editorial system inside this scope.
+     These reference the --aurea-* vars above, so they flip in dark
+     mode automatically (no need to repeat in `.dark .aurea`). */
+  --background: var(--aurea-canvas);
+  --foreground: var(--aurea-ink);
+  --card: var(--aurea-surface);
+  --card-foreground: var(--aurea-ink);
+  --popover: var(--aurea-surface);
+  --popover-foreground: var(--aurea-ink);
+  --primary: var(--aurea-primary);
+  --primary-foreground: oklch(0.985 0.012 160);
+  --secondary: var(--aurea-surface-2);
+  --secondary-foreground: var(--aurea-ink-2);
+  --muted: var(--aurea-surface-2);
+  --muted-foreground: var(--aurea-ink-3);
+  --accent: var(--aurea-surface-2);
+  --accent-foreground: var(--aurea-ink);
+  --destructive: var(--aurea-rose);
+  --border: var(--aurea-border);
+  --input: var(--aurea-border-strong);
+  --ring: var(--aurea-primary);
+  --radius: 0.5rem;
+  --sidebar: var(--aurea-surface);
+  --sidebar-foreground: var(--aurea-ink);
+  --sidebar-primary: var(--aurea-primary);
+  --sidebar-primary-foreground: oklch(0.985 0.012 160);
+  --sidebar-accent: var(--aurea-surface-2);
+  --sidebar-accent-foreground: var(--aurea-ink);
+  --sidebar-border: var(--aurea-border);
+  --sidebar-ring: var(--aurea-primary);
+  --chart-1: var(--aurea-primary);
+  --chart-2: var(--aurea-ink-3);
+  --chart-3: var(--aurea-amber);
+  --chart-4: var(--aurea-gold);
+  --chart-5: var(--aurea-rose);
+
+  /* Real (non-@theme) display var so var(--font-display) resolves in
+     hand-written CSS like .aurea-display. */
+  --font-display: var(--font-instrument-serif), "Newsreader", Georgia, serif;
+
+  font-family: var(--font-inter), var(--font-manrope), ui-sans-serif,
+    system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--aurea-ink);
+}
+
+/* ── Dark mode — zinc-950 surface, zinc ink, emerald accent ── */
+.dark .aurea {
+  --aurea-canvas: oklch(0.16 0.004 285);      /* zinc-950 */
+  --aurea-surface: oklch(0.2 0.005 285);      /* zinc-900 */
+  --aurea-surface-2: oklch(0.24 0.005 285);   /* zinc-800 */
+  --aurea-border: oklch(0.27 0.006 286);      /* zinc-700/800 hairline */
+  --aurea-border-strong: oklch(0.32 0.006 286);
+
+  --aurea-ink: oklch(0.97 0.002 100);
+  --aurea-ink-2: oklch(0.78 0.01 286);        /* zinc-300 */
+  --aurea-ink-3: oklch(0.7 0.012 286);        /* zinc-400 */
+
+  --aurea-primary: oklch(0.7 0.14 162);       /* emerald, brighter */
+  --aurea-primary-soft: oklch(0.7 0.14 162 / 0.16);
+  --aurea-gold: oklch(0.8 0.1 82);
+  --aurea-gold-soft: oklch(0.3 0.06 82);
+  --aurea-amber: oklch(0.78 0.12 70);
+  --aurea-amber-soft: oklch(0.3 0.06 70);
+  --aurea-rose: oklch(0.7 0.19 22);
+  --aurea-rose-soft: oklch(0.3 0.08 22);
+}
+
+/* Content floor — flat stone with one barely-there warm wash. */
+.aurea-floor {
+  background-color: var(--aurea-canvas);
+  background-image: radial-gradient(
+    90% 60% at 100% -10%,
+    oklch(0.74 0.1 80 / 0.05) 0%,
+    transparent 55%
+  );
+  background-attachment: fixed;
+}
+.dark .aurea-floor {
+  background-image: radial-gradient(
+    90% 60% at 100% -10%,
+    oklch(0.7 0.14 162 / 0.05) 0%,
+    transparent 55%
+  );
+}
+
+/* Beat the global `.dark aside / header` !important overrides,
+   scoped to the agency shell only. The rail is a flat surface
+   with a hairline — no navy, no shadow. */
+.aurea aside.aurea-rail,
+.dark .aurea aside.aurea-rail {
+  background: var(--aurea-surface) !important;
+  border-right-color: var(--aurea-border) !important;
+}
+.aurea header.aurea-topbar,
+.dark .aurea header.aurea-topbar {
+  background: color-mix(in oklch, var(--aurea-canvas) 82%, transparent) !important;
+  border-bottom-color: var(--aurea-border) !important;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* Dark-mode neutralizers — the global `.dark` !important overrides (glass
+   cards, lavender dropdowns/inputs, navy aside/header) would otherwise win
+   over the remapped tokens. Re-point them to flat Aurea editorial inside
+   the scope. Higher specificity (.dark .aurea …) beats the global rules. */
+.dark .aurea aside {
+  background: var(--aurea-surface) !important;
+  border-color: var(--aurea-border) !important;
+  border-right-color: var(--aurea-border) !important;
+}
+.dark .aurea header {
+  background: var(--aurea-surface) !important;
+  border-color: var(--aurea-border) !important;
+  border-bottom-color: var(--aurea-border) !important;
+}
+.dark .aurea [data-slot="card"] {
+  background: var(--aurea-surface) !important;
+  border-color: var(--aurea-border) !important;
+  box-shadow: none !important;
+}
+.dark .aurea [data-slot="dropdown-menu-content"],
+.dark .aurea [role="menu"],
+.dark .aurea [data-radix-popper-content-wrapper] > * {
+  background: var(--aurea-surface) !important;
+  border-color: var(--aurea-border) !important;
+  box-shadow: 0 12px 32px -16px rgb(0 0 0 / 0.6) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.dark .aurea input,
+.dark .aurea textarea,
+.dark .aurea select {
+  background: var(--aurea-surface-2) !important;
+  border-color: var(--aurea-border) !important;
+}
+.dark .aurea input:focus,
+.dark .aurea textarea:focus {
+  border-color: color-mix(in oklch, var(--aurea-primary) 45%, transparent) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--aurea-primary) 12%, transparent) !important;
+}
+.dark .aurea .bg-primary.text-primary-foreground {
+  background: var(--aurea-primary) !important;
+  color: oklch(0.16 0.02 160) !important;
+  box-shadow: none !important;
+}
+
+/* Component primitives */
+@layer components {
+  /* Flat editorial card — hairline border, no shadow. */
+  .aurea-card {
+    background: var(--aurea-surface);
+    border: 1px solid var(--aurea-border);
+    border-radius: 0.625rem;
+  }
+  /* Instrument Serif display — editorial headings & numerals. */
+  .aurea-display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    line-height: 1;
+  }
+  /* Uppercase micro-label — the Aurea eyebrow. */
+  .aurea-eyebrow {
+    font-size: 10.5px;
+    line-height: 1.2;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--aurea-ink-3);
+  }
+  .aurea-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+  }
+}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { auditPHIRead } from '@/lib/hipaa-audit'
 import { maskSSN } from '@/lib/financing/encryption-helpers'
 import type { FinancingApplication, FinancingSubmission } from '@/lib/financing/types'
@@ -65,11 +66,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ error: 'User profile not found' }, { status: 403 })
       }
 
+      // Effective org honors an agency_admin's entered client account.
+      const { orgId } = await resolveActiveOrg(supabase)
+      if (!orgId) {
+        return NextResponse.json({ error: 'User profile not found' }, { status: 403 })
+      }
+
       const { data } = await supabase
         .from('financing_applications')
         .select('*')
         .eq('id', applicationId)
-        .eq('organization_id', profile.organization_id)
+        .eq('organization_id', orgId)
         .single()
 
       if (!data) {

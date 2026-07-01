@@ -10,10 +10,10 @@ export default function AgencyAiTrainingPage() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center gap-2 mb-1">
-          <GraduationCap className="h-5 w-5 text-violet-400" />
-          <h1 className="text-2xl font-bold text-white">AI Training</h1>
+          <GraduationCap className="h-5 w-5 text-aurea-primary" />
+          <h1 className="text-2xl font-bold text-aurea-ink">AI Training</h1>
         </div>
-        <p className="text-slate-400 text-sm">
+        <p className="text-aurea-ink-2 text-sm">
           Role-play arena, chat playground, memory manager, and knowledge base — agency IP, not visible to practices.
         </p>
       </div>

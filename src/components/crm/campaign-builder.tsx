@@ -21,10 +21,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, Loader2, GripVertical, Clock, MessageSquare, Mail, ListFilter, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import { aureaFontVars } from '@/lib/fonts'
 
 type Step = {
   step_number: number
@@ -147,9 +146,15 @@ export function CampaignBuilder() {
           New Campaign
         </span>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Create Drip Campaign</DialogTitle>
+      <DialogContent className={`aurea ${aureaFontVars} max-w-3xl max-h-[85vh] overflow-y-auto bg-aurea-surface`}>
+        <DialogHeader className="space-y-1">
+          <p className="aurea-eyebrow">New campaign</p>
+          <DialogTitle
+            className="text-[24px] font-normal tracking-[-0.015em] text-aurea-ink"
+            style={{ fontFamily: 'var(--font-instrument-serif), "Newsreader", Georgia, serif' }}
+          >
+            Create drip campaign
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6 mt-4">
@@ -229,12 +234,11 @@ export function CampaignBuilder() {
 
             <div className="space-y-3">
               {steps.map((step, index) => (
-                <Card key={index}>
-                  <CardContent className="py-4 space-y-3">
+                <div key={index} className="aurea-card space-y-3 p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-muted-foreground" />
-                        <Badge variant="outline">Step {step.step_number}</Badge>
+                        <GripVertical className="h-4 w-4 text-aurea-ink-3" />
+                        <span className="aurea-eyebrow">Step {step.step_number}</span>
                         <Input
                           value={step.name}
                           onChange={(e) => updateStep(index, { name: e.target.value })}
@@ -325,8 +329,7 @@ export function CampaignBuilder() {
                       placeholder={step.channel === 'sms' ? 'SMS message (160 chars ideal)...' : 'Email body...'}
                       rows={step.channel === 'sms' ? 3 : 5}
                     />
-                  </CardContent>
-                </Card>
+                </div>
               ))}
             </div>
 

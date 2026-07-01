@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const updateTagSchema = z.object({
@@ -16,6 +17,8 @@ export async function PATCH(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = updateTagSchema.safeParse(body)
 
@@ -49,7 +52,7 @@ export async function PATCH(
     .from('tags')
     .update(updates)
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .select()
     .single()
 
@@ -70,6 +73,8 @@ export async function DELETE(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -84,7 +89,7 @@ export async function DELETE(
     .from('tags')
     .delete()
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

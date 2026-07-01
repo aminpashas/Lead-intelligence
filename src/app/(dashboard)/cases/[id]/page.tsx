@@ -4,14 +4,11 @@ import { useEffect, useState, useCallback, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useOrgStore } from '@/lib/store/use-org'
 import { hasPermission, type PracticeRole } from '@/lib/auth/permissions'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Select,
   SelectContent,
@@ -39,13 +36,13 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { ClinicalCase, CaseTreatmentItem } from '@/types/database'
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  intake: { label: 'Intake', color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
-  analysis: { label: 'AI Analysis', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
-  diagnosis: { label: 'Needs Diagnosis', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-  treatment_planning: { label: 'Treatment Planning', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  patient_review: { label: 'Patient Review', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
-  completed: { label: 'Completed', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+const STATUS_LABELS: Record<string, { label: string; dot: string; text: string }> = {
+  intake:             { label: 'Intake',             dot: 'bg-aurea-ink-3',  text: 'text-aurea-ink-3' },
+  analysis:           { label: 'AI Analysis',         dot: 'bg-aurea-primary', text: 'text-aurea-primary' },
+  diagnosis:          { label: 'Needs Diagnosis',     dot: 'bg-aurea-ink-2',  text: 'text-aurea-ink-2' },
+  treatment_planning: { label: 'Treatment Planning',  dot: 'bg-aurea-amber',  text: 'text-aurea-amber' },
+  patient_review:     { label: 'Patient Review',      dot: 'bg-aurea-primary', text: 'text-aurea-primary' },
+  completed:          { label: 'Completed',           dot: 'bg-aurea-primary', text: 'text-aurea-primary' },
 }
 
 export default function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -75,15 +72,15 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <Loader2 className="h-6 w-6 animate-spin text-aurea-ink-3" />
       </div>
     )
   }
 
   if (!caseData) {
     return (
-      <div className="text-center py-20">
-        <p className="text-muted-foreground">Case not found</p>
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-[14px] text-aurea-ink-3">Case not found</p>
         <Button variant="outline" className="mt-4" onClick={() => router.push('/cases')}>
           Back to Cases
         </Button>
@@ -94,33 +91,36 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   const statusInfo = STATUS_LABELS[caseData.status] || STATUS_LABELS.intake
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="animate-in fade-in-0 duration-500 max-w-5xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-start gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.push('/cases')} className="mt-1">
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
         </Button>
         <div className="flex-1">
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold">{caseData.patient_name}</h1>
-            <Badge variant="outline" className="text-xs">{caseData.case_number}</Badge>
-            <Badge className={cn('text-xs', statusInfo.color)}>{statusInfo.label}</Badge>
+            <h1 className="aurea-display text-[28px] text-aurea-ink">{caseData.patient_name}</h1>
+            <span className="font-mono text-[11px] text-aurea-ink-3">{caseData.case_number}</span>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
+              <span className={cn('h-1.5 w-1.5 rounded-full', statusInfo.dot)} />
+              <span className={statusInfo.text}>{statusInfo.label}</span>
+            </span>
             {caseData.priority !== 'normal' && (
-              <Badge variant="outline" className={cn('text-xs',
-                caseData.priority === 'urgent' ? 'border-red-500/50 text-red-600' :
-                caseData.priority === 'high' ? 'border-amber-500/50 text-amber-600' :
-                'border-slate-500/50 text-slate-600'
+              <span className={cn('inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10.5px] font-medium',
+                caseData.priority === 'urgent' ? 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/20' :
+                caseData.priority === 'high'   ? 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20' :
+                'bg-aurea-surface-2 text-aurea-ink-3 border-aurea-border'
               )}>
-                {caseData.priority === 'urgent' && <AlertTriangle className="h-3 w-3 mr-1" />}
+                {caseData.priority === 'urgent' && <AlertTriangle className="h-3 w-3 mr-0.5" strokeWidth={1.75} />}
                 {caseData.priority}
-              </Badge>
+              </span>
             )}
           </div>
-          <p className="text-muted-foreground mt-1">{caseData.chief_complaint}</p>
+          <p className="mt-1 text-[13px] text-aurea-ink-2">{caseData.chief_complaint}</p>
           {caseData.assigned_doctor && (
             <div className="flex items-center gap-2 mt-2">
-              <Stethoscope className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
+              <Stethoscope className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />
+              <span className="text-[12px] text-aurea-ink-3">
                 Assigned to Dr. {caseData.assigned_doctor.full_name}
                 {caseData.assigned_doctor.specialty && ` (${caseData.assigned_doctor.specialty})`}
               </span>
@@ -142,34 +142,36 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
               }
             }}
           >
-            <Send className="h-4 w-4" /> Send to Patient
+            <Send className="h-4 w-4" strokeWidth={1.75} /> Send to Patient
           </Button>
         )}
         {caseData.status === 'patient_review' && !caseData.patient_email && (
-          <Badge variant="outline" className="text-xs text-amber-600 shrink-0">
+          <span className="inline-flex items-center gap-1.5 rounded border border-aurea-amber/20 bg-aurea-amber/10 px-2.5 py-1 text-[11px] font-medium text-aurea-amber shrink-0">
             No patient email — add email to send
-          </Badge>
+          </span>
         )}
         {caseData.patient_notified_at && (
-          <Badge variant="outline" className="text-xs text-emerald-600 shrink-0 gap-1">
-            <CheckCircle2 className="h-3 w-3" />
+          <span className="inline-flex items-center gap-1 rounded border border-aurea-border px-2.5 py-1 text-[11px] text-aurea-primary shrink-0">
+            <CheckCircle2 className="h-3 w-3" strokeWidth={1.75} />
             Sent {new Date(caseData.patient_notified_at).toLocaleDateString()}
-          </Badge>
+          </span>
         )}
       </div>
 
       {/* Files Gallery */}
       {caseData.files && caseData.files.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <FileImage className="h-4 w-4" /> Uploaded Files ({caseData.files.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+        <div className="aurea-card overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+            <FileImage className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+            <h2 className="aurea-display text-[18px] text-aurea-ink">
+              Uploaded Files
+            </h2>
+            <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">({caseData.files.length})</span>
+          </div>
+          <div className="p-5">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {caseData.files.map((file) => (
-                <div key={file.id} className="group relative rounded-lg border overflow-hidden">
+                <div key={file.id} className="group relative rounded-lg border border-aurea-border overflow-hidden">
                   {file.mime_type?.startsWith('image/') ? (
                     <img
                       src={file.file_url}
@@ -177,20 +179,20 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                       className="w-full h-32 object-cover"
                     />
                   ) : (
-                    <div className="w-full h-32 bg-muted flex items-center justify-center">
-                      <FileImage className="h-8 w-8 text-muted-foreground" />
+                    <div className="w-full h-32 bg-aurea-surface-2 flex items-center justify-center">
+                      <FileImage className="h-8 w-8 text-aurea-ink-3" strokeWidth={1.75} />
                     </div>
                   )}
                   <div className="p-2">
-                    <p className="text-xs font-medium truncate">{file.file_name}</p>
+                    <p className="text-[12px] font-medium text-aurea-ink truncate">{file.file_name}</p>
                     <div className="flex items-center gap-1 mt-1">
-                      <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+                      <span className="inline-flex rounded border border-aurea-border px-1 py-0 text-[10px] text-aurea-ink-3">
                         {file.file_type}
-                      </Badge>
+                      </span>
                       {file.ai_analyzed_at && (
-                        <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 text-violet-600 border-violet-500/25">
-                          <Brain className="h-2.5 w-2.5 mr-0.5" /> AI
-                        </Badge>
+                        <span className="inline-flex items-center gap-0.5 rounded border border-aurea-primary/25 px-1 py-0 text-[10px] text-aurea-primary">
+                          <Brain className="h-2.5 w-2.5" strokeWidth={1.75} /> AI
+                        </span>
                       )}
                     </div>
                   </div>
@@ -200,13 +202,13 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                     rel="noopener"
                     className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity"
                   >
-                    <Eye className="h-6 w-6 text-white" />
+                    <Eye className="h-6 w-6 text-white" strokeWidth={1.75} />
                   </a>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* AI Analysis */}
@@ -217,31 +219,31 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
           recommended_procedures?: string[]
         }
         return (
-          <Card className="border-violet-500/20">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Brain className="h-4 w-4 text-violet-600" /> AI Analysis
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <div className="aurea-card overflow-hidden border-aurea-primary/20">
+            <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+              <Brain className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
+              <h2 className="aurea-display text-[18px] text-aurea-ink">AI Analysis</h2>
+            </div>
+            <div className="space-y-4 p-5">
               {analysis.summary && (
-                <p className="text-sm">{analysis.summary}</p>
+                <p className="text-[13px] text-aurea-ink-2 leading-relaxed">{analysis.summary}</p>
               )}
               {Array.isArray(analysis.findings) && analysis.findings.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Findings</p>
+                  <p className="aurea-eyebrow">Findings</p>
                   {analysis.findings.map((f, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm bg-muted/50 rounded-lg p-3">
-                      <Badge variant="outline" className={cn('text-[10px] shrink-0',
-                        f.severity === 'critical' ? 'border-red-500/50 text-red-600' :
-                        f.severity === 'severe' ? 'border-amber-500/50 text-amber-600' :
-                        'border-blue-500/50 text-blue-600'
+                    <div key={i} className="flex items-start gap-2 text-[13px] bg-aurea-surface-2 rounded-lg p-3">
+                      <span className={cn('inline-flex rounded border px-1.5 py-0 text-[10px] font-medium shrink-0',
+                        f.severity === 'critical' ? 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/20' :
+                        f.severity === 'severe'   ? 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20' :
+                        'bg-aurea-surface-2 text-aurea-ink-2 border-aurea-border'
                       )}>
                         {f.severity}
-                      </Badge>
+                      </span>
                       <div>
-                        <span className="font-medium">{f.area}</span>: {f.condition}
-                        {f.notes && <p className="text-xs text-muted-foreground mt-0.5">{f.notes}</p>}
+                        <span className="font-medium text-aurea-ink">{f.area}</span>
+                        <span className="text-aurea-ink-2">: {f.condition}</span>
+                        {f.notes && <p className="text-[11.5px] text-aurea-ink-3 mt-0.5">{f.notes}</p>}
                       </div>
                     </div>
                   ))}
@@ -249,16 +251,16 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
               )}
               {Array.isArray(analysis.recommended_procedures) && analysis.recommended_procedures.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1">Recommended Procedures</p>
+                  <p className="aurea-eyebrow mb-2">Recommended Procedures</p>
                   <div className="flex flex-wrap gap-1.5">
                     {analysis.recommended_procedures.map((p, i) => (
-                      <Badge key={i} variant="outline" className="text-xs">{p}</Badge>
+                      <span key={i} className="inline-flex rounded border border-aurea-border px-2 py-0.5 text-[11.5px] text-aurea-ink-2">{p}</span>
                     ))}
                   </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )
       })()}
 
@@ -298,7 +300,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
               fetchCase()
             }}
           >
-            <CheckCircle2 className="h-4 w-4" /> Mark Completed
+            <CheckCircle2 className="h-4 w-4" strokeWidth={1.75} /> Mark Completed
           </Button>
         </div>
       )}
@@ -360,21 +362,25 @@ function ContractActionsSection({ caseId, caseStatus }: { caseId: string; caseSt
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <FileText className="h-4 w-4" /> Treatment Agreement
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <div className="aurea-card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+        <FileText className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+        <h2 className="aurea-display text-[18px] text-aurea-ink">Treatment Agreement</h2>
+      </div>
+      <div className="p-5">
         {loading ? (
-          <div className="text-sm text-slate-500">Checking contract status…</div>
+          <p className="text-[13px] text-aurea-ink-3">Checking contract status…</p>
         ) : contract ? (
           <div className="flex items-center justify-between">
-            <div>
-              <Badge variant="outline">{contract.status}</Badge>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-aurea-primary" />
+                <span className="text-aurea-ink-2 capitalize">{contract.status}</span>
+              </span>
               {contract.needs_manual_draft && (
-                <Badge variant="outline" className="ml-2 text-amber-700 border-amber-300">Manual draft needed</Badge>
+                <span className="inline-flex rounded border border-aurea-amber/20 bg-aurea-amber/10 px-2 py-0.5 text-[10.5px] font-medium text-aurea-amber">
+                  Manual draft needed
+                </span>
               )}
             </div>
             <Button size="sm" onClick={() => router.push(`/contracts/${contract.id}`)}>
@@ -382,20 +388,20 @@ function ContractActionsSection({ caseId, caseStatus }: { caseId: string; caseSt
             </Button>
           </div>
         ) : (
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-600">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-[13px] text-aurea-ink-2">
               {caseStatus === 'completed' || caseStatus === 'patient_review'
                 ? 'Ready to generate the treatment services agreement.'
                 : 'Generate the agreement now, or wait until the patient accepts the plan.'}
-            </div>
-            <Button size="sm" onClick={generate} disabled={generating}>
+            </p>
+            <Button size="sm" onClick={generate} disabled={generating} className="shrink-0">
               {generating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Generate contract
             </Button>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -446,20 +452,19 @@ function DiagnosisSection({
   }
 
   return (
-    <Card className="border-blue-500/20">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Stethoscope className="h-4 w-4 text-blue-600" /> Diagnosis
-          </CardTitle>
-          {diagnosis && canDiagnose && !editing && (
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
-          )}
+    <div className="aurea-card overflow-hidden">
+      <div className="flex items-center justify-between border-b border-aurea-border px-5 py-4">
+        <div className="flex items-center gap-2">
+          <Stethoscope className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+          <h2 className="aurea-display text-[18px] text-aurea-ink">Diagnosis</h2>
         </div>
-      </CardHeader>
-      <CardContent>
+        {diagnosis && canDiagnose && !editing && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+        )}
+      </div>
+      <div className="p-5">
         {editing ? (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
@@ -517,7 +522,7 @@ function DiagnosisSection({
                 <Button type="button" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
               )}
               <Button type="submit" disabled={submitting} className="gap-2">
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Stethoscope className="h-4 w-4" />}
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Stethoscope className="h-4 w-4" strokeWidth={1.75} />}
                 Save Diagnosis
               </Button>
             </div>
@@ -525,48 +530,48 @@ function DiagnosisSection({
         ) : diagnosis ? (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className={cn('text-xs',
-                diagnosis.severity === 'critical' ? 'border-red-500/50 text-red-600' :
-                diagnosis.severity === 'severe' ? 'border-amber-500/50 text-amber-600' :
-                'border-blue-500/50 text-blue-600'
+              <span className={cn('inline-flex rounded border px-2 py-0.5 text-[11px] font-medium',
+                diagnosis.severity === 'critical' ? 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/20' :
+                diagnosis.severity === 'severe'   ? 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20' :
+                'bg-aurea-surface-2 text-aurea-ink-2 border-aurea-border'
               )}>
                 {diagnosis.severity}
-              </Badge>
-              <span className="text-xs text-muted-foreground">
+              </span>
+              <span className="font-mono text-[11px] text-aurea-ink-3">
                 Diagnosed {new Date(diagnosis.diagnosed_at).toLocaleDateString()}
               </span>
             </div>
-            <p className="text-sm">{diagnosis.diagnosis_summary}</p>
+            <p className="text-[13px] text-aurea-ink-2">{diagnosis.diagnosis_summary}</p>
             {(diagnosis.bone_quality || diagnosis.soft_tissue_status || diagnosis.occlusion_notes) && (
-              <div className="grid gap-2 sm:grid-cols-3 text-sm">
+              <div className="grid gap-2 sm:grid-cols-3">
                 {diagnosis.bone_quality && (
-                  <div className="bg-muted/50 rounded-lg p-2">
-                    <p className="text-xs text-muted-foreground">Bone Quality</p>
-                    <p className="font-medium">{diagnosis.bone_quality}</p>
+                  <div className="rounded-lg bg-aurea-surface-2 p-2.5">
+                    <p className="aurea-eyebrow mb-1">Bone Quality</p>
+                    <p className="text-[13px] font-medium text-aurea-ink">{diagnosis.bone_quality}</p>
                   </div>
                 )}
                 {diagnosis.soft_tissue_status && (
-                  <div className="bg-muted/50 rounded-lg p-2">
-                    <p className="text-xs text-muted-foreground">Soft Tissue</p>
-                    <p className="font-medium">{diagnosis.soft_tissue_status}</p>
+                  <div className="rounded-lg bg-aurea-surface-2 p-2.5">
+                    <p className="aurea-eyebrow mb-1">Soft Tissue</p>
+                    <p className="text-[13px] font-medium text-aurea-ink">{diagnosis.soft_tissue_status}</p>
                   </div>
                 )}
                 {diagnosis.occlusion_notes && (
-                  <div className="bg-muted/50 rounded-lg p-2">
-                    <p className="text-xs text-muted-foreground">Occlusion</p>
-                    <p className="font-medium">{diagnosis.occlusion_notes}</p>
+                  <div className="rounded-lg bg-aurea-surface-2 p-2.5">
+                    <p className="aurea-eyebrow mb-1">Occlusion</p>
+                    <p className="text-[13px] font-medium text-aurea-ink">{diagnosis.occlusion_notes}</p>
                   </div>
                 )}
               </div>
             )}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground text-center py-6">
+          <p className="text-[13px] text-aurea-ink-3 text-center py-6">
             {canDiagnose ? 'Click "Edit" to add a diagnosis' : 'Waiting for doctor to add diagnosis'}
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -639,18 +644,17 @@ function TreatmentPlanSection({
   }
 
   return (
-    <Card className="border-amber-500/20">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <ClipboardList className="h-4 w-4 text-amber-600" /> Treatment Plan
-          </CardTitle>
-          {treatmentPlan && canDiagnose && !editing && (
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
-          )}
+    <div className="aurea-card overflow-hidden border-aurea-amber/20">
+      <div className="flex items-center justify-between border-b border-aurea-border px-5 py-4">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-[17px] w-[17px] text-aurea-amber" strokeWidth={1.75} />
+          <h2 className="aurea-display text-[18px] text-aurea-ink">Treatment Plan</h2>
         </div>
-      </CardHeader>
-      <CardContent>
+        {treatmentPlan && canDiagnose && !editing && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+        )}
+      </div>
+      <div className="p-5">
         {editing ? (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -680,13 +684,13 @@ function TreatmentPlanSection({
               <div className="flex items-center justify-between">
                 <Label>Procedures</Label>
                 <Button type="button" variant="outline" size="sm" className="gap-1 h-7" onClick={addItem}>
-                  <Plus className="h-3 w-3" /> Add
+                  <Plus className="h-3 w-3" strokeWidth={1.75} /> Add
                 </Button>
               </div>
               {items.map((item, i) => (
-                <div key={i} className="grid gap-2 sm:grid-cols-[1fr_2fr_80px_60px_36px] items-end border rounded-lg p-3">
+                <div key={i} className="grid gap-2 sm:grid-cols-[1fr_2fr_80px_60px_36px] items-end rounded-lg border border-aurea-border p-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">Procedure</Label>
+                    <Label className="text-[11px]">Procedure</Label>
                     <Input
                       value={item.procedure}
                       onChange={e => updateItem(i, 'procedure', e.target.value)}
@@ -695,7 +699,7 @@ function TreatmentPlanSection({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Description</Label>
+                    <Label className="text-[11px]">Description</Label>
                     <Input
                       value={item.description}
                       onChange={e => updateItem(i, 'description', e.target.value)}
@@ -704,7 +708,7 @@ function TreatmentPlanSection({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Cost ($)</Label>
+                    <Label className="text-[11px]">Cost ($)</Label>
                     <Input
                       type="number"
                       value={item.estimated_cost || ''}
@@ -713,7 +717,7 @@ function TreatmentPlanSection({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Phase</Label>
+                    <Label className="text-[11px]">Phase</Label>
                     <Input
                       type="number"
                       min={1}
@@ -723,12 +727,14 @@ function TreatmentPlanSection({
                     />
                   </div>
                   <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeItem(i)}>
-                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Trash2 className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />
                   </Button>
                 </div>
               ))}
               <div className="text-right">
-                <p className="text-sm font-semibold">Total: ${totalCost.toLocaleString()}</p>
+                <p className="font-mono text-[13px] font-semibold text-aurea-ink tabular-nums">
+                  Total: ${totalCost.toLocaleString()}
+                </p>
               </div>
             </div>
 
@@ -737,43 +743,47 @@ function TreatmentPlanSection({
                 <Button type="button" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
               )}
               <Button type="submit" disabled={submitting} className="gap-2">
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" strokeWidth={1.75} />}
                 Save Treatment Plan
               </Button>
             </div>
           </form>
         ) : treatmentPlan ? (
           <div className="space-y-4">
-            <p className="text-sm">{treatmentPlan.plan_summary}</p>
+            <p className="text-[13px] text-aurea-ink-2 leading-relaxed">{treatmentPlan.plan_summary}</p>
             {treatmentPlan.estimated_duration && (
-              <p className="text-xs text-muted-foreground">Duration: {treatmentPlan.estimated_duration}</p>
+              <p className="font-mono text-[11px] text-aurea-ink-3">Duration: {treatmentPlan.estimated_duration}</p>
             )}
             <div className="space-y-2">
               {treatmentPlan.items.map((item, i) => (
-                <div key={i} className="flex items-center gap-3 bg-muted/50 rounded-lg p-3">
-                  <Badge variant="outline" className="text-[10px] shrink-0">Phase {item.phase}</Badge>
+                <div key={i} className="flex items-center gap-3 rounded-lg bg-aurea-surface-2 p-3">
+                  <span className="inline-flex rounded border border-aurea-border px-1.5 py-0 text-[10px] text-aurea-ink-3 shrink-0">
+                    Phase {item.phase}
+                  </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">{item.procedure}</p>
-                    {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                    <p className="text-[13px] font-medium text-aurea-ink">{item.procedure}</p>
+                    {item.description && <p className="text-[11.5px] text-aurea-ink-3">{item.description}</p>}
                   </div>
-                  <span className="text-sm font-semibold shrink-0">${Number(item.estimated_cost).toLocaleString()}</span>
+                  <span className="font-mono text-[13px] font-semibold text-aurea-ink shrink-0 tabular-nums">
+                    ${Number(item.estimated_cost).toLocaleString()}
+                  </span>
                 </div>
               ))}
             </div>
             <Separator />
             <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">Total Estimated Cost</span>
-              <span className="text-lg font-bold">
+              <span className="text-[13px] text-aurea-ink-3">Total Estimated Cost</span>
+              <span className="aurea-display text-[22px] tabular-nums text-aurea-ink">
                 ${Number(treatmentPlan.total_estimated_cost || 0).toLocaleString()}
               </span>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground text-center py-6">
+          <p className="text-[13px] text-aurea-ink-3 text-center py-6">
             {canDiagnose ? 'Add a treatment plan to send to the patient' : 'Waiting for doctor to create treatment plan'}
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

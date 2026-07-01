@@ -29,6 +29,7 @@ import {
   detectStopWord,
   checkMessageRateLimit,
   getLocalHourAndDay,
+  resolveConversationAiGate,
   type AutopilotConfig,
 } from './config'
 import { createEscalation } from './escalation'
@@ -72,6 +73,15 @@ export async function processAutoResponse(
 
   if (leadOverride === 'force_off') {
     return { action: 'skipped', reason: 'lead_ai_override_off' }
+  }
+
+  // 1a. Honor the staff-controlled per-conversation AI mode + per-lead override.
+  // 'off' is an explicit instruction to stop autonomous replies on this thread
+  // and wins over everything below; 'assist' forces draft+escalate at step 7b.
+  const conversationAiMode = (conversation.ai_mode as string) || 'auto'
+  const aiGate = resolveConversationAiGate(leadOverride, conversationAiMode)
+  if (aiGate === 'silence') {
+    return { action: 'skipped', reason: 'conversation_ai_mode_off' }
   }
 
   // force_on overrides org pause (but NOT kill switch — if enabled is false, that's a kill switch)
@@ -164,14 +174,20 @@ export async function processAutoResponse(
     }
   }
 
-  // 7b. Per-lead assist_only override: generate draft but never auto-send
-  if (leadOverride === 'assist_only') {
+  // 7b. Assist mode — generate the draft but never auto-send. Triggered by the
+  // per-lead 'assist_only' override OR the per-conversation ai_mode='assist'
+  // toggle (resolved into aiGate above).
+  if (aiGate === 'assist') {
+    const source =
+      conversationAiMode === 'assist' && leadOverride !== 'assist_only'
+        ? 'Conversation AI mode is set to "assist"'
+        : 'Lead has assist_only override'
     const escalationId = await createEscalation(supabase, {
       organization_id,
       conversation_id,
       lead_id,
       reason: 'low_confidence',
-      ai_notes: `Lead has assist_only override — AI drafted but not auto-sent.${agentResponse.internal_notes ? ' ' + agentResponse.internal_notes : ''}`,
+      ai_notes: `${source} — AI drafted but not auto-sent.${agentResponse.internal_notes ? ' ' + agentResponse.internal_notes : ''}`,
       ai_draft_response: agentResponse.message,
       ai_confidence: agentResponse.confidence,
       agent_type: agentResponse.agent,
@@ -183,7 +199,9 @@ export async function processAutoResponse(
       confidence: agentResponse.confidence,
       agent: agentResponse.agent,
       escalation_id: escalationId,
-      reason: 'lead_assist_only_override',
+      reason: conversationAiMode === 'assist' && leadOverride !== 'assist_only'
+        ? 'conversation_ai_mode_assist'
+        : 'lead_assist_only_override',
     }
   }
 

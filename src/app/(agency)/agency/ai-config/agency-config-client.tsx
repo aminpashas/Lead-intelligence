@@ -84,39 +84,39 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
   return (
     <div className="space-y-6 max-w-3xl">
       {/* AI Persona */}
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-aurea-surface border-aurea-border">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-violet-400" />
-            <CardTitle className="text-white">AI Agent Persona</CardTitle>
+            <Sparkles className="h-4 w-4 text-aurea-primary" />
+            <CardTitle className="text-aurea-ink">AI Agent Persona</CardTitle>
           </div>
-          <CardDescription className="text-slate-500">
+          <CardDescription className="text-aurea-ink-3">
             This is the AI personality that all practices share. It represents your brand.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-2">
-            <Label className="text-slate-300">Agent Name</Label>
+            <Label className="text-aurea-ink-2">Agent Name</Label>
             <Input
               value={personaName}
               onChange={(e) => setPersonaName(e.target.value)}
               placeholder="e.g. Aria"
-              className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 focus:border-violet-500"
+              className="bg-aurea-surface-2 border-aurea-border text-aurea-ink placeholder:text-aurea-ink-3 focus:border-aurea-primary"
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-aurea-ink-3">
               The name the AI uses to introduce itself to patients (e.g. &quot;Hi, I&apos;m Aria from…&quot;)
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label className="text-slate-300">Communication Tone</Label>
+            <Label className="text-aurea-ink-2">Communication Tone</Label>
             <Select value={tone} onValueChange={(v) => v && setTone(v)}>
-              <SelectTrigger className="bg-slate-800 border-slate-700 text-white focus:ring-violet-500">
+              <SelectTrigger className="bg-aurea-surface-2 border-aurea-border text-aurea-ink focus:ring-aurea-primary">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-slate-900 border-slate-700 text-slate-200">
+              <SelectContent className="bg-aurea-surface border-aurea-border text-aurea-ink-2">
                 {TONES.map((t) => (
-                  <SelectItem key={t.value} value={t.value} className="hover:bg-slate-800">
+                  <SelectItem key={t.value} value={t.value} className="hover:bg-aurea-surface-2">
                     {t.label}
                   </SelectItem>
                 ))}
@@ -125,18 +125,18 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
           </div>
 
           <div className="space-y-2">
-            <Label className="text-slate-300">
+            <Label className="text-aurea-ink-2">
               Custom System Prompt Addendum{' '}
-              <Badge className="ml-2 text-[10px] bg-slate-700 text-slate-400">Optional</Badge>
+              <Badge className="ml-2 text-[10px] bg-aurea-surface-2 text-aurea-ink-3">Optional</Badge>
             </Label>
             <Textarea
               value={promptSuffix}
               onChange={(e) => setPromptSuffix(e.target.value)}
               placeholder="Additional instructions appended to every AI system prompt across all practices…"
               rows={4}
-              className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 resize-none focus:border-violet-500"
+              className="bg-aurea-surface-2 border-aurea-border text-aurea-ink placeholder:text-aurea-ink-3 resize-none focus:border-aurea-primary"
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-aurea-ink-3">
               These instructions are appended to every AI conversation. Use for compliance rules, disclaimers, or universal behavior rules.
             </p>
           </div>
@@ -144,26 +144,26 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
       </Card>
 
       {/* AI Model */}
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-aurea-surface border-aurea-border">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Brain className="h-4 w-4 text-violet-400" />
-            <CardTitle className="text-white">Model Configuration</CardTitle>
+            <Brain className="h-4 w-4 text-aurea-primary" />
+            <CardTitle className="text-aurea-ink">Model Configuration</CardTitle>
           </div>
-          <CardDescription className="text-slate-500">
+          <CardDescription className="text-aurea-ink-3">
             Select the Anthropic model used for all AI interactions. This is a platform-wide setting.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-2">
-            <Label className="text-slate-300">Model</Label>
+            <Label className="text-aurea-ink-2">Model</Label>
             <Select value={model} onValueChange={(v) => v && setModel(v)}>
-              <SelectTrigger className="bg-slate-800 border-slate-700 text-white focus:ring-violet-500">
+              <SelectTrigger className="bg-aurea-surface-2 border-aurea-border text-aurea-ink focus:ring-aurea-primary">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-slate-900 border-slate-700 text-slate-200">
+              <SelectContent className="bg-aurea-surface border-aurea-border text-aurea-ink-2">
                 {MODELS.map((m) => (
-                  <SelectItem key={m.value} value={m.value} className="hover:bg-slate-800">
+                  <SelectItem key={m.value} value={m.value} className="hover:bg-aurea-surface-2">
                     {m.label}
                   </SelectItem>
                 ))}
@@ -172,35 +172,35 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
           </div>
 
           <div className="space-y-2">
-            <Label className="text-slate-300">Max Tokens per Response</Label>
+            <Label className="text-aurea-ink-2">Max Tokens per Response</Label>
             <Input
               type="number"
               value={maxTokens}
               onChange={(e) => setMaxTokens(e.target.value)}
               min={256}
               max={4096}
-              className="bg-slate-800 border-slate-700 text-white focus:border-violet-500"
+              className="bg-aurea-surface-2 border-aurea-border text-aurea-ink focus:border-aurea-primary"
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-aurea-ink-3">
               Higher values allow longer AI responses but increase cost. Recommended: 1024.
             </p>
           </div>
         </CardContent>
       </Card>
 
-      <Separator className="bg-slate-800" />
+      <Separator className="bg-aurea-border" />
 
       <div className="flex items-center gap-3">
         <Button
           onClick={handleSave}
           disabled={saving}
-          className="bg-violet-600 hover:bg-violet-700 text-white"
+          className="bg-aurea-primary hover:bg-aurea-primary/90 text-white"
         >
           {saving ? (
             'Saving…'
           ) : saved ? (
             <>
-              <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-300" /> Saved
+              <CheckCircle2 className="mr-2 h-4 w-4 text-aurea-primary" /> Saved
             </>
           ) : (
             <>
@@ -208,7 +208,7 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
             </>
           )}
         </Button>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-aurea-ink-3">
           Changes take effect on the next AI interaction.
         </p>
       </div>

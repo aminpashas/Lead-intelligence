@@ -30,14 +30,28 @@ const LENDER_NAMES: Record<LenderSlug, string> = {
   affirm: 'Affirm',
 }
 
-const STATUS_CONFIG: Record<SubmissionStatus, { icon: string; color: string; label: string }> = {
-  approved: { icon: '✓', color: '#16a34a', label: 'Approved' },
-  denied: { icon: '✗', color: '#dc2626', label: 'Denied' },
-  submitted: { icon: '⟳', color: '#d97706', label: 'Pending' },
-  pending: { icon: '⟳', color: '#d97706', label: 'Pending' },
-  link_sent: { icon: '🔗', color: '#2563eb', label: 'Link Sent' },
-  error: { icon: '!', color: '#dc2626', label: 'Error' },
-  timeout: { icon: '⏰', color: '#78716c', label: 'Timeout' },
+// Status semantics: approved→primary (emerald), denied/error→rose,
+// submitted/pending/link_sent→amber, timeout→muted
+const STATUS_CONFIG: Record<SubmissionStatus, { icon: string; colorClass: string; label: string }> = {
+  approved:  { icon: '✓', colorClass: 'text-aurea-primary',  label: 'Approved' },
+  denied:    { icon: '✗', colorClass: 'text-aurea-rose',     label: 'Denied' },
+  submitted: { icon: '⟳', colorClass: 'text-aurea-amber',    label: 'Pending' },
+  pending:   { icon: '⟳', colorClass: 'text-aurea-amber',    label: 'Pending' },
+  link_sent: { icon: '↗', colorClass: 'text-aurea-amber',    label: 'Link Sent' },
+  error:     { icon: '!', colorClass: 'text-aurea-rose',     label: 'Error' },
+  timeout:   { icon: '⏰', colorClass: 'text-aurea-ink-3',   label: 'Timeout' },
+}
+
+// Step-indicator background via inline style using Aurea CSS vars so it
+// respects dark mode automatically.
+const STATUS_BG_VAR: Record<SubmissionStatus, string> = {
+  approved:  'var(--aurea-primary)',
+  denied:    'var(--aurea-rose)',
+  submitted: 'var(--aurea-amber)',
+  pending:   'var(--aurea-amber)',
+  link_sent: 'var(--aurea-amber)',
+  error:     'var(--aurea-rose)',
+  timeout:   'var(--aurea-ink-3)',
 }
 
 export function FinancingWaterfallTracker({
@@ -63,40 +77,51 @@ export function FinancingWaterfallTracker({
         return (
           <div
             key={lender.slug}
-            className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${
-              isActive ? 'border-amber-400 bg-amber-50' :
-              isFuture ? 'border-muted bg-muted/30 opacity-50' :
-              status === 'approved' ? 'border-green-300 bg-green-50' :
-              status === 'denied' || status === 'error' ? 'border-red-200 bg-red-50/50' :
-              'border-border'
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-[13px] ${
+              isActive
+                ? 'border-aurea-amber/30 bg-aurea-amber/5'
+                : isFuture
+                ? 'border-aurea-border bg-aurea-surface-2 opacity-50'
+                : status === 'approved'
+                ? 'border-aurea-primary/20 bg-aurea-primary/5'
+                : status === 'denied' || status === 'error'
+                ? 'border-aurea-rose/20 bg-aurea-rose/5'
+                : 'border-aurea-border bg-aurea-surface'
             }`}
           >
             {/* Step indicator */}
             <div
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
               style={{
-                background: config ? config.color : isActive ? '#d97706' : '#e5e0d8',
-                color: '#fff',
+                background: config
+                  ? STATUS_BG_VAR[status!]
+                  : isActive
+                  ? 'var(--aurea-amber)'
+                  : 'var(--aurea-border-strong)',
               }}
             >
               {config ? config.icon : idx + 1}
             </div>
 
             {/* Lender info */}
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="font-semibold truncate">{LENDER_NAMES[lender.slug]}</span>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                <span className="font-medium text-aurea-ink truncate">
+                  {LENDER_NAMES[lender.slug]}
+                </span>
+                <span className="aurea-eyebrow text-aurea-ink-3">
                   {lender.integration_type}
                 </span>
               </div>
               {config && (
-                <span className="text-xs" style={{ color: config.color }}>
+                <span className={`text-[11px] ${config.colorClass}`}>
                   {config.label}
                   {submission?.responded_at && ` · ${new Date(submission.responded_at).toLocaleTimeString()}`}
                 </span>
               )}
-              {isActive && <span className="text-xs text-amber-600 font-medium">Processing...</span>}
+              {isActive && (
+                <span className="text-[11px] font-medium text-aurea-amber">Processing…</span>
+              )}
             </div>
 
             {/* Link button for link-based lenders */}
@@ -105,7 +130,7 @@ export function FinancingWaterfallTracker({
                 href={submission.application_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-blue-600 hover:underline shrink-0"
+                className="shrink-0 text-[12px] font-medium text-aurea-primary hover:underline"
               >
                 Open →
               </a>

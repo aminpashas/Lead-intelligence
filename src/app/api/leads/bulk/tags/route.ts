@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const bulkTagSchema = z.object({
@@ -11,6 +12,8 @@ const bulkTagSchema = z.object({
 // POST /api/leads/bulk/tags — Bulk add/remove tags
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = bulkTagSchema.safeParse(body)
 
@@ -40,7 +43,7 @@ export async function POST(request: NextRequest) {
       add_tag_ids.map((tag_id) => ({
         lead_id,
         tag_id,
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         tagged_by: profile.id,
       }))
     )
@@ -62,7 +65,7 @@ export async function POST(request: NextRequest) {
     const { data } = await supabase
       .from('lead_tags')
       .delete()
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .in('lead_id', lead_ids)
       .in('tag_id', remove_tag_ids)
       .select('id')

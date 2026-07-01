@@ -1,6 +1,16 @@
+import { getLocalHourAndDay } from '@/lib/autopilot/config'
+
 /**
  * Check if the current time is within a campaign's allowed send window.
  * Returns { allowed: true } or { allowed: false, nextValidTime: Date }.
+ *
+ * The current wall-clock hour/day are derived in the campaign's timezone via
+ * Intl.DateTimeFormat (getLocalHourAndDay) — DST-correct. The previous code did
+ * `new Date(now.toLocaleString('en-US', {timeZone: tz}))`, which re-parses a
+ * localized string in the SERVER's timezone (implementation-defined, drifts
+ * across DST), so sends could fire at the wrong local hour.
+ *
+ * `now` is injectable for deterministic DST-boundary testing.
  */
 export function checkSendWindow(
   sendWindow: {
@@ -8,7 +18,8 @@ export function checkSendWindow(
     end_hour?: number    // 0-23, default 20
     timezone?: string    // IANA timezone, default 'America/New_York'
     days?: number[]      // 0=Sun, 1=Mon...6=Sat. Default [1,2,3,4,5] (weekdays)
-  } | null
+  } | null,
+  now: Date = new Date()
 ): { allowed: boolean; nextValidTime?: Date } {
   if (!sendWindow) return { allowed: true } // No window = always allowed
 
@@ -17,41 +28,33 @@ export function checkSendWindow(
   const endHour = sendWindow.end_hour ?? 20
   const allowedDays = sendWindow.days ?? [1, 2, 3, 4, 5]
 
-  // Get current time in the target timezone
-  const now = new Date()
-  const tzNow = new Date(now.toLocaleString('en-US', { timeZone: tz }))
-  const currentHour = tzNow.getHours()
-  const currentDay = tzNow.getDay() // 0=Sun
+  const { hour: currentHour, day: currentDay } = getLocalHourAndDay(tz, now)
 
-  // Check if current day is allowed
   const dayAllowed = allowedDays.includes(currentDay)
-
-  // Check if current hour is within window
   const hourAllowed = currentHour >= startHour && currentHour < endHour
 
   if (dayAllowed && hourAllowed) {
     return { allowed: true }
   }
 
-  // Calculate next valid send time
-  const next = new Date(tzNow)
-
+  // Compute how many whole days ahead the next allowed day is (0 = today).
+  let daysToAdd = 0
   if (!dayAllowed || currentHour >= endHour) {
-    // Move to next allowed day
-    let daysToAdd = 1
+    daysToAdd = 1
     let checkDay = (currentDay + 1) % 7
     while (!allowedDays.includes(checkDay) && daysToAdd < 8) {
       daysToAdd++
       checkDay = (currentDay + daysToAdd) % 7
     }
-    next.setDate(next.getDate() + daysToAdd)
-    next.setHours(startHour, 0, 0, 0)
-  } else if (currentHour < startHour) {
-    // Same day, wait until start hour
-    next.setHours(startHour, 0, 0, 0)
   }
 
-  return { allowed: false, nextValidTime: next }
+  // Approximate the next valid send INSTANT from the tz wall-clock hour. This is
+  // a defer-until hint (the executor re-checks the window at send time), so an
+  // hour of DST slop is acceptable; the gating decision above is exact.
+  const hoursUntil = daysToAdd * 24 + (startHour - currentHour)
+  const nextValidTime = new Date(now.getTime() + hoursUntil * 60 * 60 * 1000)
+
+  return { allowed: false, nextValidTime }
 }
 
 /**

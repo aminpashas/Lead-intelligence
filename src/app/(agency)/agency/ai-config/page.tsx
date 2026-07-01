@@ -32,10 +32,10 @@ export default async function AgencyAiConfigPage() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center gap-2 mb-1">
-          <Brain className="h-5 w-5 text-violet-400" />
-          <h1 className="text-2xl font-bold text-white">AI Configuration</h1>
+          <Brain className="h-5 w-5 text-aurea-primary" />
+          <h1 className="text-2xl font-bold text-aurea-ink">AI Configuration</h1>
         </div>
-        <p className="text-slate-400 text-sm">
+        <p className="text-aurea-ink-2 text-sm">
           Platform-wide AI settings. These apply to all practices and are your intellectual property.
         </p>
       </div>

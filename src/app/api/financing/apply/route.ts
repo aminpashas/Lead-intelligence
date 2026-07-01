@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { financingApplicationSchema, publicFinancingApplicationSchema } from '@/lib/validators/financing'
 import { encryptApplicantData, hashSSN } from '@/lib/financing/encryption-helpers'
 import { executeWaterfall } from '@/lib/financing/waterfall'
@@ -173,7 +174,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 403 })
     }
 
-    organizationId = profile.organization_id
+    // Effective org honors an agency_admin's entered client account.
+    const { orgId } = await resolveActiveOrg(supabase)
+    if (!orgId) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 403 })
+    }
+    organizationId = orgId
     leadId = validation.data.lead_id
 
     // Verify lead belongs to org

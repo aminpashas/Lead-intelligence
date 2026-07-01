@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
@@ -21,6 +22,8 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = agentRespondSchema.safeParse(body)
 
@@ -88,7 +91,7 @@ export async function POST(request: NextRequest) {
   const context: AgentContext = {
     lead,
     conversation_id: parsed.data.conversation_id,
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     channel: conv.channel as ConversationChannel,
     lead_status: lead.status as LeadStatus,
     patient_profile: patientProfile,
@@ -106,7 +109,7 @@ export async function POST(request: NextRequest) {
     const messageIndex = conv.message_count || messages?.length || 0
     if (result.techniques_used && result.techniques_used.length > 0) {
       storeTechniqueUsage(supabase, {
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         conversation_id: parsed.data.conversation_id,
         lead_id: lead.id,
         message_index: messageIndex,
@@ -117,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     if (result.lead_assessment) {
       storeLeadAssessment(supabase, {
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         conversation_id: parsed.data.conversation_id,
         lead_id: lead.id,
         message_index: messageIndex,
@@ -130,7 +133,7 @@ export async function POST(request: NextRequest) {
       updateConversationSummary(
         supabase,
         parsed.data.conversation_id,
-        profile.organization_id,
+        orgId,
         lead.id
       ).catch((err: unknown) => console.warn('[agent-respond] Conversation summary update failed:', err instanceof Error ? err.message : err)) // Non-critical
     }
@@ -146,7 +149,7 @@ export async function POST(request: NextRequest) {
 
     processEncounter({
       channel: conv.channel as 'sms' | 'email' | 'voice',
-      orgId: profile.organization_id,
+      orgId: orgId,
       leadId: lead.id,
       conversationId: parsed.data.conversation_id,
       transcript: fullTranscript,

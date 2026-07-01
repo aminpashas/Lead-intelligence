@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { RoleGuard } from '@/components/auth/role-guard'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
 import {
   Upload,
   X,
@@ -184,24 +182,26 @@ function NewCaseContent() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
+    <div className="animate-in fade-in-0 duration-500 max-w-3xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b border-aurea-border pb-8">
         <Button variant="ghost" size="icon" onClick={() => router.push('/cases')}>
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">New Clinical Case</h1>
-          <p className="text-muted-foreground">Create a case with imaging uploads for doctor review</p>
+          <p className="aurea-eyebrow mb-1">Clinical Workflow</p>
+          <h1 className="aurea-display text-[32px] text-aurea-ink">New Clinical Case</h1>
+          <p className="mt-1 text-[14px] text-aurea-ink-2">Create a case with imaging uploads for doctor review</p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Patient Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <div className="aurea-card overflow-hidden">
+          <div className="border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[18px] text-aurea-ink">Patient Information</h2>
+          </div>
+          <div className="space-y-4 p-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="patient_name">Patient Name *</Label>
@@ -248,15 +248,15 @@ function NewCaseContent() {
                 </Select>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Clinical Details */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Clinical Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <div className="aurea-card overflow-hidden">
+          <div className="border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[18px] text-aurea-ink">Clinical Details</h2>
+          </div>
+          <div className="space-y-4 p-5">
             <div className="space-y-2">
               <Label htmlFor="chief_complaint">Chief Complaint *</Label>
               <Textarea
@@ -288,38 +288,38 @@ function NewCaseContent() {
                   {doctors.map(d => (
                     <SelectItem key={d.id} value={d.id}>
                       <span className="flex items-center gap-2">
-                        <Stethoscope className="h-3.5 w-3.5" />
+                        <Stethoscope className="h-3.5 w-3.5" strokeWidth={1.75} />
                         {d.full_name}
-                        {d.specialty && <span className="text-muted-foreground text-xs">({d.specialty})</span>}
+                        {d.specialty && <span className="text-aurea-ink-3 text-[11px]">({d.specialty})</span>}
                       </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* File Upload */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Images & Scans</CardTitle>
-            <CardDescription>
+        <div className="aurea-card overflow-hidden">
+          <div className="border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[18px] text-aurea-ink">Images &amp; Scans</h2>
+            <p className="mt-0.5 text-[12px] text-aurea-ink-3">
               Upload dental photos, X-rays, STL files, or CT scans. AI will analyze images automatically.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+            </p>
+          </div>
+          <div className="p-5">
             {/* Drop zone */}
             <div
               onDragOver={e => e.preventDefault()}
               onDrop={handleFileDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="group border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors hover:border-primary/50 hover:bg-primary/5"
+              className="group rounded-xl border-2 border-dashed border-aurea-border p-8 text-center cursor-pointer transition-colors hover:border-aurea-primary/50 hover:bg-aurea-surface-2"
             >
-              <Upload className="h-8 w-8 mx-auto text-muted-foreground group-hover:text-primary transition-colors mb-3" />
-              <p className="text-sm font-medium">Drop files here or click to browse</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Photos (JPG, PNG) • X-Rays • STL Files • CT/CBCT Scans
+              <Upload className="h-8 w-8 mx-auto text-aurea-ink-3 group-hover:text-aurea-primary transition-colors mb-3" strokeWidth={1.75} />
+              <p className="text-[13.5px] font-medium text-aurea-ink">Drop files here or click to browse</p>
+              <p className="mt-1 text-[12px] text-aurea-ink-3">
+                Photos (JPG, PNG) · X-Rays · STL Files · CT/CBCT Scans
               </p>
               <input
                 ref={fileInputRef}
@@ -337,19 +337,21 @@ function NewCaseContent() {
             {/* Pending files */}
             {pendingFiles.length > 0 && (
               <div className="mt-4 space-y-3">
-                <p className="text-sm font-medium">{pendingFiles.length} file{pendingFiles.length !== 1 ? 's' : ''} ready</p>
+                <p className="text-[13px] font-medium text-aurea-ink">
+                  {pendingFiles.length} file{pendingFiles.length !== 1 ? 's' : ''} ready
+                </p>
                 {pendingFiles.map((pf, i) => (
-                  <div key={i} className="flex items-center gap-3 rounded-lg border p-3">
+                  <div key={i} className="flex items-center gap-3 rounded-lg border border-aurea-border p-3">
                     {pf.preview ? (
                       <img src={pf.preview} alt="" className="h-12 w-12 rounded-md object-cover shrink-0" />
                     ) : (
-                      <div className="h-12 w-12 rounded-md bg-muted flex items-center justify-center shrink-0">
-                        <FileText className="h-5 w-5 text-muted-foreground" />
+                      <div className="h-12 w-12 rounded-md bg-aurea-surface-2 flex items-center justify-center shrink-0">
+                        <FileText className="h-5 w-5 text-aurea-ink-3" strokeWidth={1.75} />
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{pf.file.name}</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-[13px] font-medium text-aurea-ink truncate">{pf.file.name}</p>
+                      <p className="font-mono text-[11px] text-aurea-ink-3">
                         {(pf.file.size / 1024 / 1024).toFixed(1)} MB
                       </p>
                     </div>
@@ -372,14 +374,14 @@ function NewCaseContent() {
                       className="h-8 w-8 shrink-0"
                       onClick={() => removeFile(i)}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
                     </Button>
                   </div>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Submit */}
         <div className="flex justify-end gap-3">
@@ -390,7 +392,7 @@ function NewCaseContent() {
             {submitting ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Creating...</>
             ) : (
-              <><FolderPlus className="h-4 w-4" /> Create Case</>
+              <><FolderPlus className="h-[17px] w-[17px]" strokeWidth={1.75} /> Create Case</>
             )}
           </Button>
         </div>

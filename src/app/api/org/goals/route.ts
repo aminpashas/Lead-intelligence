@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getOrgFlags, flagOn } from '@/lib/org/flags'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 const METRICS = ['pipeline_value', 'conversions', 'revenue', 'bookings', 'qualification_rate']
 
@@ -20,7 +21,10 @@ async function resolveOrg() {
     .eq('id', user.id)
     .single()
   if (!profile?.organization_id) return { error: 'No organization' as const, status: 403 }
-  return { authed, user, organizationId: profile.organization_id as string }
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(authed)
+  if (!orgId) return { error: 'No organization' as const, status: 403 }
+  return { authed, user, organizationId: orgId }
 }
 
 export async function GET() {

@@ -163,6 +163,33 @@ export async function getAutopilotConfig(
   }
 }
 
+/** Outcome of per-conversation / per-lead AI gating (independent of org config). */
+export type ConversationAiGate = 'proceed' | 'silence' | 'assist'
+
+/**
+ * Resolve pre-send gating from the staff-controlled signals that live ON the
+ * conversation/lead (not org config): the per-conversation `ai_mode` toggle and
+ * the per-lead `ai_autopilot_override`.
+ *
+ * Precedence (most specific human instruction wins):
+ *   - conversation ai_mode 'off'  → 'silence' (stop autonomous replies here)
+ *   - assist (from ai_mode='assist' OR lead override 'assist_only')
+ *                                 → 'assist' (draft, but always escalate to a human)
+ *   - otherwise                   → 'proceed'
+ *
+ * Before this existed the ai_mode toggle was cosmetic — the auto-responder
+ * ignored it and could auto-send on a thread a human had explicitly set to
+ * off/assist.
+ */
+export function resolveConversationAiGate(
+  leadOverride: string | null | undefined,
+  conversationAiMode: string | null | undefined
+): ConversationAiGate {
+  if (conversationAiMode === 'off') return 'silence'
+  if (leadOverride === 'assist_only' || conversationAiMode === 'assist') return 'assist'
+  return 'proceed'
+}
+
 /**
  * Determine whether autopilot should auto-respond for this situation.
  */

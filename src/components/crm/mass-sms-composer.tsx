@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -179,36 +178,36 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
     return (
       <Card>
         <CardContent className="py-10 text-center space-y-4">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-green-100 dark:bg-green-950/30 mx-auto">
-            <CheckCircle2 className="h-8 w-8 text-green-600" />
+          <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-aurea-primary/10 mx-auto">
+            <CheckCircle2 className="h-8 w-8 text-aurea-primary" strokeWidth={1.75} />
           </div>
           <div>
-            <h2 className="text-xl font-bold">Broadcast Complete</h2>
-            <p className="text-muted-foreground mt-1">
+            <h2 className="aurea-display text-[22px] text-aurea-ink">Broadcast Complete</h2>
+            <p className="text-aurea-ink-3 mt-1 text-[13px]">
               {broadcastName || 'Mass SMS'}
             </p>
           </div>
           <div className="flex items-center justify-center gap-6">
             <div className="text-center">
-              <p className="text-2xl font-bold text-green-600">{results.sent}</p>
-              <p className="text-xs text-muted-foreground">Delivered</p>
+              <p className="aurea-display text-[28px] tabular-nums text-aurea-primary">{results.sent}</p>
+              <p className="text-[11px] text-aurea-ink-3">Delivered</p>
             </div>
             {results.failed > 0 && (
               <div className="text-center">
-                <p className="text-2xl font-bold text-red-500">{results.failed}</p>
-                <p className="text-xs text-muted-foreground">Failed</p>
+                <p className="aurea-display text-[28px] tabular-nums text-aurea-rose">{results.failed}</p>
+                <p className="text-[11px] text-aurea-ink-3">Failed</p>
               </div>
             )}
             <div className="text-center">
-              <p className="text-2xl font-bold">{results.total}</p>
-              <p className="text-xs text-muted-foreground">Total</p>
+              <p className="aurea-display text-[28px] tabular-nums text-aurea-ink">{results.total}</p>
+              <p className="text-[11px] text-aurea-ink-3">Total</p>
             </div>
           </div>
           {selectedList && (
-            <Badge variant="secondary" className="text-xs">
-              <ListFilter className="h-3 w-3 mr-1" style={{ color: selectedList.color }} />
+            <span className="inline-flex items-center gap-1.5 rounded border border-aurea-border bg-aurea-surface-2 px-2 py-1 text-[11px] text-aurea-ink-2">
+              <ListFilter className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />
               {selectedList.name}
-            </Badge>
+            </span>
           )}
           <div className="flex gap-2 justify-center pt-2">
             <Button
@@ -222,7 +221,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
             >
               Send Another
             </Button>
-            <Button variant="outline" onClick={() => window.location.href = '/broadcast-audit'}>
+            <Button variant="outline" onClick={() => window.location.href = '/broadcasts/audit'}>
               View Audit Log
             </Button>
             {onClose && (
@@ -235,14 +234,12 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
   }
 
   return (
-    <div className="space-y-4">
+    <div className="animate-in fade-in-0 duration-500 space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-lg font-bold flex items-center gap-2">
-          <Send className="h-5 w-5 text-primary" />
-          Mass SMS Broadcast
-        </h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="aurea-eyebrow mb-2">Outreach</p>
+        <h2 className="aurea-display text-[28px] text-aurea-ink">Mass SMS Broadcast</h2>
+        <p className="mt-1 text-[13px] text-aurea-ink-2">
           Send a personalized SMS to an entire Smart List at once
         </p>
       </div>
@@ -253,8 +250,8 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
           {/* Select Smart List */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-1.5">
-                <ListFilter className="h-4 w-4" />
+              <CardTitle className="text-sm flex items-center gap-1.5 text-aurea-ink">
+                <ListFilter className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
                 Target Audience
               </CardTitle>
             </CardHeader>
@@ -266,10 +263,10 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
                 <SelectContent>
                   {loading ? (
                     <div className="flex items-center justify-center py-4">
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin text-aurea-ink-3" />
                     </div>
                   ) : smartLists.length === 0 ? (
-                    <div className="p-3 text-sm text-muted-foreground text-center">
+                    <div className="p-3 text-sm text-aurea-ink-3 text-center">
                       No Smart Lists yet. Create one first.
                     </div>
                   ) : (
@@ -278,7 +275,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
                         <span className="flex items-center gap-1.5">
                           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: sl.color }} />
                           {sl.name}
-                          <span className="text-muted-foreground">({sl.lead_count} leads)</span>
+                          <span className="text-aurea-ink-3">({sl.lead_count} leads)</span>
                         </span>
                       </SelectItem>
                     ))
@@ -287,16 +284,15 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
               </Select>
 
               {selectedList && (
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-accent/50">
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-aurea-surface-2 border border-aurea-border">
                   <div
-                    className="h-10 w-10 rounded-lg flex items-center justify-center"
-                    style={{ backgroundColor: selectedList.color + '15' }}
+                    className="h-10 w-10 rounded-lg flex items-center justify-center bg-aurea-surface-2 border border-aurea-border"
                   >
-                    <Users className="h-5 w-5" style={{ color: selectedList.color }} />
+                    <Users className="h-[18px] w-[18px] text-aurea-ink-2" strokeWidth={1.75} />
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium text-sm">{selectedList.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="font-medium text-[13px] text-aurea-ink">{selectedList.name}</p>
+                    <p className="text-[11px] text-aurea-ink-3">
                       {previewLoading ? (
                         <span className="flex items-center gap-1">
                           <Loader2 className="h-3 w-3 animate-spin" /> Counting leads...
@@ -317,14 +313,14 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
           {/* Compose Message */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-1.5">
-                <MessageSquare className="h-4 w-4" />
+              <CardTitle className="text-sm flex items-center gap-1.5 text-aurea-ink">
+                <MessageSquare className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
                 Compose Message
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Broadcast Name (optional)</Label>
+                <Label className="text-[11px] text-aurea-ink-3">Broadcast Name (optional)</Label>
                 <Input
                   value={broadcastName}
                   onChange={(e) => setBroadcastName(e.target.value)}
@@ -335,14 +331,19 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label>Message</Label>
+                  <Label className="text-[13px] text-aurea-ink">Message</Label>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-[10px]">
+                    <span className="font-mono text-[10px] tabular-nums text-aurea-ink-3 border border-aurea-border rounded px-1.5 py-0.5">
                       {charCount}/1600
-                    </Badge>
-                    <Badge variant={segmentCount > 1 ? 'secondary' : 'outline'} className="text-[10px]">
+                    </span>
+                    <span className={cn(
+                      'font-mono text-[10px] tabular-nums rounded px-1.5 py-0.5 border',
+                      segmentCount > 1
+                        ? 'text-aurea-amber border-aurea-amber/30 bg-aurea-amber/10'
+                        : 'text-aurea-ink-3 border-aurea-border'
+                    )}>
                       {segmentCount} segment{segmentCount > 1 ? 's' : ''}
-                    </Badge>
+                    </span>
                   </div>
                 </div>
                 <Textarea
@@ -356,7 +357,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
                 {/* Variable Picker */}
                 <div className="flex items-center gap-2">
                   <VariablePicker onInsert={insertVariable} label="Insert Variable" />
-                  <span className="text-[10px] text-muted-foreground">20+ personalization fields available</span>
+                  <span className="text-[10px] text-aurea-ink-3">20+ personalization fields available</span>
                 </div>
               </div>
             </CardContent>
@@ -393,11 +394,11 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-amber-500" />
+              <CardTitle className="text-sm flex items-center gap-1.5 text-aurea-ink">
+                <Sparkles className="h-[17px] w-[17px] text-aurea-amber" strokeWidth={1.75} />
                 Quick Templates
               </CardTitle>
-              <CardDescription className="text-xs">
+              <CardDescription className="text-[11px] text-aurea-ink-3">
                 Click to apply a pre-built message
               </CardDescription>
             </CardHeader>
@@ -406,10 +407,10 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
                 <button
                   key={t.name}
                   onClick={() => applyTemplate(t)}
-                  className="w-full text-left p-2.5 rounded-lg border hover:bg-accent/50 transition-colors"
+                  className="w-full text-left p-2.5 rounded-lg border border-aurea-border hover:bg-aurea-surface-2 transition-colors"
                 >
-                  <p className="text-xs font-medium">{t.name}</p>
-                  <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">
+                  <p className="text-[12px] font-medium text-aurea-ink">{t.name}</p>
+                  <p className="text-[10px] text-aurea-ink-3 line-clamp-2 mt-0.5">
                     {t.body}
                   </p>
                 </button>
@@ -419,27 +420,27 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-1.5">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <CardTitle className="text-sm flex items-center gap-1.5 text-aurea-ink">
+                <AlertTriangle className="h-[17px] w-[17px] text-aurea-amber" strokeWidth={1.75} />
                 Best Practices
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-1.5 text-[11px] text-muted-foreground">
+              <ul className="space-y-1.5 text-[11px] text-aurea-ink-3">
                 <li className="flex items-start gap-1.5">
-                  <Clock className="h-3 w-3 mt-0.5 shrink-0" />
+                  <Clock className="h-3 w-3 mt-0.5 shrink-0" strokeWidth={1.75} />
                   Send during business hours (9am-6pm local)
                 </li>
                 <li className="flex items-start gap-1.5">
-                  <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" />
+                  <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" strokeWidth={1.75} />
                   Keep messages under 160 chars for 1 segment
                 </li>
                 <li className="flex items-start gap-1.5">
-                  <Users className="h-3 w-3 mt-0.5 shrink-0" />
+                  <Users className="h-3 w-3 mt-0.5 shrink-0" strokeWidth={1.75} />
                   Use {"{{first_name}}"} for personalization
                 </li>
                 <li className="flex items-start gap-1.5">
-                  <XCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                  <XCircle className="h-3 w-3 mt-0.5 shrink-0" strokeWidth={1.75} />
                   Opted-out leads are automatically excluded
                 </li>
               </ul>
@@ -452,34 +453,34 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Send className="h-5 w-5 text-primary" />
+            <DialogTitle className="flex items-center gap-2 text-aurea-ink">
+              <Send className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
               Confirm Broadcast
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-aurea-ink-3">
               This will send an SMS to all matching leads. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-3">
             {selectedList && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/50">
-                <ListFilter className="h-4 w-4" style={{ color: selectedList.color }} />
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-aurea-surface-2 border border-aurea-border">
+                <ListFilter className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
                 <div>
-                  <p className="text-sm font-medium">{selectedList.name}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[13px] font-medium text-aurea-ink">{selectedList.name}</p>
+                  <p className="text-[11px] text-aurea-ink-3 font-mono tabular-nums">
                     ~{previewCount ?? selectedList.lead_count} leads
                   </p>
                 </div>
               </div>
             )}
-            <div className="p-3 rounded-lg bg-muted/50 border">
-              <p className="text-xs text-muted-foreground mb-1">Message preview:</p>
-              <p className="text-sm whitespace-pre-wrap">
+            <div className="p-3 rounded-lg bg-aurea-surface-2 border border-aurea-border">
+              <p className="text-[11px] text-aurea-ink-3 mb-1">Message preview:</p>
+              <p className="text-[13px] text-aurea-ink whitespace-pre-wrap">
                 {previewPersonalize(message)}
               </p>
             </div>
-            <div className="flex items-center gap-2 p-2 rounded bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-400 text-xs">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-aurea-amber/10 border border-aurea-amber/20 text-aurea-amber text-[11px]">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
               Opted-out leads will be automatically skipped.
             </div>
           </div>
@@ -488,7 +489,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
               Cancel
             </Button>
             <Button onClick={sendBroadcast} className="gap-1.5">
-              <Send className="h-4 w-4" />
+              <Send className="h-4 w-4" strokeWidth={1.75} />
               Send to {previewCount ?? selectedList?.lead_count ?? 0} Leads
             </Button>
           </DialogFooter>

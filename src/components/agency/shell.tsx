@@ -6,6 +6,7 @@ import { AgencyTopbar } from '@/components/agency/topbar'
 
 interface AgencyShellProps {
   children: React.ReactNode
+  fontClassName?: string
   userProfile: {
     id: string
     full_name: string
@@ -14,11 +15,11 @@ interface AgencyShellProps {
   }
 }
 
-export function AgencyShell({ children, userProfile }: AgencyShellProps) {
+export function AgencyShell({ children, fontClassName, userProfile }: AgencyShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950">
+    <div className={`aurea flex h-screen overflow-hidden bg-aurea-canvas ${fontClassName ?? ''}`}>
       {/* Desktop Sidebar */}
       <AgencySidebar />
 
@@ -34,7 +35,7 @@ export function AgencyShell({ children, userProfile }: AgencyShellProps) {
           userProfile={userProfile}
           onMenuClick={() => setMobileOpen(true)}
         />
-        <main className="flex-1 overflow-y-auto bg-slate-900/50 p-6">
+        <main className="aurea-floor flex-1 overflow-y-auto px-5 py-7 sm:px-8 sm:py-9">
           <div className="mx-auto max-w-7xl">
             {children}
           </div>

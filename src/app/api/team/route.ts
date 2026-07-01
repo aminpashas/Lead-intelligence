@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAdminRole } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 /**
  * GET /api/team — List all team members in the current org
@@ -28,11 +29,17 @@ export async function GET() {
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
 
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   // Fetch all team members in the org
   const { data: members, error } = await supabase
     .from('user_profiles')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: true })
 
   if (error) {
@@ -63,6 +70,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: admin role required' }, { status: 403 })
   }
 
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const body = await request.json()
   const { email, full_name, role, job_title, specialty, phone } = body
 
@@ -89,7 +102,7 @@ export async function POST(request: NextRequest) {
   const { data: existing } = await supabase
     .from('user_profiles')
     .select('id')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('email', email)
     .single()
 
@@ -113,7 +126,7 @@ export async function POST(request: NextRequest) {
     user_metadata: {
       full_name,
       role,
-      organization_id: profile.organization_id,
+      organization_id: orgId,
     },
   })
 
@@ -133,7 +146,7 @@ export async function POST(request: NextRequest) {
     .from('user_profiles')
     .insert({
       id: authUser.user.id,
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       full_name,
       email,
       role,

@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { preCallCheck, initiateOutboundCall } from '@/lib/voice/call-manager'
 import { assertActiveSubscription } from '@/lib/auth/entitlement'
 import { logger } from '@/lib/logger'
@@ -36,7 +37,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No organization found' }, { status: 403 })
   }
 
-  const entError = await assertActiveSubscription(authClient, profile.organization_id)
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(authClient)
+  if (!orgId) {
+    return NextResponse.json({ error: 'No organization found' }, { status: 403 })
+  }
+
+  const entError = await assertActiveSubscription(authClient, orgId)
   if (entError) return entError
 
   const parsed = z.object({
@@ -51,7 +58,7 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient()
 
   // Pre-call compliance checks
-  const check = await preCallCheck(supabase, lead_id, profile.organization_id)
+  const check = await preCallCheck(supabase, lead_id, orgId)
   if (!check.allowed) {
     return NextResponse.json(
       { error: `Cannot call this lead: ${check.reason}` },
@@ -64,7 +71,7 @@ export async function POST(request: NextRequest) {
     .from('leads')
     .select('*')
     .eq('id', lead_id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!lead) {
@@ -73,7 +80,7 @@ export async function POST(request: NextRequest) {
 
   // Initiate the call
   const result = await initiateOutboundCall(supabase, {
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     lead_id,
     lead,
     phone: check.phone!,

@@ -16,6 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 
@@ -42,6 +43,8 @@ export async function GET(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('organization_id')
@@ -64,7 +67,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('ad_metrics_daily')
     .select('channel, account_id, campaign_id, campaign_name, metric_date, impressions, clicks, spend, conversions, conversion_value, sessions, users, currency')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .gte('metric_date', startYmd)
     .lte('metric_date', endYmd)
     .order('metric_date', { ascending: true })
@@ -192,7 +195,7 @@ export async function GET(request: NextRequest) {
   const { data: syncStateRows } = await supabase
     .from('ad_metrics_sync_state')
     .select('channel, last_synced_at, last_success_at, last_error, rows_inserted_last_run')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   return NextResponse.json({
     range: { start: startYmd, end: endYmd },

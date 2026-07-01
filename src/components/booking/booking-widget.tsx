@@ -1,12 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import {
   Calendar,
   Clock,
@@ -132,19 +130,19 @@ export function BookingWidget({ orgId }: { orgId: string }) {
 
   if (step === 'loading') {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-        <p className="text-muted-foreground">Loading available times...</p>
+      <div className="flex flex-col items-center justify-center py-20 animate-in fade-in-0 duration-500">
+        <Loader2 className="h-8 w-8 animate-spin text-aurea-primary mb-4" strokeWidth={1.75} />
+        <p className="text-aurea-ink-3 text-[14px]">Loading available times...</p>
       </div>
     )
   }
 
   if (!data) {
     return (
-      <div className="text-center py-20">
-        <Calendar className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold">Online Booking Not Available</h2>
-        <p className="text-muted-foreground mt-2">Please call us to schedule your appointment.</p>
+      <div className="text-center py-20 animate-in fade-in-0 duration-500">
+        <Calendar className="h-12 w-12 text-aurea-ink-3/50 mx-auto mb-4" strokeWidth={1.75} />
+        <h2 className="aurea-display text-[22px] text-aurea-ink">Online Booking Not Available</h2>
+        <p className="text-aurea-ink-3 mt-2 text-[14px]">Please call us to schedule your appointment.</p>
       </div>
     )
   }
@@ -156,7 +154,7 @@ export function BookingWidget({ orgId }: { orgId: string }) {
   const totalWeeks = Math.ceil(slots.length / 7)
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl mx-auto animate-in fade-in-0 duration-500">
       {/* Header */}
       <div className="text-center mb-8">
         {organization.logo_url && (
@@ -168,13 +166,13 @@ export function BookingWidget({ orgId }: { orgId: string }) {
             className="h-12 mx-auto mb-3 object-contain"
           />
         )}
-        <h1 className="text-3xl font-bold">{organization.name}</h1>
-        <p className="text-muted-foreground mt-2">
+        <h1 className="aurea-display text-[32px] text-aurea-ink">{organization.name}</h1>
+        <p className="text-aurea-ink-3 mt-2 text-[15px]">
           Book your free {settings.slot_duration_minutes}-minute consultation
         </p>
         {organization.location && (
-          <p className="text-sm text-muted-foreground mt-1 flex items-center justify-center gap-1">
-            <MapPin className="h-3.5 w-3.5" /> {organization.location}
+          <p className="text-[13px] text-aurea-ink-3 mt-1 flex items-center justify-center gap-1">
+            <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} /> {organization.location}
           </p>
         )}
       </div>
@@ -186,11 +184,11 @@ export function BookingWidget({ orgId }: { orgId: string }) {
           const isActive = i <= stepIndex
           return (
             <div key={label} className="flex items-center gap-2">
-              <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-medium ${isActive ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
-                {i === 3 && step === 'confirmed' ? <CheckCircle className="h-4 w-4" /> : i + 1}
+              <div className={`h-8 w-8 rounded-full flex items-center justify-center text-[12px] font-medium font-mono tabular-nums ${isActive ? 'bg-aurea-primary text-white' : 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border'}`}>
+                {i === 3 && step === 'confirmed' ? <CheckCircle className="h-4 w-4" strokeWidth={1.75} /> : i + 1}
               </div>
-              <span className={`text-xs hidden sm:inline ${isActive ? 'font-medium' : 'text-muted-foreground'}`}>{label}</span>
-              {i < 3 && <div className={`w-8 h-0.5 ${isActive ? 'bg-primary' : 'bg-muted'}`} />}
+              <span className={`text-[11px] hidden sm:inline ${isActive ? 'font-medium text-aurea-ink' : 'text-aurea-ink-3'}`}>{label}</span>
+              {i < 3 && <div className={`w-8 h-px ${isActive ? 'bg-aurea-primary' : 'bg-aurea-border'}`} />}
             </div>
           )
         })}
@@ -198,96 +196,92 @@ export function BookingWidget({ orgId }: { orgId: string }) {
 
       {/* Step: Date Selection */}
       {step === 'date' && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />
-                Select a Date
-              </h2>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" disabled={weekOffset === 0} onClick={() => setWeekOffset(weekOffset - 1)}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" disabled={weekOffset >= totalWeeks - 1} onClick={() => setWeekOffset(weekOffset + 1)}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+        <div className="aurea-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[18px] text-aurea-ink flex items-center gap-2">
+              <Calendar className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
+              Select a Date
+            </h2>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" disabled={weekOffset === 0} onClick={() => setWeekOffset(weekOffset - 1)}>
+                <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
+              </Button>
+              <Button variant="ghost" size="sm" disabled={weekOffset >= totalWeeks - 1} onClick={() => setWeekOffset(weekOffset + 1)}>
+                <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
+              </Button>
             </div>
-
+          </div>
+          <div className="px-5 py-4">
             {visibleDays.length === 0 ? (
-              <p className="text-center py-8 text-muted-foreground">No available dates. Please check back later.</p>
+              <p className="text-center py-8 text-aurea-ink-3 text-[14px]">No available dates. Please check back later.</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {visibleDays.map((day) => (
-                  <Button
+                  <button
                     key={day.date}
-                    variant="outline"
-                    className="h-auto py-3 px-4 justify-between"
+                    className="flex items-center justify-between rounded-lg border border-aurea-border bg-aurea-surface px-4 py-3 text-left transition-colors hover:bg-aurea-surface-2 hover:border-aurea-border-strong"
                     onClick={() => handleDateSelect(day)}
                   >
-                    <span className="font-medium">{day.dayLabel}</span>
-                    <Badge variant="secondary" className="text-xs">{day.times.length} slots</Badge>
-                  </Button>
+                    <span className="font-medium text-[14px] text-aurea-ink">{day.dayLabel}</span>
+                    <span className="font-mono tabular-nums text-[11px] text-aurea-ink-3 bg-aurea-surface-2 border border-aurea-border rounded-md px-2 py-0.5">
+                      {day.times.length} slots
+                    </span>
+                  </button>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Step: Time Selection */}
       {step === 'time' && selectedDate && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Button variant="ghost" size="sm" onClick={() => setStep('date')}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Clock className="h-5 w-5 text-primary" />
-                {selectedDate.dayLabel}
-              </h2>
-            </div>
-
+        <div className="aurea-card overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+            <Button variant="ghost" size="sm" onClick={() => setStep('date')}>
+              <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
+            </Button>
+            <h2 className="aurea-display text-[18px] text-aurea-ink flex items-center gap-2">
+              <Clock className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
+              {selectedDate.dayLabel}
+            </h2>
+          </div>
+          <div className="px-5 py-4">
             {error && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>
+              <div className="mb-4 p-3 rounded-lg bg-aurea-rose/10 border border-aurea-rose/30 text-aurea-rose text-[13px]">{error}</div>
             )}
-
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {selectedDate.times.map((time) => (
-                <Button
+                <button
                   key={time}
-                  variant="outline"
-                  className="h-12"
+                  className="h-12 rounded-lg border border-aurea-border bg-aurea-surface text-[13px] font-medium text-aurea-ink transition-colors hover:bg-aurea-primary hover:text-white hover:border-aurea-primary"
                   onClick={() => handleTimeSelect(time)}
                 >
                   {formatTimeDisplay(time)}
-                </Button>
+                </button>
               ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Step: Contact Details */}
       {step === 'details' && selectedDate && selectedTime && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Button variant="ghost" size="sm" onClick={() => setStep('time')}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <h2 className="text-lg font-semibold">Your Details</h2>
-            </div>
-
-            <div className="mb-4 p-3 rounded-lg bg-primary/5 text-sm">
-              <p className="font-medium">{selectedDate.dayLabel} at {formatTimeDisplay(selectedTime)}</p>
-              <p className="text-muted-foreground">{settings.slot_duration_minutes}-minute consultation</p>
+        <div className="aurea-card overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+            <Button variant="ghost" size="sm" onClick={() => setStep('time')}>
+              <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
+            </Button>
+            <h2 className="aurea-display text-[18px] text-aurea-ink">Your Details</h2>
+          </div>
+          <div className="px-5 py-4">
+            <div className="mb-4 p-3 rounded-lg bg-aurea-surface-2 border border-aurea-border text-[14px]">
+              <p className="font-medium text-aurea-ink">{selectedDate.dayLabel} at {formatTimeDisplay(selectedTime)}</p>
+              <p className="text-aurea-ink-3 text-[13px]">{settings.slot_duration_minutes}-minute consultation</p>
             </div>
 
             {error && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>
+              <div className="mb-4 p-3 rounded-lg bg-aurea-rose/10 border border-aurea-rose/30 text-aurea-rose text-[13px]">{error}</div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -314,54 +308,56 @@ export function BookingWidget({ orgId }: { orgId: string }) {
                 <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
               </div>
 
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11.5px] text-aurea-ink-3">
                 By booking, you consent to receive appointment confirmations and reminders via SMS and email.
               </p>
 
-              <Button type="submit" className="w-full h-12 text-base" disabled={submitting || !firstName || !lastName || !phone || !email}>
-                {submitting ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <CheckCircle className="h-5 w-5 mr-2" />}
+              <Button type="submit" className="w-full h-12 text-[15px] bg-aurea-primary text-white hover:bg-aurea-primary/90" disabled={submitting || !firstName || !lastName || !phone || !email}>
+                {submitting ? <Loader2 className="h-5 w-5 animate-spin mr-2" strokeWidth={1.75} /> : <CheckCircle className="h-5 w-5 mr-2" strokeWidth={1.75} />}
                 {submitting ? 'Booking...' : 'Confirm Booking'}
               </Button>
             </form>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Step: Confirmation */}
       {step === 'confirmed' && confirmation && selectedDate && selectedTime && (
-        <Card>
-          <CardContent className="pt-8 pb-8 text-center">
-            <div className="mx-auto w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-4">
-              <CheckCircle className="h-8 w-8 text-green-600" />
+        <div className="aurea-card overflow-hidden">
+          <div className="px-5 pt-8 pb-8 text-center">
+            <div className="mx-auto w-16 h-16 rounded-full bg-aurea-primary/10 flex items-center justify-center mb-4 ring-1 ring-aurea-primary/20">
+              <CheckCircle className="h-8 w-8 text-aurea-primary" strokeWidth={1.75} />
             </div>
-            <h2 className="text-2xl font-bold mb-2">You're All Set!</h2>
-            <p className="text-muted-foreground mb-6">{confirmation.message}</p>
+            <h2 className="aurea-display text-[28px] text-aurea-ink mb-2">You&apos;re All Set!</h2>
+            <p className="text-aurea-ink-3 mb-6 text-[14px]">{confirmation.message}</p>
 
-            <div className="bg-muted rounded-lg p-4 inline-block text-left mx-auto">
-              <p className="font-medium text-lg">{selectedDate.dayLabel}</p>
-              <p className="text-muted-foreground">{formatTimeDisplay(selectedTime)} &middot; {settings.slot_duration_minutes} minutes</p>
+            <div className="bg-aurea-surface-2 border border-aurea-border rounded-lg p-4 inline-block text-left mx-auto">
+              <p className="font-medium text-[15px] text-aurea-ink">{selectedDate.dayLabel}</p>
+              <p className="text-aurea-ink-3 text-[13px] font-mono tabular-nums">
+                {formatTimeDisplay(selectedTime)} &middot; {settings.slot_duration_minutes} minutes
+              </p>
               {organization.location && (
-                <p className="text-sm text-muted-foreground mt-2 flex items-center gap-1">
-                  <MapPin className="h-3.5 w-3.5" /> {organization.location}
+                <p className="text-[12px] text-aurea-ink-3 mt-2 flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} /> {organization.location}
                 </p>
               )}
             </div>
 
-            <div className="mt-6 space-y-2 text-sm text-muted-foreground">
+            <div className="mt-6 space-y-2 text-[13px] text-aurea-ink-3">
               <p>A confirmation has been sent to your phone and email.</p>
               {organization.phone && (
                 <p className="flex items-center justify-center gap-1">
-                  <Phone className="h-3.5 w-3.5" /> Need to reschedule? Call {organization.phone}
+                  <Phone className="h-3.5 w-3.5" strokeWidth={1.75} /> Need to reschedule? Call {organization.phone}
                 </p>
               )}
               {organization.email && (
                 <p className="flex items-center justify-center gap-1">
-                  <Mail className="h-3.5 w-3.5" /> Or email {organization.email}
+                  <Mail className="h-3.5 w-3.5" strokeWidth={1.75} /> Or email {organization.email}
                 </p>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
     </div>
   )

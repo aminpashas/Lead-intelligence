@@ -197,18 +197,40 @@ export async function getLatestAssessment(
 /**
  * Get recent technique history for a lead (last 10 uses).
  */
+export type TechniqueHistoryRow = {
+  technique_id: string
+  predicted_effectiveness: string
+  actual_effectiveness?: string | null
+}
+
+/**
+ * Prefer the REAL outcome (actual_effectiveness, written nightly by the
+ * technique-feedback cron from booked/reply/disqualified outcomes) over the
+ * model's own prediction. This is the read side of the learning loop — before
+ * this, actual_effectiveness was computed but never consumed, so outcomes never
+ * influenced future agent behavior.
+ */
+export function resolveTechniqueEffectiveness(
+  row: TechniqueHistoryRow
+): { value: string; source: 'actual' | 'predicted' } {
+  if (row.actual_effectiveness && row.actual_effectiveness.trim()) {
+    return { value: row.actual_effectiveness, source: 'actual' }
+  }
+  return { value: row.predicted_effectiveness, source: 'predicted' }
+}
+
 export async function getRecentTechniqueHistory(
   supabase: SupabaseClient,
   leadId: string
-): Promise<Array<{ technique_id: string; predicted_effectiveness: string }>> {
+): Promise<TechniqueHistoryRow[]> {
   const { data } = await supabase
     .from('message_technique_tracking')
-    .select('technique_id, predicted_effectiveness')
+    .select('technique_id, predicted_effectiveness, actual_effectiveness')
     .eq('lead_id', leadId)
     .order('created_at', { ascending: false })
     .limit(10)
 
-  return (data || []) as Array<{ technique_id: string; predicted_effectiveness: string }>
+  return (data || []) as TechniqueHistoryRow[]
 }
 
 /**
@@ -216,7 +238,7 @@ export async function getRecentTechniqueHistory(
  */
 export function formatAssessmentForPrompt(
   assessment: LeadEngagementAssessment | null,
-  history: Array<{ technique_id: string; predicted_effectiveness: string }>
+  history: TechniqueHistoryRow[]
 ): string {
   if (!assessment && history.length === 0) {
     return 'No previous assessment available. This is a fresh interaction — assess the lead\'s state from scratch.'
@@ -240,11 +262,17 @@ export function formatAssessmentForPrompt(
   }
 
   if (history.length > 0) {
+    const anyRealOutcome = history.slice(0, 5).some((h) => resolveTechniqueEffectiveness(h).source === 'actual')
     lines.push('')
     lines.push('RECENT TECHNIQUE HISTORY:')
+    if (anyRealOutcome) {
+      lines.push('(Entries marked "real outcome" reflect what actually happened downstream — weight these heavily over predictions.)')
+    }
     for (const h of history.slice(0, 5)) {
       const technique = getTechniqueById(h.technique_id)
-      lines.push(`- ${technique?.name || h.technique_id} (${h.predicted_effectiveness})`)
+      const eff = resolveTechniqueEffectiveness(h)
+      const tag = eff.source === 'actual' ? `${eff.value} — real outcome` : `${eff.value} — predicted`
+      lines.push(`- ${technique?.name || h.technique_id} (${tag})`)
     }
   }
 

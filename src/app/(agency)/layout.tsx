@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { AgencyShell } from '@/components/agency/shell'
+import { aureaFontVars } from '@/lib/fonts'
 
 export default async function AgencyLayout({
   children,
@@ -36,6 +37,7 @@ export default async function AgencyLayout({
 
   return (
     <AgencyShell
+      fontClassName={aureaFontVars}
       userProfile={{
         id: profile.id,
         full_name: profile.full_name,

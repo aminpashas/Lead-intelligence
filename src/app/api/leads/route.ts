@@ -5,6 +5,7 @@ import { encryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
 import { auditPHIRead, auditPHIWrite } from '@/lib/hipaa-audit'
 import { safeParseBody } from '@/lib/body-size'
 import { formatToE164 } from '@/lib/leads/phone'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // Allowlisted sort columns to prevent column enumeration via sort_by parameter
 const ALLOWED_SORT_COLUMNS = new Set([
@@ -40,6 +41,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Scope to the effective org: an agency_admin who has entered a client
+  // account operates on that client (via agency_active_org); everyone else on
+  // their home org. Filtering by orgId (home org) returned
+  // nothing for agency admins managing a practice.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const status = searchParams.get('status')
   const qualification = searchParams.get('qualification')
   const stage_id = searchParams.get('stage_id')
@@ -57,7 +67,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('leads')
     .select('*, pipeline_stage:pipeline_stages(*), source:lead_sources(*), assigned_user:user_profiles!leads_assigned_to_fkey(*)', { count: 'exact' })
-    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
+    .eq('organization_id', orgId) // Defense-in-depth: explicit org scoping
 
   if (status) {
     const statuses = status.split(',')
@@ -100,7 +110,7 @@ export async function GET(request: NextRequest) {
 
   if (data && data.length > 0) {
     auditPHIRead(
-      { supabase, organizationId: profile.organization_id, actorId: profile.id },
+      { supabase, organizationId: orgId, actorId: profile.id },
       'lead',
       `batch:${data.length}`,
       `Accessed ${data.length} lead records (page ${page})`,
@@ -133,13 +143,9 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Get user's organization
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
-
-  if (!profile) {
+  // Scope to the effective org (an agency_admin's entered client, else home org).
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
     return NextResponse.json({ error: 'User profile not found' }, { status: 401 })
   }
 
@@ -147,7 +153,7 @@ export async function POST(request: NextRequest) {
   const { data: defaultStage } = await supabase
     .from('pipeline_stages')
     .select('id')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('is_default', true)
     .single()
 
@@ -155,7 +161,7 @@ export async function POST(request: NextRequest) {
 
   const insertData = encryptLeadPII({
     ...parsed.data,
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     stage_id: defaultStage?.id,
     phone_formatted: phoneFormatted,
     email: parsed.data.email || null,
@@ -173,7 +179,7 @@ export async function POST(request: NextRequest) {
 
   // Log activity + HIPAA audit
   await supabase.from('lead_activities').insert({
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     lead_id: lead.id,
     activity_type: 'created',
     title: 'Lead created',
@@ -181,7 +187,7 @@ export async function POST(request: NextRequest) {
   })
 
   auditPHIWrite(
-    { supabase, organizationId: profile.organization_id },
+    { supabase, organizationId: orgId },
     'lead',
     lead.id,
     'New lead created with PII (encrypted at rest)',

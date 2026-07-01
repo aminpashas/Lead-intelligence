@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // GET /api/agents — List the org's AI agents (Setter + Closer).
 export async function GET(request: NextRequest) {
@@ -19,10 +20,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { data: agents, error } = await supabase
     .from('ai_agents')
     .select('id, name, role, persona_description, is_active, created_at')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('is_active', true)
     .order('role', { ascending: true })
 

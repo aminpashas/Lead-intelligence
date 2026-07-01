@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // Strict schema for escalation updates
 const escalationPatchSchema = z.object({
@@ -28,6 +29,11 @@ export async function GET(request: NextRequest) {
     .single()
 
   if (!profile) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -58,7 +64,7 @@ export async function GET(request: NextRequest) {
       conversation_id,
       leads:lead_id (first_name, last_name, status, ai_score)
     `)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('status', status)
     .order('created_at', { ascending: false })
     .limit(limit)
@@ -71,7 +77,7 @@ export async function GET(request: NextRequest) {
   const { count } = await supabase
     .from('escalations')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('status', 'pending')
 
   return NextResponse.json({
@@ -99,6 +105,11 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   // Safe JSON parsing (MED-5 fix)
   let body: unknown
   try {
@@ -123,7 +134,7 @@ export async function PATCH(request: NextRequest) {
     .from('escalations')
     .select('id, status')
     .eq('id', escalation_id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!escalation) {

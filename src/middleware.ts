@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { isPublicPath } from '@/lib/auth/public-paths'
 
 /**
  * Allowed origin for CORS — restrict API access to the configured app URL.
@@ -28,25 +29,11 @@ export async function middleware(request: NextRequest) {
     return setCorsHeaders(response, origin)
   }
 
-  // Skip middleware for auth pages, public patient portals, API webhooks, static assets
-  if (
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/signup') ||
-    pathname.startsWith('/qualify') ||
-    pathname.startsWith('/optin') ||
-    pathname.startsWith('/book') ||
-    pathname.startsWith('/all-on-4') ||
-    pathname.startsWith('/contract/') ||
-    pathname.startsWith('/api/contracts/patient') ||
-    pathname.startsWith('/api/consent') ||
-    pathname.startsWith('/api/booking') ||
-    pathname.startsWith('/api/webhooks') ||
-    pathname.startsWith('/api/cron') ||
-    pathname.startsWith('/api/auth') ||
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/widget.js') ||
-    pathname.includes('.')
-  ) {
+  // Skip middleware for auth pages/handlers, public patient portals, API
+  // webhooks, and static assets. NB: this includes /auth/callback — the OAuth
+  // handler must run before a session exists, so it cannot be gated. See
+  // src/lib/auth/public-paths.ts.
+  if (isPublicPath(pathname)) {
     const response = NextResponse.next()
     // Add CORS headers to API responses even for bypassed routes
     if (pathname.startsWith('/api')) {

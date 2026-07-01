@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 /**
@@ -32,6 +33,8 @@ export async function POST(
 ) {
   const { id: reactivationId } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = uploadSchema.safeParse(body)
 
@@ -56,7 +59,7 @@ export async function POST(
     .from('reactivation_campaigns')
     .select('*, campaign_id')
     .eq('id', reactivationId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!reactivation) {
@@ -100,7 +103,7 @@ export async function POST(
         const { data: existing } = await supabase
           .from('leads')
           .select('id')
-          .eq('organization_id', profile.organization_id)
+          .eq('organization_id', orgId)
           .eq('email', lead.email)
           .limit(1)
           .single()
@@ -116,7 +119,7 @@ export async function POST(
         const { data: existing } = await supabase
           .from('leads')
           .select('id')
-          .eq('organization_id', profile.organization_id)
+          .eq('organization_id', orgId)
           .or(`phone.eq.${cleanPhone},phone_formatted.eq.+1${cleanPhone}`)
           .limit(1)
           .single()
@@ -132,7 +135,7 @@ export async function POST(
         const { data: newLead, error: leadError } = await supabase
           .from('leads')
           .insert({
-            organization_id: profile.organization_id,
+            organization_id: orgId,
             first_name: lead.first_name,
             last_name: lead.last_name || null,
             email: lead.email || null,
@@ -145,8 +148,19 @@ export async function POST(
             utm_source: lead.utm_source || 'reactivation_campaign',
             utm_campaign: lead.utm_campaign || reactivation.name,
             status: 'contacted',
-            sms_consent: !!lead.phone,
+            // TCPA: a phone number is NOT consent to text or call. Imported/cold
+            // leads must EARN sms + voice consent via the /optin re-permission flow
+            // before any automated message. Keeping these false leaves
+            // *_consent_status at 'unknown' (eligible for consent-capture) rather
+            // than manufacturing a grant the lead never gave. See
+            // docs/re-permission-campaign-playbook.md.
+            sms_consent: false,
+            // voice_consent intentionally unset → defaults false (earned via opt-in).
+            // CAN-SPAM (opt-out regime) permits emailing a prior inquirer; this is
+            // the channel the re-permission email itself rides on. Opt-outs still
+            // suppress, and the source is recorded for the consent_log audit trail.
             email_consent: !!lead.email,
+            email_consent_source: lead.email ? 'reactivation_import' : null,
             tags: parsed.data.tag_name ? [parsed.data.tag_name] : [],
           })
           .select('id')
@@ -167,7 +181,7 @@ export async function POST(
       const { error: enrollError } = await supabase
         .from('campaign_enrollments')
         .upsert({
-          organization_id: profile.organization_id,
+          organization_id: orgId,
           campaign_id: reactivation.campaign_id,
           lead_id: leadId,
           status: 'active',

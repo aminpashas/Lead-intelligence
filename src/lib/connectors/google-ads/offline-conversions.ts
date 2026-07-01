@@ -18,6 +18,7 @@ import type {
   ConnectorEventType,
 } from '../types'
 import { hashForMatching } from '../utils'
+import { resolveConversionActionResource, conversionActionError } from './conversion-action'
 
 const GOOGLE_ADS_API_VERSION = 'v18'
 const GOOGLE_ADS_API_BASE = 'https://googleads.googleapis.com'
@@ -101,14 +102,28 @@ export async function uploadClickConversion(
     }
   }
 
+  // Resolve a VALID conversion-action resource name. Refuse to POST an invalid
+  // guess built from a display label (the old behavior, which 4xx'd silently).
+  const conversionActionResource = resolveConversionActionResource(
+    conversionAction?.conversionActionResourceName,
+    config.customerId,
+    conversionName
+  )
+  if (!conversionActionResource) {
+    return {
+      connector: 'google_ads',
+      success: false,
+      error: conversionActionError(event.type, conversionName),
+    }
+  }
+
   try {
     const accessToken = await getAccessToken(config)
 
     // Build the conversion payload
     const conversionPayload: Record<string, unknown> = {
       gclid: lead.gclid,
-      conversionAction: conversionAction?.conversionActionResourceName
-        || `customers/${config.customerId}/conversionActions/${conversionName}`,
+      conversionAction: conversionActionResource,
       conversionDateTime: formatGoogleAdsDate(event.timestamp),
     }
 

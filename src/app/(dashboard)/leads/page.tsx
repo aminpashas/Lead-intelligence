@@ -3,6 +3,7 @@ import { LeadsTable } from '@/components/crm/leads-table'
 import { LeadCSVImport } from '@/components/crm/lead-csv-import'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import type { Tag } from '@/types/database'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export default async function LeadsPage({
   searchParams,
@@ -12,18 +13,18 @@ export default async function LeadsPage({
   const params = await searchParams
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
-
-  if (!profile) return null
+  // Resolve the effective org: an agency_admin who has "entered" a client
+  // account operates on that client's org (via agency_active_org); everyone
+  // else operates on their own home org. Filtering on the home org here was the
+  // bug that made the Leads view empty for agency admins managing a practice.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return null
 
   // Fetch leads
   let query = supabase
     .from('leads')
     .select('*, pipeline_stage:pipeline_stages(*), source:lead_sources(*)', { count: 'exact' })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   if (params.status) {
@@ -44,7 +45,7 @@ export default async function LeadsPage({
     const { data: tagRow } = await supabase
       .from('tags')
       .select('id')
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .eq('slug', params.tag)
       .single()
 
@@ -53,7 +54,7 @@ export default async function LeadsPage({
         .from('lead_tags')
         .select('lead_id')
         .eq('tag_id', tagRow.id)
-        .eq('organization_id', profile.organization_id)
+        .eq('organization_id', orgId)
 
       tagFilteredLeadIds = (leadTags || []).map((lt) => lt.lead_id)
       if (tagFilteredLeadIds.length > 0) {
@@ -61,17 +62,18 @@ export default async function LeadsPage({
       } else {
         // No leads match this tag
         return (
-          <div>
-            <div className="mb-6 flex items-center justify-between">
+          <div className="animate-in fade-in-0 duration-500">
+            <header className="mb-8 flex flex-col gap-5 border-b border-aurea-border pb-8 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h1 className="text-2xl font-bold">Leads</h1>
-                <p className="text-muted-foreground">0 total leads</p>
+                <p className="aurea-eyebrow mb-3">Lead Management</p>
+                <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px]">Leads</h1>
+                <p className="mt-2 font-mono text-[13px] tabular-nums text-aurea-ink-3">0 total</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <LeadCSVImport />
                 <NewLeadDialog />
               </div>
-            </div>
+            </header>
             <LeadsTable leads={[]} stages={[]} total={0} page={1} perPage={50} />
           </div>
         )
@@ -89,14 +91,14 @@ export default async function LeadsPage({
   const { data: stages } = await supabase
     .from('pipeline_stages')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('position')
 
   // Fetch all tags for the filter dropdown
   const { data: allTags } = await supabase
     .from('tags')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('name')
 
   // Fetch lead tags for displayed leads
@@ -108,7 +110,7 @@ export default async function LeadsPage({
       .from('lead_tags')
       .select('lead_id, tag:tags(*)')
       .in('lead_id', leadIds)
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
 
     if (leadTagRows) {
       for (const row of leadTagRows) {
@@ -119,19 +121,20 @@ export default async function LeadsPage({
   }
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
+    <div className="animate-in fade-in-0 duration-500">
+      <header className="mb-8 flex flex-col gap-5 border-b border-aurea-border pb-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Leads</h1>
-          <p className="text-muted-foreground">
-            {count || 0} total leads
+          <p className="aurea-eyebrow mb-3">Lead Management</p>
+          <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px]">Leads</h1>
+          <p className="mt-2 font-mono text-[13px] tabular-nums text-aurea-ink-3">
+            {(count || 0).toLocaleString()} total
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <LeadCSVImport />
           <NewLeadDialog />
         </div>
-      </div>
+      </header>
 
       <LeadsTable
         leads={leads || []}

@@ -100,13 +100,13 @@ type AnalyticsData = {
   } | null
 }
 
-const COLORS = ['#2563eb', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
+const COLORS = ['var(--chart-1)', 'var(--chart-3)', 'var(--chart-2)', 'var(--chart-5)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-1)', 'var(--chart-2)']
 const QUAL_COLORS: Record<string, string> = {
-  hot: '#ef4444',
-  warm: '#f59e0b',
-  cold: '#3b82f6',
-  unqualified: '#9ca3af',
-  unscored: '#d1d5db',
+  hot: 'var(--chart-5)',
+  warm: 'var(--chart-3)',
+  cold: 'var(--aurea-ink-3)',
+  unqualified: 'var(--aurea-border)',
+  unscored: 'var(--aurea-border)',
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -176,6 +176,14 @@ function getDateRange(range: DateRange): { start: string; end: string } {
   return { start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] }
 }
 
+const tooltipStyle = {
+  background: 'var(--aurea-surface)',
+  border: '1px solid var(--aurea-border)',
+  borderRadius: '6px',
+  fontSize: '13px',
+  boxShadow: 'none',
+}
+
 export function AnalyticsDashboard() {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -230,7 +238,10 @@ export function AnalyticsDashboard() {
       {/* Date Range Picker */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">Analytics</h1>
+          <div>
+            <p className="aurea-eyebrow">Performance</p>
+            <h1 className="aurea-display text-[40px] text-aurea-ink leading-none">Analytics</h1>
+          </div>
           <Link href="/analytics/attribution">
             <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
               <Target className="h-3 w-3" />
@@ -255,45 +266,45 @@ export function AnalyticsDashboard() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <KPICard icon={Users} label="Total Leads" value={kpis.totalLeads} color="text-blue-600" />
-        <KPICard icon={Flame} label="Hot Leads" value={kpis.hotLeads} color="text-red-500" />
-        <KPICard icon={Thermometer} label="Warm Leads" value={kpis.warmLeads} color="text-amber-500" />
-        <KPICard icon={Target} label="Qualified" value={kpis.qualifiedLeads} color="text-green-600" subtitle={`${kpis.qualificationRate.toFixed(1)}% rate`} />
-        <KPICard icon={TrendingUp} label="Converted" value={kpis.convertedLeads} color="text-purple-600" subtitle={`${kpis.conversionRate.toFixed(1)}% rate`} />
+        <KPICard icon={Users} label="Total Leads" value={kpis.totalLeads} iconClass="text-aurea-ink-3" />
+        <KPICard icon={Flame} label="Hot Leads" value={kpis.hotLeads} iconClass="text-aurea-rose" />
+        <KPICard icon={Thermometer} label="Warm Leads" value={kpis.warmLeads} iconClass="text-aurea-amber" />
+        <KPICard icon={Target} label="Qualified" value={kpis.qualifiedLeads} iconClass="text-aurea-primary" subtitle={`${kpis.qualificationRate.toFixed(1)}% rate`} />
+        <KPICard icon={TrendingUp} label="Converted" value={kpis.convertedLeads} iconClass="text-aurea-primary" subtitle={`${kpis.conversionRate.toFixed(1)}% rate`} />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard icon={DollarSign} label="Pipeline Value" value={formatCurrency(kpis.totalPipeline)} color="text-emerald-600" />
-        <KPICard icon={DollarSign} label="Revenue" value={formatCurrency(kpis.totalRevenue)} color="text-green-700" />
-        <KPICard icon={Brain} label="Avg AI Engagement" value={kpis.avgScore} color="text-indigo-600" subtitle="out of 100" />
-        <KPICard icon={Calendar} label="Appointments" value={data.appointments.scheduled + data.appointments.completed} color="text-orange-600" subtitle={`${data.appointments.showRate.toFixed(0)}% show rate`} />
+        <KPICard icon={DollarSign} label="Pipeline Value" value={formatCurrency(kpis.totalPipeline)} iconClass="text-aurea-primary" />
+        <KPICard icon={DollarSign} label="Revenue" value={formatCurrency(kpis.totalRevenue)} iconClass="text-aurea-primary" />
+        <KPICard icon={Brain} label="Avg AI Engagement" value={kpis.avgScore} iconClass="text-aurea-primary" subtitle="out of 100" />
+        <KPICard icon={Calendar} label="Appointments" value={data.appointments.scheduled + data.appointments.completed} iconClass="text-aurea-amber" subtitle={`${data.appointments.showRate.toFixed(0)}% show rate`} />
       </div>
 
       {/* Lead Trend + Message Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Lead Trend</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">Lead Trend</CardTitle>
             <CardDescription>New leads and conversions per day</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartWrapper height="h-[280px]">
                 <AreaChart data={data.leadTrend}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="date" tickFormatter={formatDate} fontSize={11} />
-                  <YAxis fontSize={11} allowDecimals={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--aurea-border)" />
+                  <XAxis dataKey="date" tickFormatter={formatDate} fontSize={11} tick={{ fill: 'var(--aurea-ink-3)' }} />
+                  <YAxis fontSize={11} allowDecimals={false} tick={{ fill: 'var(--aurea-ink-3)' }} />
                   <Tooltip
                     labelFormatter={formatDate}
-                    contentStyle={{ borderRadius: '8px', fontSize: '13px' }}
+                    contentStyle={tooltipStyle}
                   />
                   <Legend />
                   <Area
                     type="monotone" dataKey="leads" name="New Leads"
-                    stroke="#2563eb" fill="#2563eb" fillOpacity={0.15} strokeWidth={2}
+                    stroke="var(--chart-1)" fill="var(--chart-1)" fillOpacity={0.15} strokeWidth={2}
                   />
                   <Area
                     type="monotone" dataKey="conversions" name="Conversions"
-                    stroke="#10b981" fill="#10b981" fillOpacity={0.15} strokeWidth={2}
+                    stroke="var(--chart-2)" fill="var(--chart-2)" fillOpacity={0.15} strokeWidth={2}
                   />
                 </AreaChart>
             </ChartWrapper>
@@ -302,7 +313,7 @@ export function AnalyticsDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Message Activity (30 Days)</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">Message Activity (30 Days)</CardTitle>
             <CardDescription>
               Outbound vs inbound messages &middot;{' '}
               <span className="font-medium">{data.messaging.aiPercentage.toFixed(0)}% AI-generated</span>
@@ -311,16 +322,16 @@ export function AnalyticsDashboard() {
           <CardContent>
             <ChartWrapper height="h-[280px]">
                 <BarChart data={data.messageTrend}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="date" tickFormatter={formatDate} fontSize={11} />
-                  <YAxis fontSize={11} allowDecimals={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--aurea-border)" />
+                  <XAxis dataKey="date" tickFormatter={formatDate} fontSize={11} tick={{ fill: 'var(--aurea-ink-3)' }} />
+                  <YAxis fontSize={11} allowDecimals={false} tick={{ fill: 'var(--aurea-ink-3)' }} />
                   <Tooltip
                     labelFormatter={formatDate}
-                    contentStyle={{ borderRadius: '8px', fontSize: '13px' }}
+                    contentStyle={tooltipStyle}
                   />
                   <Legend />
-                  <Bar dataKey="outbound" name="Sent" fill="#2563eb" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="inbound" name="Received" fill="#10b981" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="outbound" name="Sent" fill="var(--chart-1)" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="inbound" name="Received" fill="var(--chart-2)" radius={[2, 2, 0, 0]} />
                 </BarChart>
             </ChartWrapper>
           </CardContent>
@@ -331,7 +342,7 @@ export function AnalyticsDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Lead Sources</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">Lead Sources</CardTitle>
             <CardDescription>Where your leads come from</CardDescription>
           </CardHeader>
           <CardContent>
@@ -357,7 +368,7 @@ export function AnalyticsDashboard() {
                   </Pie>
                   <Tooltip
                     formatter={(value: any, name: any) => [value, SOURCE_LABELS[name] || name]}
-                    contentStyle={{ borderRadius: '8px', fontSize: '13px' }}
+                    contentStyle={tooltipStyle}
                   />
                 </PieChart>
             </ChartWrapper>
@@ -366,7 +377,7 @@ export function AnalyticsDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">AI Qualification</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">AI Qualification</CardTitle>
             <CardDescription>Lead quality distribution</CardDescription>
           </CardHeader>
           <CardContent>
@@ -375,16 +386,17 @@ export function AnalyticsDashboard() {
                   data={data.qualificationDistribution}
                   layout="vertical"
                 >
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis type="number" fontSize={11} allowDecimals={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--aurea-border)" />
+                  <XAxis type="number" fontSize={11} allowDecimals={false} tick={{ fill: 'var(--aurea-ink-3)' }} />
                   <YAxis
                     type="category" dataKey="tier" fontSize={12} width={80}
                     tickFormatter={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
+                    tick={{ fill: 'var(--aurea-ink-3)' }}
                   />
-                  <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '13px' }} />
+                  <Tooltip contentStyle={tooltipStyle} />
                   <Bar dataKey="count" name="Leads" radius={[0, 4, 4, 0]}>
                     {data.qualificationDistribution.map((entry) => (
-                      <Cell key={entry.tier} fill={QUAL_COLORS[entry.tier] || '#9ca3af'} />
+                      <Cell key={entry.tier} fill={QUAL_COLORS[entry.tier] || 'var(--aurea-border)'} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -394,7 +406,7 @@ export function AnalyticsDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Financing Interest</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">Financing Interest</CardTitle>
             <CardDescription>How leads plan to pay</CardDescription>
           </CardHeader>
           <CardContent>
@@ -423,7 +435,7 @@ export function AnalyticsDashboard() {
                     </Pie>
                     <Tooltip
                       formatter={(value: any, name: any) => [value, FINANCING_LABELS[name] || name]}
-                      contentStyle={{ borderRadius: '8px', fontSize: '13px' }}
+                      contentStyle={tooltipStyle}
                     />
                   </PieChart>
               </ChartWrapper>
@@ -435,7 +447,7 @@ export function AnalyticsDashboard() {
       {/* Conversion Funnel */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Conversion Funnel</CardTitle>
+          <CardTitle className="aurea-display text-[22px] text-aurea-ink">Conversion Funnel</CardTitle>
           <CardDescription>Lead progression from capture to close</CardDescription>
         </CardHeader>
         <CardContent>
@@ -459,7 +471,7 @@ export function AnalyticsDashboard() {
                     className="h-full rounded-full transition-all"
                     style={{
                       width: `${Math.max(step.pct, step.count > 0 ? 2 : 0)}%`,
-                      backgroundColor: ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6'][i],
+                      backgroundColor: ['var(--chart-1)', 'var(--chart-3)', 'var(--chart-2)', 'var(--chart-4)'][i],
                     }}
                   />
                 </div>
@@ -473,7 +485,7 @@ export function AnalyticsDashboard() {
       {data.campaignPerformance.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Campaign Performance</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">Campaign Performance</CardTitle>
             <CardDescription>Active and completed campaign metrics</CardDescription>
           </CardHeader>
           <CardContent>
@@ -493,12 +505,12 @@ export function AnalyticsDashboard() {
                 </thead>
                 <tbody>
                   {data.campaignPerformance.map((c) => (
-                    <tr key={c.id} className="border-b last:border-0">
+                    <tr key={c.id} className="border-b last:border-0 hover:bg-aurea-surface-2">
                       <td className="py-2.5">
                         <div className="flex items-center gap-2">
-                          {c.channel === 'sms' ? <Phone className="h-3.5 w-3.5 text-blue-500" /> :
-                           c.channel === 'email' ? <Mail className="h-3.5 w-3.5 text-purple-500" /> :
-                           <MessageSquare className="h-3.5 w-3.5 text-amber-500" />}
+                          {c.channel === 'sms' ? <Phone className="h-3.5 w-3.5 text-aurea-ink-3" /> :
+                           c.channel === 'email' ? <Mail className="h-3.5 w-3.5 text-aurea-ink-3" /> :
+                           <MessageSquare className="h-3.5 w-3.5 text-aurea-amber" />}
                           <span className="font-medium">{c.name}</span>
                         </div>
                       </td>
@@ -528,7 +540,7 @@ export function AnalyticsDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Lead Status</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">Lead Status</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
@@ -552,30 +564,30 @@ export function AnalyticsDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <MessageSquare className="h-4 w-4" /> Messaging
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} /> Messaging
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-blue-50 p-3 text-center">
-                  <p className="text-2xl font-bold text-blue-700">{data.messaging.totalOutbound}</p>
-                  <p className="text-xs text-blue-600">Sent</p>
+                <div className="rounded-lg bg-aurea-surface-2 p-3 text-center">
+                  <p className="text-2xl font-bold text-aurea-ink">{data.messaging.totalOutbound}</p>
+                  <p className="text-xs text-aurea-ink-2">Sent</p>
                 </div>
-                <div className="rounded-lg bg-green-50 p-3 text-center">
-                  <p className="text-2xl font-bold text-green-700">{data.messaging.totalInbound}</p>
-                  <p className="text-xs text-green-600">Received</p>
+                <div className="rounded-lg bg-aurea-surface-2 p-3 text-center">
+                  <p className="text-2xl font-bold text-aurea-primary">{data.messaging.totalInbound}</p>
+                  <p className="text-xs text-aurea-ink-2">Received</p>
                 </div>
               </div>
-              <div className="rounded-lg bg-purple-50 p-3 flex items-center justify-between">
+              <div className="rounded-lg bg-aurea-surface-2 p-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Bot className="h-4 w-4 text-purple-600" />
-                  <span className="text-sm text-purple-700">AI-Generated</span>
+                  <Bot className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+                  <span className="text-sm text-aurea-ink">AI-Generated</span>
                 </div>
                 <div className="text-right">
-                  <span className="font-bold text-purple-700">{data.messaging.aiMessages}</span>
-                  <span className="text-xs text-purple-500 ml-1">({data.messaging.aiPercentage.toFixed(0)}%)</span>
+                  <span className="font-bold text-aurea-ink">{data.messaging.aiMessages}</span>
+                  <span className="text-xs text-aurea-ink-3 ml-1">({data.messaging.aiPercentage.toFixed(0)}%)</span>
                 </div>
               </div>
             </div>
@@ -584,24 +596,24 @@ export function AnalyticsDashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Calendar className="h-4 w-4" /> Appointments
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} /> Appointments
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-blue-50 p-3 text-center">
-                  <p className="text-xl font-bold text-blue-700">{data.appointments.scheduled}</p>
-                  <p className="text-xs text-blue-600">Upcoming</p>
+                <div className="rounded-lg bg-aurea-surface-2 p-3 text-center">
+                  <p className="text-xl font-bold text-aurea-ink">{data.appointments.scheduled}</p>
+                  <p className="text-xs text-aurea-ink-2">Upcoming</p>
                 </div>
-                <div className="rounded-lg bg-green-50 p-3 text-center">
-                  <p className="text-xl font-bold text-green-700">{data.appointments.completed}</p>
-                  <p className="text-xs text-green-600">Completed</p>
+                <div className="rounded-lg bg-aurea-surface-2 p-3 text-center">
+                  <p className="text-xl font-bold text-aurea-primary">{data.appointments.completed}</p>
+                  <p className="text-xs text-aurea-ink-2">Completed</p>
                 </div>
-                <div className="rounded-lg bg-red-50 p-3 text-center">
-                  <p className="text-xl font-bold text-red-700">{data.appointments.noShow}</p>
-                  <p className="text-xs text-red-600">No-Show</p>
+                <div className="rounded-lg bg-aurea-rose/10 p-3 text-center">
+                  <p className="text-xl font-bold text-aurea-rose">{data.appointments.noShow}</p>
+                  <p className="text-xs text-aurea-rose"style={{ opacity: 0.8 }}>No-Show</p>
                 </div>
               </div>
               <div className="rounded-lg border p-3 text-center">
@@ -613,11 +625,11 @@ export function AnalyticsDashboard() {
         </Card>
       </div>
 
-      {/* ═══ NEW: Response Time Metrics ═══ */}
+      {/* Response Time Metrics */}
       {data.responseTime && (
         <div>
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <Clock className="h-5 w-5 text-blue-500" />
+          <h2 className="aurea-display text-[22px] text-aurea-ink mb-3 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-aurea-ink-3" strokeWidth={1.75} />
             Response Time
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -625,36 +637,36 @@ export function AnalyticsDashboard() {
               icon={Timer}
               label="Avg First Contact"
               value={`${Math.round(data.responseTime.avg_first_contact_minutes)} min`}
-              color={data.responseTime.avg_first_contact_minutes <= 5 ? 'text-green-600' : data.responseTime.avg_first_contact_minutes <= 15 ? 'text-amber-600' : 'text-red-600'}
+              iconClass={data.responseTime.avg_first_contact_minutes <= 5 ? 'text-aurea-primary' : data.responseTime.avg_first_contact_minutes <= 15 ? 'text-aurea-amber' : 'text-aurea-rose'}
               subtitle={data.responseTime.avg_first_contact_minutes <= 5 ? 'Excellent' : data.responseTime.avg_first_contact_minutes <= 15 ? 'Good' : 'Needs improvement'}
             />
             <KPICard
               icon={Zap}
               label="Avg Response Time"
               value={`${Math.round(data.responseTime.avg_response_minutes)} min`}
-              color="text-blue-600"
+              iconClass="text-aurea-ink-3"
             />
             <KPICard
               icon={Target}
               label="Under 5 Min"
               value={`${data.responseTime.contacted_within_5min_pct}%`}
-              color={data.responseTime.contacted_within_5min_pct >= 80 ? 'text-green-600' : 'text-amber-600'}
+              iconClass={data.responseTime.contacted_within_5min_pct >= 80 ? 'text-aurea-primary' : 'text-aurea-amber'}
               subtitle="of leads contacted within 5 min"
             />
           </div>
           {data.responseTime.distribution && data.responseTime.distribution.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Response Time Distribution</CardTitle>
+                <CardTitle className="aurea-display text-[22px] text-aurea-ink">Response Time Distribution</CardTitle>
               </CardHeader>
               <CardContent>
                 <ChartWrapper height="h-[250px]">
                   <BarChart data={data.responseTime.distribution}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Leads" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--aurea-border)" />
+                    <XAxis dataKey="bucket" tick={{ fontSize: 12, fill: 'var(--aurea-ink-3)' }} />
+                    <YAxis tick={{ fill: 'var(--aurea-ink-3)' }} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Bar dataKey="count" fill="var(--chart-1)" radius={[4, 4, 0, 0]} name="Leads" />
                   </BarChart>
                 </ChartWrapper>
               </CardContent>
@@ -663,38 +675,38 @@ export function AnalyticsDashboard() {
         </div>
       )}
 
-      {/* ═══ NEW: Revenue Forecasting ═══ */}
+      {/* Revenue Forecasting */}
       {data.forecasting && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-emerald-500" />
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-aurea-primary" strokeWidth={1.75} />
               Revenue Forecast
             </CardTitle>
             <CardDescription>Projected revenue from current pipeline (weighted by probability)</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-center mb-6">
-              <p className="text-4xl font-bold text-emerald-600">{formatCurrency(data.forecasting.total_projected)}</p>
+              <p className="text-4xl font-bold text-aurea-primary">{formatCurrency(data.forecasting.total_projected)}</p>
               <p className="text-sm text-muted-foreground mt-1">Total Projected Revenue</p>
             </div>
             <div className="grid grid-cols-3 gap-4">
-              <div className="text-center p-4 rounded-lg bg-red-50">
-                <p className="text-sm font-medium text-red-800">Hot Leads</p>
-                <p className="text-2xl font-bold text-red-600">{data.forecasting.hot.count}</p>
-                <p className="text-xs text-red-600">{(data.forecasting.hot.probability * 100)}% probability</p>
+              <div className="text-center p-4 rounded-lg bg-aurea-rose/10">
+                <p className="text-sm font-medium text-aurea-ink">Hot Leads</p>
+                <p className="text-2xl font-bold text-aurea-rose">{data.forecasting.hot.count}</p>
+                <p className="text-xs text-aurea-rose">{(data.forecasting.hot.probability * 100)}% probability</p>
                 <p className="text-sm font-semibold mt-1">{formatCurrency(data.forecasting.hot.projected)}</p>
               </div>
-              <div className="text-center p-4 rounded-lg bg-amber-50">
-                <p className="text-sm font-medium text-amber-800">Warm Leads</p>
-                <p className="text-2xl font-bold text-amber-600">{data.forecasting.warm.count}</p>
-                <p className="text-xs text-amber-600">{(data.forecasting.warm.probability * 100)}% probability</p>
+              <div className="text-center p-4 rounded-lg bg-aurea-amber/10">
+                <p className="text-sm font-medium text-aurea-ink">Warm Leads</p>
+                <p className="text-2xl font-bold text-aurea-amber">{data.forecasting.warm.count}</p>
+                <p className="text-xs text-aurea-amber">{(data.forecasting.warm.probability * 100)}% probability</p>
                 <p className="text-sm font-semibold mt-1">{formatCurrency(data.forecasting.warm.projected)}</p>
               </div>
-              <div className="text-center p-4 rounded-lg bg-blue-50">
-                <p className="text-sm font-medium text-blue-800">Cold Leads</p>
-                <p className="text-2xl font-bold text-blue-600">{data.forecasting.cold.count}</p>
-                <p className="text-xs text-blue-600">{(data.forecasting.cold.probability * 100)}% probability</p>
+              <div className="text-center p-4 rounded-lg bg-aurea-surface-2">
+                <p className="text-sm font-medium text-aurea-ink">Cold Leads</p>
+                <p className="text-2xl font-bold text-aurea-ink">{data.forecasting.cold.count}</p>
+                <p className="text-xs text-aurea-ink-3">{(data.forecasting.cold.probability * 100)}% probability</p>
                 <p className="text-sm font-semibold mt-1">{formatCurrency(data.forecasting.cold.projected)}</p>
               </div>
             </div>
@@ -705,11 +717,11 @@ export function AnalyticsDashboard() {
         </Card>
       )}
 
-      {/* ═══ NEW: Source ROI ═══ */}
+      {/* Source ROI */}
       {data.sourceRoi && data.sourceRoi.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Lead Source ROI</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">Lead Source ROI</CardTitle>
             <CardDescription>Revenue and conversion performance by lead source</CardDescription>
           </CardHeader>
           <CardContent>
@@ -728,7 +740,7 @@ export function AnalyticsDashboard() {
                 </thead>
                 <tbody>
                   {data.sourceRoi.map((s) => (
-                    <tr key={s.source} className="border-b last:border-0">
+                    <tr key={s.source} className="border-b last:border-0 hover:bg-aurea-surface-2">
                       <td className="py-2 font-medium">{SOURCE_LABELS[s.source] || s.source}</td>
                       <td className="py-2 text-right">{s.lead_count}</td>
                       <td className="py-2 text-right">{s.conversions}</td>
@@ -749,11 +761,11 @@ export function AnalyticsDashboard() {
         </Card>
       )}
 
-      {/* ═══ NEW: Pipeline Velocity ═══ */}
+      {/* Pipeline Velocity */}
       {data.pipelineVelocity && data.pipelineVelocity.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Pipeline Velocity</CardTitle>
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink">Pipeline Velocity</CardTitle>
             <CardDescription>Average days leads spend in each pipeline stage</CardDescription>
           </CardHeader>
           <CardContent>
@@ -765,23 +777,23 @@ export function AnalyticsDashboard() {
                 }))}
                 layout="vertical"
               >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" tick={{ fontSize: 12 }} label={{ value: 'Days', position: 'insideBottom', offset: -5 }} />
-                <YAxis dataKey="stage" type="category" tick={{ fontSize: 11 }} width={120} />
-                <Tooltip formatter={(v) => [`${v} days`, 'Avg Duration']} />
-                <Bar dataKey="avg_days_in_stage" fill="#8b5cf6" radius={[0, 4, 4, 0]} name="Avg Days" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--aurea-border)" />
+                <XAxis type="number" tick={{ fontSize: 12, fill: 'var(--aurea-ink-3)' }} label={{ value: 'Days', position: 'insideBottom', offset: -5 }} />
+                <YAxis dataKey="stage" type="category" tick={{ fontSize: 11, fill: 'var(--aurea-ink-3)' }} width={120} />
+                <Tooltip formatter={(v) => [`${v} days`, 'Avg Duration']} contentStyle={tooltipStyle} />
+                <Bar dataKey="avg_days_in_stage" fill="var(--chart-1)" radius={[0, 4, 4, 0]} name="Avg Days" />
               </BarChart>
             </ChartWrapper>
           </CardContent>
         </Card>
       )}
 
-      {/* ═══ Connector Health ═══ */}
+      {/* Connector Health */}
       {data.connectorHealth && data.connectorHealth.connectors.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Plug className="h-5 w-5 text-primary" />
+            <CardTitle className="aurea-display text-[22px] text-aurea-ink flex items-center gap-2">
+              <Plug className="h-5 w-5 text-aurea-ink-3" strokeWidth={1.75} />
               Connector Health
             </CardTitle>
             <CardDescription>
@@ -790,17 +802,17 @@ export function AnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-4 mb-4 text-center">
-              <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 p-3">
-                <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{data.connectorHealth.total_events}</p>
-                <p className="text-xs text-blue-600 dark:text-blue-500">Total Events</p>
+              <div className="rounded-lg bg-aurea-surface-2 p-3">
+                <p className="text-2xl font-bold text-aurea-ink">{data.connectorHealth.total_events}</p>
+                <p className="text-xs text-aurea-ink-2">Total Events</p>
               </div>
-              <div className="rounded-lg bg-green-50 dark:bg-green-950/30 p-3">
-                <p className="text-2xl font-bold text-green-700 dark:text-green-400">{data.connectorHealth.total_success}</p>
-                <p className="text-xs text-green-600 dark:text-green-500">Successful</p>
+              <div className="rounded-lg bg-aurea-surface-2 p-3">
+                <p className="text-2xl font-bold text-aurea-primary">{data.connectorHealth.total_success}</p>
+                <p className="text-xs text-aurea-ink-2">Successful</p>
               </div>
-              <div className="rounded-lg bg-red-50 dark:bg-red-950/30 p-3">
-                <p className="text-2xl font-bold text-red-700 dark:text-red-400">{data.connectorHealth.total_failed}</p>
-                <p className="text-xs text-red-600 dark:text-red-500">Failed</p>
+              <div className="rounded-lg bg-aurea-rose/10 p-3">
+                <p className="text-2xl font-bold text-aurea-rose">{data.connectorHealth.total_failed}</p>
+                <p className="text-xs text-aurea-rose" style={{ opacity: 0.8 }}>Failed</p>
               </div>
             </div>
             <div className="space-y-3">
@@ -827,8 +839,8 @@ export function AnalyticsDashboard() {
                     <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all ${
-                          c.success_rate >= 95 ? 'bg-green-500' :
-                          c.success_rate >= 80 ? 'bg-amber-500' : 'bg-red-500'
+                          c.success_rate >= 95 ? 'bg-aurea-primary' :
+                          c.success_rate >= 80 ? 'bg-aurea-amber' : 'bg-aurea-rose'
                         }`}
                         style={{ width: `${c.success_rate}%` }}
                       />
@@ -856,24 +868,22 @@ export function AnalyticsDashboard() {
 }
 
 function KPICard({
-  icon: Icon, label, value, color, subtitle,
+  icon: Icon, label, value, iconClass, subtitle,
 }: {
-  icon: React.ComponentType<{ className?: string }>
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
   label: string
   value: string | number
-  color: string
+  iconClass: string
   subtitle?: string
 }) {
   return (
-    <Card>
-      <CardContent className="pt-4 pb-3">
-        <div className="flex items-center gap-2 mb-1.5">
-          <Icon className={`h-4 w-4 ${color}`} />
-          <span className="text-xs text-muted-foreground">{label}</span>
-        </div>
-        <p className="text-2xl font-bold">{value}</p>
-        {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
-      </CardContent>
-    </Card>
+    <div className="aurea-card p-4 hover:bg-aurea-surface-2 transition-colors">
+      <div className="flex items-center gap-2 mb-1.5">
+        <Icon className={`h-4 w-4 ${iconClass}`} strokeWidth={1.75} />
+        <span className="aurea-eyebrow">{label}</span>
+      </div>
+      <p className="aurea-display text-[26px] tabular-nums text-aurea-ink leading-none">{value}</p>
+      {subtitle && <p className="text-xs text-aurea-ink-3 mt-1">{subtitle}</p>}
+    </div>
   )
 }
