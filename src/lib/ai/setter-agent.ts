@@ -335,7 +335,10 @@ export async function setterAgentRespond(
     content: scrubPHI(msg.content),
   }))
 
-  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 1024
+  // SMS gets the same 1024-token budget as web: the response is a full JSON object
+  // (message + techniques + lead_assessment, all consumed downstream), not just the
+  // reply text — 512 truncated it mid-object, breaking JSON.parse. Voice stays terse.
+  const maxTokens = context.channel === 'voice' ? 256 : 1024
 
   // Multi-round agentic loop: lets the setter chain tool calls (e.g.
   // check_availability → create_booking) within a single turn instead of

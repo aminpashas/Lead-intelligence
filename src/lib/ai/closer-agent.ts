@@ -577,7 +577,9 @@ export async function closerAgentRespond(
     content: scrubPHI(msg.content),
   }))
 
-  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 2048
+  // SMS raised 512→1024: the response is a full JSON object (message + techniques +
+  // lead_assessment), and 512 truncated it mid-object, breaking JSON.parse.
+  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 1024 : 2048
 
   // Multi-round agentic loop: lets the closer chain tool calls (e.g.
   // check_financing_status → send_financing_link, or check_closing_progress →

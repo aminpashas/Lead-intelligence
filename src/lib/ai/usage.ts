@@ -42,10 +42,8 @@ export type RecordAiUsageParams = {
  */
 const PRICE_PER_1K_CENTS: Record<string, { in: number; out: number }> = {
   'claude-haiku-4-5':              { in: 0.10, out: 0.50 },
-  'claude-3-5-haiku-20241022':     { in: 0.10, out: 0.50 },
   'claude-sonnet-4-5':             { in: 0.30, out: 1.50 },
   'claude-sonnet-4-6':      { in: 0.30, out: 1.50 },
-  'claude-opus-4':                 { in: 1.50, out: 7.50 },
   'claude-opus-4-5':               { in: 1.50, out: 7.50 },
   'claude-opus-4-7':               { in: 1.50, out: 7.50 },
 }
