@@ -138,13 +138,18 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewCount, setPreviewCount] = useState<number | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [eligibility, setEligibility] = useState<null | {
+    email: { total: number; eligible: number; no_consent: number; opted_out: number; no_contact: number }
+    list_total: number
+    capped: boolean
+  }>(null)
   const [activeField, setActiveField] = useState<'subject' | 'body'>('body')
 
   useEffect(() => { fetchSmartLists() }, [])
 
   useEffect(() => {
-    if (selectedListId) fetchPreviewCount()
-    else setPreviewCount(null)
+    if (selectedListId) { fetchPreviewCount(); fetchEligibility() }
+    else { setPreviewCount(null); setEligibility(null) }
   }, [selectedListId])
 
   async function fetchSmartLists() {
@@ -167,6 +172,17 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
         setPreviewCount(data.total || 0)
       }
     } finally { setPreviewLoading(false) }
+  }
+
+  // Consent/eligibility breakdown — how many recipients are actually reachable by email.
+  async function fetchEligibility() {
+    if (!selectedListId) return
+    try {
+      const res = await fetch(`/api/smart-lists/${selectedListId}/eligibility`)
+      if (res.ok) setEligibility(await res.json())
+    } catch {
+      /* non-fatal — the plain count still shows */
+    }
   }
 
   function insertVariable(v: string) {
@@ -334,6 +350,27 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
                           {previewCount !== null ? `${previewCount} leads with email` : `${selectedList.lead_count} leads`}</>
                       )}
                     </p>
+                    {eligibility && (
+                      <p className="mt-0.5 text-[11px] text-aurea-ink-3">
+                        <span className="font-medium text-aurea-primary">
+                          {eligibility.email.eligible.toLocaleString()} email-eligible
+                        </span>
+                        {eligibility.email.total > eligibility.email.eligible && (
+                          <>
+                            {' · '}
+                            {(eligibility.email.total - eligibility.email.eligible).toLocaleString()} excluded
+                            {' ('}
+                            {[
+                              eligibility.email.no_consent > 0 ? `${eligibility.email.no_consent} no consent` : null,
+                              eligibility.email.opted_out > 0 ? `${eligibility.email.opted_out} opted out` : null,
+                              eligibility.email.no_contact > 0 ? `${eligibility.email.no_contact} no email` : null,
+                            ].filter(Boolean).join(', ')}
+                            {')'}
+                          </>
+                        )}
+                        {eligibility.capped && <>{' · '}sampled from {eligibility.list_total.toLocaleString()}</>}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
