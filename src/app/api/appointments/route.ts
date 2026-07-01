@@ -218,6 +218,11 @@ export async function PATCH(request: NextRequest) {
   const updateData: Record<string, unknown> = { status }
   if (notes !== undefined) updateData.notes = notes
 
+  // A terminal decision clears the "needs outcome" flag so it leaves the queue.
+  if (['completed', 'no_show', 'canceled', 'rescheduled'].includes(status)) {
+    updateData.outcome_review_pending = false
+  }
+
   // Handle confirmation
   if (status === 'confirmed') {
     updateData.confirmation_received = true
