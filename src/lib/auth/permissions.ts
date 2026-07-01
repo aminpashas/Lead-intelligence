@@ -272,6 +272,14 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   // Campaigns + Funnel Playbook
   '/campaigns': 'campaigns:read',
   '/campaigns/playbook': 'funnel:read',
+  // Campaigns hub — relocated Audiences (Smart Lists) + Broadcasts (Phase 1 move).
+  // Explicit keys keep the original, stricter gates instead of inheriting
+  // the looser /campaigns → campaigns:read via prefix match.
+  '/campaigns/audiences': 'smart_lists:read',
+  '/campaigns/broadcasts': 'mass_sms:write',
+  '/campaigns/broadcasts/sms': 'mass_sms:write',
+  '/campaigns/broadcasts/email': 'mass_email:write',
+  '/campaigns/broadcasts/audit': 'broadcast_audit:read',
   '/reactivation': 'reactivation:read',
   // Broadcasts hub
   '/broadcasts': 'mass_sms:write',
