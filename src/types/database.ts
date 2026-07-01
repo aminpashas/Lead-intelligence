@@ -1350,12 +1350,52 @@ export type AiUsageRow = {
   model: string
   tokens_in: number
   tokens_out: number
+  cache_read_tokens: number
+  cache_write_tokens: number
   cost_cents: number
+  billable_cents: number
   duration_ms: number | null
   succeeded: boolean
   error_message: string | null
   metadata: Record<string, unknown>
   occurred_at: string
+}
+
+// ── Spend tracking + client re-billing (migration 20260701120000) ──
+
+export type CostEventService = 'sms' | 'voice' | 'email'
+export type CostEventStatus = 'estimated' | 'final'
+
+/**
+ * Billable ledger for SMS/voice/email. cost_cents = what we pay the provider; billable_cents =
+ * what we re-bill the practice (cost × (1 + markup)). AI usage lives in ai_usage, not here.
+ */
+export type CostEvent = {
+  id: string
+  organization_id: string
+  service: CostEventService
+  status: CostEventStatus
+  event_at: string
+  source_table: string | null
+  source_id: string | null
+  external_id: string | null
+  quantity: number | null
+  unit: string | null
+  cost_cents: number
+  billable_cents: number
+  markup_pct: number | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/** Per-practice re-billing config. Empty `markups` → platform defaults (src/lib/billing/markup.ts). */
+export type BillingSettings = {
+  organization_id: string
+  markups: Record<string, number>
+  platform_fee_cents: number
+  notes: string | null
+  updated_at: string
 }
 
 // ── Phase 3 EHR Integration (migration 026) ─────────────────

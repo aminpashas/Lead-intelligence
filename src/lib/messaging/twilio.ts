@@ -5,6 +5,7 @@ import { checkCompliance } from '@/lib/ai/compliance-filter'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { isFlagEnabled } from '@/lib/org/flags'
 import { isSendAllowed } from '@/lib/messaging/test-allowlist'
+import { recordSmsEstimate } from '@/lib/billing/cost-events'
 import { logger } from '@/lib/logger'
 
 // TCPA federal quiet hours: no telemarketing before 8am or after 9pm local time.
@@ -169,6 +170,19 @@ export async function sendSMSToLead(params: {
   }
 
   const result = await sendSMS(params.to, params.body)
+
+  // Record an estimated SMS cost the moment the message leaves. The reconcile-costs cron later
+  // upgrades this in place to the real Twilio price. Skipped for test-allowlist blocks (no
+  // real send occurred, so there is no cost). Fire-and-forget — never blocks the send.
+  if (result.status !== 'blocked') {
+    void recordSmsEstimate(params.supabase, {
+      organizationId: decision.lead.organization_id,
+      sid: result.sid,
+      body: params.body,
+      leadId: params.leadId,
+    })
+  }
+
   return { sent: true, sid: result.sid, status: result.status }
 }
 

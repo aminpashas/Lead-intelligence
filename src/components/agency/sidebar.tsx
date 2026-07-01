@@ -15,6 +15,7 @@ import {
   X,
   Crosshair,
   Activity,
+  DollarSign,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -24,6 +25,7 @@ const agencyNavigation = [
     items: [
       { name: 'Agency Home', href: '/agency', icon: LayoutDashboard, exact: true },
       { name: 'Practices', href: '/agency/practices', icon: Building2 },
+      { name: 'Spend & Margin', href: '/agency/spend', icon: DollarSign },
     ],
   },
   {

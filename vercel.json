@@ -95,6 +95,10 @@
     {
       "path": "/api/cron/follow-up-sequences",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-costs",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
