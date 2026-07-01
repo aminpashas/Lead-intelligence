@@ -2,8 +2,9 @@
 
 import { formatDistanceToNow } from 'date-fns'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Phone, Mail, Brain } from 'lucide-react'
+import { Phone, Mail, Brain, TrendingUp, ArrowRight } from 'lucide-react'
 import type { Lead } from '@/types/database'
+import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
 
 // Lead qualification chips — hot=rose, warm=amber, cold=neutral ink
 const qualificationColors: Record<string, string> = {
@@ -17,9 +18,15 @@ const qualificationColors: Record<string, string> = {
 export function LeadCard({
   lead,
   onClick,
+  closeProbability,
+  suggestion,
+  onApplySuggestion,
 }: {
   lead: Lead
   onClick?: () => void
+  closeProbability?: number
+  suggestion?: StageSuggestion | null
+  onApplySuggestion?: (leadId: string, toStageId: string) => void
 }) {
   const initials = `${lead.first_name?.[0] || ''}${lead.last_name?.[0] || ''}`.toUpperCase() || '?'
 
@@ -54,6 +61,22 @@ export function LeadCard({
           </span>
         )}
 
+        {typeof closeProbability === 'number' && (
+          <span
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${
+              closeProbability >= 0.6
+                ? 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20'
+                : closeProbability >= 0.3
+                ? 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20'
+                : 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border'
+            }`}
+            title="Estimated probability of closing"
+          >
+            <TrendingUp className="h-3 w-3" strokeWidth={1.75} />
+            <span className="font-mono tabular-nums">{Math.round(closeProbability * 100)}%</span>
+          </span>
+        )}
+
         {lead.dental_condition && (
           <span className="max-w-[120px] truncate rounded-md bg-aurea-surface-2 px-2 py-0.5 text-[11px] text-aurea-ink-2 ring-1 ring-aurea-border">
             {lead.dental_condition.replace(/_/g, ' ')}
@@ -65,6 +88,18 @@ export function LeadCard({
         <p className="mt-2 line-clamp-2 text-[11.5px] text-aurea-ink-3">
           {lead.ai_summary}
         </p>
+      )}
+
+      {suggestion && onApplySuggestion && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onApplySuggestion(lead.id, suggestion.toStageId) }}
+          className="mt-2 flex w-full items-center justify-between gap-2 rounded-md border border-aurea-primary/20 bg-aurea-primary/5 px-2 py-1.5 text-left text-[11px] text-aurea-ink transition-colors hover:bg-aurea-primary/10"
+          title={suggestion.reason}
+        >
+          <span className="truncate"><span className="text-aurea-ink-3">Suggest:</span> move to {suggestion.toStageName}</span>
+          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-aurea-primary" strokeWidth={2} />
+        </button>
       )}
 
       <div className="mt-2 flex items-center justify-between border-t border-aurea-border pt-2">

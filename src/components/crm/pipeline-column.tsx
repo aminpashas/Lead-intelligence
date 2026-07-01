@@ -9,13 +9,20 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
+import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
 
 function SortableLeadCard({
   lead,
   onClick,
+  closeProbability,
+  suggestion,
+  onApplySuggestion,
 }: {
   lead: Lead
   onClick: () => void
+  closeProbability?: number
+  suggestion?: StageSuggestion | null
+  onApplySuggestion?: (leadId: string, toStageId: string) => void
 }) {
   const {
     attributes,
@@ -40,7 +47,13 @@ function SortableLeadCard({
       {...listeners}
       className={isDragging ? 'bg-aurea-surface-2 rounded-lg' : undefined}
     >
-      <LeadCard lead={lead} onClick={onClick} />
+      <LeadCard
+        lead={lead}
+        onClick={onClick}
+        closeProbability={closeProbability}
+        suggestion={suggestion}
+        onApplySuggestion={onApplySuggestion}
+      />
     </div>
   )
 }
@@ -49,10 +62,16 @@ export function PipelineColumn({
   stage,
   leads,
   onLeadClick,
+  probabilityByLead,
+  suggestionByLead,
+  onApplySuggestion,
 }: {
   stage: PipelineStage
   leads: Lead[]
   onLeadClick: (id: string) => void
+  probabilityByLead?: Record<string, number>
+  suggestionByLead?: Record<string, StageSuggestion>
+  onApplySuggestion?: (leadId: string, toStageId: string) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
 
@@ -101,6 +120,9 @@ export function PipelineColumn({
               key={lead.id}
               lead={lead}
               onClick={() => onLeadClick(lead.id)}
+              closeProbability={probabilityByLead?.[lead.id]}
+              suggestion={suggestionByLead?.[lead.id] ?? null}
+              onApplySuggestion={onApplySuggestion}
             />
           ))}
         </SortableContext>

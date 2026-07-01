@@ -19,14 +19,19 @@ import {
 import { PipelineColumn } from './pipeline-column'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
+import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
 import { toast } from 'sonner'
 
 export function PipelineBoard({
   stages,
   leads: initialLeads,
+  probabilityByLead,
+  suggestionByLead,
 }: {
   stages: PipelineStage[]
   leads: Lead[]
+  probabilityByLead?: Record<string, number>
+  suggestionByLead?: Record<string, StageSuggestion>
 }) {
   const [leads, setLeads] = useState(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -47,16 +52,8 @@ export function PipelineBoard({
     setActiveId(event.active.id as string)
   }, [])
 
-  const handleDragEnd = useCallback(
-    async (event: DragEndEvent) => {
-      const { active, over } = event
-      setActiveId(null)
-
-      if (!over) return
-
-      const leadId = active.id as string
-      const newStageId = over.id as string
-
+  const moveLeadToStage = useCallback(
+    async (leadId: string, newStageId: string) => {
       const lead = leads.find((l) => l.id === leadId)
       if (!lead || lead.stage_id === newStageId) return
 
@@ -65,7 +62,7 @@ export function PipelineBoard({
         prev.map((l) => (l.id === leadId ? { ...l, stage_id: newStageId } : l))
       )
 
-      // Update via API
+      // Update via API — same endpoint the drag path uses
       try {
         const res = await fetch(`/api/leads/${leadId}`, {
           method: 'PATCH',
@@ -89,6 +86,24 @@ export function PipelineBoard({
     [leads, router]
   )
 
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      setActiveId(null)
+      if (!over) return
+      void moveLeadToStage(active.id as string, over.id as string)
+    },
+    [moveLeadToStage]
+  )
+
+  // One-click approval of an AI-suggested stage move (suggest → approve).
+  const handleApplySuggestion = useCallback(
+    (leadId: string, toStageId: string) => {
+      void moveLeadToStage(leadId, toStageId)
+    },
+    [moveLeadToStage]
+  )
+
   // Prevent hydration mismatch — DnD-kit generates unique IDs at runtime
   if (!mounted) {
     return (
@@ -96,7 +111,7 @@ export function PipelineBoard({
         {stages.filter((s) => !s.is_lost).map((stage) => {
           const stageLeads = leads.filter((l) => l.stage_id === stage.id)
           return (
-            <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} onLeadClick={(id) => router.push(`/leads/${id}`)} />
+            <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
           )
         })}
       </div>
@@ -121,6 +136,9 @@ export function PipelineBoard({
                 stage={stage}
                 leads={stageLeads}
                 onLeadClick={(id) => router.push(`/leads/${id}`)}
+                probabilityByLead={probabilityByLead}
+                suggestionByLead={suggestionByLead}
+                onApplySuggestion={handleApplySuggestion}
               />
             )
           })}
