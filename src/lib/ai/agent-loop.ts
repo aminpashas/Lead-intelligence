@@ -176,3 +176,25 @@ export function deriveConfidence(params: {
 
   return confidence
 }
+
+/**
+ * Salvage just the "message" field from a raw agent response when the full JSON
+ * envelope is truncated or malformed (e.g. the model hit max_tokens mid-object).
+ * Returns the recovered patient-facing text, or null if none can be extracted.
+ *
+ * Why this exists: the setter/closer response is a JSON envelope (message +
+ * techniques + lead_assessment). The parse fallback used to send the ENTIRE raw
+ * envelope as the reply on a failed JSON.parse — only the SMS length filter stopped
+ * a patient from receiving a wall of JSON. This recovers the clean message so a
+ * truncated response still yields a usable reply; callers escalate when it's null.
+ */
+export function recoverAgentMessage(raw: string): string | null {
+  const match = raw.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+  if (!match) return null
+  try {
+    const text = JSON.parse(`"${match[1]}"`)
+    return typeof text === 'string' && text.trim() ? text : null
+  } catch {
+    return null
+  }
+}

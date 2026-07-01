@@ -27,7 +27,7 @@ import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-re
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { formatFinancingContextForPrompt } from './financial-coach'
 import { SETTER_TOOLS } from '@/lib/autopilot/agent-tools'
-import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
+import { runAgentToolLoop, deriveConfidence, recoverAgentMessage } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 
 function getAnthropic() {
@@ -335,7 +335,10 @@ export async function setterAgentRespond(
     content: scrubPHI(msg.content),
   }))
 
-  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 1024
+  // SMS gets the same 1024-token budget as web: the response is a full JSON object
+  // (message + techniques + lead_assessment, all consumed downstream), not just the
+  // reply text — 512 truncated it mid-object, breaking JSON.parse. Voice stays terse.
+  const maxTokens = context.channel === 'voice' ? 256 : 1024
 
   // Multi-round agentic loop: lets the setter chain tool calls (e.g.
   // check_availability → create_booking) within a single turn instead of
@@ -382,9 +385,17 @@ export async function setterAgentRespond(
 
   try {
     const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-    parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { message: responseText, action_taken: 'responded', should_handoff: false, handoff_reason: null, internal_notes: null }
+    if (!jsonMatch) throw new Error('no JSON object in agent response')
+    parsed = JSON.parse(jsonMatch[0])
   } catch {
-    parsed = { message: responseText, action_taken: 'responded', should_handoff: false, handoff_reason: null, internal_notes: null }
+    // Truncated/malformed JSON (e.g. the model hit max_tokens mid-object). Salvage just
+    // the "message" field so we never send the raw JSON envelope to the patient. If
+    // nothing usable is recovered, force self_confidence to 0 so the autopilot escalates
+    // to a human instead of auto-sending.
+    const recovered = recoverAgentMessage(responseText)
+    parsed = recovered
+      ? { message: recovered, action_taken: 'responded', should_handoff: false, handoff_reason: null, internal_notes: 'recovered_from_truncated_json' }
+      : { message: '', action_taken: 'responded', should_handoff: true, handoff_reason: 'unparseable_response', self_confidence: 0, internal_notes: 'agent response unparseable — escalated to human' }
   }
 
   // HIPAA compliance check on the output message
