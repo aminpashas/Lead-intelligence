@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { formatRulesBlock, deriveRuleFields } from '@/lib/ai/agency-rules'
+import { findScenario } from '@/lib/ai/roleplay-engine'
 
 describe('formatRulesBlock', () => {
   it('returns empty string when there are no rules', () => {
@@ -28,5 +29,16 @@ describe('deriveRuleFields', () => {
 
   it('trims whitespace', () => {
     expect(deriveRuleFields('  be warm  ').content).toBe('be warm')
+  })
+})
+
+describe('findScenario', () => {
+  it('fuzzy-matches a built-in scenario by words in its name', () => {
+    expect(findScenario('cost objection')?.id).toBe('cost-objection')
+    expect(findScenario('anxious')?.id).toBe('anxious-patient')
+  })
+  it('returns the default new-patient scenario for empty/unknown input', () => {
+    expect(findScenario('')?.id).toBe('new-patient-sms')
+    expect(findScenario('nonsense zzz')?.id).toBe('new-patient-sms')
   })
 })

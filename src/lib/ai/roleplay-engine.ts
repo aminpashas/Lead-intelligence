@@ -23,7 +23,9 @@ import {
   getActiveMemories,
   getRelevantKnowledge,
   buildTrainingSystemPrompt,
+  buildAgencyPersonaBlock,
 } from './training-context'
+import { buildAgencyRulesBlock } from './agency-rules'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -162,6 +164,22 @@ export const BUILT_IN_SCENARIOS: RolePlayScenario[] = [
   },
 ]
 
+/**
+ * Fuzzy-match a scenario by name for the SMS `ROLEPLAY <scenario>` command.
+ * Falls back to the first built-in (new-patient-sms) for empty/unknown input.
+ */
+export function findScenario(input: string): RolePlayScenario {
+  const q = input.trim().toLowerCase()
+  const fallback = BUILT_IN_SCENARIOS[0]
+  if (!q) return fallback
+  const words = q.split(/\s+/)
+  const hit = BUILT_IN_SCENARIOS.find((s) => {
+    const hay = `${s.name} ${s.category}`.toLowerCase()
+    return words.every((w) => hay.includes(w))
+  })
+  return hit || fallback
+}
+
 // ════════════════════════════════════════════════════════════════
 // PATIENT PERSONA PROMPT (AI plays as patient)
 // ════════════════════════════════════════════════════════════════
@@ -222,7 +240,8 @@ function buildTCPrompt(
   agentTarget: RolePlayAgentTarget,
   memories: { title: string; content: string; category: string }[],
   articles: { title: string; content: string }[],
-  scenarioDescription: string | null
+  scenarioDescription: string | null,
+  governanceBlocks: string[] = []
 ): string {
   const role = agentTarget === 'setter'
     ? `You are the SETTER — a warm, professional patient coordinator. Your job is to qualify leads, build rapport, and book consultations.`
@@ -266,6 +285,12 @@ Do NOT include JSON, metadata, or any structure. Just respond as the TC would in
     basePrompt += `\n\n═══ KNOWLEDGE BASE ═══\n\nReference this knowledge when relevant:\n\n${knowledgeSection}`
   }
 
+  // Agency-wide governance (persona + agency rules) so the dry-run coordinator
+  // reflects the SAME trained guidance the live setter/closer agents receive.
+  for (const block of governanceBlocks) {
+    if (block) basePrompt += `\n\n${block}`
+  }
+
   return basePrompt
 }
 
@@ -288,15 +313,19 @@ export async function generateRolePlayResponse(
     systemPrompt = buildPatientPersonaPrompt(session)
   } else {
     // User is patient → AI plays as TC
-    const [memories, articles] = await Promise.all([
+    const lastMsg = session.messages[session.messages.length - 1]?.content || ''
+    const [memories, articles, rulesBlock, personaBlock] = await Promise.all([
       getActiveMemories(supabase, orgId),
-      getRelevantKnowledge(supabase, orgId, session.messages[session.messages.length - 1]?.content || ''),
+      getRelevantKnowledge(supabase, orgId, lastMsg),
+      buildAgencyRulesBlock(supabase),
+      buildAgencyPersonaBlock(supabase),
     ])
     systemPrompt = buildTCPrompt(
       session.agent_target,
       memories.map(m => ({ title: m.title, content: m.content, category: m.category })),
       articles.map(a => ({ title: a.title, content: a.content })),
-      session.scenario_description
+      session.scenario_description,
+      [personaBlock, rulesBlock]
     )
   }
 
@@ -307,7 +336,7 @@ export async function generateRolePlayResponse(
   }))
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     system: systemPrompt,
     messages,
@@ -341,15 +370,19 @@ export async function generateRolePlayRetry(
   if (session.user_role === 'treatment_coordinator') {
     systemPrompt = buildPatientPersonaPrompt(session)
   } else {
-    const [memories, articles] = await Promise.all([
+    const lastMsg = session.messages[session.messages.length - 1]?.content || ''
+    const [memories, articles, rulesBlock, personaBlock] = await Promise.all([
       getActiveMemories(supabase, orgId),
-      getRelevantKnowledge(supabase, orgId, session.messages[session.messages.length - 1]?.content || ''),
+      getRelevantKnowledge(supabase, orgId, lastMsg),
+      buildAgencyRulesBlock(supabase),
+      buildAgencyPersonaBlock(supabase),
     ])
     systemPrompt = buildTCPrompt(
       session.agent_target,
       memories.map(m => ({ title: m.title, content: m.content, category: m.category })),
       articles.map(a => ({ title: a.title, content: a.content })),
-      session.scenario_description
+      session.scenario_description,
+      [personaBlock, rulesBlock]
     )
   }
 
@@ -386,7 +419,7 @@ Important: Respond ONLY with the new message. No explanations or meta-commentary
     }))
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     system: systemPrompt,
     messages,
@@ -458,7 +491,7 @@ export async function extractTrainingExamples(
       .join('\n\n')
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 2048,
       system: `You are a dental sales training analyst. Analyze this role-play conversation between a patient and treatment coordinator. Extract the 3-5 best exchanges that demonstrate excellent communication, objection handling, or rapport building. These will be used as training examples.
 
@@ -492,7 +525,7 @@ Respond with ONLY a JSON array:
     .join('\n\n')
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: `You are a dental sales training analyst. For each marked exchange, create a structured training example. Keep the patient message and TC response exactly as-is — just add categorization and context.
 
@@ -538,7 +571,7 @@ export async function generateSessionSummary(
   const badRatings = session.messages.filter(m => m.rating === 'bad').length
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     system: `You are a dental sales training coach. Summarize this role-play training session. Be constructive and specific.
 
