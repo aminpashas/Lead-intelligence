@@ -33,6 +33,7 @@ import { formatFinancingContextForPrompt } from './financial-coach'
 import { SETTER_TOOLS } from '@/lib/autopilot/agent-tools'
 import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
+import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -357,9 +358,10 @@ export async function setterAgentRespond(
   // "train your AI" actually governs real patient conversations (not just the
   // playground). Keyed on the latest inbound message for knowledge relevance.
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock] = await Promise.all([
+  const [knowledgeBlock, personaBlock, rulesBlock] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
+    buildAgencyRulesBlock(supabase),
   ])
 
   // Discovery-first guide + pricing integrity — on EVERY channel now (was
@@ -389,7 +391,7 @@ export async function setterAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, discoveryBlock, pricingBlock, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, discoveryBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({
@@ -408,7 +410,7 @@ export async function setterAgentRespond(
   const loop = await runAgentToolLoop({
     anthropic: getAnthropic(),
     supabase,
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     maxTokens,
     system: systemPrompt,
     messages: safeHistory,
@@ -485,7 +487,7 @@ export async function setterAgentRespond(
     organization_id: context.organization_id,
     lead_id: context.lead.id,
     interaction_type: 'setter_agent_response',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     prompt_tokens: loop.usage.input_tokens,
     completion_tokens: loop.usage.output_tokens,
     success: true,

@@ -27,6 +27,7 @@ import { getTreatmentClosing, formatClosingForPrompt } from '@/lib/treatment/tre
 import { CLOSER_TOOLS } from '@/lib/autopilot/agent-tools'
 import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
+import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -566,7 +567,7 @@ export async function closerAgentRespond(
   // Inject the org's trained memories + knowledge base into the LIVE closer, so
   // trained guidance governs real conversations (not just the playground).
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, bookingSettings] = await Promise.all([
+  const [knowledgeBlock, personaBlock, bookingSettings, rulesBlock] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     supabase
@@ -574,6 +575,7 @@ export async function closerAgentRespond(
       .select('consult_price_range_text')
       .eq('organization_id', context.organization_id)
       .maybeSingle(),
+    buildAgencyRulesBlock(supabase),
   ])
 
   // Pricing integrity: the closer is post-consult (discovery IS complete), but it
@@ -588,7 +590,7 @@ export async function closerAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, pricingBlock, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({
@@ -606,7 +608,7 @@ export async function closerAgentRespond(
   const loop = await runAgentToolLoop({
     anthropic: getAnthropic(),
     supabase,
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     maxTokens,
     system: systemPrompt,
     messages: safeHistory,
@@ -677,7 +679,7 @@ export async function closerAgentRespond(
     organization_id: context.organization_id,
     lead_id: context.lead.id,
     interaction_type: 'closer_agent_response',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     prompt_tokens: loop.usage.input_tokens,
     completion_tokens: loop.usage.output_tokens,
     success: true,
