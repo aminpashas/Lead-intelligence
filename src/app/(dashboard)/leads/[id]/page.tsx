@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { LeadDetail } from '@/components/crm/lead-detail'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
+import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
 
 export default async function LeadDetailPage({
   params,
@@ -62,6 +63,23 @@ export default async function LeadDetailPage({
     activities: activities || [],
   })
 
+  // Fetch the latest AI intelligence (already computed by /api/ai/analyze)
+  const { data: patientProfile } = await supabase
+    .from('patient_profiles')
+    .select('*')
+    .eq('lead_id', id)
+    .maybeSingle()
+
+  const { data: latestAnalysis } = await supabase
+    .from('conversation_analyses')
+    .select('*')
+    .eq('lead_id', id)
+    .order('analyzed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const analyzableConversationId = pickConversationToAnalyze(conversations || [])
+
   // Fetch pipeline stages
   const { data: stages } = await supabase
     .from('pipeline_stages')
@@ -82,6 +100,9 @@ export default async function LeadDetailPage({
       activities={activities || []}
       conversations={conversations || []}
       timeline={timeline}
+      patientProfile={patientProfile}
+      latestAnalysis={latestAnalysis}
+      analyzableConversationId={analyzableConversationId}
       stages={stages || []}
       teamMembers={teamMembers || []}
     />

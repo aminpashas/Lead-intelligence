@@ -16,6 +16,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { LeadMessaging } from './lead-messaging'
 import { LeadTimeline } from './lead-timeline'
+import { LeadIntelligencePanel } from './lead-intelligence-panel'
 import { ScheduleAppointment } from './schedule-appointment'
 // LeadFinancingCard import removed pending live integrations
 import { PatientSummaryCard } from './patient-summary-card'
@@ -37,7 +38,7 @@ import {
   Loader2,
   Tags,
 } from 'lucide-react'
-import type { Lead, PipelineStage, LeadActivity, Conversation, UserProfile, Tag } from '@/types/database'
+import type { Lead, PipelineStage, LeadActivity, Conversation, UserProfile, Tag, PatientProfile, ConversationAnalysis } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
 import { toast } from 'sonner'
 
@@ -55,6 +56,9 @@ export function LeadDetail({
   activities,
   conversations,
   timeline,
+  patientProfile,
+  latestAnalysis,
+  analyzableConversationId,
   stages,
   teamMembers,
 }: {
@@ -62,6 +66,9 @@ export function LeadDetail({
   activities: LeadActivity[]
   conversations: Conversation[]
   timeline: TimelineEntry[]
+  patientProfile: PatientProfile | null
+  latestAnalysis: ConversationAnalysis | null
+  analyzableConversationId: string | null
   stages: PipelineStage[]
   teamMembers: Pick<UserProfile, 'id' | 'full_name' | 'email' | 'role'>[]
 }) {
@@ -299,7 +306,13 @@ export function LeadDetail({
               </div>
             </TabsContent>
 
-            <TabsContent value="channel" className="mt-4">
+            <TabsContent value="channel" className="mt-4 space-y-4">
+              <LeadIntelligencePanel
+                lead={lead}
+                profile={patientProfile}
+                analysis={latestAnalysis}
+                analyzableConversationId={analyzableConversationId}
+              />
               <LeadTimeline lead={lead} entries={timeline} />
             </TabsContent>
 
