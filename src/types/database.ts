@@ -440,6 +440,21 @@ export type Appointment = {
   // Risk assessment
   no_show_risk_score: number
 
+  // Phone-first protocol: which path booked this + soft-gate override audit
+  booked_via: 'ai' | 'staff' | 'public' | null
+  call_gate_overridden: boolean
+  override_reason: string | null
+  override_by: string | null
+
+  // Card-on-file (Stripe SetupIntent) + no-show fee lifecycle
+  card_on_file: boolean
+  stripe_customer_id: string | null
+  stripe_payment_method_id: string | null
+  no_show_fee_status: 'none' | 'pending' | 'charged' | 'failed' | 'waived'
+  no_show_fee_cents: number | null
+  no_show_fee_charged_at: string | null
+  no_show_fee_payment_intent_id: string | null
+
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string

@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Copy, Check } from 'lucide-react'
 import { useState } from 'react'
+import { BookingProtocolSettings } from '@/components/settings/booking-protocol-settings'
 
 export default function SettingsPage() {
   const { organization } = useOrgStore()
@@ -187,6 +188,17 @@ export default function SettingsPage() {
             table in your Supabase dashboard. Default: Mon–Fri 9am–5pm, 60-minute slots, 15-minute buffer.
           </p>
         </div>
+      </section>
+
+      {/* ── Booking protocol (phone-first + no-show fee) ─────── */}
+      <section className="aurea-card overflow-hidden">
+        <div className="border-b border-aurea-border px-5 py-4">
+          <h2 className="aurea-display text-[22px] text-aurea-ink">Booking Protocol</h2>
+          <p className="mt-0.5 text-[12px] text-aurea-ink-3">
+            Phone-first booking and no-show fee — designed to reduce no-shows on full-arch consultations
+          </p>
+        </div>
+        <BookingProtocolSettings />
       </section>
     </div>
   )
