@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
-import { resolveSmartListLeads, applySmartListCriteria } from '@/lib/campaigns/smart-list-resolver'
+import { resolveSmartListLeads, applySmartListCriteria, resolveKeywordLeadIds } from '@/lib/campaigns/smart-list-resolver'
 import { decryptLeadsPII } from '@/lib/encryption'
 
 // GET /api/smart-lists/:id/leads — Get leads matching this Smart List
@@ -56,6 +56,20 @@ export async function GET(
         leads: [],
         pagination: { page, per_page: perPage, total: 0, total_pages: 0 },
       })
+    }
+  }
+
+  // Keyword pre-filter — intersect matching lead IDs (encryption-aware; see resolver).
+  if (criteria.keywords) {
+    const kwSet = await resolveKeywordLeadIds(supabase, orgId, criteria.keywords)
+    if (kwSet !== null) {
+      if (kwSet.size === 0) {
+        return NextResponse.json({ leads: [], pagination: { page, per_page: perPage, total: 0, total_pages: 0 } })
+      }
+      tagFilteredIds = tagFilteredIds === null ? [...kwSet] : tagFilteredIds.filter((id) => kwSet.has(id))
+      if (tagFilteredIds.length === 0) {
+        return NextResponse.json({ leads: [], pagination: { page, per_page: perPage, total: 0, total_pages: 0 } })
+      }
     }
   }
 
