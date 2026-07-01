@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
-import { buildManualCallRows } from '@/lib/timeline/manual-call'
+import { buildManualCallRows, buildLeadCapturePatch } from '@/lib/timeline/manual-call'
+import type { BudgetRange } from '@/types/database'
 
 const logCallSchema = z.object({
   direction: z.enum(['inbound', 'outbound']),
@@ -16,6 +17,13 @@ const logCallSchema = z.object({
     .nullish()
     .transform((v) => v ?? null),
   notes: z.string().max(2000).nullish().transform((v) => v ?? null),
+  // Structured discovery-call capture (all optional).
+  budget_range: z
+    .enum(['under_10k', '10k_15k', '15k_20k', '20k_25k', '25k_30k', 'over_30k', 'unknown'])
+    .nullish()
+    .transform((v) => v ?? null),
+  testimonial_sent: z.boolean().default(false),
+  pain_points: z.string().max(2000).nullish().transform((v) => v ?? null),
 })
 
 export async function POST(
@@ -45,7 +53,7 @@ export async function POST(
   // Scope the lead to the caller's org (defense-in-depth beyond RLS).
   const { data: lead } = await supabase
     .from('leads')
-    .select('id')
+    .select('id, personality_profile')
     .eq('id', id)
     .eq('organization_id', orgId)
     .single()
@@ -59,6 +67,7 @@ export async function POST(
     outcome: parsed.data.outcome,
     durationSeconds: parsed.data.duration_seconds,
     notes: parsed.data.notes,
+    testimonialSent: parsed.data.testimonial_sent,
     nowIso: new Date().toISOString(),
   })
 
@@ -72,7 +81,18 @@ export async function POST(
   }
 
   await supabase.from('lead_activities').insert(activity)
-  await supabase.from('leads').update({ last_contacted_at: new Date().toISOString() }).eq('id', lead.id)
+
+  // Fold structured capture (budget, pain points) into the lead alongside the
+  // contact-timestamp bump, so it's a single update.
+  const capturePatch = buildLeadCapturePatch({
+    budgetRange: parsed.data.budget_range as BudgetRange | null,
+    painPoints: parsed.data.pain_points,
+    currentProfile: (lead.personality_profile as Record<string, unknown> | null) ?? null,
+  })
+  await supabase
+    .from('leads')
+    .update({ last_contacted_at: new Date().toISOString(), ...capturePatch })
+    .eq('id', lead.id)
 
   return NextResponse.json({ ok: true, call_id: call.id })
 }
