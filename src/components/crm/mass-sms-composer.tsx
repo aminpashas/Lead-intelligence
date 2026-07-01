@@ -221,7 +221,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
             >
               Send Another
             </Button>
-            <Button variant="outline" onClick={() => window.location.href = '/broadcasts/audit'}>
+            <Button variant="outline" onClick={() => window.location.href = '/campaigns/broadcasts/audit'}>
               View Audit Log
             </Button>
             {onClose && (
