@@ -5,6 +5,17 @@
 - **Status:** Draft for review
 - **Author:** Amin + Claude (brainstorming)
 
+> **Revision 2026-07-01 (post-codebase-map):** The AI intelligence engine is already built and
+> largely dormant. Phase 2 does **NOT** create a new `lead_intelligence` table — that would
+> duplicate the existing `patient_profiles` and `conversation_analyses` tables
+> (migration `005_patient_intelligence.sql`), populated by `analyzePatientPsychology()` /
+> `analyzeConversation()` via `POST /api/ai/analyze`. Phase 2 is **activation**: surface those
+> records in the Channel tab + a "Run analysis" action. Phase 3's close-probability already exists
+> as `ConversionPrediction.probability` in `src/lib/ai/predictive.ts` (Bayesian, no LLM) — Phase 3
+> adds a per-lead variant + persistence + suggest/approve, not a new engine. Phase 4's follow-up
+> plan exists as `generateTailoredFollowUp()` in `patient-psychology.ts`. Any section below that
+> says "create `lead_intelligence`" is superseded by this note.
+
 ## 1. Summary
 
 A single per-lead **Channel** view that merges every conversation (SMS, email, voice)
