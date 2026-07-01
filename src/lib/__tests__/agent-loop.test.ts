@@ -6,7 +6,7 @@ vi.mock('@/lib/autopilot/agent-tools', () => ({
   executeAgentTool: (...args: unknown[]) => executeAgentTool(...args),
 }))
 
-import { runAgentToolLoop, deriveConfidence, MAX_AGENT_ROUNDS } from '@/lib/ai/agent-loop'
+import { runAgentToolLoop, deriveConfidence, MAX_AGENT_ROUNDS, recoverAgentMessage } from '@/lib/ai/agent-loop'
 
 function toolUse(id: string, name: string, input: Record<string, unknown> = {}) {
   return { type: 'tool_use' as const, id, name, input }
@@ -106,5 +106,37 @@ describe('deriveConfidence', () => {
 
   it('applies the strictest guardrail when several fire', () => {
     expect(deriveConfidence({ selfConfidence: 0.95, hasCriticalCompliance: true, hitRoundCap: true })).toBe(0.4)
+  })
+})
+
+describe('recoverAgentMessage', () => {
+  it('extracts the message from a well-formed JSON envelope', () => {
+    expect(recoverAgentMessage('{"message": "Hi there!", "action_taken": "responded"}')).toBe('Hi there!')
+  })
+
+  it('recovers the message from a TRUNCATED envelope (the real max_tokens case)', () => {
+    // Model hit max_tokens mid-object: message is complete, trailing metadata is cut off.
+    const truncated =
+      '```json\n{\n  "message": "Hi Amin! How long have you been without teeth?",\n  "action_taken": "asked_timeline",\n  "techniques_used": [{"technique_id": "obj'
+    expect(recoverAgentMessage(truncated)).toBe('Hi Amin! How long have you been without teeth?')
+  })
+
+  it('unescapes JSON string escapes (newlines, quotes, emoji)', () => {
+    const raw = '{"message": "Line one\\nLine two \\"quoted\\" 😊", "x": 1}'
+    expect(recoverAgentMessage(raw)).toBe('Line one\nLine two "quoted" 😊')
+  })
+
+  it('returns null when there is no message field (so callers escalate, never send a blob)', () => {
+    expect(recoverAgentMessage('{"action_taken": "responded"}')).toBeNull()
+    expect(recoverAgentMessage('total garbage, not even json')).toBeNull()
+  })
+
+  it('returns null when the message value itself is truncated (no closing quote)', () => {
+    expect(recoverAgentMessage('{"message": "Hi there, this got cut off mid-sen')).toBeNull()
+  })
+
+  it('returns null for an empty or whitespace-only message', () => {
+    expect(recoverAgentMessage('{"message": ""}')).toBeNull()
+    expect(recoverAgentMessage('{"message": "   "}')).toBeNull()
   })
 })
