@@ -91,6 +91,33 @@ export type DentalCondition = 'missing_all_upper' | 'missing_all_lower' | 'missi
 export type FinancingInterest = 'cash_pay' | 'financing_needed' | 'insurance_only' | 'undecided'
 export type BudgetRange = 'under_10k' | '10k_15k' | '15k_20k' | '20k_25k' | '25k_30k' | 'over_30k' | 'unknown'
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'consultation_scheduled' | 'consultation_completed' | 'treatment_presented' | 'financing' | 'contract_sent' | 'contract_signed' | 'scheduled' | 'in_treatment' | 'completed' | 'lost' | 'disqualified' | 'no_show' | 'unresponsive' | 'dormant'
+
+export type ConsultOutcome =
+  | 'treatment_accepted' | 'deposit_paid' | 'considering'
+  | 'declined' | 'referred_out' | 'no_decision'
+export type ConsultOutcomeReason =
+  | 'price' | 'financing' | 'timing' | 'second_opinion'
+  | 'medical' | 'spouse_partner' | 'other'
+export type PatientFeedbackStatus = 'requested' | 'responded' | 'opted_out' | 'bounced'
+export type FeedbackSentiment = 'positive' | 'neutral' | 'negative'
+
+export type PatientFeedback = {
+  id: string
+  organization_id: string
+  lead_id: string
+  appointment_id: string | null
+  token: string
+  channel: 'sms' | 'email'
+  status: PatientFeedbackStatus
+  rating: number | null
+  comment: string | null
+  sentiment: FeedbackSentiment | null
+  routed_to_review: boolean
+  requested_at: string
+  responded_at: string | null
+  created_at: string
+}
+
 export type AIQualification = 'hot' | 'warm' | 'cold' | 'unqualified' | 'unscored'
 export type LeadAIOverride = 'default' | 'force_on' | 'force_off' | 'assist_only'
 export type FinancialQualificationTier = 'tier_a' | 'tier_b' | 'tier_c' | 'tier_d'
@@ -455,6 +482,17 @@ export type Appointment = {
   no_show_fee_charged_at: string | null
   no_show_fee_payment_intent_id: string | null
 
+  // Post-consult flow: attendance review + structured outcome
+  outcome_review_pending?: boolean
+  outcome_prompt_sent_at?: string | null
+  consult_outcome?: ConsultOutcome | null
+  consult_outcome_reason?: ConsultOutcomeReason | null
+  quoted_value_cents?: number | null
+  outcome_notes?: string | null
+  outcome_follow_up_at?: string | null
+  outcome_recorded_at?: string | null
+  outcome_recorded_by?: string | null
+
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -462,6 +500,24 @@ export type Appointment = {
   // Joined
   lead?: Lead
   reminders?: AppointmentReminder[]
+}
+
+export type BookingSettings = {
+  organization_id: string
+
+  // Phone-first booking protocol
+  require_call_before_booking?: boolean
+  no_show_fee_enabled?: boolean
+  no_show_fee_cents?: number
+  youtube_testimonial_url?: string | null
+  consult_price_range_text?: string | null
+  discovery_script?: string | null
+
+  // Post-consult flow: patient feedback (opt-in)
+  feedback_request_enabled?: boolean
+  google_review_url?: string | null
+  feedback_promoter_threshold?: number
+  feedback_delay_hours?: number
 }
 
 export type ReminderChannel = 'sms' | 'email' | 'voice_confirmation'
