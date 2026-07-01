@@ -39,7 +39,7 @@ type NavGroup = {
 
 // Consolidated, grouped practice navigation. The former flat list of 23 items is
 // organized into four sections by job-to-be-done; low-traffic destinations are
-// folded into section hubs (Broadcasts, Analytics, Settings) as tabs instead of
+// folded into section hubs (Campaigns, Analytics, Settings) as tabs instead of
 // competing for top-level nav slots. Agency-only tooling lives in /agency, and
 // account/admin destinations live under the Settings hub (pinned footer link).
 const NAV_GROUPS: NavGroup[] = [
