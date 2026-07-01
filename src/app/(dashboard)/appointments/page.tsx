@@ -821,6 +821,25 @@ function NoShowAnalyticsTab({
         </CardContent>
       </Card>
 
+      {(() => {
+        const withOutcome = appointments.filter(a => a.consult_outcome)
+        const attended = withOutcome.length || 1
+        const accepted = withOutcome.filter(a => a.consult_outcome === 'treatment_accepted' || a.consult_outcome === 'deposit_paid').length
+        const acceptRate = Math.round((accepted / attended) * 100)
+        return (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Consult Outcomes</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div><p className="aurea-display text-[28px] text-aurea-primary tabular-nums">{acceptRate}%</p><p className="text-[12px] text-aurea-ink-3">Acceptance</p></div>
+                <div><p className="aurea-display text-[28px] tabular-nums">{withOutcome.length}</p><p className="text-[12px] text-aurea-ink-3">Outcomes logged</p></div>
+                <div><p className="aurea-display text-[28px] tabular-nums">{withOutcome.filter(a => a.consult_outcome === 'considering').length}</p><p className="text-[12px] text-aurea-ink-3">Considering</p></div>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
+
       {/* Recent No-Shows */}
       <Card>
         <CardHeader>
