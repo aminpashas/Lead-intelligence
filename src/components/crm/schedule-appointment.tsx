@@ -70,11 +70,9 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <span className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-aurea-border bg-aurea-surface px-3 py-2 text-[13.5px] font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2">
-          <Calendar className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
-          Schedule
-        </span>
+      <DialogTrigger render={<span className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-aurea-border bg-aurea-surface px-3 py-2 text-[13.5px] font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2" />}>
+        <Calendar className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+        Schedule
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

@@ -197,20 +197,18 @@ export function PersonalityProfileCard({ leadId, initialProfile }: PersonalityPr
               if (!config) return null
               return (
                 <Tooltip key={key}>
-                  <TooltipTrigger asChild>
-                    <span className="flex items-center gap-2 w-full">
-                      <span className="flex w-16 shrink-0 items-center gap-1 text-[10px] text-aurea-ink-3 truncate">
-                        {config.icon}
-                        {config.label}
-                      </span>
-                      <span className="flex-1 h-[3px] rounded-full bg-aurea-surface-2 overflow-hidden">
-                        <span
-                          className={cn('block h-full rounded-full transition-all duration-500', config.barClass)}
-                          style={{ width: `${value}%`, opacity: 0.8 }}
-                        />
-                      </span>
-                      <span className="font-mono text-[9px] tabular-nums text-aurea-ink-3 w-6 text-right">{value}</span>
+                  <TooltipTrigger render={<span className="flex items-center gap-2 w-full" />}>
+                    <span className="flex w-16 shrink-0 items-center gap-1 text-[10px] text-aurea-ink-3 truncate">
+                      {config.icon}
+                      {config.label}
                     </span>
+                    <span className="flex-1 h-[3px] rounded-full bg-aurea-surface-2 overflow-hidden">
+                      <span
+                        className={cn('block h-full rounded-full transition-all duration-500', config.barClass)}
+                        style={{ width: `${value}%`, opacity: 0.8 }}
+                      />
+                    </span>
+                    <span className="font-mono text-[9px] tabular-nums text-aurea-ink-3 w-6 text-right">{value}</span>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="text-xs">
                     {config.label}: {value}/100

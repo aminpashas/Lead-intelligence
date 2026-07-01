@@ -527,7 +527,7 @@ function AttributionTable({
 function KPICard({
   icon: Icon, label, value, color, subtitle,
 }: {
-  icon: React.ComponentType<{ className?: string }>
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
   label: string
   value: string | number
   color: string
