@@ -25,6 +25,7 @@ import {
   Filter,
   Loader2,
 } from 'lucide-react'
+import { ConsultOutcomeDialog } from '@/components/crm/consult-outcome-dialog'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -58,6 +59,8 @@ type AppointmentData = {
   confirmed_at: string | null
   reschedule_requested: boolean
   no_show_risk_score: number
+  outcome_review_pending: boolean
+  consult_outcome: string | null
   lead: AppointmentLead
 }
 
@@ -75,7 +78,7 @@ type ReminderData = {
   created_at: string
 }
 
-type TabKey = 'upcoming' | 'today' | 'reminders' | 'analytics'
+type TabKey = 'upcoming' | 'today' | 'needs_outcome' | 'reminders' | 'analytics'
 
 // ═══════════════════════════════════════════════════════════════
 // COMPONENT
@@ -88,6 +91,7 @@ export default function AppointmentsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('upcoming')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [outcomeFor, setOutcomeFor] = useState<AppointmentData | null>(null)
 
   const fetchAppointments = useCallback(async () => {
     try {
@@ -166,6 +170,7 @@ export default function AppointmentsPage() {
     const d = new Date(a.scheduled_at)
     return d >= todayStart && d < todayEnd && ['scheduled', 'confirmed', 'completed', 'no_show'].includes(a.status)
   })
+  const needsOutcomeApts = appointments.filter(a => a.outcome_review_pending)
 
   const confirmedCount = appointments.filter(a => a.confirmation_received && new Date(a.scheduled_at) > now).length
   const pendingCount = upcomingApts.filter(a => !a.confirmation_received).length
@@ -277,6 +282,7 @@ export default function AppointmentsPage() {
         {([
           { key: 'upcoming', label: 'Upcoming', icon: Calendar, count: upcomingApts.length },
           { key: 'today', label: 'Today', icon: Clock, count: todayApts.length },
+          { key: 'needs_outcome', label: 'Needs Outcome', icon: AlertTriangle, count: needsOutcomeApts.length },
           { key: 'reminders', label: 'Reminder Log', icon: Send, count: reminders.length },
           { key: 'analytics', label: 'No-Show Analytics', icon: BarChart3 },
         ] as const).map((tab) => (
@@ -351,8 +357,27 @@ export default function AppointmentsPage() {
                 onConfirm={handleConfirm}
                 onStatusChange={handleStatusChange}
                 onSendReminder={handleSendReminder}
+                onRecordOutcome={setOutcomeFor}
                 isLoading={actionLoading === apt.id || actionLoading === `reminder-${apt.id}`}
               />
+            ))
+          )}
+        </div>
+      ) : activeTab === 'needs_outcome' ? (
+        <div className="space-y-3">
+          {needsOutcomeApts.length === 0 ? (
+            <Card><CardContent className="flex flex-col items-center py-12">
+              <CheckCircle2 className="h-10 w-10 text-muted-foreground mb-3" />
+              <p className="font-medium">Nothing waiting on an outcome</p>
+              <p className="text-sm text-muted-foreground">Past consults appear here until you log who showed up.</p>
+            </CardContent></Card>
+          ) : (
+            needsOutcomeApts.map((apt) => (
+              <AppointmentCard key={apt.id} appointment={apt}
+                reminders={reminders.filter(r => r.appointment_id === apt.id)}
+                onConfirm={handleConfirm} onStatusChange={handleStatusChange}
+                onSendReminder={handleSendReminder} onRecordOutcome={setOutcomeFor}
+                forceActions isLoading={actionLoading === apt.id} />
             ))
           )}
         </div>
@@ -360,6 +385,16 @@ export default function AppointmentsPage() {
         <ReminderLogTab reminders={reminders} appointments={appointments} />
       ) : (
         <NoShowAnalyticsTab appointments={appointments} reminders={reminders} />
+      )}
+
+      {outcomeFor && (
+        <ConsultOutcomeDialog
+          appointmentId={outcomeFor.id}
+          patientName={`${outcomeFor.lead?.first_name ?? ''} ${outcomeFor.lead?.last_name ?? ''}`.trim()}
+          open={!!outcomeFor}
+          onOpenChange={(v) => { if (!v) setOutcomeFor(null) }}
+          onSaved={fetchAppointments}
+        />
       )}
     </div>
   )
@@ -375,6 +410,8 @@ function AppointmentCard({
   onConfirm,
   onStatusChange,
   onSendReminder,
+  onRecordOutcome,
+  forceActions = false,
   isLoading,
 }: {
   appointment: AppointmentData
@@ -382,6 +419,8 @@ function AppointmentCard({
   onConfirm: (id: string) => void
   onStatusChange: (id: string, status: string) => void
   onSendReminder: (id: string) => void
+  onRecordOutcome: (apt: AppointmentData) => void
+  forceActions?: boolean
   isLoading: boolean
 }) {
   const lead = apt.lead
@@ -468,9 +507,19 @@ function AppointmentCard({
           </div>
 
           {/* ── Right: Actions ── */}
-          {!isPast && (
+          {(!isPast || forceActions) && (
             <div className="flex flex-row lg:flex-col items-stretch gap-1.5 p-3 lg:p-4 border-t lg:border-t-0 lg:border-l bg-muted/30 lg:w-[180px]">
-              {!apt.confirmation_received && (
+              {forceActions && (
+                <Button
+                  size="sm"
+                  className="flex-1 lg:flex-none text-xs bg-aurea-primary hover:bg-aurea-primary/90"
+                  onClick={() => onRecordOutcome(apt)}
+                  disabled={isLoading}
+                >
+                  <CheckCircle2 className="h-3 w-3 mr-1" /> Showed
+                </Button>
+              )}
+              {!forceActions && !apt.confirmation_received && (
                 <Button
                   size="sm"
                   className="flex-1 lg:flex-none text-xs bg-aurea-primary hover:bg-aurea-primary/90"
@@ -481,26 +530,30 @@ function AppointmentCard({
                   Confirm
                 </Button>
               )}
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 lg:flex-none text-xs"
-                onClick={() => onSendReminder(apt.id)}
-                disabled={isLoading}
-              >
-                {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
-                Send Reminder
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 lg:flex-none text-xs text-aurea-amber hover:text-aurea-amber/80"
-                onClick={() => onStatusChange(apt.id, 'rescheduled')}
-                disabled={isLoading}
-              >
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Reschedule
-              </Button>
+              {!forceActions && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 lg:flex-none text-xs"
+                    onClick={() => onSendReminder(apt.id)}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
+                    Send Reminder
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 lg:flex-none text-xs text-aurea-amber hover:text-aurea-amber/80"
+                    onClick={() => onStatusChange(apt.id, 'rescheduled')}
+                    disabled={isLoading}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Reschedule
+                  </Button>
+                </>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -767,6 +820,25 @@ function NoShowAnalyticsTab({
           </div>
         </CardContent>
       </Card>
+
+      {(() => {
+        const withOutcome = appointments.filter(a => a.consult_outcome)
+        const attended = withOutcome.length || 1
+        const accepted = withOutcome.filter(a => a.consult_outcome === 'treatment_accepted' || a.consult_outcome === 'deposit_paid').length
+        const acceptRate = Math.round((accepted / attended) * 100)
+        return (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Consult Outcomes</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div><p className="aurea-display text-[28px] text-aurea-primary tabular-nums">{acceptRate}%</p><p className="text-[12px] text-aurea-ink-3">Acceptance</p></div>
+                <div><p className="aurea-display text-[28px] tabular-nums">{withOutcome.length}</p><p className="text-[12px] text-aurea-ink-3">Outcomes logged</p></div>
+                <div><p className="aurea-display text-[28px] tabular-nums">{withOutcome.filter(a => a.consult_outcome === 'considering').length}</p><p className="text-[12px] text-aurea-ink-3">Considering</p></div>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Recent No-Shows */}
       <Card>

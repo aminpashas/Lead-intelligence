@@ -91,6 +91,10 @@
     {
       "path": "/api/cron/consent-capture",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/appointment-outcomes",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

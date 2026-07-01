@@ -163,6 +163,31 @@ export function useRealtimeNotifications() {
           router.refresh()
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'appointments',
+          filter: `organization_id=eq.${organization.id}`,
+        },
+        (payload) => {
+          const appt = payload.new as Record<string, unknown>
+          const old = payload.old as Record<string, unknown>
+          // Only fire when the "needs outcome" flag flips on.
+          if (appt.outcome_review_pending === true && old.outcome_review_pending !== true) {
+            addNotification({
+              type: 'appointment_needs_outcome',
+              title: 'Appointment needs an outcome',
+              description: `${(appt.type as string)?.replace(/_/g, ' ')} — did the patient show?`,
+              actionUrl: '/appointments',
+            })
+            toast.info('An appointment needs an outcome logged', {
+              action: { label: 'Review', onClick: () => router.push('/appointments') },
+            })
+          }
+        }
+      )
       .subscribe()
 
     // Channel 4: Campaigns — completions

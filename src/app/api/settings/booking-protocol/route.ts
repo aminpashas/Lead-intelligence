@@ -7,7 +7,7 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { z } from 'zod'
 
 const PROTOCOL_COLUMNS =
-  'require_call_before_booking, no_show_fee_enabled, no_show_fee_cents, youtube_testimonial_url, consult_price_range_text, discovery_script'
+  'require_call_before_booking, no_show_fee_enabled, no_show_fee_cents, youtube_testimonial_url, consult_price_range_text, discovery_script, feedback_request_enabled, google_review_url, feedback_promoter_threshold, feedback_delay_hours'
 
 // GET /api/settings/booking-protocol — read the phone-first protocol config
 export async function GET(request: NextRequest) {
@@ -33,6 +33,10 @@ export async function GET(request: NextRequest) {
       youtube_testimonial_url: null,
       consult_price_range_text: null,
       discovery_script: null,
+      feedback_request_enabled: false,
+      google_review_url: null,
+      feedback_promoter_threshold: 4,
+      feedback_delay_hours: 2,
     },
   })
 }
@@ -44,6 +48,10 @@ const patchSchema = z.object({
   youtube_testimonial_url: z.string().url().max(500).nullish().or(z.literal('')),
   consult_price_range_text: z.string().max(200).nullish(),
   discovery_script: z.string().max(10000).nullish(),
+  feedback_request_enabled: z.boolean().optional(),
+  google_review_url: z.string().url().max(500).nullish().or(z.literal('')),
+  feedback_promoter_threshold: z.number().int().min(1).max(5).optional(),
+  feedback_delay_hours: z.number().int().min(0).max(168).optional(),
 })
 
 // PATCH /api/settings/booking-protocol — admin-only update (upsert)
@@ -84,6 +92,7 @@ export async function PATCH(request: NextRequest) {
   if (update.youtube_testimonial_url === '') update.youtube_testimonial_url = null
   if (update.consult_price_range_text === '') update.consult_price_range_text = null
   if (update.discovery_script === '') update.discovery_script = null
+  if (update.google_review_url === '') update.google_review_url = null
 
   const { data, error } = await supabase
     .from('booking_settings')

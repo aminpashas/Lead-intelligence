@@ -29,6 +29,7 @@ const NOTIFICATION_ICONS: Record<NotificationType, { icon: React.ElementType; co
   hot_lead: { icon: Flame, color: 'text-aurea-rose' },
   lead_cold: { icon: Snowflake, color: 'text-aurea-ink-3' },
   appointment_booked: { icon: Calendar, color: 'text-aurea-amber' },
+  appointment_needs_outcome: { icon: AlertTriangle, color: 'text-aurea-amber' },
   inbound_message: { icon: MessageSquare, color: 'text-aurea-ink-2' },
   campaign_completed: { icon: Megaphone, color: 'text-aurea-amber' },
   agent_status_down: { icon: AlertTriangle, color: 'text-aurea-amber' },
