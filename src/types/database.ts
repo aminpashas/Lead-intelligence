@@ -751,6 +751,40 @@ export type RolePlayScenario = {
   is_built_in: boolean
 }
 
+// ── SMS Training Console ────────────────────────────────────────
+
+/** Agency-WIDE durable rule authored over SMS. No organization_id — injected
+ *  into every practice's live setter/closer prompt via buildAgencyRulesBlock. */
+export type AgencyAiRule = {
+  id: string
+  title: string
+  content: string
+  category: string
+  priority: number
+  is_enabled: boolean
+  source: string
+  created_by: string | null
+  created_at: string
+}
+
+export type SmsTrainingMode = 'roleplay' | 'dry_run'
+
+/** Per-trainer-phone training state, persisted between stateless webhook hits. */
+export type SmsTrainingSession = {
+  id: string
+  trainer_phone: string
+  mode: SmsTrainingMode
+  scenario_key: string | null
+  patient_persona: Record<string, unknown> | null
+  reference_org_id: string | null
+  transcript: Array<{ role: 'user' | 'assistant'; content: string }>
+  rules_saved: number
+  status: 'active' | 'ended'
+  started_at: string
+  last_activity_at: string
+  ended_at: string | null
+}
+
 // ── Financing (re-exported from lib/financing/types) ────────────
 
 // Note: Full financing types are in src/lib/financing/types.ts
