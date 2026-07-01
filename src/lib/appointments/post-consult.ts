@@ -75,6 +75,10 @@ export async function dispatchFeedbackRequests(supabase: SupabaseClient, orgId: 
   if (!settings?.feedback_request_enabled || !settings.google_review_url) return 0
   const delayHours = settings.feedback_delay_hours ?? 2
   const now = new Date()
+  // Bound the scan: a request is due within delayHours (max 168h/7d) of the outcome,
+  // so a 30-day lookback can never miss a due request while capping the candidate set
+  // (otherwise this would re-scan every completed consult forever).
+  const lookback = new Date(now.getTime() - 30 * 24 * 3_600_000).toISOString()
 
   const { data: candidates } = await supabase
     .from('appointments')
@@ -82,6 +86,7 @@ export async function dispatchFeedbackRequests(supabase: SupabaseClient, orgId: 
     .eq('organization_id', orgId)
     .eq('status', 'completed')
     .not('outcome_recorded_at', 'is', null)
+    .gte('outcome_recorded_at', lookback)
 
   const due = (candidates ?? []).filter((a) =>
     isFeedbackDue(a as FeedbackCandidate, now, delayHours)
