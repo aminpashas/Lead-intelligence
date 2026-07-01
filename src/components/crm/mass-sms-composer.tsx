@@ -26,6 +26,7 @@ import {
   AlertTriangle, Sparkles, Phone, XCircle, Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { A2P_PENDING_MESSAGE } from '@/lib/messaging/a2p-gate'
 import { cn } from '@/lib/utils'
 import { previewPersonalize } from '@/lib/campaigns/personalization'
 import { VariablePicker } from './variable-picker'
@@ -83,9 +84,11 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [previewCount, setPreviewCount] = useState<number | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [usSmsBlocked, setUsSmsBlocked] = useState(false)
 
   useEffect(() => {
     fetchSmartLists()
+    fetchFlags()
   }, [])
 
   useEffect(() => {
@@ -105,6 +108,19 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Best-effort UI gate; the /api/sms/mass route is the authoritative A2P block.
+  async function fetchFlags() {
+    try {
+      const res = await fetch('/api/org/flags')
+      if (res.ok) {
+        const { flags } = await res.json()
+        setUsSmsBlocked(flags?.us_sms_enabled !== true)
+      }
+    } catch {
+      /* leave banner hidden on error — the server still hard-blocks the send */
     }
   }
 
@@ -136,7 +152,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
   const selectedList = smartLists.find((l) => l.id === selectedListId)
   const charCount = message.length
   const segmentCount = Math.ceil(charCount / 160) || 1
-  const canSend = selectedListId && message.trim().length > 0 && status === 'idle'
+  const canSend = !usSmsBlocked && selectedListId && message.trim().length > 0 && status === 'idle'
 
   function handleSendClick() {
     if (!canSend) return
@@ -243,6 +259,13 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
           Send a personalized SMS to an entire Smart List at once
         </p>
       </div>
+
+      {usSmsBlocked && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-aurea-amber/40 bg-aurea-amber/10 px-3.5 py-3 text-[13px] text-aurea-ink-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-aurea-amber" strokeWidth={1.75} />
+          <span>{A2P_PENDING_MESSAGE}</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Left: Compose */}
