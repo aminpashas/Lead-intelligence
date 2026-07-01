@@ -73,7 +73,7 @@ export async function POST(
       organization_id: lead.organization_id,
       lead_id: id,
       interaction_type: 'scoring',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       output_summary: `Score: ${scoreResult.total_score}, Qualification: ${scoreResult.qualification}`,
       success: true,
     })

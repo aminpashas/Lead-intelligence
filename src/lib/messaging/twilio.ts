@@ -4,6 +4,8 @@ import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/li
 import { checkCompliance } from '@/lib/ai/compliance-filter'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { isFlagEnabled } from '@/lib/org/flags'
+import { isSendAllowed } from '@/lib/messaging/test-allowlist'
+import { logger } from '@/lib/logger'
 
 // TCPA federal quiet hours: no telemarketing before 8am or after 9pm local time.
 const TCPA_START_HOUR = 8
@@ -22,6 +24,17 @@ function getClient() {
  * For any lead-facing message, use sendSMSToLead() so consent is enforced.
  */
 export async function sendSMS(to: string, body: string): Promise<{ sid: string; status: string }> {
+  // TEST-MODE hard clamp: when TEST_SEND_ALLOWLIST is set, refuse any recipient
+  // not on the list. This is the single lowest-level choke point — every SMS path
+  // (sendSMSToLead, crons, agent tools, raw transactional sends) funnels here — so
+  // no real patient can be reached while AI workflows are under test.
+  if (!isSendAllowed(to)) {
+    logger.warn('TEST_SEND_ALLOWLIST active — blocked SMS to non-allowlisted recipient', {
+      last4: to.replace(/[^0-9]/g, '').slice(-4),
+    })
+    return { sid: 'blocked-by-test-allowlist', status: 'blocked' }
+  }
+
   // Prefer routing through the Messaging Service: for US A2P 10DLC the service is
   // what's bound to the approved Campaign and the registered sender pool, so the
   // carrier maps traffic correctly (avoids error 30034 — unregistered number).

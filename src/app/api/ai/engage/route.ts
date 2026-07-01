@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       organization_id: orgId,
       lead_id: lead.id,
       interaction_type: 'engagement',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       output_summary: result.message.substring(0, 200),
       success: true,
       metadata: { mode: parsed.data.mode, channel: parsed.data.channel },

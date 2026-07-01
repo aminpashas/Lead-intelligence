@@ -78,7 +78,7 @@ REQUIREMENTS:
 - Keep it under 200 words`
 
   const response = await getAnthropic().messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 512,
     messages: [{ role: 'user', content: prompt }],
     system: 'You are a helpful dental practice financial coordinator. Write clear, empathetic explanations of financing options for patients considering dental implant treatment. Never use medical jargon or make treatment promises.',
