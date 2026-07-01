@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Dialog,
@@ -48,14 +48,14 @@ const DELAY_PRESETS = [
 
 const TEMPLATE_VARS = '{{first_name}}, {{practice_name}}, {{consultation_link}}'
 
-export function CampaignBuilder() {
-  const [open, setOpen] = useState(false)
+export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmartListId?: string; autoOpen?: boolean } = {}) {
+  const [open, setOpen] = useState(autoOpen ?? false)
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState<string>('drip')
   const [channel, setChannel] = useState<string>('multi')
-  const [smartListId, setSmartListId] = useState<string>('')
+  const [smartListId, setSmartListId] = useState<string>(initialSmartListId ?? '')
   const [smartLists, setSmartLists] = useState<any[]>([])
   const [steps, setSteps] = useState<Step[]>([
     {
@@ -69,6 +69,11 @@ export function CampaignBuilder() {
     },
   ])
   const router = useRouter()
+
+  useEffect(() => {
+    if (autoOpen) loadSmartLists()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Fetch Smart Lists when dialog opens
   async function loadSmartLists() {
