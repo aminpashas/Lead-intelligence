@@ -75,16 +75,18 @@ export async function GET(request: NextRequest) {
   // Check if RPC functions are available
   const useRpc = kpisRpc.status === 'fulfilled' && !kpisRpc.value.error
 
-  // Fallback: fetch leads for client-side aggregation if RPC unavailable
-  let leads: any[] = []
-  if (!useRpc) {
-    const { data } = await supabase
-      .from('leads')
-      .select('id, status, ai_qualification, ai_score, source_type, treatment_value, actual_revenue, created_at, converted_at, total_messages_sent, total_messages_received, total_emails_sent, total_sms_sent, no_show_count, consultation_date, financing_interest, budget_range')
-      .eq('organization_id', orgId)
-      .limit(10000)
-    leads = data || []
-  }
+  // Always fetch leads: several breakdowns (financing interest, budget range,
+  // avg deal size) have NO server-side RPC and are computed here in JS. When
+  // the KPI RPC is available we still need these rows — gating this fetch on
+  // `!useRpc` left those breakdowns permanently empty in production (where the
+  // RPC exists). It also feeds the JS fallback KPI computation when the RPC is
+  // unavailable. One org-scoped, indexed query is acceptable for analytics.
+  const { data: leadsData } = await supabase
+    .from('leads')
+    .select('id, status, ai_qualification, ai_score, source_type, treatment_value, actual_revenue, created_at, converted_at, total_messages_sent, total_messages_received, total_emails_sent, total_sms_sent, no_show_count, consultation_date, financing_interest, budget_range')
+    .eq('organization_id', orgId)
+    .limit(10000)
+  const leads: any[] = leadsData || []
 
   const campaigns = campaignsResult.status === 'fulfilled' ? (campaignsResult.value.data || []) : []
   const messages = messagesResult.status === 'fulfilled' ? (messagesResult.value.data || []) : []
@@ -243,7 +245,7 @@ export async function GET(request: NextRequest) {
   const completedAppts = appointments.filter((a: any) => a.status === 'completed').length
   const noShowAppts = appointments.filter((a: any) => a.status === 'no_show').length
 
-  // Financing & budget breakdowns (only when using fallback)
+  // Financing & budget breakdowns (computed here in JS — no server-side RPC)
   const financingMap: Record<string, number> = {}
   const budgetMap: Record<string, number> = {}
   for (const lead of leads) {

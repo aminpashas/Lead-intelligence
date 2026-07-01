@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { computeReplyStepIncrements } from './reply-attribution'
 
 // ════════════════════════════════════════════════════════════════
 // CAMPAIGN EXIT ON REPLY
@@ -27,7 +28,7 @@ export async function exitCampaignsOnReply(
   const campaignIds = [...new Set(activeEnrollments.map((e) => e.campaign_id))]
   const { data: allSteps } = await supabase
     .from('campaign_steps')
-    .select('campaign_id, step_number, exit_condition')
+    .select('id, campaign_id, step_number, exit_condition, total_replied')
     .in('campaign_id', campaignIds)
 
   // Find enrollments whose campaigns have if_replied exit conditions
@@ -64,6 +65,25 @@ export async function exitCampaignsOnReply(
       .in('id', enrollmentIdsToExit)
       .select('id')
     exited = data?.length || 0
+  }
+
+  // Attribute the reply to campaign_steps.total_replied — but only on the
+  // lead's FIRST reply, so a chatty lead can't inflate the counter. We read
+  // last_responded_at before setting it below to detect the first reply.
+  const { data: leadRow } = await supabase
+    .from('leads')
+    .select('last_responded_at')
+    .eq('id', leadId)
+    .maybeSingle<{ last_responded_at: string | null }>()
+
+  if (!leadRow?.last_responded_at && allSteps) {
+    const increments = computeReplyStepIncrements(
+      activeEnrollments.map((e) => ({ campaign_id: e.campaign_id, current_step: e.current_step })),
+      allSteps as Array<{ id: string; campaign_id: string; step_number: number; total_replied: number | null }>
+    )
+    for (const inc of increments) {
+      await supabase.from('campaign_steps').update({ total_replied: inc.total_replied }).eq('id', inc.id)
+    }
   }
 
   // Update lead engagement stats

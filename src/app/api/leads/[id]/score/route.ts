@@ -39,7 +39,9 @@ export async function POST(
   }
 
   try {
-    const scoreResult = await scoreLead(lead)
+    // Pass supabase so scoring includes the lead's enrichment signals AND writes
+    // the HIPAA audit log — both were skipped when called with just the lead.
+    const scoreResult = await scoreLead(lead, supabase)
 
     // Update lead with score
     await supabase

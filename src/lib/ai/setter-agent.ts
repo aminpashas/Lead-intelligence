@@ -28,6 +28,7 @@ import { formatAssessmentForPrompt } from './technique-tracker'
 import { formatFinancingContextForPrompt } from './financial-coach'
 import { SETTER_TOOLS } from '@/lib/autopilot/agent-tools'
 import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
+import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -316,7 +317,17 @@ export async function setterAgentRespond(
   // protocol with a prompt override, append it to the baseline.
   // Default: no active protocol → systemPrompt === baselinePrompt.
   const protocol = await getActiveProtocol(supabase, context.organization_id, 'setter')
-  const systemPrompt = composeSystemPrompt(baselinePrompt, protocol, 'append')
+  const composedPrompt = composeSystemPrompt(baselinePrompt, protocol, 'append')
+
+  // Inject the org's trained memories + knowledge base into the LIVE agent, so
+  // "train your AI" actually governs real patient conversations (not just the
+  // playground). Keyed on the latest inbound message for knowledge relevance.
+  const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
+  const [knowledgeBlock, personaBlock] = await Promise.all([
+    buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
+    buildAgencyPersonaBlock(supabase),
+  ])
+  const systemPrompt = [composedPrompt, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

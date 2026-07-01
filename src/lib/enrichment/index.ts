@@ -155,7 +155,11 @@ export async function enrichLead(
     if (shouldRun) {
       tasks.push(async () => {
         try {
-          const data = await extractGoogleAdsKeyword(lead.gclid!, lead.organization_id)
+          const data = await extractGoogleAdsKeyword(lead.gclid!, lead.organization_id, {
+            term: lead.utm_term,
+            campaign: lead.utm_campaign,
+            content: lead.utm_content,
+          })
           if (!data) {
             return {
               type: 'google_ads_keyword' as const,

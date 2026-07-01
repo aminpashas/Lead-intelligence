@@ -25,6 +25,7 @@ import { formatFinancingContextForPrompt } from './financial-coach'
 import { getTreatmentClosing, formatClosingForPrompt } from '@/lib/treatment/treatment-closing'
 import { CLOSER_TOOLS } from '@/lib/autopilot/agent-tools'
 import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
+import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -559,7 +560,16 @@ export async function closerAgentRespond(
   // Phase C: optional protocol override — see setter-agent.ts for
   // rationale. Default returns null → behavior unchanged.
   const protocol = await getActiveProtocol(supabase, context.organization_id, 'closer')
-  const systemPrompt = composeSystemPrompt(baselinePrompt, protocol, 'append')
+  const composedPrompt = composeSystemPrompt(baselinePrompt, protocol, 'append')
+
+  // Inject the org's trained memories + knowledge base into the LIVE closer, so
+  // trained guidance governs real conversations (not just the playground).
+  const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
+  const [knowledgeBlock, personaBlock] = await Promise.all([
+    buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
+    buildAgencyPersonaBlock(supabase),
+  ])
+  const systemPrompt = [composedPrompt, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

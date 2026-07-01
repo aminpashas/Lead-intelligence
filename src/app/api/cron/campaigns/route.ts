@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { autoEnrollLeads } from '@/lib/campaigns/enrollments'
 import { executeCampaignSteps } from '@/lib/campaigns/executor'
+import { reconcileCampaignConversions } from '@/lib/campaigns/reconcile-conversions'
+import { reconcileReactivationFunnels } from '@/lib/campaigns/reconcile-reactivation'
 import { runDisqualificationRules } from '@/lib/ai/disqualification'
 import { sendAppointmentReminders } from '@/lib/campaigns/reminders'
 import { logger } from '@/lib/logger'
@@ -65,6 +67,24 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // PHASE 2b: Reconcile campaign + reactivation counters (self-healing recompute).
+  // Fixes campaigns.total_converted and reactivation funnel counters, which were
+  // read across the dashboards but never written (permanent zeros).
+  let conversionsReconciled = 0
+  let reactivationsReconciled = 0
+  for (const org of orgs) {
+    try {
+      conversionsReconciled += await reconcileCampaignConversions(supabase, org.id)
+    } catch (err) {
+      errors.push(`Conversion reconcile error (org ${org.id}): ${err instanceof Error ? err.message : 'unknown'}`)
+    }
+    try {
+      reactivationsReconciled += await reconcileReactivationFunnels(supabase, org.id)
+    } catch (err) {
+      errors.push(`Reactivation reconcile error (org ${org.id}): ${err instanceof Error ? err.message : 'unknown'}`)
+    }
+  }
+
   // PHASE 3: Run disqualification rules
   let disqualified = 0
   for (const org of orgs) {
@@ -116,6 +136,8 @@ export async function POST(request: NextRequest) {
     success: true,
     enrollments: totalEnrolled,
     executions: totalExecuted,
+    conversionsReconciled,
+    reactivationsReconciled,
     disqualified,
     remindersSent,
     agentRowsRefreshed,
