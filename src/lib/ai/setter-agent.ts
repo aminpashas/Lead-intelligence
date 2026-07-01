@@ -21,7 +21,10 @@ import {
   buildQualificationStatus,
   formatQualificationForPrompt,
   formatPatientPsychologyForPrompt,
+  isDiscoveryComplete,
 } from './agent-types'
+import { buildPricingIntegrityBlock } from './pricing-integrity'
+import { captureQualificationFromResponse } from './qualification-capture'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
 import { buildDiscoveryPromptBlock } from '@/lib/ai/discovery-script'
@@ -91,7 +94,16 @@ Your approach:
 BAD: "What's your dental condition? And what's your budget? And when do you want to start?"
 GOOD: "That sounds frustrating — dealing with [their issue]. How long has that been going on?"
 
-Priority order for unknowns: dental_condition > timeline > financing > decision_makers`,
+Priority order for unknowns: dental_condition > timeline > credit > financing > decision_makers
+
+CREDIT: Ask casually only once there's a little rapport, and only in soft buckets —
+"Roughly, would you say your credit is great, good, or still rebuilding?" This tailors
+what you tell them later. NEVER ask for a number, a "credit score", or an SSN.
+
+DISCOVERY-FIRST (soft gate): You are still learning about this patient. Do NOT pitch
+pricing, monthly payments, or push to book yet — keep the focus on understanding their
+situation and goal. (See PRICING INTEGRITY below — it governs money talk.) Once you know
+their goal, timeline, and a financial signal, you can start setting expectations and booking.`,
     }
   }
 
@@ -282,6 +294,17 @@ After composing your response, analyze which techniques from the library you emp
 Report each with: technique_id (exact ID), confidence (0-1), effectiveness prediction, and context_note.
 Also assess the lead's CURRENT state in lead_assessment — this feeds into your next interaction.
 
+═══ QUALIFICATION CAPTURE ═══
+
+If — and ONLY if — the patient has actually revealed one of these THIS conversation,
+report it in "qualification_captured" so we can grade lead quality and stop re-asking.
+Use null for anything they have not clearly told you. Do NOT guess or infer from silence.
+
+- dental_condition: one of missing_all_upper | missing_all_lower | missing_all_both | missing_multiple | failing_teeth | denture_problems | other
+- financing_interest: one of cash_pay | financing_needed | insurance_only | undecided
+- credit_range: one of excellent | good | fair | rebuilding  (map their words: "great/excellent" → excellent, "good/pretty good" → good, "okay/fair/average" → fair, "bad/poor/rebuilding/working on it" → rebuilding)
+- timeline_note: a short free-text note of when they want to move forward, else null
+
 ═══ OUTPUT FORMAT ═══
 
 "self_confidence" is YOUR honest 0.0-1.0 estimate of how confident you are that this exact reply is correct, on-policy, compliant, and safe to send to the patient WITHOUT a human reviewing it first. Be calibrated: use a high value only when the message is routine and clearly safe; lower it when the situation is clinical, legal, financial, emotional, ambiguous, or you are unsure. This score gates whether the system sends automatically or escalates to a human, so do not inflate it.
@@ -294,6 +317,12 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
   "handoff_reason": null,
   "self_confidence": 0.9,
   "internal_notes": "brief note about your reasoning and what to do next (staff-visible only)",
+  "qualification_captured": {
+    "dental_condition": null,
+    "financing_interest": null,
+    "credit_range": null,
+    "timeline_note": null
+  },
   "techniques_used": [
     {"technique_id": "engagement_open_questions", "confidence": 0.9, "effectiveness": "effective", "context_note": "why you chose this"}
   ],
@@ -333,23 +362,34 @@ export async function setterAgentRespond(
     buildAgencyPersonaBlock(supabase),
   ])
 
-  // Phone-first discovery guide — only on live VOICE calls, where the setter is
-  // actually having the discovery conversation (pain points → full-arch →
-  // testimonials → budget range → book + reserve).
-  let discoveryBlock = ''
-  if (context.channel === 'voice') {
-    const { data: bs } = await supabase
-      .from('booking_settings')
-      .select('discovery_script, consult_price_range_text')
-      .eq('organization_id', context.organization_id)
-      .maybeSingle()
-    discoveryBlock = buildDiscoveryPromptBlock({
-      script: bs?.discovery_script as string | null | undefined,
-      priceRange: bs?.consult_price_range_text as string | null | undefined,
-    })
-  }
+  // Discovery-first guide + pricing integrity — on EVERY channel now (was
+  // voice-only, which is why SMS improvised financing numbers before qualifying).
+  // The setter runs the same arc over text: pain points → full-arch → casual
+  // credit bucket → range (never a quote) → book.
+  const { data: bs } = await supabase
+    .from('booking_settings')
+    .select('discovery_script, consult_price_range_text')
+    .eq('organization_id', context.organization_id)
+    .maybeSingle()
 
-  const systemPrompt = [composedPrompt, discoveryBlock, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const discoveryBlock = buildDiscoveryPromptBlock({
+    script: bs?.discovery_script as string | null | undefined,
+    priceRange: bs?.consult_price_range_text as string | null | undefined,
+  })
+
+  // Pricing integrity: gate money talk on whether we've actually qualified them,
+  // and forbid invented figures unless real financing data exists for this lead.
+  const qualStatus = buildQualificationStatus(context.lead)
+  const fc = context.financing_context
+  const hasRealFinancingData =
+    !!fc && (fc.status === 'approved' || fc.status === 'partial' || typeof fc.monthly_payment === 'number')
+  const pricingBlock = buildPricingIntegrityBlock({
+    configuredRange: bs?.consult_price_range_text as string | null | undefined,
+    discoveryComplete: isDiscoveryComplete(qualStatus),
+    hasRealFinancingData,
+  })
+
+  const systemPrompt = [composedPrompt, discoveryBlock, pricingBlock, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({
@@ -357,7 +397,10 @@ export async function setterAgentRespond(
     content: scrubPHI(msg.content),
   }))
 
-  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 1024
+  // SMS gets the same 1024-token budget as web: the response is a full JSON object
+  // (message + techniques + lead_assessment, all consumed downstream), not just the
+  // reply text — 512 truncated it mid-object, breaking JSON.parse. Voice stays terse.
+  const maxTokens = context.channel === 'voice' ? 256 : 1024
 
   // Multi-round agentic loop: lets the setter chain tool calls (e.g.
   // check_availability → create_booking) within a single turn instead of
@@ -399,6 +442,12 @@ export async function setterAgentRespond(
       recommended_approach: string
       techniques_to_try_next: string[]
       techniques_to_avoid: string[]
+    }
+    qualification_captured?: {
+      dental_condition?: string | null
+      financing_interest?: string | null
+      credit_range?: string | null
+      timeline_note?: string | null
     }
   }
 
@@ -450,6 +499,15 @@ export async function setterAgentRespond(
       hit_round_cap: loop.hitRoundCap,
     },
   }) // Non-critical logging
+
+  // Persist anything the setter learned about the patient (goal, financing,
+  // credit bucket) to structured lead fields, and re-grade lead quality when
+  // that actually adds new information. Best-effort — never blocks the reply.
+  await captureQualificationFromResponse(supabase, {
+    lead: context.lead,
+    organization_id: context.organization_id,
+    captured: parsed.qualification_captured,
+  }).catch(() => { /* non-critical: capture/rescore failure must not break the conversation */ })
 
   return {
     message: finalMessage,

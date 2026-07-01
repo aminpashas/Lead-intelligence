@@ -11,12 +11,15 @@
  * override when present, else the default below.
  */
 
-export const DEFAULT_DISCOVERY_SCRIPT = `DISCOVERY CALL — build value, excitement, and rapport before booking.
+export const DEFAULT_DISCOVERY_SCRIPT = `DISCOVERY — build value, excitement, and rapport BEFORE talking money or booking.
+Works the same on a call or over text: qualify first, quote never.
 
 1) OPEN-ENDED DISCOVERY (let them talk)
    - "Tell me what's been going on with your smile — what made you reach out?"
    - "How is it affecting your day to day?" (eating, confidence, smiling in photos,
      making memories with kids/grandkids)
+   - Learn the GOAL: is it the upper, the lower, or both? How many teeth?
+   - Learn the TIMELINE: are they looking to handle this soon, or still exploring?
    - Listen. When the patient names the pain themselves, they get invested in a
      solution. Don't rush to pitch.
 
@@ -25,12 +28,19 @@ export const DEFAULT_DISCOVERY_SCRIPT = `DISCOVERY CALL — build value, excitem
    - Offer to send the doctor's patient testimonial videos so they hear it from
      patients who've been transformed by the procedure.
 
-3) SET BUDGET EXPECTATIONS (a range, not a quote)
-   - Give a realistic range so they understand this is a significant investment —
-     NOT a $3,000 procedure. This qualifies serious consultations.
-   - Do not quote an exact price; the consult determines the specifics.
+3) CASUAL CREDIT READ (once there's rapport — never up front)
+   - Keep it light and in buckets: "Roughly, would you say your credit is great,
+     good, or still rebuilding?" This tailors what you tell them next.
+   - NEVER ask for a number, a credit score, or an SSN.
 
-4) BOOK + RESERVE
+4) SET BUDGET EXPECTATIONS (a range, not a quote — and only now)
+   - Only after goal + timeline + a credit read: give a realistic RANGE so they
+     understand this is a significant investment — NOT a $3,000 procedure. This
+     qualifies serious consultations.
+   - Do not quote an exact price or invent a monthly payment; the consult
+     determines the specifics.
+
+5) BOOK + RESERVE
    - Once there's genuine value and excitement, book the consultation.
    - The consult is complimentary, but a card is collected to reserve it — a $50
      fee applies only if they miss without notice. Framed after real value is
@@ -52,7 +62,7 @@ export function buildDiscoveryPromptBlock(params: {
 }): string {
   const script = resolveDiscoveryScript(params.script)
   const price = params.priceRange?.trim()
-  return `═══ DISCOVERY CALL GUIDE ═══
+  return `═══ DISCOVERY GUIDE ═══
 
-${script}${price ? `\n\nPractice price-range talking point: ${price}` : ''}`
+${script}${price ? `\n\nPractice price-range talking point (use ONLY after discovery, as a range): ${price}` : ''}`
 }

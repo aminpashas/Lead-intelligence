@@ -153,6 +153,7 @@ export type QualificationStatus = {
   dental_condition: { known: boolean; value: string | null }
   timeline: { known: boolean; value: string | null }
   financing: { known: boolean; value: string | null }
+  credit: { known: boolean; value: string | null }
   decision_makers: { known: boolean; value: string | null }
 }
 
@@ -167,22 +168,48 @@ export function buildQualificationStatus(lead: Partial<Lead>): QualificationStat
       value: lead.dental_condition || null,
     },
     timeline: {
-      known: !!lead.consultation_date || !!lead.treatment_date,
+      known: !!lead.consultation_date || !!lead.treatment_date || !!lead.timeline_note,
       value: lead.consultation_date
         ? `consultation: ${lead.consultation_date}`
         : lead.treatment_date
           ? `treatment: ${lead.treatment_date}`
-          : null,
+          : lead.timeline_note || null,
     },
     financing: {
       known: !!lead.financing_interest,
       value: lead.financing_interest || null,
+    },
+    credit: {
+      // 'unknown' is stored as NULL; an explicit bucket means we learned it.
+      known: !!lead.credit_range && lead.credit_range !== 'unknown',
+      value: lead.credit_range && lead.credit_range !== 'unknown' ? lead.credit_range : null,
     },
     decision_makers: {
       known: false, // Can only be determined from conversation context
       value: null,
     },
   }
+}
+
+/**
+ * The soft "discovery-first" gate. When FALSE the setter must stay off pricing
+ * and stop pushing to book — it should keep running discovery instead. When
+ * TRUE the agent may set budget expectations (as a range) and move to booking.
+ *
+ * ┌─────────────────────────────────────────────────────────────────────┐
+ * │ BUSINESS RULE — tune to taste. This encodes YOUR definition of "we've │
+ * │ learned enough to responsibly talk money & book." Default: we must    │
+ * │ know their goal (which arches) AND their timeline AND at least one     │
+ * │ financial signal (credit bucket or financing preference). Loosen it    │
+ * │ (e.g. drop timeline) for a lighter touch; tighten it (require credit   │
+ * │ specifically) to filter harder.                                        │
+ * └─────────────────────────────────────────────────────────────────────┘
+ */
+export function isDiscoveryComplete(status: QualificationStatus): boolean {
+  const goalKnown = status.dental_condition.known
+  const timelineKnown = status.timeline.known
+  const financialSignalKnown = status.credit.known || status.financing.known
+  return goalKnown && timelineKnown && financialSignalKnown
 }
 
 /**
@@ -202,6 +229,10 @@ export function formatQualificationForPrompt(status: QualificationStatus): strin
   lines.push(`- Financing preference: ${status.financing.known
     ? `KNOWN — "${status.financing.value}"`
     : 'UNKNOWN — ask about their budget comfort level'}`)
+
+  lines.push(`- Credit comfort: ${status.credit.known
+    ? `KNOWN — "${status.credit.value}"`
+    : 'UNKNOWN — ask casually once rapport is built (great / good / fair / still rebuilding). Never ask for a number or full-stop "credit score".'}`)
 
   lines.push(`- Decision makers: ${status.decision_makers.known
     ? `KNOWN — "${status.decision_makers.value}"`

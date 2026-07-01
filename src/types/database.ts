@@ -90,6 +90,8 @@ export type LeadSource = {
 export type DentalCondition = 'missing_all_upper' | 'missing_all_lower' | 'missing_all_both' | 'missing_multiple' | 'failing_teeth' | 'denture_problems' | 'other'
 export type FinancingInterest = 'cash_pay' | 'financing_needed' | 'insurance_only' | 'undecided'
 export type BudgetRange = 'under_10k' | '10k_15k' | '15k_20k' | '20k_25k' | '25k_30k' | 'over_30k' | 'unknown'
+// Casual credit bucket captured during discovery — feeds financial-readiness scoring.
+export type CreditRange = 'excellent' | 'good' | 'fair' | 'rebuilding' | 'unknown'
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'consultation_scheduled' | 'consultation_completed' | 'treatment_presented' | 'financing' | 'contract_sent' | 'contract_signed' | 'scheduled' | 'in_treatment' | 'completed' | 'lost' | 'disqualified' | 'no_show' | 'unresponsive' | 'dormant'
 export type AIQualification = 'hot' | 'warm' | 'cold' | 'unqualified' | 'unscored'
 export type LeadAIOverride = 'default' | 'force_on' | 'force_off' | 'assist_only'
@@ -170,6 +172,8 @@ export type Lead = {
   // Financial
   financing_interest: FinancingInterest | null
   budget_range: BudgetRange | null
+  credit_range: CreditRange | null
+  timeline_note: string | null
   financing_approved: boolean | null
   financing_amount: number | null
 

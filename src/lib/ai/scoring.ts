@@ -45,6 +45,10 @@ Your job is to evaluate dental implant leads and assign scores that predict conv
    - Interested in financing, no pre-approval = 40-60
    - Insurance only, no financing interest = 20-40
    - No financial info = 10-30
+   Adjust for self-reported credit when present: excellent/good credit → toward the
+   top of the applicable band (financing approval is likely); fair → middle; rebuilding
+   → lower the band (approval is harder — but in-house/no-credit-check plans still exist,
+   so do NOT zero it out). Credit is a modifier, not the whole dimension.
 
 3. **Urgency & Timeline** (weight: 0.18)
    - Wants treatment ASAP / in pain = 85-100
@@ -130,6 +134,7 @@ function buildLeadContext(lead: Partial<Lead>): string {
   // Financial
   if (lead.financing_interest) parts.push(`Financing Interest: ${lead.financing_interest.replace(/_/g, ' ')}`)
   if (lead.budget_range) parts.push(`Budget Range: ${lead.budget_range.replace(/_/g, ' ')}`)
+  if (lead.credit_range && lead.credit_range !== 'unknown') parts.push(`Self-Reported Credit: ${lead.credit_range}`)
   if (lead.has_dental_insurance !== null && lead.has_dental_insurance !== undefined) parts.push(`Dental Insurance: ${lead.has_dental_insurance ? 'Yes' : 'No'}`)
   if (lead.insurance_provider) parts.push(`Insurance Provider: ${lead.insurance_provider}`)
 
@@ -276,6 +281,55 @@ export async function scoreLead(
     recommended_action: parsed.recommended_action,
     confidence: parsed.confidence,
   }
+}
+
+/**
+ * Score a lead AND persist the result: writes ai_score/ai_qualification/breakdown
+ * onto the lead, logs a `score_updated` activity, and records the AI interaction.
+ *
+ * Single source of truth for "re-grade this lead" — used by the manual
+ * POST /api/leads/[id]/score route AND automatically by the setter after a
+ * conversation captures new qualification data (goal, credit, timeline).
+ */
+export async function rescoreAndPersistLead(
+  supabase: SupabaseClient,
+  lead: Partial<Lead>
+): Promise<ScoreResult> {
+  const scoreResult = await scoreLead(lead, supabase)
+
+  await supabase
+    .from('leads')
+    .update({
+      ai_score: scoreResult.total_score,
+      ai_qualification: scoreResult.qualification,
+      ai_score_breakdown: {
+        dimensions: scoreResult.dimensions,
+        confidence: scoreResult.confidence,
+      },
+      ai_score_updated_at: new Date().toISOString(),
+      ai_summary: scoreResult.summary,
+    })
+    .eq('id', lead.id!)
+
+  await supabase.from('lead_activities').insert({
+    organization_id: lead.organization_id,
+    lead_id: lead.id,
+    activity_type: 'score_updated',
+    title: `AI Score: ${scoreResult.total_score}/100 (${scoreResult.qualification})`,
+    description: scoreResult.summary,
+    metadata: scoreResult,
+  })
+
+  await supabase.from('ai_interactions').insert({
+    organization_id: lead.organization_id,
+    lead_id: lead.id,
+    interaction_type: 'scoring',
+    model: 'claude-sonnet-4-6',
+    output_summary: `Score: ${scoreResult.total_score}, Qualification: ${scoreResult.qualification}`,
+    success: true,
+  })
+
+  return scoreResult
 }
 
 export async function generateLeadEngagement(
