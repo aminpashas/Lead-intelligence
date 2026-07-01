@@ -61,7 +61,7 @@ More fundamentally, LI's booking is **entirely local**: slots come from `booking
 **LI EHR (read-only today):**
 - [`src/lib/ehr/carestack/client.ts`](../../../src/lib/ehr/carestack/client.ts) — OAuth + generic `carestackFetch`. ⚠️ **Wrong host/auth** (`api.carestack.com` + account-id header). Must align to MDRCM's proven `pmsglobal.carestack.com` + JWT-only.
 - `sync.ts` (patients/procedures/invoices — read only), webhook `/api/webhooks/carestack`, cron `carestack-sync`.
-- Migration `026_phase3_carestack.sql`: a `patients` table with `ehr_patient_id`/`ehr_source`, and **`appointments.ehr_appointment_id`** already exists.
+- Migration `026_phase3_carestack.sql`: a `patients` table with `ehr_patient_id`/`ehr_source` (the patient mapping we reuse). ⚠️ **Correction:** `ehr_appointment_id` is on `treatment_procedures` (a CareStack sync artifact), **not** on LI's `appointments` table — so the migration must add a CareStack appointment-id column to `appointments`.
 
 **Proven CareStack API (reference: `~/medicaldentalrcm/src/lib/carestack/`):**
 - Host `https://pmsglobal.carestack.com`; token `https://id.carestack.com/connect/token` (OAuth2 password grant, account from JWT, no account-id header). Client version v1.0.54 (Jan 2026).
@@ -143,8 +143,8 @@ The seam is **fire-and-forget** from the request path — it never blocks the lo
 
 ## 7. Data model changes (migration)
 
-New migration `0XX_ehr_appointment_sync.sql`:
-- `appointments`: add `carestack_sync_status text default 'pending'`, `dion_sync_status text default 'pending'`, `ehr_sync_attempts int default 0`, `ehr_sync_error text`. (`ehr_appointment_id` already exists.)
+New migration `20260701_ehr_appointment_sync.sql`:
+- `appointments`: add `carestack_appointment_id text` (CareStack's id for the created appointment), `carestack_sync_status text default 'pending'`, `dion_sync_status text default 'pending'`, `ehr_sync_attempts int default 0`, `ehr_sync_error text`.
 - `booking_settings`: add nullable `carestack_location_id`, `carestack_provider_id`, `carestack_operatory_id`, `carestack_appointment_type`.
 - `organizations`: add nullable `dion_practice_id text`.
 - (Optional) `ehr_busy_slots` table if we don't overlay occupancy directly onto `appointments`.
@@ -194,4 +194,4 @@ Each phase gets its own plan → implementation → verification loop.
 - Direct POST to Dion Clinical `/api/bus/receive` with the shared secret is accepted without the hub (confirmed by the receiver code). If the hub must mediate later, only the bridge target changes.
 - `organizations → dion_practice_id` mapping is TBD per org; `null` is valid for v1.
 - CareStack default location/provider/operatory per org must be captured in `booking_settings` (or defaulted to the first from the API) before write-back can succeed.
-- `CsAppointment.appointmentId` is typed `string` in MDRCM but `appointments.ehr_appointment_id` is `integer` — reconcile type during implementation.
+- `CsAppointment.appointmentId` is typed `string` in MDRCM but `treatment_procedures.ehr_appointment_id` is `integer`. We store the new `appointments.carestack_appointment_id` as `text` to sidestep the ambiguity (ids are never used arithmetically).
