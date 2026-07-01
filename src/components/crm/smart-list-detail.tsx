@@ -122,7 +122,7 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
             size="sm"
             variant="outline"
             className="gap-1.5"
-            onClick={() => router.push(`/broadcasts/sms?smart_list_id=${smartList.id}`)}
+            onClick={() => router.push(`/campaigns/broadcasts/sms?smart_list_id=${smartList.id}`)}
           >
             <MessageSquare className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Mass SMS
@@ -131,7 +131,7 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
             size="sm"
             variant="outline"
             className="gap-1.5"
-            onClick={() => router.push(`/broadcasts/email?smart_list_id=${smartList.id}`)}
+            onClick={() => router.push(`/campaigns/broadcasts/email?smart_list_id=${smartList.id}`)}
           >
             <Mail className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Mass Email
