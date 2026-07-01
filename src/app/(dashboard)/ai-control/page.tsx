@@ -1,17 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { AIControlCenter } from '@/components/crm/ai-control-center'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export default async function AIControlPage() {
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile) return null
-
-  const orgId = profile.organization_id
+  // Effective org honors an agency_admin's entered client account; role is the
+  // caller's own role (drives the admin-only controls).
+  const { orgId, role } = await resolveActiveOrg(supabase)
+  if (!orgId) return null
 
   // Fetch autopilot settings
   const { data: org } = await supabase
@@ -75,7 +72,7 @@ export default async function AIControlPage() {
       conversations={aiConversations || []}
       recentActivities={recentActivities || []}
       pendingEscalations={pendingEscalations || 0}
-      isAdmin={profile.role === 'admin' || profile.role === 'owner'}
+      isAdmin={role === 'admin' || role === 'owner'}
     />
   )
 }

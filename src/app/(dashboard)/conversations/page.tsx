@@ -4,16 +4,14 @@ import { Badge } from '@/components/ui/badge'
 import { MessageSquare } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export default async function ConversationsPage() {
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
-
-  if (!profile) return null
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return null
 
   const { data: conversations } = await supabase
     .from('conversations')
@@ -21,7 +19,7 @@ export default async function ConversationsPage() {
       *,
       lead:leads(id, first_name, last_name, phone, email, ai_score, ai_qualification)
     `)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('last_message_at', { ascending: false })
     .limit(100)
 

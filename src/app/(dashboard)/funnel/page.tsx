@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { FunnelPlaybook } from '@/components/crm/funnel-playbook'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export default async function FunnelPage() {
   const supabase = await createClient()
@@ -8,27 +9,22 @@ export default async function FunnelPage() {
 
   if (!user) redirect('/login')
 
-  // Get organization
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) redirect('/login')
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) redirect('/login')
 
   // Get pipeline stages with lead counts
   const { data: stages } = await supabase
     .from('pipeline_stages')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('position')
 
   // Get lead counts per stage
   const { data: leads } = await supabase
     .from('leads')
     .select('id, stage_id, status, ai_qualification, created_at, last_contacted_at, last_responded_at, treatment_value, no_show_count')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   // Get stage metrics: average time in stage, conversion rates
   const stageMetrics: Record<string, {

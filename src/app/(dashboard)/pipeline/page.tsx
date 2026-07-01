@@ -1,28 +1,27 @@
 import { createClient } from '@/lib/supabase/server'
 import { PipelineBoard } from '@/components/crm/pipeline-board'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export default async function PipelinePage() {
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
-
-  if (!profile) return null
+  // Effective org honors an agency_admin's entered client account (see
+  // resolveActiveOrg); falls back to the caller's home org otherwise.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return null
 
   // Fetch pipeline stages
   const { data: stages } = await supabase
     .from('pipeline_stages')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('position', { ascending: true })
 
   // Fetch leads with stage info
   const { data: leads } = await supabase
     .from('leads')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .not('status', 'in', '("disqualified","lost")')
     .order('ai_score', { ascending: false })
 

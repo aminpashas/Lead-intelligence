@@ -1,20 +1,18 @@
 import { createClient } from '@/lib/supabase/server'
 import { CampaignsList } from '@/components/crm/campaigns-list'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export default async function CampaignsPage() {
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
-
-  if (!profile) return null
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return null
 
   const { data: campaigns } = await supabase
     .from('campaigns')
     .select('*, steps:campaign_steps(count), enrollments:campaign_enrollments(count), smart_list:smart_lists(id, name, color)')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   // Flatten smart_list join for easier consumption

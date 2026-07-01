@@ -1,18 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import { DashboardHome } from '@/components/crm/dashboard-home'
 import { OrgGoalsCard } from '@/components/crm/org-goals-card'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
 
+  // The user's display name comes from their own profile…
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('organization_id, full_name')
+    .select('full_name')
     .single()
 
-  if (!profile) return null
-
-  const orgId = profile.organization_id
+  // …but the data is scoped to the effective org, which honors an agency_admin's
+  // entered client account (see resolveActiveOrg).
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return null
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
   const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
@@ -109,7 +112,7 @@ export default async function DashboardPage() {
     <div className="space-y-4">
       <OrgGoalsCard />
       <DashboardHome
-      userName={profile.full_name?.split(' ')[0] || 'there'}
+      userName={profile?.full_name?.split(' ')[0] || 'there'}
       hotLeads={hotLeadsResult.data || []}
       todayAppointments={todayApptsResult.data || []}
       recentLeads={recentLeadsResult.data || []}

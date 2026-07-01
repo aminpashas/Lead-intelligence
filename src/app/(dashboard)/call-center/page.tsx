@@ -1,21 +1,19 @@
 import { createClient } from '@/lib/supabase/server'
 import { CallCenterDashboard } from '@/components/voice/call-center-dashboard'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export default async function CallCenterPage() {
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
-
-  if (!profile) return null
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return null
 
   // Fetch recent voice calls
   const { data: recentCalls } = await supabase
     .from('voice_calls')
     .select('*, lead:leads(id, first_name, last_name, phone, ai_qualification, status)')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -23,14 +21,14 @@ export default async function CallCenterPage() {
   const { data: campaigns } = await supabase
     .from('voice_campaigns')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   // Fetch org voice settings
   const { data: org } = await supabase
     .from('organizations')
     .select('name, voice_enabled, voice_retell_agent_id, voice_max_outbound_per_hour, voice_recording_enabled')
-    .eq('id', profile.organization_id)
+    .eq('id', orgId)
     .single()
 
   // Aggregate stats
@@ -41,13 +39,13 @@ export default async function CallCenterPage() {
   const { count: todayCalls } = await supabase
     .from('voice_calls')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .gte('created_at', todayISO)
 
   const { count: todayConnected } = await supabase
     .from('voice_calls')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('status', 'completed')
     .gt('duration_seconds', 0)
     .gte('created_at', todayISO)
@@ -55,14 +53,14 @@ export default async function CallCenterPage() {
   const { count: todayAppointments } = await supabase
     .from('voice_calls')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('outcome', 'appointment_booked')
     .gte('created_at', todayISO)
 
   const { count: activeCalls } = await supabase
     .from('voice_calls')
     .select('id', { count: 'exact', head: true })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .in('status', ['initiated', 'ringing', 'in_progress'])
 
   return (
