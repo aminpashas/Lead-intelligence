@@ -68,7 +68,7 @@ describe('ghlFetch / fetchPipelines', () => {
     const pipelines = await fetchPipelines(config)
 
     expect(pipelines).toHaveLength(1)
-    const [url, init] = fetchMock.mock.calls[0]
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, { headers: Record<string, string> }]
     expect(String(url)).toContain('/opportunities/pipelines')
     expect(String(url)).toContain('locationId=loc-1')
     expect(init.headers.Authorization).toBe('Bearer pit-token')
