@@ -367,12 +367,40 @@ ${list}
 `
 }
 
-function buildCloserSystemPrompt(context: AgentContext): string {
+/**
+ * Options for a proactive, scheduled nurture touch (vs. an inbound reply).
+ * Used by the post-consult funding-nurture campaign executor.
+ */
+export type CloserRespondOptions = {
+  /** When set, the closer composes a proactive re-initiated message toward this goal. */
+  proactiveGoal?: string
+  /** Disable the cross-channel sending tools so this call only COMPOSES (the caller sends). */
+  disableTools?: boolean
+}
+
+function buildProactiveTouchBlock(channel: string, goal: string): string {
+  return `═══ SCHEDULED NURTURE TOUCH (PROACTIVE OUTREACH) ═══
+
+This is a SCHEDULED, PROACTIVE follow-up — the patient did NOT just message you. You are
+re-initiating contact to keep their treatment funding moving after their consultation.
+
+Compose exactly ONE self-contained ${channel === 'email' ? 'email' : 'text'} message.
+You have NO sending tools on this touch — do NOT claim to attach or send photos, videos, or
+links you cannot deliver; if you reference something shareable, describe it in words only.
+
+TOUCH GOAL FOR THIS MESSAGE:
+${goal}
+
+Keep it warm and specific to THIS patient's real objections and situation. Never invent
+dollar figures (see PRICING INTEGRITY). End with one low-pressure question or next step.`
+}
+
+function buildCloserSystemPrompt(context: AgentContext, opts?: CloserRespondOptions): string {
   const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>)
   const { skill, instructions } = selectActiveSkill(context)
   const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile)
 
-  return `You are a senior treatment coordinator for an All-on-4 dental implant practice.
+  const base = `You are a senior treatment coordinator for an All-on-4 dental implant practice.
 You work with patients who have completed their consultation and are making their treatment decision.
 You communicate via ${context.channel === 'voice' ? 'a live phone call' : context.channel === 'sms' ? 'text message' : 'email'}. You are confident, empathetic, and deeply knowledgeable.
 
@@ -548,6 +576,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
     "techniques_to_avoid": ["technique_id_2"]
   }
 }`
+
+  return opts?.proactiveGoal
+    ? `${base}\n\n${buildProactiveTouchBlock(context.channel, opts.proactiveGoal)}`
+    : base
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -556,9 +588,10 @@ Respond with ONLY valid JSON (no markdown, no code blocks):
 
 export async function closerAgentRespond(
   supabase: SupabaseClient,
-  context: AgentContext
+  context: AgentContext,
+  opts?: CloserRespondOptions
 ): Promise<AgentResponse> {
-  const baselinePrompt = buildCloserSystemPrompt(context)
+  const baselinePrompt = buildCloserSystemPrompt(context, opts)
   // Phase C: optional protocol override — see setter-agent.ts for
   // rationale. Default returns null → behavior unchanged.
   const protocol = await getActiveProtocol(supabase, context.organization_id, 'closer')
@@ -598,6 +631,16 @@ export async function closerAgentRespond(
     content: scrubPHI(msg.content),
   }))
 
+  // Proactive nurture touch: the patient didn't just message us, so add an
+  // explicit instruction turn to give the model something to compose against.
+  // Anthropic requires a user turn to lead the response.
+  if (opts?.proactiveGoal) {
+    safeHistory.push({
+      role: 'user',
+      content: '[Compose the scheduled proactive nurture message now, following the SCHEDULED NURTURE TOUCH goal and ACTIVE SKILL above.]',
+    })
+  }
+
   // SMS raised 512→1024: the response is a full JSON object (message + techniques +
   // lead_assessment), and 512 truncated it mid-object, breaking JSON.parse.
   const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 1024 : 2048
@@ -612,7 +655,9 @@ export async function closerAgentRespond(
     maxTokens,
     system: systemPrompt,
     messages: safeHistory,
-    tools: CLOSER_TOOLS,
+    // Proactive nurture touches COMPOSE only — the campaign executor is the sole
+    // sender, so disable the cross-channel tools to avoid double-sends.
+    tools: opts?.disableTools ? [] : CLOSER_TOOLS,
     toolContext: {
       organization_id: context.organization_id,
       lead_id: context.lead.id!,

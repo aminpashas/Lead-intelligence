@@ -7,8 +7,10 @@ import { generateLeadEngagement } from '@/lib/ai/scoring'
 import { appendEmailFooter } from '@/lib/messaging/email-footer'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
+import { POST_CONSULT_NURTURE_KEY } from './post-consult-nurture'
+import { executeNurtureStep } from './nurture-executor'
 
-type ExecutionResult = {
+export type ExecutionResult = {
   enrollment_id: string
   lead_id: string
   action: 'sent' | 'deferred' | 'exited' | 'completed' | 'skipped' | 'error'
@@ -64,6 +66,12 @@ async function executeOneStep(
   const lead = enrollment.lead ? { ...enrollment.lead } : null
   if (!campaign || !lead) {
     return { enrollment_id: enrollment.id, lead_id: enrollment.lead_id, action: 'error', detail: 'Missing campaign or lead' }
+  }
+
+  // The post-consult funding nurture has its own objection-aware, autopilot-gated
+  // send path (closer composition, financing-aware skips, co-signer link).
+  if (campaign.metadata?.system_key === POST_CONSULT_NURTURE_KEY) {
+    return executeNurtureStep(supabase, enrollment)
   }
 
   // Decrypt PII fields for sending
