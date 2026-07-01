@@ -16,7 +16,6 @@ import {
   Calendar,
   Target,
   RefreshCw,
-  Send,
   X,
   Building2,
   Phone,
@@ -60,7 +59,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
       { name: 'Reactivation', href: '/reactivation', icon: RefreshCw },
-      { name: 'Broadcasts', href: '/broadcasts', icon: Send },
     ],
   },
   {
