@@ -15,21 +15,13 @@ import {
   Settings,
   Calendar,
   Target,
-  ToggleLeft,
-  ListFilter,
   RefreshCw,
   Send,
-  Mail,
-  ClipboardCheck,
   X,
   Building2,
   Phone,
-  UsersRound,
-  CreditCard,
   FolderHeart,
   FileSignature,
-  Plug,
-  Gauge,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -41,77 +33,142 @@ type NavItem = {
   icon: LucideIcon
 }
 
-// Practice-level navigation only.
-// AI Training, AI Audit, AI Engine, Sales Intelligence are AGENCY-ONLY features.
-const navigation: NavItem[] = [
-  { name: 'Agency Console', href: '/agency', icon: Building2 },
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
-  { name: 'Funnel Playbook', href: '/funnel', icon: Target },
-  { name: 'Leads', href: '/leads', icon: Users },
-  { name: 'Conversations', href: '/conversations', icon: MessageSquare },
-  { name: 'Call Center', href: '/call-center', icon: Phone },
-  { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
-  { name: 'Reactivation', href: '/reactivation', icon: RefreshCw },
-  { name: 'Smart Lists', href: '/smart-lists', icon: ListFilter },
-  { name: 'Mass SMS', href: '/mass-sms', icon: Send },
-  { name: 'Mass Email', href: '/mass-email', icon: Mail },
-  { name: 'Broadcast Audit', href: '/broadcast-audit', icon: ClipboardCheck },
-  { name: 'Appointments', href: '/appointments', icon: Calendar },
-  { name: 'Cases', href: '/cases', icon: FolderHeart },
-  { name: 'Contracts', href: '/contracts', icon: FileSignature },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Agent KPI', href: '/agent-kpi', icon: Gauge },
-  { name: 'AI Control', href: '/ai-control', icon: ToggleLeft },
-  { name: 'Team', href: '/team', icon: UsersRound },
-  { name: 'Billing', href: '/billing', icon: CreditCard },
-  { name: 'Connectors', href: '/settings/connectors', icon: Plug },
-  { name: 'Settings', href: '/settings', icon: Settings },
+type NavGroup = {
+  label: string
+  items: NavItem[]
+}
+
+// Consolidated, grouped practice navigation. The former flat list of 23 items is
+// organized into four sections by job-to-be-done; low-traffic destinations are
+// folded into section hubs (Broadcasts, Analytics, Settings) as tabs instead of
+// competing for top-level nav slots. Agency-only tooling lives in /agency, and
+// account/admin destinations live under the Settings hub (pinned footer link).
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Workspace',
+    items: [
+      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
+      { name: 'Leads', href: '/leads', icon: Users },
+      { name: 'Conversations', href: '/conversations', icon: MessageSquare },
+      { name: 'Call Center', href: '/call-center', icon: Phone },
+      { name: 'Appointments', href: '/appointments', icon: Calendar },
+    ],
+  },
+  {
+    label: 'Engage',
+    items: [
+      { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
+      { name: 'Reactivation', href: '/reactivation', icon: RefreshCw },
+      { name: 'Broadcasts', href: '/broadcasts', icon: Send },
+    ],
+  },
+  {
+    label: 'Revenue',
+    items: [
+      { name: 'Cases', href: '/cases', icon: FolderHeart },
+      { name: 'Contracts', href: '/contracts', icon: FileSignature },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+    ],
+  },
 ]
+
+const SETTINGS_ITEM: NavItem = { name: 'Settings', href: '/settings', icon: Settings }
+
+function NavLink({
+  item,
+  isActive,
+  onNavigate,
+}: {
+  item: NavItem
+  isActive: boolean
+  onNavigate?: () => void
+}) {
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      aria-current={isActive ? 'page' : undefined}
+      className={cn(
+        'group flex items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors duration-150',
+        isActive
+          ? 'bg-secondary font-semibold text-foreground'
+          : 'font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+      )}
+    >
+      <item.icon
+        className={cn(
+          'h-[17px] w-[17px] shrink-0 transition-colors',
+          isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
+        )}
+        strokeWidth={2}
+      />
+      {item.name}
+    </Link>
+  )
+}
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
   const { userProfile } = useOrgStore()
   const role = (userProfile?.role || 'member') as PracticeRole
 
-  // Filter navigation items based on user's role
-  const filteredNav = navigation.filter((item) => canAccessRoute(role, item.href))
+  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
+
+  // Filter each group by role, then drop any group left with no visible items.
+  const groups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => canAccessRoute(role, item.href)),
+  })).filter((group) => group.items.length > 0)
+
+  const canSeeSettings = canAccessRoute(role, SETTINGS_ITEM.href)
 
   return (
     <>
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2 border-b px-6 shrink-0">
-        <Target className="h-6 w-6 text-primary" />
-        <span className="text-lg font-bold">Lead Intelligence</span>
+      <div className="flex h-16 items-center gap-2.5 border-b border-border px-5 shrink-0">
+        <Target className="h-[18px] w-[18px] text-foreground" strokeWidth={2} />
+        <span className="text-[15px] font-medium tracking-tight text-foreground">Lead Intelligence</span>
+        <span className="aurea-eyebrow">Practice</span>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 p-3 overflow-y-auto">
-        {filteredNav.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              onClick={onNavigate}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
-                isActive
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-              )}
-            >
-              <item.icon className="h-4 w-4" />
-              {item.name}
-            </Link>
-          )
-        })}
+      {/* Grouped navigation */}
+      <nav className="flex-1 overflow-y-auto p-3">
+        {groups.map((group, i) => (
+          <div key={group.label} className={cn(i > 0 && 'mt-5')}>
+            <p className="px-3 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
+              {group.label}
+            </p>
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  isActive={isActive(item.href)}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
       </nav>
 
-      {/* Footer */}
-      <div className="border-t p-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+      {/* Footer — pinned Settings + user card */}
+      <div className="border-t p-3 shrink-0 space-y-3">
+        {canSeeSettings && (
+          <NavLink
+            item={SETTINGS_ITEM}
+            isActive={isActive(SETTINGS_ITEM.href)}
+            onNavigate={onNavigate}
+          />
+        )}
+        <div className="flex items-center gap-2 px-1">
+          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
             <Building2 className="h-4 w-4 text-primary" />
           </div>
           <div className="flex-1 min-w-0">

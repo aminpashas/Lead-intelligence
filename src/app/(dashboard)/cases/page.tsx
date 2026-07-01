@@ -7,7 +7,6 @@ import { RoleGuard } from '@/components/auth/role-guard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   Select,
   SelectContent,
@@ -32,22 +31,22 @@ import { cn } from '@/lib/utils'
 import type { ClinicalCase, CaseStatus } from '@/types/database'
 
 const STATUS_CONFIG: Record<CaseStatus, {
-  label: string; icon: React.ElementType; color: string; gradient: string
+  label: string; icon: React.ElementType; color: string; bg: string
 }> = {
-  intake: { label: 'Intake', icon: FolderPlus, color: 'text-slate-600', gradient: 'from-slate-500/10 to-slate-400/10' },
-  analysis: { label: 'AI Analysis', icon: Brain, color: 'text-violet-600', gradient: 'from-violet-500/10 to-purple-500/10' },
-  diagnosis: { label: 'Needs Diagnosis', icon: Stethoscope, color: 'text-blue-600', gradient: 'from-blue-500/10 to-cyan-500/10' },
-  treatment_planning: { label: 'Treatment Planning', icon: ClipboardList, color: 'text-amber-600', gradient: 'from-amber-500/10 to-orange-500/10' },
-  patient_review: { label: 'Patient Review', icon: UserCheck, color: 'text-emerald-600', gradient: 'from-emerald-500/10 to-teal-500/10' },
-  completed: { label: 'Completed', icon: CheckCircle2, color: 'text-green-600', gradient: 'from-green-500/10 to-emerald-500/10' },
-  archived: { label: 'Archived', icon: CheckCircle2, color: 'text-gray-400', gradient: 'from-gray-300/10 to-gray-400/10' },
+  intake:            { label: 'Intake',            icon: FolderPlus,    color: 'text-aurea-ink-3',  bg: 'bg-aurea-surface-2' },
+  analysis:          { label: 'AI Analysis',        icon: Brain,         color: 'text-aurea-primary', bg: 'bg-aurea-primary/10' },
+  diagnosis:         { label: 'Needs Diagnosis',    icon: Stethoscope,   color: 'text-aurea-ink-2',  bg: 'bg-aurea-surface-2' },
+  treatment_planning:{ label: 'Treatment Planning', icon: ClipboardList, color: 'text-aurea-amber',  bg: 'bg-aurea-amber/10' },
+  patient_review:    { label: 'Patient Review',     icon: UserCheck,     color: 'text-aurea-primary', bg: 'bg-aurea-primary/10' },
+  completed:         { label: 'Completed',          icon: CheckCircle2,  color: 'text-aurea-primary', bg: 'bg-aurea-primary/10' },
+  archived:          { label: 'Archived',           icon: CheckCircle2,  color: 'text-aurea-ink-3',  bg: 'bg-aurea-surface-2' },
 }
 
 const PRIORITY_COLORS: Record<string, string> = {
-  low: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
-  normal: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  high: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  urgent: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  low:    'bg-aurea-surface-2 text-aurea-ink-3 border-aurea-border',
+  normal: 'bg-aurea-surface-2 text-aurea-ink-2 border-aurea-border',
+  high:   'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20',
+  urgent: 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/20',
 }
 
 const KANBAN_STATUSES: CaseStatus[] = ['intake', 'diagnosis', 'treatment_planning', 'patient_review', 'completed']
@@ -96,16 +95,17 @@ function CasesContent() {
   )
 
   return (
-    <div className="space-y-6">
+    <div className="animate-in fade-in-0 duration-500 space-y-8">
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <header className="flex flex-col gap-5 border-b border-aurea-border pb-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Clinical Cases</h1>
-          <p className="text-muted-foreground">
-            Manage patient cases from intake through treatment delivery
+          <p className="aurea-eyebrow mb-3">Clinical Workflow</p>
+          <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[48px]">Clinical Cases</h1>
+          <p className="mt-4 max-w-xl text-[16px] leading-relaxed text-aurea-ink-2">
+            Manage patient cases from intake through treatment delivery.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {doctors.length > 0 && (
             <Select value={filterDoctor} onValueChange={(v) => v && setFilterDoctor(v)}>
               <SelectTrigger className="w-[180px]">
@@ -129,15 +129,15 @@ function CasesContent() {
             {viewMode === 'board' ? 'List View' : 'Board View'}
           </Button>
           <Button onClick={() => router.push('/cases/new')} className="gap-2">
-            <FolderPlus className="h-4 w-4" />
+            <FolderPlus className="h-[17px] w-[17px]" strokeWidth={1.75} />
             New Case
           </Button>
         </div>
-      </div>
+      </header>
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <Loader2 className="h-6 w-6 animate-spin text-aurea-ink-3" />
         </div>
       ) : viewMode === 'board' ? (
         <KanbanBoard cases={filteredCases} onCaseClick={(id) => router.push(`/cases/${id}`)} />
@@ -161,20 +161,20 @@ function KanbanBoard({ cases, onCaseClick }: { cases: ClinicalCase[]; onCaseClic
         return (
           <div key={status} className="flex-shrink-0 w-[300px]">
             <div className="flex items-center gap-2 mb-3 px-1">
-              <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br', config.gradient)}>
-                <StatusIcon className={cn('h-3.5 w-3.5', config.color)} />
+              <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg', config.bg)}>
+                <StatusIcon className={cn('h-3.5 w-3.5', config.color)} strokeWidth={1.75} />
               </div>
-              <span className="text-sm font-medium">{config.label}</span>
-              <Badge variant="outline" className="text-xs ml-auto h-5 px-1.5">
+              <span className="text-[13px] font-medium text-aurea-ink">{config.label}</span>
+              <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3">
                 {columnCases.length}
-              </Badge>
+              </span>
             </div>
             <div className="space-y-2">
               {columnCases.map((c) => (
                 <CaseCard key={c.id} caseData={c} onClick={() => onCaseClick(c.id)} />
               ))}
               {columnCases.length === 0 && (
-                <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
+                <div className="rounded-lg border border-dashed border-aurea-border p-4 text-center text-[12px] text-aurea-ink-3">
                   No cases
                 </div>
               )}
@@ -194,59 +194,55 @@ function CaseCard({ caseData, onClick }: { caseData: ClinicalCase; onClick: () =
   const timeAgo = getTimeAgo(caseData.created_at)
 
   return (
-    <Card
-      className="cursor-pointer hover:shadow-md hover:border-primary/20 transition-all duration-200 group"
+    <div
+      className="aurea-card cursor-pointer p-3 transition-colors hover:bg-aurea-surface-2 group"
       onClick={onClick}
     >
-      <CardContent className="p-3">
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <Avatar className="h-7 w-7 shrink-0">
-              <AvatarFallback className="text-[10px] font-medium">{initials}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <p className="text-sm font-medium truncate">{caseData.patient_name}</p>
-              <p className="text-[10px] text-muted-foreground">{caseData.case_number}</p>
-            </div>
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 text-[11px] font-semibold text-aurea-ink-2 ring-1 ring-aurea-border">
+            {initials}
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13.5px] font-medium text-aurea-ink truncate">{caseData.patient_name}</p>
+            <p className="font-mono text-[10px] text-aurea-ink-3">{caseData.case_number}</p>
           </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
         </div>
+        <ChevronRight className="h-4 w-4 text-aurea-ink-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" strokeWidth={1.75} />
+      </div>
 
-        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{caseData.chief_complaint}</p>
+      <p className="text-[12px] text-aurea-ink-2 line-clamp-2 mb-2">{caseData.chief_complaint}</p>
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {caseData.priority !== 'normal' && (
-              <Badge variant="outline" className={cn('text-[10px] px-1 py-0 h-4', PRIORITY_COLORS[caseData.priority])}>
-                {caseData.priority === 'urgent' && <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />}
-                {caseData.priority}
-              </Badge>
-            )}
-            {fileCount > 0 && (
-              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                <FileImage className="h-3 w-3" /> {fileCount}
-              </span>
-            )}
-          </div>
-          <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-            <Clock className="h-3 w-3" /> {timeAgo}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {caseData.priority !== 'normal' && (
+            <span className={cn('inline-flex items-center gap-0.5 rounded border px-1.5 py-0 text-[10px] font-medium', PRIORITY_COLORS[caseData.priority])}>
+              {caseData.priority === 'urgent' && <AlertTriangle className="h-2.5 w-2.5 mr-0.5" strokeWidth={1.75} />}
+              {caseData.priority}
+            </span>
+          )}
+          {fileCount > 0 && (
+            <span className="flex items-center gap-0.5 font-mono text-[10px] text-aurea-ink-3">
+              <FileImage className="h-3 w-3" strokeWidth={1.75} /> {fileCount}
+            </span>
+          )}
+        </div>
+        <span className="flex items-center gap-0.5 font-mono text-[10px] text-aurea-ink-3">
+          <Clock className="h-3 w-3" strokeWidth={1.75} /> {timeAgo}
+        </span>
+      </div>
+
+      {caseData.assigned_doctor && (
+        <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-aurea-border">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-aurea-surface-2 text-[8px] font-semibold text-aurea-ink-3 ring-1 ring-aurea-border">
+            {caseData.assigned_doctor.full_name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+          </span>
+          <span className="text-[10px] text-aurea-ink-3 truncate">
+            Dr. {caseData.assigned_doctor.full_name}
           </span>
         </div>
-
-        {caseData.assigned_doctor && (
-          <div className="flex items-center gap-1.5 mt-2 pt-2 border-t">
-            <Avatar className="h-5 w-5">
-              <AvatarFallback className="text-[8px]">
-                {caseData.assigned_doctor.full_name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-              </AvatarFallback>
-            </Avatar>
-            <span className="text-[10px] text-muted-foreground truncate">
-              Dr. {caseData.assigned_doctor.full_name}
-            </span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      )}
+    </div>
   )
 }
 
@@ -254,53 +250,52 @@ function CaseCard({ caseData, onClick }: { caseData: ClinicalCase; onClick: () =
 
 function ListView({ cases, onCaseClick }: { cases: ClinicalCase[]; onCaseClick: (id: string) => void }) {
   return (
-    <div className="space-y-2">
+    <div className="aurea-card overflow-hidden">
       {cases.map((c) => {
         const config = STATUS_CONFIG[c.status]
         const StatusIcon = config.icon
         return (
-          <Card
+          <div
             key={c.id}
-            className="cursor-pointer hover:shadow-sm hover:border-primary/20 transition-all"
+            className="flex cursor-pointer items-center gap-4 border-b border-aurea-border p-4 transition-colors last:border-0 hover:bg-aurea-surface-2"
             onClick={() => onCaseClick(c.id)}
           >
-            <CardContent className="p-4 flex items-center gap-4">
-              <div className={cn('flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br shrink-0', config.gradient)}>
-                <StatusIcon className={cn('h-4 w-4', config.color)} />
+            <div className={cn('flex h-9 w-9 items-center justify-center rounded-lg shrink-0', config.bg)}>
+              <StatusIcon className={cn('h-4 w-4', config.color)} strokeWidth={1.75} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-[14px] font-medium text-aurea-ink">{c.patient_name}</p>
+                <span className="font-mono text-[11px] text-aurea-ink-3">{c.case_number}</span>
+                {c.priority !== 'normal' && (
+                  <span className={cn('inline-flex items-center rounded border px-1.5 py-0 text-[10px] font-medium', PRIORITY_COLORS[c.priority])}>
+                    {c.priority}
+                  </span>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="font-medium text-sm">{c.patient_name}</p>
-                  <span className="text-xs text-muted-foreground">{c.case_number}</span>
-                  {c.priority !== 'normal' && (
-                    <Badge variant="outline" className={cn('text-[10px] px-1 py-0 h-4', PRIORITY_COLORS[c.priority])}>
-                      {c.priority}
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground truncate">{c.chief_complaint}</p>
-              </div>
-              <Badge variant="outline" className="text-xs shrink-0">
-                {config.label}
-              </Badge>
-              {c.assigned_doctor && (
-                <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">
-                  Dr. {c.assigned_doctor.full_name}
-                </span>
-              )}
-              <span className="text-xs text-muted-foreground shrink-0">
-                {getTimeAgo(c.created_at)}
+              <p className="text-[12px] text-aurea-ink-3 truncate">{c.chief_complaint}</p>
+            </div>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-aurea-ink-2 shrink-0">
+              <span className={cn('h-1.5 w-1.5 rounded-full', config.bg.replace('bg-', 'bg-').includes('primary') ? 'bg-aurea-primary' : config.bg.includes('amber') ? 'bg-aurea-amber' : 'bg-aurea-ink-3')} />
+              {config.label}
+            </span>
+            {c.assigned_doctor && (
+              <span className="text-[12px] text-aurea-ink-3 shrink-0 hidden sm:block">
+                Dr. {c.assigned_doctor.full_name}
               </span>
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-            </CardContent>
-          </Card>
+            )}
+            <span className="font-mono text-[11px] text-aurea-ink-3 shrink-0">
+              {getTimeAgo(c.created_at)}
+            </span>
+            <ChevronRight className="h-4 w-4 text-aurea-ink-3 shrink-0" strokeWidth={1.75} />
+          </div>
         )
       })}
       {cases.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <FolderPlus className="h-12 w-12 text-muted-foreground/40 mb-4" />
-          <p className="font-medium">No cases yet</p>
-          <p className="text-sm text-muted-foreground mt-1">Create your first clinical case to get started</p>
+          <FolderPlus className="h-10 w-10 text-aurea-ink-3 mb-4" strokeWidth={1.5} />
+          <p className="aurea-display text-[18px] text-aurea-ink">No cases yet</p>
+          <p className="mt-1 text-[13px] text-aurea-ink-3">Create your first clinical case to get started</p>
         </div>
       )}
     </div>

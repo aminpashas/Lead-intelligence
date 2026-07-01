@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -337,23 +336,23 @@ export function LeadCSVImport() {
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset() }}>
       <DialogTrigger>
-        <span className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent cursor-pointer">
-          <Upload className="h-4 w-4" />
+        <span className="inline-flex items-center gap-2 rounded-md border border-aurea-border px-3 py-2 text-sm font-medium text-aurea-ink-2 transition-colors hover:bg-aurea-surface-2 cursor-pointer">
+          <Upload className="h-4 w-4" strokeWidth={1.75} />
           Import CSV
         </span>
       </DialogTrigger>
-      <DialogContent className="max-w-6xl w-[95vw] max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] w-[95vw] max-w-6xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Import Leads from CSV</DialogTitle>
+          <DialogTitle className="aurea-display text-[22px] text-aurea-ink">Import Leads from CSV</DialogTitle>
           <StepIndicator step={step} />
         </DialogHeader>
 
         {step === 'upload' && (
-          <div className="py-12 flex flex-col items-center gap-4">
-            <FileSpreadsheet className="h-12 w-12 text-muted-foreground" />
+          <div className="flex flex-col items-center gap-4 py-12">
+            <FileSpreadsheet className="h-12 w-12 text-aurea-ink-3" strokeWidth={1.75} />
             <div className="text-center">
-              <p className="font-medium">Upload your CSV file</p>
-              <p className="text-sm text-muted-foreground mt-1 max-w-md">
+              <p className="text-[15px] font-medium text-aurea-ink">Upload your CSV file</p>
+              <p className="mt-1 max-w-md text-[13px] text-aurea-ink-3">
                 You'll map columns, attest consent, and choose import options on the next steps.
                 Each row needs at minimum a phone or email.
               </p>
@@ -366,7 +365,7 @@ export function LeadCSVImport() {
               className="hidden"
             />
             <Button onClick={() => fileRef.current?.click()} className="gap-2">
-              <Upload className="h-4 w-4" />
+              <Upload className="h-4 w-4" strokeWidth={1.75} />
               Choose CSV File
             </Button>
           </div>
@@ -374,25 +373,25 @@ export function LeadCSVImport() {
 
         {step === 'map' && (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Found <strong>{rows.length}</strong> rows in <strong>{fileName}</strong>. Map each
-              CSV column to a lead field, or set it to "Ignore". At minimum, map First Name and
-              either Email or Phone.
+            <p className="text-[13px] text-aurea-ink-3">
+              Found <span className="font-mono font-medium tabular-nums text-aurea-ink">{rows.length}</span> rows in{' '}
+              <span className="font-medium text-aurea-ink">{fileName}</span>. Map each CSV column to a lead
+              field, or set it to "Ignore". At minimum, map First Name and either Email or Phone.
             </p>
-            <div className="rounded-lg border max-h-[50vh] overflow-auto">
+            <div className="aurea-card max-h-[50vh] overflow-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>CSV Column</TableHead>
-                    <TableHead>Sample (row 1)</TableHead>
-                    <TableHead>Maps to</TableHead>
+                  <TableRow className="border-b border-aurea-border hover:bg-transparent">
+                    <TableHead className="aurea-eyebrow text-aurea-ink-3">CSV Column</TableHead>
+                    <TableHead className="aurea-eyebrow text-aurea-ink-3">Sample (row 1)</TableHead>
+                    <TableHead className="aurea-eyebrow text-aurea-ink-3">Maps to</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {headers.map((h) => (
-                    <TableRow key={h}>
-                      <TableCell className="font-medium">{h}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground truncate max-w-[200px]">
+                    <TableRow key={h} className="border-b border-aurea-border last:border-0 hover:bg-aurea-surface-2">
+                      <TableCell className="text-[14px] font-medium text-aurea-ink">{h}</TableCell>
+                      <TableCell className="max-w-[200px] truncate font-mono text-[12px] text-aurea-ink-3">
                         {rows[0]?.[h] ?? '—'}
                       </TableCell>
                       <TableCell>
@@ -416,9 +415,19 @@ export function LeadCSVImport() {
               </Table>
             </div>
             <div className="flex items-center justify-between">
-              <div className="text-xs text-muted-foreground space-y-1">
-                {!hasFirstName && <p className="text-amber-600">⚠ First name is recommended.</p>}
-                {!hasContact && <p className="text-red-600">✗ At least one of Email or Phone must be mapped.</p>}
+              <div className="space-y-1 text-[12px]">
+                {!hasFirstName && (
+                  <p className="flex items-center gap-1.5 text-aurea-amber">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                    First name is recommended.
+                  </p>
+                )}
+                {!hasContact && (
+                  <p className="flex items-center gap-1.5 text-aurea-rose">
+                    <XCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                    At least one of Email or Phone must be mapped.
+                  </p>
+                )}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => setStep('upload')}>Back</Button>
@@ -430,9 +439,9 @@ export function LeadCSVImport() {
 
         {step === 'consent' && (
           <div className="space-y-5">
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
-              <div className="flex gap-2 text-sm text-amber-800 dark:text-amber-300">
-                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="rounded-lg border border-aurea-amber/30 bg-aurea-amber/5 p-3">
+              <div className="flex gap-2 text-[13px] text-aurea-amber">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
                 <p>
                   Automated SMS, email, and AI calls are gated by per-lead consent. Imported leads
                   must have previously opted in to each channel you enable below — you'll attest to
@@ -448,19 +457,21 @@ export function LeadCSVImport() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="consent-source">Consent source <span className="text-red-500">*</span></Label>
+              <Label htmlFor="consent-source">
+                Consent source <span className="text-aurea-rose">*</span>
+              </Label>
               <Input
                 id="consent-source"
                 placeholder="e.g. historical_form_2024, prior_consult_intake_2025"
                 value={consentSource}
                 onChange={(e) => setConsentSource(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11.5px] text-aurea-ink-3">
                 A short identifier describing where the consent came from. Stored on every imported lead.
               </p>
             </div>
 
-            <label className="flex items-start gap-2 text-sm cursor-pointer">
+            <label className="flex cursor-pointer items-start gap-2 text-[13px] text-aurea-ink-2">
               <input
                 type="checkbox"
                 checked={attestation}
@@ -534,11 +545,11 @@ function StepIndicator({ step }: { step: Step }) {
   ]
   const idx = steps.findIndex((s) => s.key === step)
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-aurea-ink-3">
       {steps.map((s, i) => (
-        <span key={s.key} className={i <= idx ? 'font-medium text-foreground' : ''}>
+        <span key={s.key} className={i <= idx ? 'font-semibold text-aurea-ink' : ''}>
           {i + 1}. {s.label}
-          {i < steps.length - 1 && <span className="ml-2">›</span>}
+          {i < steps.length - 1 && <span className="ml-2 text-aurea-border-strong">›</span>}
         </span>
       ))}
     </div>
@@ -551,10 +562,10 @@ function ConsentToggle({
   label: string; description: string; checked: boolean; onChange: (v: boolean) => void
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+    <div className="flex items-start justify-between gap-4 rounded-lg border border-aurea-border bg-aurea-surface p-3">
       <div>
-        <p className="text-sm font-medium">{label}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <p className="text-[14px] font-medium text-aurea-ink">{label}</p>
+        <p className="text-[11.5px] text-aurea-ink-3">{description}</p>
       </div>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>
@@ -612,7 +623,7 @@ function PreviewStep(props: {
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-2 col-span-2">
+        <div className="col-span-2 space-y-2">
           <Label htmlFor="tags">Tags (comma-separated)</Label>
           <Input
             id="tags"
@@ -644,50 +655,55 @@ function PreviewStep(props: {
             </SelectContent>
           </Select>
         </div>
-        <div className="col-span-2 flex items-center justify-between rounded-lg border p-3">
+        <div className="col-span-2 flex items-center justify-between rounded-lg border border-aurea-border bg-aurea-surface p-3">
           <div>
-            <p className="text-sm font-medium">Run AI scoring after import</p>
-            <p className="text-xs text-muted-foreground">Scores each lead 0–100 and assigns Hot / Warm / Cold / Unqualified.</p>
+            <p className="text-[14px] font-medium text-aurea-ink">Run AI scoring after import</p>
+            <p className="text-[11.5px] text-aurea-ink-3">Scores each lead 0–100 and assigns Hot / Warm / Cold / Unqualified.</p>
           </div>
           <Switch checked={props.runScoring} onCheckedChange={props.setRunScoring} />
         </div>
       </div>
 
-      <div className="rounded-lg border bg-muted/30 p-3">
-        <div className="flex items-center gap-3 text-sm">
-          <Badge className="bg-green-100 text-green-700">{summary.ok} valid</Badge>
-          {summary.missingContact > 0 && (
-            <Badge className="bg-red-100 text-red-700">{summary.missingContact} missing email/phone</Badge>
-          )}
-          <span className="text-muted-foreground">of {summary.total} total</span>
-        </div>
+      {/* Validation summary */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-aurea-border bg-aurea-surface-2 px-4 py-3">
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-aurea-primary/10 px-2 py-0.5 font-mono text-[12px] tabular-nums text-aurea-primary ring-1 ring-aurea-primary/20">
+          <CheckCircle className="h-3 w-3" strokeWidth={1.75} />
+          {summary.ok} valid
+        </span>
+        {summary.missingContact > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-aurea-rose/10 px-2 py-0.5 font-mono text-[12px] tabular-nums text-aurea-rose ring-1 ring-aurea-rose/20">
+            <XCircle className="h-3 w-3" strokeWidth={1.75} />
+            {summary.missingContact} missing email/phone
+          </span>
+        )}
+        <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">of {summary.total} total</span>
       </div>
 
-      <div className="rounded-lg border max-h-[35vh] overflow-auto">
+      <div className="aurea-card max-h-[35vh] overflow-auto">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>#</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Status</TableHead>
+            <TableRow className="border-b border-aurea-border hover:bg-transparent">
+              <TableHead className="aurea-eyebrow text-aurea-ink-3">#</TableHead>
+              <TableHead className="aurea-eyebrow text-aurea-ink-3">Name</TableHead>
+              <TableHead className="aurea-eyebrow text-aurea-ink-3">Email</TableHead>
+              <TableHead className="aurea-eyebrow text-aurea-ink-3">Phone</TableHead>
+              <TableHead className="aurea-eyebrow text-aurea-ink-3">Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {payloadRows.slice(0, 50).map((r, i) => {
               const hasContact = !!(r.email || r.phone)
               return (
-                <TableRow key={i}>
-                  <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                  <TableCell className="font-medium">{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</TableCell>
-                  <TableCell className="text-sm">{(r.email as string) || '—'}</TableCell>
-                  <TableCell className="text-sm">{(r.phone as string) || '—'}</TableCell>
+                <TableRow key={i} className="border-b border-aurea-border last:border-0 hover:bg-aurea-surface-2">
+                  <TableCell className="font-mono text-[12px] tabular-nums text-aurea-ink-3">{i + 1}</TableCell>
+                  <TableCell className="text-[14px] font-medium text-aurea-ink">{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</TableCell>
+                  <TableCell className="font-mono text-[12px] text-aurea-ink-2">{(r.email as string) || '—'}</TableCell>
+                  <TableCell className="font-mono text-[12px] text-aurea-ink-2">{(r.phone as string) || '—'}</TableCell>
                   <TableCell>
                     {hasContact ? (
-                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <CheckCircle className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />
                     ) : (
-                      <XCircle className="h-4 w-4 text-red-600" />
+                      <XCircle className="h-4 w-4 text-aurea-rose" strokeWidth={1.75} />
                     )}
                   </TableCell>
                 </TableRow>
@@ -696,14 +712,18 @@ function PreviewStep(props: {
           </TableBody>
         </Table>
         {payloadRows.length > 50 && (
-          <p className="text-center text-xs text-muted-foreground py-2">… and {payloadRows.length - 50} more</p>
+          <p className="py-2 text-center font-mono text-[11px] tabular-nums text-aurea-ink-3">
+            … and {payloadRows.length - 50} more
+          </p>
         )}
       </div>
 
       <div className="flex justify-between">
         <Button variant="outline" size="sm" onClick={props.onBack} disabled={props.importing}>Back</Button>
         <Button size="sm" disabled={props.importing} onClick={props.onRun} className="gap-1.5">
-          {props.importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          {props.importing
+            ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
+            : <Upload className="h-4 w-4" strokeWidth={1.75} />}
           {props.importing ? 'Importing…' : `Import ${summary.ok} leads`}
         </Button>
       </div>
@@ -723,28 +743,34 @@ function ResultsStep({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge className="bg-green-100 text-green-700">
-          <CheckCircle className="h-3 w-3 mr-1" /> {result.inserted} imported
-        </Badge>
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-aurea-primary/10 px-2.5 py-1 font-mono text-[12px] tabular-nums text-aurea-primary ring-1 ring-aurea-primary/20">
+          <CheckCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+          {result.inserted} imported
+        </span>
         {result.skipped_duplicates > 0 && (
-          <Badge className="bg-amber-100 text-amber-700">{result.skipped_duplicates} skipped (dupes)</Badge>
+          <span className="inline-flex items-center rounded-md bg-aurea-amber/10 px-2.5 py-1 font-mono text-[12px] tabular-nums text-aurea-amber ring-1 ring-aurea-amber/20">
+            {result.skipped_duplicates} skipped (dupes)
+          </span>
         )}
         {result.overwritten && result.overwritten > 0 ? (
-          <Badge className="bg-blue-100 text-blue-700">{result.overwritten} overwritten</Badge>
+          <span className="inline-flex items-center rounded-md bg-aurea-surface-2 px-2.5 py-1 font-mono text-[12px] tabular-nums text-aurea-ink-2 ring-1 ring-aurea-border">
+            {result.overwritten} overwritten
+          </span>
         ) : null}
         {result.failed.length > 0 && (
-          <Badge className="bg-red-100 text-red-700">
-            <XCircle className="h-3 w-3 mr-1" /> {result.failed.length} failed
-          </Badge>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-aurea-rose/10 px-2.5 py-1 font-mono text-[12px] tabular-nums text-aurea-rose ring-1 ring-aurea-rose/20">
+            <XCircle className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {result.failed.length} failed
+          </span>
         )}
-        <span className="text-xs text-muted-foreground">of {totalRows}</span>
+        <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">of {totalRows}</span>
       </div>
 
       {result.failed.length > 0 && (
-        <div className="rounded-lg border p-3 space-y-1 max-h-[30vh] overflow-auto">
-          <p className="text-sm font-medium text-destructive">Failed rows:</p>
+        <div className="aurea-card max-h-[30vh] space-y-1 overflow-auto p-3">
+          <p className="text-[13px] font-medium text-aurea-rose">Failed rows:</p>
           {result.failed.slice(0, 100).map((r) => (
-            <p key={r.row} className="text-xs text-muted-foreground">Row {r.row}: {r.error}</p>
+            <p key={r.row} className="font-mono text-[11px] text-aurea-ink-3">Row {r.row}: {r.error}</p>
           ))}
         </div>
       )}
@@ -753,7 +779,7 @@ function ResultsStep({
         {firstTag ? (
           <a
             href={`/leads?tag=${encodeURIComponent(firstTag)}`}
-            className="text-sm text-blue-600 hover:underline self-center"
+            className="self-center text-[13px] font-medium text-aurea-primary transition-opacity hover:opacity-70"
           >
             View imported leads →
           </a>

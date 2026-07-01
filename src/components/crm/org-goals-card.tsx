@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Target } from 'lucide-react'
 
 type PaceStatus = 'green' | 'yellow' | 'red' | 'no_data'
@@ -25,10 +24,10 @@ const METRIC_LABEL: Record<string, string> = {
 }
 
 const BAR: Record<PaceStatus, string> = {
-  green: 'bg-green-500',
-  yellow: 'bg-amber-500',
-  red: 'bg-red-500',
-  no_data: 'bg-muted',
+  green: 'bg-aurea-primary',
+  yellow: 'bg-aurea-amber',
+  red: 'bg-aurea-rose',
+  no_data: 'bg-aurea-surface-2',
 }
 
 function fmt(metric: string, n: number): string {
@@ -57,36 +56,37 @@ export function OrgGoalsCard() {
   if (!goals || goals.length === 0) return null
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Target className="h-4 w-4" /> Goals — on pace?
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div className="aurea-card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+        <Target className="h-[17px] w-[17px] text-aurea-ink-3 shrink-0" strokeWidth={1.75} />
+        <h2 className="aurea-display text-[18px] leading-tight text-aurea-ink">Goals — on pace?</h2>
+      </div>
+      <div className="space-y-4 px-5 py-4">
         {goals.map((g) => {
           const pct = Math.max(0, Math.min(100, g.progress.pct))
           return (
             <div key={g.id} className="space-y-1">
-              <div className="flex justify-between text-xs">
-                <span className="font-medium">{g.label || METRIC_LABEL[g.metric] || g.metric}</span>
-                <span className="text-muted-foreground">
+              <div className="flex justify-between text-[12px]">
+                <span className="font-medium text-aurea-ink">
+                  {g.label || METRIC_LABEL[g.metric] || g.metric}
+                </span>
+                <span className="font-mono tabular-nums text-aurea-ink-3">
                   {fmt(g.metric, g.actual)} / {fmt(g.metric, g.target_value)}
                 </span>
               </div>
-              <div className="relative h-2 w-full rounded-full bg-muted">
+              <div className="relative h-[3px] w-full overflow-hidden rounded-full bg-aurea-surface-2">
                 <div
                   className={`absolute inset-y-0 left-0 rounded-full ${BAR[g.progress.paceStatus]}`}
                   style={{ width: `${pct}%` }}
                 />
                 {/* expected-pace marker */}
                 <div
-                  className="absolute inset-y-0 w-0.5 bg-foreground/40"
+                  className="absolute inset-y-0 w-0.5 bg-aurea-ink/30"
                   style={{ left: `${Math.max(0, Math.min(100, g.progress.expectedPct))}%` }}
                   title="Expected pace"
                 />
               </div>
-              <div className="text-[11px] text-muted-foreground">
+              <div className="text-[11px] text-aurea-ink-3">
                 {g.progress.paceStatus === 'no_data'
                   ? 'No target set'
                   : g.progress.onPace
@@ -96,7 +96,7 @@ export function OrgGoalsCard() {
             </div>
           )
         })}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

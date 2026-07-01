@@ -1,5 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Brain, Zap, MessageSquare, Target, Shield, TrendingUp, Heart, Eye, Lock } from 'lucide-react'
 
 export default function AIEnginePage() {
@@ -64,75 +62,86 @@ export default function AIEnginePage() {
     },
   ]
 
+  const agents = [
+    {
+      icon: Heart,
+      title: 'Sales Psychology Agent',
+      description: 'Builds deep patient profiles with memory. Learns personality, pain points, desires, and creates tailored follow-ups that build genuine connection.',
+    },
+    {
+      icon: Eye,
+      title: 'Conversation Analyst',
+      description: 'Rates tone, emotion, sales pressure, and engagement. Coaches staff with specific feedback. Flags red flags and buying signals.',
+    },
+    {
+      icon: Lock,
+      title: 'HIPAA Compliance',
+      description: 'PHI detection and scrubbing before AI processing. Audit logging. Response compliance checking. Full data access trail.',
+    },
+  ]
+
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">AI Engine</h1>
-        <p className="text-muted-foreground">
-          Powered by Claude &mdash; your AI treatment coordinator with patient psychology, conversation analysis, and HIPAA compliance
+    <div className="animate-in fade-in-0 duration-500">
+      {/* ── Header ─────────────────────────────────────────── */}
+      <header className="border-b border-aurea-border pb-8">
+        <p className="aurea-eyebrow mb-3">Powered by Claude</p>
+        <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px]">AI Engine</h1>
+        <p className="mt-4 max-w-2xl text-[16px] leading-relaxed text-aurea-ink-2">
+          Your AI treatment coordinator with patient psychology, conversation analysis, and HIPAA compliance.
         </p>
-      </div>
+      </header>
 
-      {/* Agent Architecture Overview */}
-      <Card className="mb-6 border-primary/20 bg-primary/5">
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="mx-auto w-12 h-12 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center mb-2">
-                <Heart className="h-6 w-6 text-pink-600" />
-              </div>
-              <h3 className="font-semibold text-sm">Sales Psychology Agent</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Builds deep patient profiles with memory. Learns personality, pain points, desires, and creates tailored follow-ups that build genuine connection.
-              </p>
-            </div>
-            <div className="text-center">
-              <div className="mx-auto w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-2">
-                <Eye className="h-6 w-6 text-blue-600" />
-              </div>
-              <h3 className="font-semibold text-sm">Conversation Analyst</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Rates tone, emotion, sales pressure, and engagement. Coaches staff with specific feedback. Flags red flags and buying signals.
-              </p>
-            </div>
-            <div className="text-center">
-              <div className="mx-auto w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-2">
-                <Lock className="h-6 w-6 text-green-600" />
-              </div>
-              <h3 className="font-semibold text-sm">HIPAA Compliance</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                PHI detection and scrubbing before AI processing. Audit logging. Response compliance checking. Full data access trail.
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {features.map((feature) => (
-          <Card key={feature.title} className={feature.isNew ? 'border-primary/30' : ''}>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <feature.icon className="h-8 w-8 text-primary" />
-                <div className="flex items-center gap-2">
-                  {feature.isNew && (
-                    <Badge variant="outline" className="border-primary text-primary text-xs">
-                      New
-                    </Badge>
-                  )}
-                  <Badge variant={feature.status === 'active' ? 'default' : 'secondary'}>
-                    {feature.status === 'active' ? 'Active' : 'Coming Soon'}
-                  </Badge>
+      {/* ── Agent Architecture ─────────────────────────────── */}
+      <section className="mt-10">
+        <p className="aurea-eyebrow mb-5">Agent Architecture</p>
+        <div className="aurea-card overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-aurea-border">
+            {agents.map((agent) => (
+              <div key={agent.title} className="flex flex-col items-center p-7 text-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-aurea-surface-2 ring-1 ring-aurea-border">
+                  <agent.icon className="h-[18px] w-[18px] text-aurea-primary" strokeWidth={1.75} />
+                </div>
+                <div>
+                  <h3 className="aurea-display text-[16px] text-aurea-ink">{agent.title}</h3>
+                  <p className="mt-2 text-[12px] leading-relaxed text-aurea-ink-3">{agent.description}</p>
                 </div>
               </div>
-              <CardTitle className="text-lg mt-3">{feature.title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">{feature.description}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Feature Grid ───────────────────────────────────── */}
+      <section className="mt-10">
+        <p className="aurea-eyebrow mb-5">Capabilities</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {features.map((feature) => (
+            <div
+              key={feature.title}
+              className={`aurea-card p-5 ${feature.isNew ? 'ring-1 ring-aurea-primary/20' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2">
+                  <feature.icon className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {feature.isNew && (
+                    <span className="inline-flex items-center rounded-md border border-aurea-primary/30 bg-aurea-primary/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-aurea-primary">
+                      New
+                    </span>
+                  )}
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium">
+                    <span className="h-1.5 w-1.5 rounded-full bg-aurea-primary" />
+                    <span className="text-aurea-primary">Active</span>
+                  </span>
+                </div>
+              </div>
+              <h2 className="aurea-display text-[17px] text-aurea-ink mt-4">{feature.title}</h2>
+              <p className="mt-2 text-[13px] leading-relaxed text-aurea-ink-2">{feature.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }

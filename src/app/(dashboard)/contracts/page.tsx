@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { RoleGuard } from '@/components/auth/role-guard'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Loader2, FileSignature } from 'lucide-react'
@@ -25,18 +24,24 @@ type ContractRow = {
   case: { case_number: string; patient_name: string } | null
 }
 
+// contract/signature status semantics:
+//   active/signed/executed → emerald (aurea-primary)
+//   pending/changes → amber
+//   approved/sent/viewed → primary (emerald tint)
+//   error/declined → rose
+//   neutral/draft/expired/voided → muted ink
 const STATUS_STYLES: Record<string, string> = {
-  pending_review: 'bg-amber-100 text-amber-800',
-  changes_requested: 'bg-orange-100 text-orange-800',
-  approved: 'bg-blue-100 text-blue-800',
-  sent: 'bg-indigo-100 text-indigo-800',
-  viewed: 'bg-purple-100 text-purple-800',
-  signed: 'bg-emerald-100 text-emerald-800',
-  executed: 'bg-green-100 text-green-900',
-  voided: 'bg-slate-100 text-slate-600',
-  expired: 'bg-slate-100 text-slate-500',
-  declined: 'bg-red-100 text-red-700',
-  draft: 'bg-slate-100 text-slate-600',
+  pending_review: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  changes_requested: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  approved: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  sent: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  viewed: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  signed: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  executed: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  voided: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  expired: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  declined: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  draft: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
 function formatCurrency(n: number | null): string {
@@ -69,20 +74,21 @@ function ContractsContent() {
   ]
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <FileSignature className="h-6 w-6" />
-            Contracts
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            AI-drafted treatment agreements for patient review and e-signature.
-          </p>
-        </div>
-      </div>
+    <div className="animate-in fade-in-0 duration-500">
+      {/* ── Header ─────────────────────────────────────────── */}
+      <header className="border-b border-aurea-border pb-8">
+        <p className="aurea-eyebrow mb-3">Patient Agreements</p>
+        <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px] flex items-center gap-3">
+          <FileSignature className="h-9 w-9 text-aurea-ink-3" strokeWidth={1.75} />
+          Contracts
+        </h1>
+        <p className="mt-4 max-w-2xl text-[16px] leading-relaxed text-aurea-ink-2">
+          AI-drafted treatment agreements for patient review and e-signature.
+        </p>
+      </header>
 
-      <div className="flex flex-wrap gap-2">
+      {/* ── Filters ────────────────────────────────────────── */}
+      <div className="mt-8 flex flex-wrap gap-2">
         {FILTERS.map((f) => (
           <Button
             key={f.value || 'all'}
@@ -95,55 +101,56 @@ function ContractsContent() {
         ))}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
+      {/* ── Contracts list ─────────────────────────────────── */}
+      <section className="mt-5 aurea-card overflow-hidden">
+        <div className="flex items-center justify-between border-b border-aurea-border px-5 py-4">
+          <h2 className="aurea-display text-[22px] text-aurea-ink">
             {rows.length} contract{rows.length === 1 ? '' : 's'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+          </h2>
+        </div>
+        <div className="px-5">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-5 w-5 animate-spin text-slate-500" />
+              <Loader2 className="h-5 w-5 animate-spin text-aurea-ink-3" />
             </div>
           ) : rows.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-sm">
+            <p className="py-12 text-center text-[13px] text-aurea-ink-3">
               No contracts yet. Approve a treatment plan on a case to auto-generate one.
-            </div>
+            </p>
           ) : (
-            <div className="divide-y">
-              {rows.map((row) => (
-                <Link
-                  href={`/contracts/${row.id}`}
-                  key={row.id}
-                  className="flex items-center justify-between py-3 hover:bg-slate-50 -mx-2 px-2 rounded"
-                >
-                  <div className="flex items-center gap-3">
-                    <Badge className={STATUS_STYLES[row.status] ?? ''}>{row.status}</Badge>
-                    {row.needs_manual_draft && (
-                      <Badge variant="outline" className="text-amber-700 border-amber-300">
-                        Needs manual draft
-                      </Badge>
-                    )}
-                    <div>
-                      <div className="font-medium text-sm">
-                        {row.case?.patient_name ?? 'Unknown patient'}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {row.case?.case_number} • v{row.template_version} • updated{' '}
-                        {formatDistanceToNow(new Date(row.updated_at), { addSuffix: true })}
-                      </div>
-                    </div>
+            rows.map((row) => (
+              <Link
+                href={`/contracts/${row.id}`}
+                key={row.id}
+                className="-mx-5 flex items-center justify-between gap-3 border-b border-aurea-border px-5 py-3.5 transition-colors last:border-0 hover:bg-aurea-surface-2"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium capitalize ${STATUS_STYLES[row.status] ?? 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border'}`}>
+                    {row.status.replace(/_/g, ' ')}
+                  </span>
+                  {row.needs_manual_draft && (
+                    <span className="inline-flex items-center rounded-md border border-aurea-amber/20 bg-aurea-amber/10 px-2 py-0.5 text-[11px] font-medium text-aurea-amber">
+                      Needs manual draft
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate text-[14px] font-medium text-aurea-ink">
+                      {row.case?.patient_name ?? 'Unknown patient'}
+                    </p>
+                    <p className="truncate font-mono text-[11px] text-aurea-ink-3">
+                      {row.case?.case_number} &middot; v{row.template_version} &middot; updated{' '}
+                      {formatDistanceToNow(new Date(row.updated_at), { addSuffix: true })}
+                    </p>
                   </div>
-                  <div className="text-sm text-slate-700">
-                    {formatCurrency(row.contract_amount)}
-                  </div>
-                </Link>
-              ))}
-            </div>
+                </div>
+                <span className="shrink-0 font-mono text-[14px] tabular-nums text-aurea-ink">
+                  {formatCurrency(row.contract_amount)}
+                </span>
+              </Link>
+            ))
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   )
 }

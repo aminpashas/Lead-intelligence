@@ -866,13 +866,13 @@ export const TECHNIQUE_CATEGORIES: Record<TechniqueCategory, string> = {
 }
 
 export const TECHNIQUE_CATEGORY_COLORS: Record<TechniqueCategory, string> = {
-  closing: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-  objection_handling: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-  persuasion: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  psychology: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-  engagement: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  re_engagement: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-  offer_creation: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
+  closing: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  objection_handling: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  persuasion: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  psychology: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
+  engagement: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  re_engagement: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  offer_creation: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
 }
 
 export function getTechniquesForAgent(agentType: 'setter' | 'closer'): SalesTechnique[] {

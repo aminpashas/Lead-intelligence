@@ -7,7 +7,6 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import {
   Popover,
   PopoverContent,
@@ -55,13 +54,13 @@ export function RolePlayMessage({
       {/* Avatar */}
       <div
         className={cn(
-          'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all shadow-sm',
+          'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border',
           isPatient
-            ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white'
-            : 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white'
+            ? 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-2'
+            : 'border-aurea-primary/30 bg-aurea-primary/10 text-aurea-primary'
         )}
       >
-        {isPatient ? <User className="h-4 w-4" /> : <Headset className="h-4 w-4" />}
+        {isPatient ? <User className="h-4 w-4" strokeWidth={1.75} /> : <Headset className="h-4 w-4" strokeWidth={1.75} />}
       </div>
 
       {/* Message content */}
@@ -69,41 +68,41 @@ export function RolePlayMessage({
         {/* Role label */}
         <div className={cn('flex items-center gap-2', isUser && 'flex-row-reverse')}>
           <span className={cn(
-            'text-xs font-semibold uppercase tracking-wide',
-            isPatient ? 'text-blue-500 dark:text-blue-400' : 'text-emerald-600 dark:text-emerald-400'
+            'aurea-eyebrow text-[10px]',
+            isPatient ? 'text-aurea-ink-3' : 'text-aurea-primary'
           )}>
             {isPatient ? '🧑 Patient' : '💼 Treatment Coordinator'}
           </span>
           {isFinalized && (
-            <Badge variant="secondary" className="text-[10px] h-4 gap-0.5 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-              <Check className="h-2.5 w-2.5" /> Finalized
-            </Badge>
+            <span className="inline-flex items-center gap-0.5 rounded border border-aurea-primary/20 bg-aurea-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-aurea-primary">
+              <Check className="h-2.5 w-2.5" strokeWidth={1.75} /> Finalized
+            </span>
           )}
           {message.retry_count > 0 && (
-            <Badge variant="outline" className="text-[10px] h-4 gap-0.5">
-              <RotateCcw className="h-2.5 w-2.5" /> v{message.retry_count + 1}
-            </Badge>
+            <span className="inline-flex items-center gap-0.5 rounded border border-aurea-border px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-aurea-ink-3">
+              <RotateCcw className="h-2.5 w-2.5" strokeWidth={1.75} /> v{message.retry_count + 1}
+            </span>
           )}
           {message.is_golden_example && (
-            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            <Star className="h-3.5 w-3.5 fill-aurea-amber text-aurea-amber" strokeWidth={1.75} />
           )}
           {message.rating === 'good' && (
-            <ThumbsUp className="h-3.5 w-3.5 text-green-500 fill-green-500" />
+            <ThumbsUp className="h-3.5 w-3.5 fill-current text-aurea-primary" strokeWidth={1.75} />
           )}
           {message.rating === 'bad' && (
-            <ThumbsDown className="h-3.5 w-3.5 text-red-500 fill-red-500" />
+            <ThumbsDown className="h-3.5 w-3.5 fill-current text-aurea-rose" strokeWidth={1.75} />
           )}
         </div>
 
         {/* Bubble */}
         <div
           className={cn(
-            'rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm',
+            'rounded-xl px-4 py-3 text-[14px] leading-relaxed',
             isPatient
-              ? 'bg-blue-50 text-blue-950 dark:bg-blue-950/40 dark:text-blue-100 border border-blue-100 dark:border-blue-900/40'
-              : 'bg-emerald-50 text-emerald-950 dark:bg-emerald-950/40 dark:text-emerald-100 border border-emerald-100 dark:border-emerald-900/40',
-            message.is_golden_example && 'ring-2 ring-amber-400/50 ring-offset-1 dark:ring-offset-background',
-            isFinalized && 'ring-2 ring-green-400/40 ring-offset-1 dark:ring-offset-background'
+              ? 'border border-aurea-border bg-aurea-surface-2 text-aurea-ink'
+              : 'border border-aurea-primary/20 bg-aurea-primary/10 text-aurea-ink',
+            message.is_golden_example && 'ring-2 ring-aurea-amber/40 ring-offset-1',
+            isFinalized && 'ring-2 ring-aurea-primary/30 ring-offset-1'
           )}
         >
           <div className="whitespace-pre-wrap">{message.content}</div>
@@ -140,8 +139,8 @@ export function RolePlayMessage({
         {/* Coaching note display */}
         {message.coaching_note && (
           <div className="flex items-start gap-1.5 px-2">
-            <MessageSquarePlus className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
-            <p className="text-xs text-amber-700 dark:text-amber-400 italic">
+            <MessageSquarePlus className="mt-0.5 h-3 w-3 shrink-0 text-aurea-amber" strokeWidth={1.75} />
+            <p className="text-[12px] italic text-aurea-amber">
               {message.coaching_note}
             </p>
           </div>
@@ -159,10 +158,10 @@ export function RolePlayMessage({
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs gap-1 border-green-200 text-green-700 hover:bg-green-50 hover:text-green-800 dark:border-green-800 dark:text-green-400 dark:hover:bg-green-900/30"
+              className="h-7 gap-1 border-aurea-primary/30 text-aurea-primary hover:bg-aurea-primary/10 text-xs"
               onClick={() => onFinalize(index)}
             >
-              <Check className="h-3 w-3" />
+              <Check className="h-3 w-3" strokeWidth={1.75} />
               Accept
             </Button>
 
@@ -170,10 +169,10 @@ export function RolePlayMessage({
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs gap-1"
+              className="h-7 gap-1 text-xs"
               onClick={() => onRetry(index, null)}
             >
-              <RotateCcw className="h-3 w-3" />
+              <RotateCcw className="h-3 w-3" strokeWidth={1.75} />
               Retry
             </Button>
 
@@ -181,10 +180,10 @@ export function RolePlayMessage({
             <Button
               variant={showFeedback ? 'default' : 'outline'}
               size="sm"
-              className="h-7 text-xs gap-1"
+              className="h-7 gap-1 text-xs"
               onClick={() => setShowFeedback(!showFeedback)}
             >
-              <MessageSquarePlus className="h-3 w-3" />
+              <MessageSquarePlus className="h-3 w-3" strokeWidth={1.75} />
               Course Correct
             </Button>
           </div>
@@ -202,10 +201,10 @@ export function RolePlayMessage({
 
         {/* Course Correct Feedback Input */}
         {canRetry && showFeedback && !isRetrying && (
-          <div className="px-1 pt-1 space-y-2">
-            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl p-3 space-y-2">
-              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
-                💡 Tell the AI how to improve this response:
+          <div className="space-y-2 px-1 pt-1">
+            <div className="space-y-2 rounded-xl border border-aurea-amber/30 bg-aurea-amber/10 p-3">
+              <p className="text-[12px] font-medium text-aurea-amber">
+                Tell the AI how to improve this response:
               </p>
               <Textarea
                 value={feedbackText}
@@ -269,12 +268,12 @@ export function RolePlayMessage({
             size="sm"
             className={cn(
               'h-7 w-7 p-0',
-              message.is_golden_example && 'text-amber-500 hover:text-amber-600'
+              message.is_golden_example ? 'text-aurea-amber hover:text-aurea-amber' : 'text-aurea-ink-3'
             )}
             onClick={() => onToggleGolden(index)}
             title={message.is_golden_example ? 'Unmark golden example' : 'Mark as golden example'}
           >
-            <Star className={cn('h-3.5 w-3.5', message.is_golden_example && 'fill-current')} />
+            <Star className={cn('h-3.5 w-3.5', message.is_golden_example && 'fill-current')} strokeWidth={1.75} />
           </Button>
 
           {/* Thumbs up */}
@@ -283,12 +282,12 @@ export function RolePlayMessage({
             size="sm"
             className={cn(
               'h-7 w-7 p-0',
-              message.rating === 'good' && 'text-green-500 hover:text-green-600'
+              message.rating === 'good' ? 'text-aurea-primary hover:text-aurea-primary' : 'text-aurea-ink-3'
             )}
             onClick={() => onRate(index, message.rating === 'good' ? null : 'good')}
             title="Good response"
           >
-            <ThumbsUp className={cn('h-3.5 w-3.5', message.rating === 'good' && 'fill-current')} />
+            <ThumbsUp className={cn('h-3.5 w-3.5', message.rating === 'good' && 'fill-current')} strokeWidth={1.75} />
           </Button>
 
           {/* Thumbs down */}
@@ -297,12 +296,12 @@ export function RolePlayMessage({
             size="sm"
             className={cn(
               'h-7 w-7 p-0',
-              message.rating === 'bad' && 'text-red-500 hover:text-red-600'
+              message.rating === 'bad' ? 'text-aurea-rose hover:text-aurea-rose' : 'text-aurea-ink-3'
             )}
             onClick={() => onRate(index, message.rating === 'bad' ? null : 'bad')}
             title="Bad response"
           >
-            <ThumbsDown className={cn('h-3.5 w-3.5', message.rating === 'bad' && 'fill-current')} />
+            <ThumbsDown className={cn('h-3.5 w-3.5', message.rating === 'bad' && 'fill-current')} strokeWidth={1.75} />
           </Button>
 
           {/* Add coaching note */}
@@ -310,11 +309,11 @@ export function RolePlayMessage({
             <PopoverTrigger
               className={cn(
                 'inline-flex items-center justify-center h-7 w-7 p-0 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer',
-                message.coaching_note && 'text-amber-500 hover:text-amber-600'
+                message.coaching_note ? 'text-aurea-amber hover:text-aurea-amber' : 'text-aurea-ink-3'
               )}
               title="Add coaching note"
             >
-              <MessageSquarePlus className={cn('h-3.5 w-3.5', message.coaching_note && 'fill-current')} />
+              <MessageSquarePlus className={cn('h-3.5 w-3.5', message.coaching_note && 'fill-current')} strokeWidth={1.75} />
             </PopoverTrigger>
             <PopoverContent className="w-72" side="top">
               <div className="space-y-2">

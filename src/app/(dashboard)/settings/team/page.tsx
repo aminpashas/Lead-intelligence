@@ -7,10 +7,8 @@ import {
   ROLE_LABELS,
   ROLE_COLORS,
   ASSIGNABLE_ROLES,
-  isAdminRole,
   type PracticeRole,
 } from '@/lib/auth/permissions'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,21 +30,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import {
   UserPlus,
@@ -120,20 +109,21 @@ function TeamContent() {
   }, {} as Record<string, number>)
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="animate-in fade-in-0 duration-500 space-y-8 max-w-4xl">
+      {/* ── Header ──────────────────────────────────────────── */}
+      <header className="flex flex-col gap-5 border-b border-aurea-border pb-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Team Management</h1>
-          <p className="text-muted-foreground">
-            Manage your practice staff, roles, and access levels
+          <p className="aurea-eyebrow mb-3">Settings</p>
+          <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[48px]">Team</h1>
+          <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-aurea-ink-2">
+            Manage your practice staff, roles, and access levels.
           </p>
         </div>
         <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
           <DialogTrigger>
-            <span className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer">
+            <span className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer">
               <UserPlus className="h-4 w-4" />
-              Invite Team Member
+              Invite Member
             </span>
           </DialogTrigger>
           <InviteDialog
@@ -144,158 +134,111 @@ function TeamContent() {
             }}
           />
         </Dialog>
-      </div>
+      </header>
 
-      {/* Stats Cards */}
+      {/* ── KPI strip ───────────────────────────────────────── */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Total Active"
-          value={activeMembers.length}
-          icon={UsersRound}
-          gradient="from-violet-500/10 to-purple-500/10"
-          iconColor="text-violet-600 dark:text-violet-400"
-        />
-        <StatCard
-          label="Doctors"
-          value={(roleCounts['doctor_admin'] || 0) + (roleCounts['doctor'] || 0)}
-          icon={Stethoscope}
-          gradient="from-blue-500/10 to-cyan-500/10"
-          iconColor="text-blue-600 dark:text-blue-400"
-        />
-        <StatCard
-          label="Clinical Staff"
-          value={(roleCounts['nurse'] || 0) + (roleCounts['assistant'] || 0)}
-          icon={HeartPulse}
-          gradient="from-emerald-500/10 to-teal-500/10"
-          iconColor="text-emerald-600 dark:text-emerald-400"
-        />
-        <StatCard
-          label="Admin Staff"
-          value={(roleCounts['office_manager'] || 0) + (roleCounts['treatment_coordinator'] || 0)}
-          icon={Briefcase}
-          gradient="from-amber-500/10 to-orange-500/10"
-          iconColor="text-amber-600 dark:text-amber-400"
-        />
+        <StatCard index="01" label="Total Active" value={activeMembers.length} icon={UsersRound} />
+        <StatCard index="02" label="Doctors" value={(roleCounts['doctor_admin'] || 0) + (roleCounts['doctor'] || 0)} icon={Stethoscope} />
+        <StatCard index="03" label="Clinical Staff" value={(roleCounts['nurse'] || 0) + (roleCounts['assistant'] || 0)} icon={HeartPulse} />
+        <StatCard index="04" label="Admin Staff" value={(roleCounts['office_manager'] || 0) + (roleCounts['treatment_coordinator'] || 0)} icon={Briefcase} />
       </div>
 
-      {/* Team Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Active Team Members</CardTitle>
-          <CardDescription>
+      {/* ── Active members ──────────────────────────────────── */}
+      <section className="aurea-card overflow-hidden">
+        <div className="border-b border-aurea-border px-5 py-4">
+          <h2 className="aurea-display text-[22px] text-aurea-ink">Active Members</h2>
+          <p className="mt-0.5 text-[12px] text-aurea-ink-3">
             {activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''} in your practice
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Team Member</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="hidden md:table-cell">Title</TableHead>
-                  <TableHead className="hidden lg:table-cell">Specialty</TableHead>
-                  <TableHead className="hidden md:table-cell">Status</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {activeMembers.map((member) => (
-                  <MemberRow
-                    key={member.id}
-                    member={member}
-                    currentUserId={userProfile?.id || ''}
-                    onEdit={() => setEditMember(member)}
-                    onDeactivate={async () => {
-                      await fetch(`/api/team/${member.id}`, { method: 'DELETE' })
-                      fetchMembers()
-                      toast.success(`${member.full_name} has been deactivated`)
-                    }}
-                  />
-                ))}
-                {activeMembers.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                      No team members yet. Invite your first team member to get started.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+          </p>
+        </div>
 
-      {/* Inactive Members */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-5 w-5 animate-spin text-aurea-ink-3" />
+          </div>
+        ) : activeMembers.length === 0 ? (
+          <p className="py-12 text-center text-[13px] text-aurea-ink-3">
+            No team members yet. Invite your first team member to get started.
+          </p>
+        ) : (
+          <div className="px-5">
+            {/* Column header row */}
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 border-b border-aurea-border py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-aurea-ink-3">
+              <span>Member</span>
+              <span className="hidden md:block">Role</span>
+              <span className="hidden md:block">Status</span>
+              <span />
+            </div>
+            {activeMembers.map((member) => (
+              <MemberRow
+                key={member.id}
+                member={member}
+                currentUserId={userProfile?.id || ''}
+                onEdit={() => setEditMember(member)}
+                onDeactivate={async () => {
+                  await fetch(`/api/team/${member.id}`, { method: 'DELETE' })
+                  fetchMembers()
+                  toast.success(`${member.full_name} has been deactivated`)
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Inactive members ────────────────────────────────── */}
       {inactiveMembers.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-muted-foreground">Inactive Members</CardTitle>
-            <CardDescription>
+        <section className="aurea-card overflow-hidden">
+          <div className="border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[22px] text-aurea-ink-3">Inactive Members</h2>
+            <p className="mt-0.5 text-[12px] text-aurea-ink-3">
               {inactiveMembers.length} deactivated member{inactiveMembers.length !== 1 ? 's' : ''}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Team Member</TableHead>
-                  <TableHead>Former Role</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {inactiveMembers.map((member) => (
-                  <TableRow key={member.id} className="opacity-60">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarFallback className="text-xs">
-                            {member.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium text-sm line-through">{member.full_name}</p>
-                          <p className="text-xs text-muted-foreground">{member.email}</p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs opacity-50">
-                        {ROLE_LABELS[member.role as PracticeRole] || member.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs"
-                        onClick={async () => {
-                          await fetch(`/api/team/${member.id}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ is_active: true }),
-                          })
-                          fetchMembers()
-                          toast.success(`${member.full_name} has been reactivated`)
-                        }}
-                      >
-                        Reactivate
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+            </p>
+          </div>
+          <div className="px-5">
+            {inactiveMembers.map((member) => (
+              <div
+                key={member.id}
+                className="flex items-center justify-between gap-4 border-b border-aurea-border py-3.5 last:border-0 opacity-50"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 text-[11px] font-semibold text-aurea-ink-3 ring-1 ring-aurea-border">
+                    {member.full_name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[14px] font-medium text-aurea-ink line-through">{member.full_name}</p>
+                    <p className="truncate font-mono text-[11px] text-aurea-ink-3">{member.email}</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Badge variant="outline" className="text-xs opacity-50">
+                    {ROLE_LABELS[member.role as PracticeRole] || member.role}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[12px]"
+                    onClick={async () => {
+                      await fetch(`/api/team/${member.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ is_active: true }),
+                      })
+                      fetchMembers()
+                      toast.success(`${member.full_name} has been reactivated`)
+                    }}
+                  >
+                    Reactivate
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      {/* Edit Dialog */}
+      {/* ── Edit Dialog ─────────────────────────────────────── */}
       {editMember && (
         <EditMemberDialog
           member={editMember}
@@ -311,39 +254,34 @@ function TeamContent() {
   )
 }
 
-// ── Stat Card ──────────────────────────────────────────────────
+// ── Stat Card ────────────────────────────────────────────────────
 
 function StatCard({
+  index,
   label,
   value,
   icon: Icon,
-  gradient,
-  iconColor,
 }: {
+  index: string
   label: string
   value: number
   icon: React.ElementType
-  gradient: string
-  iconColor: string
 }) {
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">{label}</p>
-            <p className="text-2xl font-bold mt-1">{value}</p>
-          </div>
-          <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br', gradient)}>
-            <Icon className={cn('h-5 w-5', iconColor)} />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="aurea-card p-5">
+      <div className="flex items-center justify-between">
+        <p className="aurea-eyebrow">{label}</p>
+        <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">/{index}</span>
+      </div>
+      <div className="mt-4 flex items-end justify-between">
+        <p className="aurea-display text-[40px] tabular-nums text-aurea-ink">{value}</p>
+        <Icon className="mb-1.5 h-[18px] w-[18px] text-aurea-ink-3" strokeWidth={1.75} />
+      </div>
+    </div>
   )
 }
 
-// ── Member Row ──────────────────────────────────────────────────
+// ── Member Row ───────────────────────────────────────────────────
 
 function MemberRow({
   member,
@@ -367,27 +305,25 @@ function MemberRow({
     .slice(0, 2)
 
   const isCurrentUser = member.id === currentUserId
-  const canModify = !isCurrentUser && isAdminRole(member.role)
 
   return (
-    <TableRow>
-      <TableCell>
-        <div className="flex items-center gap-3">
-          <Avatar className="h-9 w-9">
-            <AvatarFallback className="text-xs font-medium">{initials}</AvatarFallback>
-          </Avatar>
-          <div>
-            <p className="font-medium text-sm">
-              {member.full_name}
-              {isCurrentUser && (
-                <span className="text-xs text-muted-foreground ml-2">(you)</span>
-              )}
-            </p>
-            <p className="text-xs text-muted-foreground">{member.email}</p>
-          </div>
+    <div className="flex items-center justify-between gap-4 border-b border-aurea-border py-3.5 last:border-0">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 text-[11px] font-semibold text-aurea-ink-2 ring-1 ring-aurea-border">
+          {initials}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-medium text-aurea-ink">
+            {member.full_name}
+            {isCurrentUser && (
+              <span className="text-[11px] text-aurea-ink-3 ml-2">(you)</span>
+            )}
+          </p>
+          <p className="truncate font-mono text-[11px] text-aurea-ink-3">{member.email}</p>
         </div>
-      </TableCell>
-      <TableCell>
+      </div>
+
+      <div className="hidden md:flex shrink-0 items-center gap-3">
         <Badge
           variant="outline"
           className={cn('gap-1 text-xs font-medium', ROLE_COLORS[role])}
@@ -395,38 +331,28 @@ function MemberRow({
           <RoleIcon className="h-3 w-3" />
           {ROLE_LABELS[role] || role}
         </Badge>
-      </TableCell>
-      <TableCell className="hidden md:table-cell">
-        <span className="text-sm text-muted-foreground">
-          {member.job_title || '—'}
-        </span>
-      </TableCell>
-      <TableCell className="hidden lg:table-cell">
-        <span className="text-sm text-muted-foreground">
-          {member.specialty || '—'}
-        </span>
-      </TableCell>
-      <TableCell className="hidden md:table-cell">
-        <div className="flex items-center gap-1.5">
-          {member.is_active ? (
-            <>
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              <span className="text-xs text-emerald-600 dark:text-emerald-400">Active</span>
-            </>
-          ) : (
-            <>
-              <XCircle className="h-3.5 w-3.5 text-red-500" />
-              <span className="text-xs text-red-600 dark:text-red-400">Inactive</span>
-            </>
-          )}
-        </div>
-      </TableCell>
-      <TableCell>
+      </div>
+
+      <div className="hidden md:flex shrink-0 items-center gap-1.5">
+        {member.is_active ? (
+          <>
+            <CheckCircle2 className="h-3.5 w-3.5 text-aurea-primary" strokeWidth={2} />
+            <span className="text-[12px] text-aurea-primary">Active</span>
+          </>
+        ) : (
+          <>
+            <XCircle className="h-3.5 w-3.5 text-aurea-rose" strokeWidth={2} />
+            <span className="text-[12px] text-aurea-rose">Inactive</span>
+          </>
+        )}
+      </div>
+
+      <div className="shrink-0">
         {!isCurrentUser && (
           <DropdownMenu>
             <DropdownMenuTrigger>
-              <span className="inline-flex items-center justify-center h-8 w-8 rounded-md hover:bg-accent cursor-pointer">
-                <MoreHorizontal className="h-4 w-4" />
+              <span className="inline-flex items-center justify-center h-8 w-8 rounded-md hover:bg-aurea-surface-2 cursor-pointer transition-colors">
+                <MoreHorizontal className="h-4 w-4 text-aurea-ink-3" />
               </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -443,12 +369,12 @@ function MemberRow({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-      </TableCell>
-    </TableRow>
+      </div>
+    </div>
   )
 }
 
-// ── Invite Dialog ───────────────────────────────────────────────
+// ── Invite Dialog ────────────────────────────────────────────────
 
 function InviteDialog({
   onClose,
@@ -590,7 +516,7 @@ function InviteDialog({
         </div>
 
         {error && (
-          <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>
+          <p className="text-[13px] text-aurea-rose bg-aurea-rose/10 rounded-md px-3 py-2">{error}</p>
         )}
 
         <DialogFooter>
@@ -616,7 +542,7 @@ function InviteDialog({
   )
 }
 
-// ── Edit Member Dialog ──────────────────────────────────────────
+// ── Edit Member Dialog ───────────────────────────────────────────
 
 function EditMemberDialog({
   member,
@@ -744,7 +670,7 @@ function EditMemberDialog({
           </div>
 
           {error && (
-            <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>
+            <p className="text-[13px] text-aurea-rose bg-aurea-rose/10 rounded-md px-3 py-2">{error}</p>
           )}
 
           <DialogFooter>
@@ -768,7 +694,7 @@ function EditMemberDialog({
   )
 }
 
-// ── Role Description Helper ─────────────────────────────────────
+// ── Role Description Helper ──────────────────────────────────────
 
 function RoleDescription({ role }: { role: PracticeRole | '' }) {
   const descriptions: Partial<Record<PracticeRole, string>> = {
@@ -783,7 +709,7 @@ function RoleDescription({ role }: { role: PracticeRole | '' }) {
   if (!role || !descriptions[role]) return null
 
   return (
-    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+    <p className="text-[12px] text-aurea-ink-3 mt-1 leading-relaxed">
       {descriptions[role]}
     </p>
   )

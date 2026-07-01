@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import {
   Select,
@@ -27,12 +25,12 @@ const CATEGORY_LABELS: Record<AIMemoryCategory, string> = {
 }
 
 const CATEGORY_COLORS: Record<AIMemoryCategory, string> = {
-  tone_and_style: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-  product_knowledge: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  objection_handling: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-  pricing_rules: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  compliance_rules: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-  general: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300',
+  tone_and_style: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  product_knowledge: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  objection_handling: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  pricing_rules: 'bg-aurea-gold/10 text-aurea-gold border border-aurea-gold/20',
+  compliance_rules: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  general: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
 export function MemoryManager() {
@@ -120,7 +118,7 @@ export function MemoryManager() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">
+          <p className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
             {activeCount} active / {memories.length} total memories
           </p>
         </div>
@@ -147,62 +145,60 @@ export function MemoryManager() {
 
       {/* Memory List */}
       {loading ? (
-        <div className="text-center py-12 text-muted-foreground">Loading memories...</div>
+        <div className="py-12 text-center text-[13px] text-aurea-ink-3">Loading memories...</div>
       ) : memories.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <Brain className="h-12 w-12 text-muted-foreground/50 mb-3" />
-            <h3 className="font-medium text-lg">No training memories yet</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-md">
+        <div className="aurea-card">
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Brain className="h-10 w-10 text-aurea-ink-3/40 mb-3" strokeWidth={1.75} />
+            <h3 className="aurea-display text-[18px] text-aurea-ink">No training memories yet</h3>
+            <p className="mt-1 max-w-md text-[13px] text-aurea-ink-3">
               Add training instructions to teach your AI how to respond. These get injected into the AI&apos;s system prompt for every conversation.
             </p>
             <Button className="mt-4" onClick={() => { setEditingMemory(null); setDialogOpen(true) }}>
               <Plus className="h-4 w-4 mr-1" />
               Add Your First Memory
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : (
         <div className="space-y-2">
           {memories.map((memory) => (
-            <Card key={memory.id} className={!memory.is_enabled ? 'opacity-60' : ''}>
-              <CardContent className="flex items-start gap-4 py-4">
-                <Switch
-                  checked={memory.is_enabled}
-                  onCheckedChange={() => handleToggle(memory)}
-                  className="mt-1"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-medium text-sm">{memory.title}</h4>
-                    <Badge variant="secondary" className={CATEGORY_COLORS[memory.category]}>
-                      {CATEGORY_LABELS[memory.category]}
-                    </Badge>
-                    {memory.priority > 0 && (
-                      <Badge variant="outline" className="text-xs">
-                        Priority: {memory.priority}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground line-clamp-2">{memory.content}</p>
+            <div key={memory.id} className={`aurea-card flex items-start gap-4 p-4${!memory.is_enabled ? ' opacity-60' : ''}`}>
+              <Switch
+                checked={memory.is_enabled}
+                onCheckedChange={() => handleToggle(memory)}
+                className="mt-1"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <h4 className="text-[14px] font-medium text-aurea-ink">{memory.title}</h4>
+                  <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-medium ${CATEGORY_COLORS[memory.category]}`}>
+                    {CATEGORY_LABELS[memory.category]}
+                  </span>
+                  {memory.priority > 0 && (
+                    <span className="inline-flex items-center rounded border border-aurea-border px-2 py-0.5 font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                      Priority: {memory.priority}
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setEditingMemory(memory)
-                      setDialogOpen(true)
-                    }}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(memory.id)}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                <p className="text-[13px] text-aurea-ink-2 line-clamp-2">{memory.content}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setEditingMemory(memory)
+                    setDialogOpen(true)
+                  }}
+                >
+                  <Pencil className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleDelete(memory.id)}>
+                  <Trash2 className="h-4 w-4 text-aurea-rose" strokeWidth={1.75} />
+                </Button>
+              </div>
+            </div>
           ))}
         </div>
       )}

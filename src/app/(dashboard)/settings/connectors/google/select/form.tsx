@@ -116,9 +116,9 @@ export function GoogleSelectForm({
         </CardHeader>
         <CardContent className="space-y-4">
           {adsError && (
-            <div className="text-xs rounded-md border border-amber-500/40 bg-amber-500/10 p-3 flex gap-2 items-start">
-              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-              <span className="text-amber-700 dark:text-amber-300">
+            <div className="text-xs rounded-md border border-aurea-amber/40 bg-aurea-amber/10 p-3 flex gap-2 items-start">
+              <AlertTriangle className="h-4 w-4 text-aurea-amber mt-0.5 shrink-0" />
+              <span className="text-aurea-amber">
                 Couldn&apos;t list Google Ads accounts: {adsError}. You can skip this
                 section and reconnect later, or paste the customer ID manually below.
               </span>
@@ -207,9 +207,9 @@ export function GoogleSelectForm({
         </CardHeader>
         <CardContent className="space-y-4">
           {ga4Error && (
-            <div className="text-xs rounded-md border border-amber-500/40 bg-amber-500/10 p-3 flex gap-2 items-start">
-              <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-              <span className="text-amber-700 dark:text-amber-300">
+            <div className="text-xs rounded-md border border-aurea-amber/40 bg-aurea-amber/10 p-3 flex gap-2 items-start">
+              <AlertTriangle className="h-4 w-4 text-aurea-amber mt-0.5 shrink-0" />
+              <span className="text-aurea-amber">
                 Couldn&apos;t list GA4 properties: {ga4Error}.
               </span>
             </div>

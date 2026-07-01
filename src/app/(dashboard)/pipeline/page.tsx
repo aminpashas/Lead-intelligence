@@ -26,13 +26,14 @@ export default async function PipelinePage() {
     .order('ai_score', { ascending: false })
 
   return (
-    <div className="h-full">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Pipeline</h1>
-        <p className="text-muted-foreground">
+    <div className="h-full animate-in fade-in-0 duration-500">
+      <header className="mb-6 border-b border-aurea-border pb-6">
+        <p className="aurea-eyebrow mb-2">Sales Pipeline</p>
+        <h1 className="aurea-display text-[32px] text-aurea-ink sm:text-[40px]">Pipeline</h1>
+        <p className="mt-2 text-[14px] leading-relaxed text-aurea-ink-2">
           Drag leads between stages to update their status
         </p>
-      </div>
+      </header>
       <PipelineBoard
         stages={stages || []}
         leads={leads || []}

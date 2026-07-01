@@ -6,6 +6,12 @@
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": ["-c", "export PATH=/usr/local/bin:$PATH && cd /Users/aminsamadian/Lead\\ Intelligence && exec /usr/local/bin/node node_modules/.bin/next dev -p 3002"],
       "port": 3002
+    },
+    {
+      "name": "lead-crm-aurea",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "export PATH=/usr/local/bin:$PATH && cd /Users/aminsamadian/Lead\\ Intelligence && exec /usr/local/bin/node node_modules/.bin/next dev -p 3005"],
+      "port": 3005
     }
   ]
 }

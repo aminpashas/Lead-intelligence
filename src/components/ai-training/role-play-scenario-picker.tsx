@@ -1,8 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -43,9 +41,9 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
 }
 
 const DIFFICULTY_COLORS: Record<string, string> = {
-  easy: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  hard: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  easy: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  medium: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  hard: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
 }
 
 const AGENT_LABELS: Record<RolePlayAgentTarget, string> = {
@@ -135,10 +133,10 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
   return (
     <div className="space-y-6">
       {/* Role Selector */}
-      <div className="text-center space-y-4">
+      <div className="space-y-4 text-center">
         <div>
-          <h3 className="text-lg font-semibold">Choose Your Role</h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="aurea-eyebrow mb-1">Choose Your Role</p>
+          <p className="text-[13px] text-aurea-ink-3">
             Pick who you want to play — the AI will play the other role
           </p>
         </div>
@@ -146,7 +144,7 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
           <Button
             variant={userRole === 'treatment_coordinator' ? 'default' : 'outline'}
             size="lg"
-            className="gap-2 min-w-[200px]"
+            className="min-w-[200px] gap-2"
             onClick={() => setUserRole('treatment_coordinator')}
           >
             <span className="text-lg">💼</span>
@@ -155,26 +153,26 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
           <Button
             variant={userRole === 'patient' ? 'default' : 'outline'}
             size="lg"
-            className="gap-2 min-w-[200px]"
+            className="min-w-[200px] gap-2"
             onClick={() => setUserRole('patient')}
           >
             <span className="text-lg">🧑</span>
             I&apos;m the Patient
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[12px] text-aurea-ink-3">
           {userRole === 'treatment_coordinator'
-            ? '→ You practice your sales & communication skills. AI plays a realistic patient.'
-            : '→ You test the AI agent by acting as a patient. Teach it your preferred responses.'}
+            ? 'You practice your sales & communication skills. AI plays a realistic patient.'
+            : 'You test the AI agent by acting as a patient. Teach it your preferred responses.'}
         </p>
       </div>
 
       {/* Filter Bar */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-muted-foreground">Choose a Scenario</h3>
+        <p className="aurea-eyebrow">Choose a Scenario</p>
         <div className="flex items-center gap-2">
           <Select value={agentFilter} onValueChange={(v) => v && setAgentFilter(v)}>
-            <SelectTrigger className="w-[150px] h-8 text-xs">
+            <SelectTrigger className="h-8 w-[150px] text-xs">
               <SelectValue>
                 {agentFilter === 'all' ? 'All Agents' : AGENT_LABELS[agentFilter as RolePlayAgentTarget]}
               </SelectValue>
@@ -189,64 +187,57 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
       </div>
 
       {/* Scenario Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         {filteredScenarios.map((scenario) => (
-          <Card
+          <div
             key={scenario.id}
-            className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all duration-200 group"
+            className="aurea-card group cursor-pointer space-y-3 p-4 transition-colors hover:bg-aurea-surface-2"
             onClick={() => handleSelectScenario(scenario)}
           >
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary/20 transition-colors">
-                    {CATEGORY_ICONS[scenario.category] || <Sparkles className="h-5 w-5" />}
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-sm leading-tight">{scenario.name}</h4>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <Badge variant="secondary" className="text-[10px] px-1.5 h-4">
-                        {AGENT_LABELS[scenario.agent_target]}
-                      </Badge>
-                      <Badge
-                        variant="secondary"
-                        className={`text-[10px] px-1.5 h-4 ${DIFFICULTY_COLORS[scenario.difficulty]}`}
-                      >
-                        {scenario.difficulty}
-                      </Badge>
-                    </div>
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-aurea-border bg-aurea-surface-2 text-aurea-primary transition-colors group-hover:bg-aurea-primary/10">
+                  {CATEGORY_ICONS[scenario.category] || <Sparkles className="h-5 w-5" strokeWidth={1.75} />}
+                </div>
+                <div>
+                  <h4 className="text-[14px] font-medium text-aurea-ink leading-tight">{scenario.name}</h4>
+                  <div className="mt-0.5 flex items-center gap-1.5">
+                    <span className="inline-flex items-center rounded border border-aurea-border px-1.5 py-0.5 text-[10px] text-aurea-ink-3">
+                      {AGENT_LABELS[scenario.agent_target]}
+                    </span>
+                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${DIFFICULTY_COLORS[scenario.difficulty]}`}>
+                      {scenario.difficulty}
+                    </span>
                   </div>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground line-clamp-2">{scenario.description}</p>
-              {scenario.patient_persona && (
-                <div className="text-xs text-muted-foreground/80 flex items-center gap-1.5">
-                  <span className="font-medium">{scenario.patient_persona.name}</span>
-                  <span>·</span>
-                  <span>{scenario.patient_persona.personality_type}</span>
-                  <span>·</span>
-                  <span>{scenario.patient_persona.emotional_state}</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            </div>
+            <p className="line-clamp-2 text-[12px] text-aurea-ink-3">{scenario.description}</p>
+            {scenario.patient_persona && (
+              <div className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                <span className="font-medium text-aurea-ink-2">{scenario.patient_persona.name}</span>
+                <span>&middot;</span>
+                <span>{scenario.patient_persona.personality_type}</span>
+                <span>&middot;</span>
+                <span>{scenario.patient_persona.emotional_state}</span>
+              </div>
+            )}
+          </div>
         ))}
 
         {/* Custom Scenario Card */}
-        <Card
-          className="cursor-pointer border-dashed border-2 hover:border-primary/50 hover:shadow-md transition-all group"
+        <div
+          className="aurea-card group flex min-h-[140px] cursor-pointer flex-col items-center justify-center border-dashed p-4 text-center transition-colors hover:bg-aurea-surface-2"
           onClick={() => setCustomDialogOpen(true)}
         >
-          <CardContent className="p-4 flex flex-col items-center justify-center h-full min-h-[140px] text-center">
-            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-2 group-hover:bg-primary/20 transition-colors">
-              <Pencil className="h-5 w-5" />
-            </div>
-            <h4 className="font-medium text-sm">Custom Scenario</h4>
-            <p className="text-xs text-muted-foreground mt-1">
-              Create your own patient persona and situation
-            </p>
-          </CardContent>
-        </Card>
+          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-aurea-border bg-aurea-surface-2 text-aurea-primary transition-colors group-hover:bg-aurea-primary/10">
+            <Pencil className="h-5 w-5" strokeWidth={1.75} />
+          </div>
+          <h4 className="text-[14px] font-medium text-aurea-ink">Custom Scenario</h4>
+          <p className="mt-1 text-[12px] text-aurea-ink-3">
+            Create your own patient persona and situation
+          </p>
+        </div>
       </div>
 
       {/* Custom Scenario Dialog */}
@@ -296,7 +287,7 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
             </div>
 
             <hr className="my-2" />
-            <p className="text-xs font-medium text-muted-foreground">Patient Persona</p>
+            <p className="aurea-eyebrow">Patient Persona</p>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

@@ -4,10 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow, format } from 'date-fns'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Separator } from '@/components/ui/separator'
 import {
   Select,
   SelectContent,
@@ -41,12 +39,13 @@ import {
 import type { Lead, PipelineStage, LeadActivity, Conversation, UserProfile, Tag } from '@/types/database'
 import { toast } from 'sonner'
 
+// Lead qualification chips — hot=rose, warm=amber, cold=neutral
 const qualificationColors: Record<string, string> = {
-  hot: 'bg-red-500/10 text-red-700',
-  warm: 'bg-orange-500/10 text-orange-700',
-  cold: 'bg-blue-500/10 text-blue-700',
-  unqualified: 'bg-gray-500/10 text-gray-600',
-  unscored: 'bg-gray-100 text-gray-400',
+  hot: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  warm: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  cold: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
+  unqualified: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  unscored: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
 export function LeadDetail({
@@ -156,60 +155,68 @@ export function LeadDetail({
   const scoreBreakdown = (lead.ai_score_breakdown as any)?.dimensions || []
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <Avatar className="h-12 w-12">
-          <AvatarFallback className="text-lg">{initials}</AvatarFallback>
-        </Avatar>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold">
-            {lead.first_name} {lead.last_name}
-          </h1>
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            {lead.phone && (
-              <span className="flex items-center gap-1">
-                <Phone className="h-3 w-3" /> {lead.phone}
-              </span>
-            )}
-            {lead.email && (
-              <span className="flex items-center gap-1">
-                <Mail className="h-3 w-3" /> {lead.email}
-              </span>
-            )}
-            {lead.city && (
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3 w-3" /> {lead.city}, {lead.state}
-              </span>
-            )}
+    <div className="animate-in fade-in-0 duration-500 space-y-6">
+      {/* ── Header ─────────────────────────────────────── */}
+      <header className="border-b border-aurea-border pb-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => router.back()}>
+            <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
+          </Button>
+          <p className="aurea-eyebrow">Lead Detail</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <Avatar className="h-12 w-12 shrink-0">
+            <AvatarFallback className="text-[15px] font-semibold">{initials}</AvatarFallback>
+          </Avatar>
+          <div className="flex-1">
+            <h1 className="aurea-display text-[32px] text-aurea-ink sm:text-[40px]">
+              {lead.first_name} {lead.last_name}
+            </h1>
+            <div className="mt-1 flex flex-wrap items-center gap-4 text-[13px] text-aurea-ink-3">
+              {lead.phone && (
+                <span className="flex items-center gap-1.5">
+                  <Phone className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                  <span className="font-mono">{lead.phone}</span>
+                </span>
+              )}
+              {lead.email && (
+                <span className="flex items-center gap-1.5">
+                  <Mail className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                  {lead.email}
+                </span>
+              )}
+              {lead.city && (
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                  {lead.city}, {lead.state}
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* AI Engagement Score */}
+          <div className="flex flex-col items-center gap-1">
+            <span className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[15px] font-semibold ${qualificationColors[lead.ai_qualification]}`}>
+              <Brain className="h-[15px] w-[15px]" strokeWidth={1.75} />
+              <span className="font-mono tabular-nums">{lead.ai_score}/100</span>
+            </span>
+            <p className="aurea-eyebrow capitalize">{lead.ai_qualification}</p>
+          </div>
+
+          <LeadMessaging lead={lead} />
+          <ScheduleAppointment lead={lead} />
+
+          <Button onClick={scoreLead} disabled={scoring} variant="outline" size="sm" className="gap-1.5">
+            {scoring
+              ? <Loader2 className="h-[15px] w-[15px] animate-spin" strokeWidth={1.75} />
+              : <RefreshCw className="h-[15px] w-[15px]" strokeWidth={1.75} />}
+            {scoring ? 'Scoring…' : 'Re-score'}
+          </Button>
         </div>
-
-        {/* AI Engagement Score */}
-        <div className="text-center">
-          <Badge className={`text-lg px-3 py-1 ${qualificationColors[lead.ai_qualification]}`}>
-            <Brain className="h-4 w-4 mr-1" />
-            {lead.ai_score}/100
-          </Badge>
-          <p className="text-xs text-muted-foreground mt-1 capitalize">
-            {lead.ai_qualification}
-          </p>
-        </div>
-
-        <LeadMessaging lead={lead} />
-        <ScheduleAppointment lead={lead} />
-
-        <Button onClick={scoreLead} disabled={scoring} variant="outline" size="sm">
-          {scoring ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-          {scoring ? 'Scoring...' : 'Re-score'}
-        </Button>
-      </div>
+      </header>
 
       <div className="grid grid-cols-3 gap-6">
-        {/* Left Column — Details */}
+        {/* ── Left Column — Details ──────────────────────── */}
         <div className="col-span-2 space-y-6">
           <Tabs defaultValue="overview">
             <TabsList>
@@ -220,143 +227,129 @@ export function LeadDetail({
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="overview" className="space-y-4 mt-4">
+            <TabsContent value="overview" className="mt-4 space-y-4">
               {/* AI Summary */}
               {lead.ai_summary && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Brain className="h-4 w-4" /> AI Summary
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm">{lead.ai_summary}</p>
-                  </CardContent>
-                </Card>
+                <div className="aurea-card overflow-hidden">
+                  <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+                    <Brain className="h-[15px] w-[15px] text-aurea-primary" strokeWidth={1.75} />
+                    <h2 className="aurea-display text-[18px] text-aurea-ink">AI Summary</h2>
+                  </div>
+                  <div className="px-5 py-4">
+                    <p className="text-[14px] leading-relaxed text-aurea-ink-2">{lead.ai_summary}</p>
+                  </div>
+                </div>
               )}
 
               {/* Score Breakdown */}
               {scoreBreakdown.length > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Score Breakdown</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {scoreBreakdown.map((dim: any) => (
-                        <div key={dim.name}>
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="capitalize">{dim.name.replace(/_/g, ' ')}</span>
-                            <span className="font-medium">{dim.score}/100</span>
-                          </div>
-                          <div className="mt-1 h-2 rounded-full bg-muted overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-primary transition-all"
-                              style={{ width: `${dim.score}%` }}
-                            />
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {dim.reasoning}
-                          </p>
+                <div className="aurea-card overflow-hidden">
+                  <div className="border-b border-aurea-border px-5 py-4">
+                    <h2 className="aurea-display text-[18px] text-aurea-ink">Score Breakdown</h2>
+                  </div>
+                  <div className="space-y-4 px-5 py-4">
+                    {scoreBreakdown.map((dim: any) => (
+                      <div key={dim.name}>
+                        <div className="flex items-center justify-between text-[13px]">
+                          <span className="capitalize text-aurea-ink-2">{dim.name.replace(/_/g, ' ')}</span>
+                          <span className="font-mono tabular-nums text-aurea-ink">{dim.score}/100</span>
                         </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+                        <div className="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-aurea-surface-2">
+                          <div
+                            className="h-full rounded-full bg-aurea-primary transition-all"
+                            style={{ width: `${dim.score}%` }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[11.5px] text-aurea-ink-3">{dim.reasoning}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* Dental Info */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Dental Information</CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Condition</p>
-                    <p className="font-medium capitalize">
-                      {lead.dental_condition?.replace(/_/g, ' ') || '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Has Dentures</p>
-                    <p className="font-medium">
-                      {lead.has_dentures === true ? 'Yes' : lead.has_dentures === false ? 'No' : '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Insurance</p>
-                    <p className="font-medium">
-                      {lead.has_dental_insurance ? lead.insurance_provider || 'Yes' : 'No'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Financing Interest</p>
-                    <p className="font-medium capitalize">
-                      {lead.financing_interest?.replace(/_/g, ' ') || '—'}
-                    </p>
-                  </div>
+              <div className="aurea-card overflow-hidden">
+                <div className="border-b border-aurea-border px-5 py-4">
+                  <h2 className="aurea-display text-[18px] text-aurea-ink">Dental Information</h2>
+                </div>
+                <div className="grid grid-cols-2 gap-px bg-aurea-border">
+                  {[
+                    { label: 'Condition', value: lead.dental_condition?.replace(/_/g, ' ') || '—', mono: false },
+                    { label: 'Has Dentures', value: lead.has_dentures === true ? 'Yes' : lead.has_dentures === false ? 'No' : '—', mono: false },
+                    { label: 'Insurance', value: lead.has_dental_insurance ? lead.insurance_provider || 'Yes' : 'No', mono: false },
+                    { label: 'Financing Interest', value: lead.financing_interest?.replace(/_/g, ' ') || '—', mono: false },
+                  ].map((item) => (
+                    <div key={item.label} className="bg-aurea-surface px-5 py-3.5">
+                      <p className="aurea-eyebrow mb-1">{item.label}</p>
+                      <p className="text-[14px] capitalize text-aurea-ink">{item.value}</p>
+                    </div>
+                  ))}
                   {lead.dental_condition_details && (
-                    <div className="col-span-2">
-                      <p className="text-muted-foreground">Details</p>
-                      <p>{lead.dental_condition_details}</p>
+                    <div className="col-span-2 bg-aurea-surface px-5 py-3.5">
+                      <p className="aurea-eyebrow mb-1">Details</p>
+                      <p className="text-[14px] text-aurea-ink-2">{lead.dental_condition_details}</p>
                     </div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </TabsContent>
 
             <TabsContent value="conversations" className="mt-4">
               {conversations.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center py-12">
-                    <MessageSquare className="h-10 w-10 text-muted-foreground mb-3" />
-                    <p className="font-medium">No conversations yet</p>
-                    <p className="text-sm text-muted-foreground">
-                      Start a conversation via SMS or email
-                    </p>
-                  </CardContent>
-                </Card>
+                <div className="aurea-card flex flex-col items-center py-12">
+                  <MessageSquare className="mb-3 h-10 w-10 text-aurea-ink-3" strokeWidth={1.75} />
+                  <p className="text-[14px] font-medium text-aurea-ink">No conversations yet</p>
+                  <p className="mt-1 text-[13px] text-aurea-ink-3">
+                    Start a conversation via SMS or email
+                  </p>
+                </div>
               ) : (
-                <div className="space-y-2">
-                  {conversations.map((convo) => (
-                    <Card key={convo.id} className="cursor-pointer hover:bg-accent/50">
-                      <CardContent className="py-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline">{convo.channel}</Badge>
-                            <span className="font-medium text-sm">
-                              {convo.subject || `${convo.channel.toUpperCase()} Conversation`}
-                            </span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {convo.last_message_at
-                              ? formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })
-                              : ''}
+                <div className="aurea-card overflow-hidden">
+                  {conversations.map((convo, i) => (
+                    <div
+                      key={convo.id}
+                      className={`cursor-pointer px-5 py-3.5 transition-colors hover:bg-aurea-surface-2 ${i < conversations.length - 1 ? 'border-b border-aurea-border' : ''}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="rounded border border-aurea-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-aurea-ink-3">
+                            {convo.channel}
+                          </span>
+                          <span className="text-[14px] font-medium text-aurea-ink">
+                            {convo.subject || `${convo.channel.toUpperCase()} Conversation`}
                           </span>
                         </div>
-                        {convo.last_message_preview && (
-                          <p className="text-sm text-muted-foreground mt-1 truncate">
-                            {convo.last_message_preview}
-                          </p>
-                        )}
-                      </CardContent>
-                    </Card>
+                        <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                          {convo.last_message_at
+                            ? formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })
+                            : ''}
+                        </span>
+                      </div>
+                      {convo.last_message_preview && (
+                        <p className="mt-1 truncate text-[12px] text-aurea-ink-3">
+                          {convo.last_message_preview}
+                        </p>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
             </TabsContent>
 
             <TabsContent value="activity" className="mt-4">
-              <div className="space-y-3">
-                {activities.map((act) => (
-                  <div key={act.id} className="flex items-start gap-3">
-                    <div className="mt-1.5 h-2 w-2 rounded-full bg-muted-foreground shrink-0" />
+              <div className="aurea-card overflow-hidden">
+                {activities.map((act, i) => (
+                  <div
+                    key={act.id}
+                    className={`flex items-start gap-3 px-5 py-3.5 ${i < activities.length - 1 ? 'border-b border-aurea-border' : ''}`}
+                  >
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-aurea-ink-3" />
                     <div className="flex-1">
-                      <p className="text-sm font-medium">{act.title}</p>
+                      <p className="text-[14px] font-medium text-aurea-ink">{act.title}</p>
                       {act.description && (
-                        <p className="text-xs text-muted-foreground">{act.description}</p>
+                        <p className="mt-0.5 text-[12px] text-aurea-ink-3">{act.description}</p>
                       )}
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="mt-0.5 font-mono text-[11px] tabular-nums text-aurea-ink-3">
                         {format(new Date(act.created_at), 'MMM d, yyyy h:mm a')}
                       </p>
                     </div>
@@ -367,17 +360,15 @@ export function LeadDetail({
           </Tabs>
         </div>
 
-        {/* Right Column — Actions & Status */}
+        {/* ── Right Column — Actions & Status ───────────── */}
         <div className="space-y-4">
           {/* Tags */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Tags className="h-4 w-4" />
-                Tags
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          <div className="aurea-card overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+              <Tags className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
+              <h2 className="aurea-display text-[18px] text-aurea-ink">Tags</h2>
+            </div>
+            <div className="space-y-3 px-5 py-4">
               {leadTags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {leadTags.map((tag) => (
@@ -398,8 +389,8 @@ export function LeadDetail({
                 className="w-full"
                 placeholder="Add tags..."
               />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           {/* Patient AI Summary */}
           <PatientSummaryCard leadId={lead.id} lead={lead} />
@@ -411,27 +402,25 @@ export function LeadDetail({
           />
 
           {/* AI Autopilot Control */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Brain className="h-4 w-4" />
-                AI Autopilot
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+          <div className="aurea-card overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+              <Brain className="h-[15px] w-[15px] text-aurea-primary" strokeWidth={1.75} />
+              <h2 className="aurea-display text-[18px] text-aurea-ink">AI Autopilot</h2>
+            </div>
+            <div className="px-5 py-4">
               <LeadAIOverrideToggle
                 leadId={lead.id}
                 currentOverride={(lead.ai_autopilot_override as any) || 'default'}
               />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           {/* Pipeline Stage */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Pipeline Stage</CardTitle>
-            </CardHeader>
-            <CardContent>
+          <div className="aurea-card overflow-hidden">
+            <div className="border-b border-aurea-border px-5 py-4">
+              <h2 className="aurea-display text-[18px] text-aurea-ink">Pipeline Stage</h2>
+            </div>
+            <div className="px-5 py-4">
               <Select
                 value={lead.stage_id || ''}
                 onValueChange={(v) => updateLead({ stage_id: v })}
@@ -443,22 +432,22 @@ export function LeadDetail({
                   {stages.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
+                        <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />
                         {s.name}
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           {/* Assigned To */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Assigned To</CardTitle>
-            </CardHeader>
-            <CardContent>
+          <div className="aurea-card overflow-hidden">
+            <div className="border-b border-aurea-border px-5 py-4">
+              <h2 className="aurea-display text-[18px] text-aurea-ink">Assigned To</h2>
+            </div>
+            <div className="px-5 py-4">
               <Select
                 value={lead.assigned_to || 'unassigned'}
                 onValueChange={(v) => updateLead({ assigned_to: v === 'unassigned' ? null : v })}
@@ -475,81 +464,69 @@ export function LeadDetail({
                   ))}
                 </SelectContent>
               </Select>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          {/* Quick Stats */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Engagement</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Messages Sent</span>
-                <span className="font-medium">{lead.total_messages_sent}</span>
+          {/* Engagement Stats */}
+          <div className="aurea-card overflow-hidden">
+            <div className="border-b border-aurea-border px-5 py-4">
+              <h2 className="aurea-display text-[18px] text-aurea-ink">Engagement</h2>
+            </div>
+            <div className="px-5">
+              {[
+                { label: 'Messages Sent', value: lead.total_messages_sent },
+                { label: 'Messages Received', value: lead.total_messages_received },
+                { label: 'Emails Sent', value: lead.total_emails_sent },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">
+                  <span className="text-[13px] text-aurea-ink-3">{item.label}</span>
+                  <span className="font-mono text-[13px] tabular-nums text-aurea-ink">{item.value}</span>
+                </div>
+              ))}
+              <div className="border-t border-aurea-border-strong py-3">
+                <div className="flex items-center justify-between border-b border-aurea-border py-2.5 last:border-0">
+                  <span className="text-[13px] text-aurea-ink-3">Last Contact</span>
+                  <span className="font-mono text-[12px] tabular-nums text-aurea-ink">
+                    {lead.last_contacted_at
+                      ? formatDistanceToNow(new Date(lead.last_contacted_at), { addSuffix: true })
+                      : 'Never'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2.5">
+                  <span className="text-[13px] text-aurea-ink-3">Last Response</span>
+                  <span className="font-mono text-[12px] tabular-nums text-aurea-ink">
+                    {lead.last_responded_at
+                      ? formatDistanceToNow(new Date(lead.last_responded_at), { addSuffix: true })
+                      : 'Never'}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Messages Received</span>
-                <span className="font-medium">{lead.total_messages_received}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Emails Sent</span>
-                <span className="font-medium">{lead.total_emails_sent}</span>
-              </div>
-              <Separator />
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Last Contact</span>
-                <span className="font-medium">
-                  {lead.last_contacted_at
-                    ? formatDistanceToNow(new Date(lead.last_contacted_at), { addSuffix: true })
-                    : 'Never'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Last Response</span>
-                <span className="font-medium">
-                  {lead.last_responded_at
-                    ? formatDistanceToNow(new Date(lead.last_responded_at), { addSuffix: true })
-                    : 'Never'}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
           {/* Financing panel temporarily removed until live integrations are available */}
 
           {/* Source */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Source</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Type</span>
-                <span className="font-medium capitalize">
-                  {lead.source_type?.replace(/_/g, ' ') || '—'}
-                </span>
-              </div>
-              {lead.utm_source && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">UTM Source</span>
-                  <span className="font-medium">{lead.utm_source}</span>
+          <div className="aurea-card overflow-hidden">
+            <div className="border-b border-aurea-border px-5 py-4">
+              <h2 className="aurea-display text-[18px] text-aurea-ink">Source</h2>
+            </div>
+            <div className="px-5">
+              {[
+                { label: 'Type', value: lead.source_type?.replace(/_/g, ' ') || '—', capitalize: true },
+                ...(lead.utm_source ? [{ label: 'UTM Source', value: lead.utm_source, capitalize: false }] : []),
+                ...(lead.utm_campaign ? [{ label: 'Campaign', value: lead.utm_campaign, capitalize: false }] : []),
+                { label: 'Created', value: format(new Date(lead.created_at), 'MMM d, yyyy'), capitalize: false },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">
+                  <span className="text-[13px] text-aurea-ink-3">{item.label}</span>
+                  <span className={`font-mono text-[12px] text-aurea-ink ${item.capitalize ? 'capitalize' : ''}`}>
+                    {item.value}
+                  </span>
                 </div>
-              )}
-              {lead.utm_campaign && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Campaign</span>
-                  <span className="font-medium">{lead.utm_campaign}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Created</span>
-                <span className="font-medium">
-                  {format(new Date(lead.created_at), 'MMM d, yyyy')}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

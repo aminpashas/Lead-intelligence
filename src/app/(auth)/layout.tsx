@@ -1,3 +1,5 @@
+import { aureaFontVars } from '@/lib/fonts'
+
 export const dynamic = 'force-dynamic'
 
 export default function AuthLayout({
@@ -5,5 +7,11 @@ export default function AuthLayout({
 }: {
   children: React.ReactNode
 }) {
-  return <>{children}</>
+  // Bring the auth screens into the Aurea editorial scope: stone-white floor,
+  // zinc ink, emerald accent, Instrument Serif — the same system as the app.
+  return (
+    <div className={`aurea aurea-floor min-h-screen ${aureaFontVars}`}>
+      {children}
+    </div>
+  )
 }

@@ -62,17 +62,18 @@ export default async function LeadsPage({
       } else {
         // No leads match this tag
         return (
-          <div>
-            <div className="mb-6 flex items-center justify-between">
+          <div className="animate-in fade-in-0 duration-500">
+            <header className="mb-8 flex flex-col gap-5 border-b border-aurea-border pb-8 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h1 className="text-2xl font-bold">Leads</h1>
-                <p className="text-muted-foreground">0 total leads</p>
+                <p className="aurea-eyebrow mb-3">Lead Management</p>
+                <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px]">Leads</h1>
+                <p className="mt-2 font-mono text-[13px] tabular-nums text-aurea-ink-3">0 total</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <LeadCSVImport />
                 <NewLeadDialog />
               </div>
-            </div>
+            </header>
             <LeadsTable leads={[]} stages={[]} total={0} page={1} perPage={50} />
           </div>
         )
@@ -120,19 +121,20 @@ export default async function LeadsPage({
   }
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
+    <div className="animate-in fade-in-0 duration-500">
+      <header className="mb-8 flex flex-col gap-5 border-b border-aurea-border pb-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Leads</h1>
-          <p className="text-muted-foreground">
-            {count || 0} total leads
+          <p className="aurea-eyebrow mb-3">Lead Management</p>
+          <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px]">Leads</h1>
+          <p className="mt-2 font-mono text-[13px] tabular-nums text-aurea-ink-3">
+            {(count || 0).toLocaleString()} total
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <LeadCSVImport />
           <NewLeadDialog />
         </div>
-      </div>
+      </header>
 
       <LeadsTable
         leads={leads || []}

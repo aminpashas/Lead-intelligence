@@ -10,17 +10,17 @@ export const metadata = {
 }
 
 const TIER_COLORS: Record<string, string> = {
-  trial: 'bg-slate-700 text-slate-300',
-  starter: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  professional: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
-  enterprise: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  trial: 'bg-aurea-surface-2 text-aurea-ink-3',
+  starter: 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20',
+  professional: 'bg-aurea-gold/10 text-aurea-gold border-aurea-gold/20',
+  enterprise: 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20',
 }
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
-  active: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
-  past_due: <AlertCircle className="h-4 w-4 text-red-400" />,
-  canceled: <AlertCircle className="h-4 w-4 text-slate-500" />,
-  trialing: <Clock className="h-4 w-4 text-amber-400" />,
+  active: <CheckCircle2 className="h-4 w-4 text-aurea-primary" />,
+  past_due: <AlertCircle className="h-4 w-4 text-aurea-rose" />,
+  canceled: <AlertCircle className="h-4 w-4 text-aurea-ink-3" />,
+  trialing: <Clock className="h-4 w-4 text-aurea-amber" />,
 }
 
 export default async function PracticesPage() {
@@ -54,8 +54,8 @@ export default async function PracticesPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Practices</h1>
-          <p className="text-slate-400 text-sm mt-1">
+          <h1 className="text-2xl font-bold text-aurea-ink">Practices</h1>
+          <p className="text-aurea-ink-2 text-sm mt-1">
             Client practices you manage. {organizations.length} total.
           </p>
         </div>
@@ -66,17 +66,17 @@ export default async function PracticesPage() {
         {organizations?.map((org) => (
           <Card
             key={org.id}
-            className="bg-slate-900 border-slate-800 hover:border-slate-700 transition-all duration-200 group"
+            className="bg-aurea-surface border-aurea-border hover:border-aurea-border-strong transition-all duration-200 group"
           >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center border border-slate-700 group-hover:border-violet-500/30 transition-colors">
-                    <Building2 className="h-5 w-5 text-slate-300" />
+                  <div className="h-10 w-10 rounded-xl bg-aurea-surface-2 flex items-center justify-center border border-aurea-border group-hover:border-aurea-primary/30 transition-colors">
+                    <Building2 className="h-5 w-5 text-aurea-ink-3" />
                   </div>
                   <div>
-                    <CardTitle className="text-white text-sm">{org.name}</CardTitle>
-                    <CardDescription className="text-slate-500 text-xs mt-0.5">
+                    <CardTitle className="text-aurea-ink text-sm">{org.name}</CardTitle>
+                    <CardDescription className="text-aurea-ink-3 text-xs mt-0.5">
                       /{org.slug}
                     </CardDescription>
                   </div>
@@ -86,7 +86,7 @@ export default async function PracticesPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">Plan</span>
+                <span className="text-xs text-aurea-ink-3">Plan</span>
                 <Badge
                   className={`capitalize text-[10px] h-4 px-1.5 border ${TIER_COLORS[org.subscription_tier] ?? TIER_COLORS['trial']}`}
                 >
@@ -94,26 +94,26 @@ export default async function PracticesPage() {
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">Status</span>
-                <span className="text-xs text-slate-300 capitalize">
+                <span className="text-xs text-aurea-ink-3">Status</span>
+                <span className="text-xs text-aurea-ink-2 capitalize">
                   {org.subscription_status.replace('_', ' ')}
                 </span>
               </div>
               {org.email && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">Email</span>
-                  <span className="text-xs text-slate-300 truncate max-w-[160px]">{org.email}</span>
+                  <span className="text-xs text-aurea-ink-3">Email</span>
+                  <span className="text-xs text-aurea-ink-2 truncate max-w-[160px]">{org.email}</span>
                 </div>
               )}
               {org.phone && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">Phone</span>
-                  <span className="text-xs text-slate-300">{org.phone}</span>
+                  <span className="text-xs text-aurea-ink-3">Phone</span>
+                  <span className="text-xs text-aurea-ink-2">{org.phone}</span>
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">Created</span>
-                <span className="text-xs text-slate-300">
+                <span className="text-xs text-aurea-ink-3">Created</span>
+                <span className="text-xs text-aurea-ink-2">
                   {new Date(org.created_at).toLocaleDateString()}
                 </span>
               </div>
@@ -128,10 +128,10 @@ export default async function PracticesPage() {
       </div>
 
       {(!organizations || organizations.length === 0) && (
-        <div className="rounded-xl border border-dashed border-slate-700 p-12 text-center">
-          <Building2 className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-          <h3 className="text-sm font-medium text-slate-400">No practices yet</h3>
-          <p className="text-xs text-slate-500 mt-1">
+        <div className="rounded-xl border border-dashed border-aurea-border p-12 text-center">
+          <Building2 className="h-10 w-10 text-aurea-ink-3 mx-auto mb-3" />
+          <h3 className="text-sm font-medium text-aurea-ink-2">No practices yet</h3>
+          <p className="text-xs text-aurea-ink-3 mt-1">
             Practices will appear here once they&apos;re added to the platform.
           </p>
         </div>

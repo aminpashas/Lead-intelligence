@@ -10,11 +10,13 @@ import { useRealtimeNotifications } from '@/lib/hooks/use-realtime-notifications
 
 export function DashboardShell({
   children,
+  fontClassName,
   userProfile,
   organization,
   actingAsClient = false,
 }: {
   children: React.ReactNode
+  fontClassName?: string
   userProfile: UserProfile
   organization: Organization
   actingAsClient?: boolean
@@ -32,12 +34,12 @@ export function DashboardShell({
   useRealtimeNotifications()
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className={`aurea flex h-screen overflow-hidden bg-aurea-canvas ${fontClassName ?? ''}`}>
       <Sidebar />
       <MobileSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <main className="aurea-floor flex-1 overflow-y-auto p-4 lg:p-6">
           {children}
         </main>
       </div>

@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import {
   Brain,
@@ -44,16 +42,19 @@ type PatientSummaryData = {
   last_handoff: { from_agent: string; to_agent: string; trigger_reason: string } | null
 }
 
-function ScoreBar({ label, value, max = 10, color }: { label: string; value: number; max?: number; color: string }) {
+function ScoreBar({ label, value, max = 10, accent = false }: { label: string; value: number; max?: number; accent?: boolean }) {
   const pct = Math.min((value / max) * 100, 100)
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">{value}/{max}</span>
+      <div className="flex justify-between text-[11px]">
+        <span className="text-aurea-ink-3">{label}</span>
+        <span className="font-mono tabular-nums text-aurea-ink-2">{value}/{max}</span>
       </div>
-      <div className="h-1.5 rounded-full bg-muted">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      <div className="h-[3px] w-full overflow-hidden rounded-full bg-aurea-surface-2">
+        <div
+          className={accent ? 'h-full rounded-full bg-aurea-amber' : 'h-full rounded-full bg-aurea-primary'}
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   )
@@ -101,17 +102,15 @@ export function PatientSummaryCard({ leadId, lead }: { leadId: string; lead: Lea
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-1.5">
-            <Brain className="h-3.5 w-3.5 text-purple-500" />
-            Patient Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center justify-center py-6">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
+      <div className="aurea-card p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Brain className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
+          <h3 className="aurea-display text-[16px] text-aurea-ink">Patient Summary</h3>
+        </div>
+        <div className="flex items-center justify-center py-6">
+          <Loader2 className="h-4 w-4 animate-spin text-aurea-ink-3" />
+        </div>
+      </div>
     )
   }
 
@@ -120,20 +119,18 @@ export function PatientSummaryCard({ leadId, lead }: { leadId: string; lead: Lea
   return (
     <div className="space-y-4">
       {/* AI Summary Card */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-1.5">
-            <Brain className="h-3.5 w-3.5 text-purple-500" />
-            Patient Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+      <div className="aurea-card overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+          <Brain className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
+          <h3 className="aurea-display text-[18px] text-aurea-ink">Patient Summary</h3>
+        </div>
+        <div className="space-y-3 p-5">
           {profile?.ai_summary ? (
-            <p className="text-xs leading-relaxed text-muted-foreground">
+            <p className="text-[12.5px] leading-relaxed text-aurea-ink-2">
               {profile.ai_summary}
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground italic">
+            <p className="text-[12.5px] text-aurea-ink-3 italic">
               No AI analysis yet. Analyze a conversation to build the patient profile.
             </p>
           )}
@@ -141,48 +138,48 @@ export function PatientSummaryCard({ leadId, lead }: { leadId: string; lead: Lea
           {/* Agent indicator */}
           {data?.active_agent && data.active_agent !== 'none' && (
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Active agent:</span>
-              <Badge variant="outline" className={`text-[10px] ${
-                data.active_agent === 'setter' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-200'
+              <span className="text-[11px] text-aurea-ink-3">Active agent:</span>
+              <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${
+                data.active_agent === 'setter'
+                  ? 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-2'
+                  : 'border-aurea-primary/20 bg-aurea-primary/10 text-aurea-primary'
               }`}>
                 {data.active_agent === 'setter' ? 'Setter' : 'Closer'}
-              </Badge>
+              </span>
             </div>
           )}
 
           {/* Quick stats */}
-          <div className="flex gap-3 text-xs">
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <MessageSquare className="h-3 w-3" />
-              {lead.total_messages_sent + lead.total_messages_received} msgs
+          <div className="flex gap-3 text-[11px] text-aurea-ink-3">
+            <div className="flex items-center gap-1">
+              <MessageSquare className="h-3 w-3" strokeWidth={1.75} />
+              <span className="font-mono tabular-nums">{lead.total_messages_sent + lead.total_messages_received}</span> msgs
             </div>
             {profile?.total_conversations_analyzed ? (
-              <div className="flex items-center gap-1 text-muted-foreground">
-                <Brain className="h-3 w-3" />
-                {profile.total_conversations_analyzed} analyzed
+              <div className="flex items-center gap-1">
+                <Brain className="h-3 w-3" strokeWidth={1.75} />
+                <span className="font-mono tabular-nums">{profile.total_conversations_analyzed}</span> analyzed
               </div>
             ) : null}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Emotional State & Scores */}
       {profile && profile.personality_type && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-1.5">
-              <Heart className="h-3.5 w-3.5 text-pink-500" />
-              Emotional Pulse
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <div className="aurea-card overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+            <Heart className="h-[17px] w-[17px] text-aurea-rose" strokeWidth={1.75} />
+            <h3 className="aurea-display text-[18px] text-aurea-ink">Emotional Pulse</h3>
+          </div>
+          <div className="space-y-3 p-5">
             {/* Personality */}
             <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="text-[10px] capitalize">
+              <span className="inline-flex rounded border border-aurea-border bg-aurea-surface-2 px-2 py-0.5 text-[10.5px] font-medium capitalize text-aurea-ink-2">
                 {profile.personality_type}
-              </Badge>
+              </span>
               {profile.communication_style && (
-                <span className="text-[10px] text-muted-foreground capitalize">
+                <span className="text-[11px] text-aurea-ink-3 capitalize">
                   {profile.communication_style}
                 </span>
               )}
@@ -190,44 +187,42 @@ export function PatientSummaryCard({ leadId, lead }: { leadId: string; lead: Lea
 
             {/* Emotional state */}
             {profile.emotional_state && (
-              <div className="text-xs">
-                <span className="text-muted-foreground">Feeling: </span>
-                <span className="font-medium capitalize">{profile.emotional_state}</span>
+              <div className="text-[12px]">
+                <span className="text-aurea-ink-3">Feeling: </span>
+                <span className="font-medium text-aurea-ink capitalize">{profile.emotional_state}</span>
               </div>
             )}
 
             {/* Score bars */}
-            <div className="space-y-2">
-              <ScoreBar label="Trust" value={profile.rapport_score} color="bg-green-500" />
-              <ScoreBar label="Motivation" value={profile.motivation_level} color="bg-blue-500" />
-              <ScoreBar label="Anxiety" value={profile.anxiety_level} color="bg-amber-500" />
-              <ScoreBar label="Confidence" value={profile.confidence_level} color="bg-purple-500" />
+            <div className="space-y-2.5">
+              <ScoreBar label="Trust" value={profile.rapport_score} />
+              <ScoreBar label="Motivation" value={profile.motivation_level} />
+              <ScoreBar label="Anxiety" value={profile.anxiety_level} accent />
+              <ScoreBar label="Confidence" value={profile.confidence_level} />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Pain Points & Objections */}
       {profile && (profile.pain_points?.length > 0 || profile.objections?.length > 0) && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-1.5">
-              <Target className="h-3.5 w-3.5 text-red-500" />
-              Pain Points & Objections
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <div className="aurea-card overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+            <Target className="h-[17px] w-[17px] text-aurea-rose" strokeWidth={1.75} />
+            <h3 className="aurea-display text-[18px] text-aurea-ink">Pain Points &amp; Objections</h3>
+          </div>
+          <div className="space-y-3 p-5">
             {/* Pain points */}
             {profile.pain_points?.length > 0 && (
               <div className="space-y-1.5">
-                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Pain Points</span>
+                <p className="aurea-eyebrow">Pain Points</p>
                 {profile.pain_points.slice(0, 3).map((p, i) => (
-                  <div key={i} className="flex items-start gap-1.5 text-xs">
-                    <AlertTriangle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
-                    <span>{p.point}</span>
-                    <Badge variant="outline" className="text-[9px] ml-auto shrink-0">
+                  <div key={i} className="flex items-start gap-1.5 text-[12.5px]">
+                    <AlertTriangle className="h-3 w-3 text-aurea-amber mt-0.5 shrink-0" strokeWidth={1.75} />
+                    <span className="text-aurea-ink-2">{p.point}</span>
+                    <span className="font-mono text-[10px] text-aurea-ink-3 ml-auto shrink-0">
                       {p.severity}/10
-                    </Badge>
+                    </span>
                   </div>
                 ))}
               </div>
@@ -237,15 +232,15 @@ export function PatientSummaryCard({ leadId, lead }: { leadId: string; lead: Lea
               <>
                 <Separator />
                 <div className="space-y-1.5">
-                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Objections</span>
+                  <p className="aurea-eyebrow">Objections</p>
                   {profile.objections.slice(0, 4).map((o, i) => (
-                    <div key={i} className="flex items-start gap-1.5 text-xs">
+                    <div key={i} className="flex items-start gap-1.5 text-[12.5px]">
                       {o.addressed ? (
-                        <CheckCircle2 className="h-3 w-3 text-green-500 mt-0.5 shrink-0" />
+                        <CheckCircle2 className="h-3 w-3 text-aurea-primary mt-0.5 shrink-0" strokeWidth={1.75} />
                       ) : (
-                        <AlertTriangle className="h-3 w-3 text-red-500 mt-0.5 shrink-0" />
+                        <AlertTriangle className="h-3 w-3 text-aurea-rose mt-0.5 shrink-0" strokeWidth={1.75} />
                       )}
-                      <span className={o.addressed ? 'line-through text-muted-foreground' : ''}>
+                      <span className={o.addressed ? 'line-through text-aurea-ink-3' : 'text-aurea-ink-2'}>
                         {o.objection}
                       </span>
                     </div>
@@ -253,61 +248,57 @@ export function PatientSummaryCard({ leadId, lead }: { leadId: string; lead: Lea
                 </div>
               </>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Next Best Action */}
       {profile?.next_best_action && (
-        <Card className="border-green-200 bg-green-50/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-1.5 text-green-800">
-              <Zap className="h-3.5 w-3.5" />
-              Pick Up From Here
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-green-700 leading-relaxed">
+        <div className="aurea-card overflow-hidden border-aurea-primary/20">
+          <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+            <Zap className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
+            <h3 className="aurea-display text-[18px] text-aurea-ink">Pick Up From Here</h3>
+          </div>
+          <div className="p-5">
+            <p className="text-[12.5px] text-aurea-ink-2 leading-relaxed">
               {profile.next_best_action}
             </p>
             {profile.recommended_tone && (
-              <div className="mt-2 flex items-center gap-1.5 text-[10px] text-green-600">
-                <TrendingUp className="h-3 w-3" />
+              <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-aurea-primary">
+                <TrendingUp className="h-3 w-3" strokeWidth={1.75} />
                 Tone: {profile.recommended_tone}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Key Moments Timeline */}
       {profile?.key_moments && profile.key_moments.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-blue-500" />
-              Key Moments
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
+        <div className="aurea-card overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+            <Clock className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+            <h3 className="aurea-display text-[18px] text-aurea-ink">Key Moments</h3>
+          </div>
+          <div className="p-5">
+            <div className="space-y-2.5">
               {profile.key_moments.slice(-5).reverse().map((m, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs">
-                  <div className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${
-                    m.type === 'breakthrough' ? 'bg-green-500' :
-                    m.type === 'setback' ? 'bg-red-500' :
-                    m.type === 'connection' ? 'bg-blue-500' :
-                    'bg-gray-400'
+                <div key={i} className="flex items-start gap-2.5 text-[12px]">
+                  <div className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${
+                    m.type === 'breakthrough' ? 'bg-aurea-primary' :
+                    m.type === 'setback'      ? 'bg-aurea-rose' :
+                    m.type === 'connection'   ? 'bg-aurea-ink-2' :
+                    'bg-aurea-ink-3'
                   }`} />
                   <div>
-                    <p className="text-muted-foreground">{m.description}</p>
-                    <span className="text-[10px] text-muted-foreground/60">{m.date}</span>
+                    <p className="text-aurea-ink-2">{m.description}</p>
+                    <span className="font-mono text-[10px] text-aurea-ink-3">{m.date}</span>
                   </div>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
     </div>
   )

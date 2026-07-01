@@ -8,7 +8,6 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { LeadCard } from './lead-card'
-import { Badge } from '@/components/ui/badge'
 import type { Lead, PipelineStage } from '@/types/database'
 
 function SortableLeadCard({
@@ -30,11 +29,17 @@ function SortableLeadCard({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.4 : 1,
   }
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={isDragging ? 'bg-aurea-surface-2 rounded-lg' : undefined}
+    >
       <LeadCard lead={lead} onClick={onClick} />
     </div>
   )
@@ -56,24 +61,27 @@ export function PipelineColumn({
 
   return (
     <div
-      className={`flex flex-col w-72 shrink-0 rounded-lg border ${
-        isOver ? 'border-primary bg-primary/5' : 'bg-muted/30'
+      className={`flex flex-col w-72 shrink-0 rounded-lg border transition-colors ${
+        isOver
+          ? 'border-aurea-primary/40 bg-aurea-primary/5'
+          : 'border-aurea-border bg-aurea-surface'
       }`}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b">
+      {/* Header — flat, calm, eyebrow-style label */}
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-aurea-border">
         <div className="flex items-center gap-2">
-          <div
-            className="h-3 w-3 rounded-full"
+          {/* Thin top-accent hairline dot using stage color */}
+          <span
+            className="h-1.5 w-1.5 rounded-full shrink-0"
             style={{ backgroundColor: stage.color }}
           />
-          <h3 className="font-medium text-sm">{stage.name}</h3>
-          <Badge variant="secondary" className="text-xs">
+          <span className="aurea-eyebrow leading-none">{stage.name}</span>
+          <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
             {leads.length}
-          </Badge>
+          </span>
         </div>
         {totalValue > 0 && (
-          <span className="text-xs text-muted-foreground font-medium">
+          <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
             ${(totalValue / 1000).toFixed(0)}k
           </span>
         )}
@@ -98,7 +106,7 @@ export function PipelineColumn({
         </SortableContext>
 
         {leads.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-24 text-xs text-muted-foreground border-2 border-dashed border-muted rounded-lg">
+          <div className="flex flex-col items-center justify-center h-24 text-[11px] text-aurea-ink-3 border border-dashed border-aurea-border rounded-lg">
             <span>Drop leads here</span>
           </div>
         )}

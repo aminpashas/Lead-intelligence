@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogContent,
@@ -18,12 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Card, CardContent } from '@/components/ui/card'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { TagSelector } from './tag-selector'
 import {
-  Plus, Trash2, Loader2, Users, Sparkles, Filter, X,
+  Plus, Loader2, Users, Sparkles, Filter,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -64,6 +62,14 @@ const SOURCE_TYPE_OPTIONS = [
   'referral', 'walk_in', 'phone', 'email_campaign', 'sms_campaign', 'other',
 ]
 
+// Qualification chip colors — Aurea semantic, no blue
+const qualChipActive: Record<string, string> = {
+  hot: 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/30',
+  warm: 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/30',
+  cold: 'bg-aurea-surface-2 text-aurea-ink-2 border-aurea-border-strong',
+  unqualified: 'bg-aurea-surface-2 text-aurea-ink-3 border-aurea-border-strong',
+}
+
 export function SmartListBuilder({
   open,
   onOpenChange,
@@ -79,7 +85,7 @@ export function SmartListBuilder({
   // Form state
   const [name, setName] = useState(initialValues?.name || '')
   const [description, setDescription] = useState(initialValues?.description || '')
-  const [color, setColor] = useState(initialValues?.color || '#6366F1')
+  const [color, setColor] = useState(initialValues?.color || '#10B981')
   const [isPinned, setIsPinned] = useState(initialValues?.is_pinned || false)
 
   // Criteria state
@@ -197,8 +203,8 @@ export function SmartListBuilder({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
+          <DialogTitle className="aurea-display text-[20px] text-aurea-ink flex items-center gap-2">
+            <Sparkles className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
             {initialValues?.id ? 'Edit Smart List' : 'Create Smart List'}
           </DialogTitle>
         </DialogHeader>
@@ -223,7 +229,7 @@ export function SmartListBuilder({
                     onClick={() => setColor(c)}
                     className={cn(
                       'h-6 w-6 rounded-full transition-all',
-                      color === c && 'ring-2 ring-offset-1 ring-primary scale-110'
+                      color === c && 'ring-2 ring-offset-1 ring-aurea-primary scale-110'
                     )}
                     style={{ backgroundColor: c }}
                   />
@@ -243,19 +249,19 @@ export function SmartListBuilder({
 
           <div className="flex items-center gap-2">
             <Switch checked={isPinned} onCheckedChange={setIsPinned} />
-            <Label className="text-sm">Pin to top of Smart Lists</Label>
+            <Label className="text-[13px]">Pin to top of Smart Lists</Label>
           </div>
 
           {/* Criteria Builder */}
-          <div className="space-y-4 pt-4 border-t">
+          <div className="space-y-4 pt-4 border-t border-aurea-border">
             <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-primary" />
-              <Label className="text-base font-semibold">Filter Criteria</Label>
+              <Filter className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
+              <p className="aurea-eyebrow">Filter Criteria</p>
             </div>
 
             {/* Tags Filter */}
             <div className="space-y-2">
-              <Label className="text-sm">Tags</Label>
+              <Label className="text-[13px]">Tags</Label>
               <div className="flex items-center gap-2">
                 <TagSelector
                   selectedTagIds={tagIds}
@@ -279,26 +285,33 @@ export function SmartListBuilder({
 
             {/* AI Qualification */}
             <div className="space-y-2">
-              <Label className="text-sm">AI Qualification</Label>
+              <Label className="text-[13px]">AI Qualification</Label>
               <div className="flex flex-wrap gap-1.5">
-                {QUALIFICATION_OPTIONS.map((q) => (
-                  <Badge
-                    key={q}
-                    variant={qualifications.includes(q) ? 'default' : 'outline'}
-                    className="cursor-pointer capitalize"
-                    onClick={() => toggleArrayValue(qualifications, q, setQualifications)}
-                  >
-                    {q}
-                  </Badge>
-                ))}
+                {QUALIFICATION_OPTIONS.map((q) => {
+                  const active = qualifications.includes(q)
+                  return (
+                    <button
+                      key={q}
+                      onClick={() => toggleArrayValue(qualifications, q, setQualifications)}
+                      className={cn(
+                        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize transition-colors',
+                        active
+                          ? (qualChipActive[q] || 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30')
+                          : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                      )}
+                    >
+                      {q}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
             {/* Score Range */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-sm">AI Engagement Range</Label>
-                <span className="text-xs text-muted-foreground">{scoreRange[0]} – {scoreRange[1]}</span>
+                <Label className="text-[13px]">AI Engagement Range</Label>
+                <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">{scoreRange[0]} – {scoreRange[1]}</span>
               </div>
               <Slider
                 value={scoreRange}
@@ -311,55 +324,76 @@ export function SmartListBuilder({
 
             {/* Status */}
             <div className="space-y-2">
-              <Label className="text-sm">Lead Status</Label>
+              <Label className="text-[13px]">Lead Status</Label>
               <div className="flex flex-wrap gap-1.5">
-                {STATUS_OPTIONS.map((s) => (
-                  <Badge
-                    key={s}
-                    variant={statuses.includes(s) ? 'default' : 'outline'}
-                    className="cursor-pointer text-xs capitalize"
-                    onClick={() => toggleArrayValue(statuses, s, setStatuses)}
-                  >
-                    {s.replace(/_/g, ' ')}
-                  </Badge>
-                ))}
+                {STATUS_OPTIONS.map((s) => {
+                  const active = statuses.includes(s)
+                  return (
+                    <button
+                      key={s}
+                      onClick={() => toggleArrayValue(statuses, s, setStatuses)}
+                      className={cn(
+                        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize transition-colors',
+                        active
+                          ? 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30'
+                          : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                      )}
+                    >
+                      {s.replace(/_/g, ' ')}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
             {/* Pipeline Stage */}
             {stages.length > 0 && (
               <div className="space-y-2">
-                <Label className="text-sm">Pipeline Stage</Label>
+                <Label className="text-[13px]">Pipeline Stage</Label>
                 <div className="flex flex-wrap gap-1.5">
-                  {stages.map((stage) => (
-                    <Badge
-                      key={stage.id}
-                      variant={stageIds.includes(stage.id) ? 'default' : 'outline'}
-                      className="cursor-pointer text-xs gap-1"
-                      onClick={() => toggleArrayValue(stageIds, stage.id, setStageIds)}
-                    >
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: stage.color }} />
-                      {stage.name}
-                    </Badge>
-                  ))}
+                  {stages.map((stage) => {
+                    const active = stageIds.includes(stage.id)
+                    return (
+                      <button
+                        key={stage.id}
+                        onClick={() => toggleArrayValue(stageIds, stage.id, setStageIds)}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+                          active
+                            ? 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30'
+                            : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                        )}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
+                        {stage.name}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}
 
             {/* Source Type */}
             <div className="space-y-2">
-              <Label className="text-sm">Source Type</Label>
+              <Label className="text-[13px]">Source Type</Label>
               <div className="flex flex-wrap gap-1.5">
-                {SOURCE_TYPE_OPTIONS.map((s) => (
-                  <Badge
-                    key={s}
-                    variant={sourceTypes.includes(s) ? 'default' : 'outline'}
-                    className="cursor-pointer text-xs capitalize"
-                    onClick={() => toggleArrayValue(sourceTypes, s, setSourceTypes)}
-                  >
-                    {s.replace(/_/g, ' ')}
-                  </Badge>
-                ))}
+                {SOURCE_TYPE_OPTIONS.map((s) => {
+                  const active = sourceTypes.includes(s)
+                  return (
+                    <button
+                      key={s}
+                      onClick={() => toggleArrayValue(sourceTypes, s, setSourceTypes)}
+                      className={cn(
+                        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize transition-colors',
+                        active
+                          ? 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30'
+                          : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                      )}
+                    >
+                      {s.replace(/_/g, ' ')}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
@@ -367,21 +401,21 @@ export function SmartListBuilder({
             <div className="grid grid-cols-3 gap-3">
               <div className="flex items-center gap-2">
                 <Switch checked={hasPhone} onCheckedChange={setHasPhone} />
-                <Label className="text-sm">Has Phone</Label>
+                <Label className="text-[13px]">Has Phone</Label>
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={hasEmail} onCheckedChange={setHasEmail} />
-                <Label className="text-sm">Has Email</Label>
+                <Label className="text-[13px]">Has Email</Label>
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={smsConsent} onCheckedChange={setSmsConsent} />
-                <Label className="text-sm">SMS Consent</Label>
+                <Label className="text-[13px]">SMS Consent</Label>
               </div>
             </div>
           </div>
 
           {/* Preview & Actions */}
-          <div className="flex items-center justify-between pt-4 border-t">
+          <div className="flex items-center justify-between pt-4 border-t border-aurea-border">
             <div className="flex items-center gap-3">
               <Button
                 variant="outline"
@@ -391,14 +425,14 @@ export function SmartListBuilder({
                 className="gap-1.5"
               >
                 {previewLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-[15px] w-[15px] animate-spin" />
                 ) : (
-                  <Users className="h-4 w-4" />
+                  <Users className="h-[15px] w-[15px]" strokeWidth={1.75} />
                 )}
                 Preview Count
               </Button>
               {previewCount !== null && (
-                <span className="text-sm font-medium">
+                <span className="font-mono text-[12px] tabular-nums text-aurea-ink-2">
                   {previewCount.toLocaleString()} leads match
                 </span>
               )}

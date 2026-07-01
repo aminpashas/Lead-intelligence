@@ -59,66 +59,72 @@ export function FunnelPlaybook({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Pipeline Overview Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-card border rounded-xl p-4">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Users className="h-4 w-4" />
-            Total Leads
+        <div className="aurea-card p-4">
+          <div className="flex items-center justify-between">
+            <p className="aurea-eyebrow">Total Leads</p>
+            <Users className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
           </div>
-          <p className="text-2xl font-bold mt-1">{totalLeads}</p>
+          <p className="mt-3 aurea-display text-[26px] tabular-nums text-aurea-ink">
+            {totalLeads}
+          </p>
         </div>
-        <div className="bg-card border rounded-xl p-4">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <DollarSign className="h-4 w-4" />
-            Pipeline Value
+        <div className="aurea-card p-4">
+          <div className="flex items-center justify-between">
+            <p className="aurea-eyebrow">Pipeline Value</p>
+            <DollarSign className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
           </div>
-          <p className="text-2xl font-bold mt-1">${totalPipelineValue.toLocaleString()}</p>
+          <p className="mt-3 aurea-display text-[26px] tabular-nums text-aurea-ink">
+            ${totalPipelineValue.toLocaleString()}
+          </p>
         </div>
-        <div className="bg-card border rounded-xl p-4">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Target className="h-4 w-4" />
-            Active Stages
+        <div className="aurea-card p-4">
+          <div className="flex items-center justify-between">
+            <p className="aurea-eyebrow">Active Stages</p>
+            <Target className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
           </div>
-          <p className="text-2xl font-bold mt-1">{stages.filter((s) => !s.is_won && !s.is_lost).length}</p>
+          <p className="mt-3 aurea-display text-[26px] tabular-nums text-aurea-ink">
+            {stages.filter((s) => !s.is_won && !s.is_lost).length}
+          </p>
         </div>
-        <div className="bg-card border rounded-xl p-4">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Zap className="h-4 w-4" />
-            Automations
+        <div className="aurea-card p-4">
+          <div className="flex items-center justify-between">
+            <p className="aurea-eyebrow">Automations</p>
+            <Zap className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
           </div>
-          <p className="text-2xl font-bold mt-1">{FUNNEL_STAGES.reduce((sum, s) => sum + s.entryActions.length + s.engagementRules.length, 0)}</p>
+          <p className="mt-3 aurea-display text-[26px] tabular-nums text-aurea-ink">
+            {FUNNEL_STAGES.reduce((sum, s) => sum + s.entryActions.length + s.engagementRules.length, 0)}
+          </p>
         </div>
       </div>
 
       {/* Visual Funnel */}
-      <div className="bg-card border rounded-xl p-6">
-        <h2 className="text-lg font-semibold mb-4">Conversion Funnel</h2>
-        <div className="space-y-1">
+      <div className="aurea-card overflow-hidden">
+        <div className="border-b border-aurea-border px-5 py-4">
+          <h2 className="aurea-display text-[22px] text-aurea-ink">Conversion Funnel</h2>
+        </div>
+        <div className="space-y-2 px-5 py-4">
           {FUNNEL_STAGES.filter((s) => s.slug !== 'lost').map((stage, idx) => {
             const metrics = stageMetrics[stage.slug]
             const count = metrics?.count || 0
             const maxCount = Math.max(...Object.values(stageMetrics).map((m) => m.count), 1)
             const widthPct = Math.max(20, (count / maxCount) * 100)
-            const pipelineStage = stages.find((s) => s.slug === stage.slug)
-            const color = pipelineStage?.color || '#6B7280'
 
             return (
               <div key={stage.slug} className="flex items-center gap-3">
-                <div className="w-40 text-sm text-right truncate">{stage.name}</div>
+                <div className="w-40 text-[12px] text-right truncate text-aurea-ink-2">{stage.name}</div>
                 <div className="flex-1 relative">
                   <div
-                    className="h-8 rounded-md flex items-center px-3 transition-all"
-                    style={{
-                      width: `${widthPct}%`,
-                      backgroundColor: `${color}20`,
-                      borderLeft: `4px solid ${color}`,
-                    }}
+                    className="h-8 rounded-sm flex items-center px-3 bg-aurea-surface-2 border-l-2 border-aurea-primary transition-all"
+                    style={{ width: `${widthPct}%` }}
                   >
-                    <span className="text-xs font-medium">{count} leads</span>
+                    <span className="text-[11px] font-mono tabular-nums text-aurea-ink-2">
+                      {count} leads
+                    </span>
                     {metrics?.totalValue > 0 && (
-                      <span className="text-xs text-muted-foreground ml-auto">
+                      <span className="text-[11px] font-mono tabular-nums text-aurea-ink-3 ml-auto">
                         ${metrics.totalValue.toLocaleString()}
                       </span>
                     )}
@@ -126,7 +132,7 @@ export function FunnelPlaybook({
                 </div>
                 {idx < FUNNEL_STAGES.filter((s) => s.slug !== 'lost').length - 1 && (
                   <div className="w-6 flex justify-center">
-                    <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                    <ArrowRight className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />
                   </div>
                 )}
               </div>
@@ -137,86 +143,87 @@ export function FunnelPlaybook({
 
       {/* Stage-by-Stage Playbook */}
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold">Stage Playbook</h2>
+        <p className="aurea-eyebrow">Stage Playbook</p>
 
         {FUNNEL_STAGES.map((stage) => {
           const isExpanded = expandedStage === stage.slug
           const metrics = stageMetrics[stage.slug]
-          const pipelineStage = stages.find((s) => s.slug === stage.slug)
-          const color = pipelineStage?.color || '#6B7280'
           const intensityBadge = getIntensityBadge(stage.engagementIntensity)
           const urgencyClass = getStageUrgencyColor(stage.urgency)
           const tab = getTabForStage(stage.slug)
 
           return (
-            <div key={stage.slug} className="bg-card border rounded-xl overflow-hidden">
+            <div key={stage.slug} className="aurea-card overflow-hidden">
               {/* Stage Header */}
               <button
                 onClick={() => toggleStage(stage.slug)}
-                className="w-full flex items-center gap-4 p-4 hover:bg-accent/50 transition-colors text-left"
+                className="w-full flex items-center gap-4 p-4 hover:bg-aurea-surface-2 transition-colors text-left"
               >
-                <div
-                  className="w-3 h-12 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: color }}
-                />
+                <div className="w-1 h-10 rounded-full flex-shrink-0 bg-aurea-primary" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-semibold">{stage.name}</h3>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${intensityBadge.color}`}>
+                    <h3 className="text-[14px] font-semibold text-aurea-ink">{stage.name}</h3>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-sm font-medium ${intensityBadge.color}`}>
                       {intensityBadge.label}
                     </span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${urgencyClass}`}>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-sm font-medium ${urgencyClass}`}>
                       {stage.urgency.charAt(0).toUpperCase() + stage.urgency.slice(1)} Priority
                     </span>
                     {stage.maxDaysInStage && (
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Timer className="h-3 w-3" />
+                      <span className="text-[11px] text-aurea-ink-3 flex items-center gap-1">
+                        <Timer className="h-3 w-3" strokeWidth={1.75} />
                         Max {stage.maxDaysInStage}d
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground mt-0.5">{stage.goal}</p>
+                  <p className="text-[12px] text-aurea-ink-3 mt-0.5">{stage.goal}</p>
                 </div>
 
                 {/* Stage Metrics */}
-                <div className="flex items-center gap-4 flex-shrink-0 text-sm">
+                <div className="flex items-center gap-4 flex-shrink-0 text-[13px]">
                   {metrics && (
                     <>
                       <div className="text-center">
-                        <div className="font-semibold">{metrics.count}</div>
-                        <div className="text-xs text-muted-foreground">Leads</div>
+                        <div className="font-mono tabular-nums font-semibold text-aurea-ink">{metrics.count}</div>
+                        <div className="text-[10px] text-aurea-ink-3">Leads</div>
                       </div>
                       {metrics.totalValue > 0 && (
                         <div className="text-center">
-                          <div className="font-semibold">${(metrics.totalValue / 1000).toFixed(0)}k</div>
-                          <div className="text-xs text-muted-foreground">Value</div>
+                          <div className="font-mono tabular-nums font-semibold text-aurea-ink">
+                            ${(metrics.totalValue / 1000).toFixed(0)}k
+                          </div>
+                          <div className="text-[10px] text-aurea-ink-3">Value</div>
                         </div>
                       )}
                       {metrics.hotLeads > 0 && (
                         <div className="text-center">
-                          <div className="font-semibold text-orange-500 flex items-center gap-1">
-                            <Flame className="h-3 w-3" />{metrics.hotLeads}
+                          <div className="font-mono tabular-nums font-semibold text-aurea-rose flex items-center gap-1">
+                            <Flame className="h-3 w-3" strokeWidth={1.75} />{metrics.hotLeads}
                           </div>
-                          <div className="text-xs text-muted-foreground">Hot</div>
+                          <div className="text-[10px] text-aurea-ink-3">Hot</div>
                         </div>
                       )}
                       {metrics.noResponseCount > 0 && (
                         <div className="text-center">
-                          <div className="font-semibold text-red-500">{metrics.noResponseCount}</div>
-                          <div className="text-xs text-muted-foreground">No Reply</div>
+                          <div className="font-mono tabular-nums font-semibold text-aurea-amber">
+                            {metrics.noResponseCount}
+                          </div>
+                          <div className="text-[10px] text-aurea-ink-3">No Reply</div>
                         </div>
                       )}
                     </>
                   )}
-                  {isExpanded ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+                  {isExpanded
+                    ? <ChevronDown className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+                    : <ChevronRight className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />}
                 </div>
               </button>
 
               {/* Expanded Content */}
               {isExpanded && (
-                <div className="border-t">
+                <div className="border-t border-aurea-border">
                   {/* Tabs */}
-                  <div className="flex border-b px-4">
+                  <div className="flex border-b border-aurea-border px-4">
                     {[
                       { id: 'strategy', label: 'Sales Strategy', icon: Target },
                       { id: 'automation', label: 'Automations', icon: Zap },
@@ -227,57 +234,38 @@ export function FunnelPlaybook({
                       <button
                         key={t.id}
                         onClick={() => setTabForStage(stage.slug, t.id)}
-                        className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                        className={`flex items-center gap-1.5 px-4 py-2.5 text-[12px] font-medium border-b-2 transition-colors ${
                           tab === t.id
-                            ? 'border-primary text-primary'
-                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                            ? 'border-aurea-primary text-aurea-primary'
+                            : 'border-transparent text-aurea-ink-3 hover:text-aurea-ink'
                         }`}
                       >
-                        <t.icon className="h-3.5 w-3.5" />
+                        <t.icon className="h-3.5 w-3.5" strokeWidth={1.75} />
                         {t.label}
                       </button>
                     ))}
                   </div>
 
                   <div className="p-5">
-                    {/* Sales Strategy Tab */}
-                    {tab === 'strategy' && (
-                      <SalesStrategyTab stage={stage} />
-                    )}
-
-                    {/* Automations Tab */}
-                    {tab === 'automation' && (
-                      <AutomationsTab stage={stage} />
-                    )}
-
-                    {/* Engagement Rules Tab */}
-                    {tab === 'engagement' && (
-                      <EngagementTab stage={stage} />
-                    )}
-
-                    {/* Escalation Tab */}
-                    {tab === 'escalation' && (
-                      <EscalationTab stage={stage} />
-                    )}
-
-                    {/* KPIs Tab */}
-                    {tab === 'kpis' && (
-                      <KPIsTab stage={stage} />
-                    )}
+                    {tab === 'strategy' && <SalesStrategyTab stage={stage} />}
+                    {tab === 'automation' && <AutomationsTab stage={stage} />}
+                    {tab === 'engagement' && <EngagementTab stage={stage} />}
+                    {tab === 'escalation' && <EscalationTab stage={stage} />}
+                    {tab === 'kpis' && <KPIsTab stage={stage} />}
                   </div>
 
                   {/* Stage Transitions */}
-                  <div className="border-t px-5 py-3 bg-muted/30 flex items-center gap-4 text-sm">
+                  <div className="border-t border-aurea-border px-5 py-3 bg-aurea-surface-2 flex items-center gap-4 text-[12px]">
                     <div className="flex items-center gap-1.5">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      <span className="text-muted-foreground">Success:</span>
-                      <span className="font-medium">{stage.successTransition}</span>
+                      <CheckCircle2 className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />
+                      <span className="text-aurea-ink-3">Success:</span>
+                      <span className="font-medium text-aurea-ink">{stage.successTransition}</span>
                     </div>
                     {stage.failureTransitions.length > 0 && (
                       <div className="flex items-center gap-1.5">
-                        <XCircle className="h-4 w-4 text-red-500" />
-                        <span className="text-muted-foreground">Failure:</span>
-                        <span className="font-medium">{stage.failureTransitions.join(', ')}</span>
+                        <XCircle className="h-4 w-4 text-aurea-rose" strokeWidth={1.75} />
+                        <span className="text-aurea-ink-3">Failure:</span>
+                        <span className="font-medium text-aurea-ink">{stage.failureTransitions.join(', ')}</span>
                       </div>
                     )}
                   </div>
@@ -299,38 +287,42 @@ function SalesStrategyTab({ stage }: { stage: FunnelStageStrategy }) {
       {stage.salesStrategies.map((strategy, idx) => (
         <div key={idx} className="space-y-3">
           <div>
-            <h4 className="font-semibold flex items-center gap-2">
-              <Shield className="h-4 w-4 text-primary" />
+            <h4 className="text-[14px] font-semibold text-aurea-ink flex items-center gap-2">
+              <Shield className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />
               {strategy.name}
             </h4>
-            <p className="text-sm text-muted-foreground mt-1">{strategy.description}</p>
+            <p className="text-[13px] text-aurea-ink-2 mt-1">{strategy.description}</p>
           </div>
 
           {/* Talk Track */}
-          <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <div className="flex items-center gap-1.5 text-sm font-medium text-blue-700 dark:text-blue-300 mb-2">
-              <MessageSquare className="h-3.5 w-3.5" />
+          <div className="bg-aurea-surface-2 border border-aurea-border rounded-sm p-4">
+            <div className="flex items-center gap-1.5 text-[12px] font-medium text-aurea-ink-2 mb-2">
+              <MessageSquare className="h-3.5 w-3.5 text-aurea-primary" strokeWidth={1.75} />
               Talk Track
             </div>
-            <p className="text-sm italic">&ldquo;{strategy.talkTrack}&rdquo;</p>
+            <p className="text-[13px] italic text-aurea-ink-2">&ldquo;{strategy.talkTrack}&rdquo;</p>
           </div>
 
           {/* Objection Handlers */}
           {strategy.objectionHandlers.length > 0 && (
             <div className="space-y-2">
-              <h5 className="text-sm font-medium flex items-center gap-1.5">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              <h5 className="text-[12px] font-medium text-aurea-ink flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-aurea-amber" strokeWidth={1.75} />
                 Objection Handlers
               </h5>
               {strategy.objectionHandlers.map((oh, ohIdx) => (
-                <div key={ohIdx} className="bg-muted/50 rounded-lg p-3 space-y-2">
+                <div key={ohIdx} className="bg-aurea-surface-2 border border-aurea-border rounded-sm p-3 space-y-2">
                   <div className="flex items-start gap-2">
-                    <span className="text-red-500 font-medium text-xs mt-0.5 shrink-0">OBJECTION:</span>
-                    <p className="text-sm">&ldquo;{oh.objection}&rdquo;</p>
+                    <span className="text-aurea-rose font-semibold text-[10.5px] uppercase tracking-wide mt-0.5 shrink-0">
+                      Objection:
+                    </span>
+                    <p className="text-[13px] text-aurea-ink-2">&ldquo;{oh.objection}&rdquo;</p>
                   </div>
                   <div className="flex items-start gap-2">
-                    <span className="text-green-600 font-medium text-xs mt-0.5 shrink-0">RESPONSE:</span>
-                    <p className="text-sm">&ldquo;{oh.response}&rdquo;</p>
+                    <span className="text-aurea-primary font-semibold text-[10.5px] uppercase tracking-wide mt-0.5 shrink-0">
+                      Response:
+                    </span>
+                    <p className="text-[13px] text-aurea-ink-2">&ldquo;{oh.response}&rdquo;</p>
                   </div>
                 </div>
               ))}
@@ -345,23 +337,25 @@ function SalesStrategyTab({ stage }: { stage: FunnelStageStrategy }) {
 function AutomationsTab({ stage }: { stage: FunnelStageStrategy }) {
   return (
     <div className="space-y-4">
-      <h4 className="font-semibold">When a lead enters &ldquo;{stage.name}&rdquo;</h4>
+      <h4 className="text-[14px] font-semibold text-aurea-ink">
+        When a lead enters &ldquo;{stage.name}&rdquo;
+      </h4>
       <div className="space-y-2">
         {stage.entryActions.map((action, idx) => (
-          <div key={idx} className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
-            <div className="mt-0.5">
-              {action.type === 'sms' && <MessageSquare className="h-4 w-4 text-green-500" />}
-              {action.type === 'email' && <Mail className="h-4 w-4 text-blue-500" />}
-              {action.type === 'task' && <CheckCircle2 className="h-4 w-4 text-purple-500" />}
-              {action.type === 'notification' && <AlertTriangle className="h-4 w-4 text-amber-500" />}
-              {action.type === 'ai_score' && <Zap className="h-4 w-4 text-primary" />}
+          <div key={idx} className="flex items-start gap-3 p-3 bg-aurea-surface-2 border border-aurea-border rounded-sm">
+            <div className="mt-0.5 shrink-0">
+              {action.type === 'sms' && <MessageSquare className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />}
+              {action.type === 'email' && <Mail className="h-4 w-4 text-aurea-ink-2" strokeWidth={1.75} />}
+              {action.type === 'task' && <CheckCircle2 className="h-4 w-4 text-aurea-ink-2" strokeWidth={1.75} />}
+              {action.type === 'notification' && <AlertTriangle className="h-4 w-4 text-aurea-amber" strokeWidth={1.75} />}
+              {action.type === 'ai_score' && <Zap className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium uppercase text-muted-foreground">
+                <span className="aurea-eyebrow">
                   {action.type.replace('_', ' ')}
                 </span>
-                <span className="text-xs text-muted-foreground">
+                <span className="font-mono text-[11px] text-aurea-ink-3">
                   {action.delay_minutes === 0
                     ? 'Immediately'
                     : action.delay_minutes < 60
@@ -371,9 +365,9 @@ function AutomationsTab({ stage }: { stage: FunnelStageStrategy }) {
                         : `After ${Math.round(action.delay_minutes / 1440)}d`}
                 </span>
               </div>
-              <p className="text-sm mt-0.5">{action.description}</p>
+              <p className="text-[13px] text-aurea-ink-2 mt-0.5">{action.description}</p>
               {action.template && (
-                <div className="mt-2 p-2 bg-background rounded border text-xs text-muted-foreground">
+                <div className="mt-2 p-2 bg-aurea-canvas border border-aurea-border rounded-sm text-[11px] font-mono text-aurea-ink-3">
                   {action.template}
                 </div>
               )}
@@ -389,28 +383,28 @@ function EngagementTab({ stage }: { stage: FunnelStageStrategy }) {
   return (
     <div className="space-y-3">
       {stage.engagementRules.map((rule, idx) => (
-        <div key={idx} className="flex items-start gap-3 p-4 bg-muted/50 rounded-lg">
-          <div className="mt-0.5">
-            {rule.channel === 'sms' && <MessageSquare className="h-4 w-4 text-green-500" />}
-            {rule.channel === 'email' && <Mail className="h-4 w-4 text-blue-500" />}
-            {rule.channel === 'call' && <Phone className="h-4 w-4 text-purple-500" />}
-            {rule.channel === 'multi' && <Zap className="h-4 w-4 text-primary" />}
+        <div key={idx} className="flex items-start gap-3 p-4 bg-aurea-surface-2 border border-aurea-border rounded-sm">
+          <div className="mt-0.5 shrink-0">
+            {rule.channel === 'sms' && <MessageSquare className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />}
+            {rule.channel === 'email' && <Mail className="h-4 w-4 text-aurea-ink-2" strokeWidth={1.75} />}
+            {rule.channel === 'call' && <Phone className="h-4 w-4 text-aurea-ink-2" strokeWidth={1.75} />}
+            {rule.channel === 'multi' && <Zap className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-medium uppercase px-2 py-0.5 rounded bg-background border">
+              <span className="aurea-eyebrow">
                 {rule.channel}
               </span>
-              <span className="text-xs text-muted-foreground">{rule.frequency}</span>
+              <span className="text-[11px] text-aurea-ink-3">{rule.frequency}</span>
               {rule.aiPersonalize && (
-                <span className="text-xs px-2 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                <span className="text-[11px] px-2 py-0.5 rounded-sm bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20">
                   AI Personalized
                 </span>
               )}
             </div>
-            <p className="text-sm mt-1.5">{rule.description}</p>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-              <Clock className="h-3 w-3" />
+            <p className="text-[13px] text-aurea-ink-2 mt-1.5">{rule.description}</p>
+            <div className="flex items-center gap-1 text-[11px] font-mono text-aurea-ink-3 mt-1">
+              <Clock className="h-3 w-3" strokeWidth={1.75} />
               {rule.timing}
             </div>
           </div>
@@ -421,35 +415,37 @@ function EngagementTab({ stage }: { stage: FunnelStageStrategy }) {
 }
 
 function EscalationTab({ stage }: { stage: FunnelStageStrategy }) {
+  const priorityClasses: Record<string, string> = {
+    urgent: 'bg-aurea-rose/10 border-l-aurea-rose',
+    high: 'bg-aurea-amber/10 border-l-aurea-amber',
+    medium: 'bg-aurea-gold/10 border-l-aurea-gold',
+  }
+  const priorityTextClasses: Record<string, string> = {
+    urgent: 'text-aurea-rose',
+    high: 'text-aurea-amber',
+    medium: 'text-aurea-ink-2',
+  }
   return (
     <div className="space-y-3">
       {stage.escalationTriggers.map((trigger, idx) => (
         <div
           key={idx}
-          className={`p-4 rounded-lg border-l-4 ${
-            trigger.priority === 'urgent'
-              ? 'bg-red-50 dark:bg-red-950/20 border-red-500'
-              : trigger.priority === 'high'
-                ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-500'
-                : 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-500'
-          }`}
+          className={`p-4 rounded-sm border border-aurea-border border-l-4 ${priorityClasses[trigger.priority] ?? 'bg-aurea-surface-2 border-l-aurea-border'}`}
         >
           <div className="flex items-center gap-2 mb-1">
-            <span className={`text-xs font-bold uppercase ${
-              trigger.priority === 'urgent' ? 'text-red-600' : trigger.priority === 'high' ? 'text-orange-600' : 'text-yellow-600'
-            }`}>
+            <span className={`text-[10.5px] font-bold uppercase tracking-wide ${priorityTextClasses[trigger.priority] ?? 'text-aurea-ink-3'}`}>
               {trigger.priority}
             </span>
             {trigger.afterHours > 0 && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Clock className="h-3 w-3" />
+              <span className="text-[11px] font-mono text-aurea-ink-3 flex items-center gap-1">
+                <Clock className="h-3 w-3" strokeWidth={1.75} />
                 After {trigger.afterHours < 24 ? `${trigger.afterHours}h` : `${Math.round(trigger.afterHours / 24)}d`}
               </span>
             )}
           </div>
-          <p className="text-sm font-medium">{trigger.condition}</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            <ArrowRight className="h-3 w-3 inline mr-1" />
+          <p className="text-[13px] font-medium text-aurea-ink">{trigger.condition}</p>
+          <p className="text-[12px] text-aurea-ink-3 mt-1">
+            <ArrowRight className="h-3 w-3 inline mr-1" strokeWidth={1.75} />
             {trigger.action}
           </p>
         </div>
@@ -462,14 +458,16 @@ function KPIsTab({ stage }: { stage: FunnelStageStrategy }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {stage.kpis.map((kpi, idx) => (
-        <div key={idx} className="p-4 bg-muted/50 rounded-lg">
+        <div key={idx} className="p-4 bg-aurea-surface-2 border border-aurea-border rounded-sm">
           <div className="flex items-center justify-between">
-            <h5 className="text-sm font-medium">{kpi.name}</h5>
-            <span className="text-sm font-bold text-primary">{kpi.target}</span>
+            <h5 className="text-[13px] font-medium text-aurea-ink">{kpi.name}</h5>
+            <span className="font-mono tabular-nums text-[13px] font-semibold text-aurea-primary">
+              {kpi.target}
+            </span>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">{kpi.description}</p>
-          <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-primary/60 rounded-full" style={{ width: '0%' }} />
+          <p className="text-[11px] text-aurea-ink-3 mt-1">{kpi.description}</p>
+          <div className="mt-2 h-[3px] bg-aurea-border rounded-full overflow-hidden">
+            <div className="h-full bg-aurea-primary/60 rounded-full" style={{ width: '0%' }} />
           </div>
         </div>
       ))}

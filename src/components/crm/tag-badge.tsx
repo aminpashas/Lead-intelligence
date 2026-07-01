@@ -17,7 +17,7 @@ export function TagBadge({ tag, onRemove, compact, className }: TagBadgeProps) {
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border font-medium transition-colors',
         compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs',
-        'bg-background hover:bg-accent/50',
+        'bg-aurea-surface border-aurea-border text-aurea-ink-2 hover:bg-aurea-surface-2',
         className
       )}
     >
@@ -32,7 +32,7 @@ export function TagBadge({ tag, onRemove, compact, className }: TagBadgeProps) {
             e.stopPropagation()
             onRemove()
           }}
-          className="shrink-0 rounded-full p-0.5 hover:bg-destructive/10 hover:text-destructive transition-colors"
+          className="shrink-0 rounded-full p-0.5 hover:bg-aurea-rose/10 hover:text-aurea-rose transition-colors"
         >
           <X className="h-3 w-3" />
         </button>
@@ -68,7 +68,7 @@ export function TagBadgeList({
       ))}
       {overflow > 0 && (
         <span className={cn(
-          'inline-flex items-center rounded-full border bg-muted font-medium text-muted-foreground',
+          'inline-flex items-center rounded-full border border-aurea-border bg-aurea-surface-2 font-medium text-aurea-ink-3',
           compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs'
         )}>
           +{overflow}

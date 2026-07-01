@@ -206,8 +206,9 @@ export default function AttributionPage() {
           </Link>
           <BarChart3 className="h-6 w-6 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">Marketing Attribution</h1>
-            <p className="text-sm text-muted-foreground">End-to-end ROI tracking from ad click to revenue</p>
+            <p className="aurea-eyebrow">Analytics</p>
+            <h1 className="aurea-display text-[40px] text-aurea-ink">Marketing Attribution</h1>
+            <p className="text-sm text-aurea-ink-2">End-to-end ROI tracking from ad click to revenue</p>
           </div>
         </div>
         <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
@@ -227,10 +228,10 @@ export default function AttributionPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard icon={Users} label="Total Leads" value={kpis.totalLeads} color="text-blue-600" />
-        <KPICard icon={TrendingUp} label="Conversions" value={kpis.convertedLeads} color="text-green-600" subtitle={`${kpis.conversionRate}% rate`} />
-        <KPICard icon={DollarSign} label="Total Revenue" value={formatCurrency(kpis.totalRevenue)} color="text-emerald-600" />
-        <KPICard icon={DollarSign} label="Avg Deal Size" value={formatCurrency(kpis.avgDealSize)} color="text-purple-600" />
+        <KPICard icon={Users} label="Total Leads" value={kpis.totalLeads} color="text-aurea-ink-3" />
+        <KPICard icon={TrendingUp} label="Conversions" value={kpis.convertedLeads} color="text-aurea-primary" subtitle={`${kpis.conversionRate}% rate`} />
+        <KPICard icon={DollarSign} label="Total Revenue" value={formatCurrency(kpis.totalRevenue)} color="text-aurea-primary" />
+        <KPICard icon={DollarSign} label="Avg Deal Size" value={formatCurrency(kpis.avgDealSize)} color="text-aurea-primary" />
       </div>
 
       {/* Paid vs Organic */}
@@ -239,9 +240,9 @@ export default function AttributionPage() {
           <Card key={group.name} className={group.revenue > 0 ? 'border-primary/20' : ''}>
             <CardContent className="pt-4 pb-3">
               <div className="flex items-center gap-2 mb-2">
-                {group.name.includes('Google') ? <Megaphone className="h-4 w-4 text-blue-500" /> :
-                 group.name.includes('Meta') ? <Megaphone className="h-4 w-4 text-indigo-500" /> :
-                 <Globe className="h-4 w-4 text-emerald-500" />}
+                {group.name.includes('Google') ? <Megaphone className="h-4 w-4 text-aurea-ink-3" /> :
+                 group.name.includes('Meta') ? <Megaphone className="h-4 w-4 text-aurea-primary" /> :
+                 <Globe className="h-4 w-4 text-aurea-primary" />}
                 <span className="text-sm font-medium">{group.name}</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
@@ -250,11 +251,11 @@ export default function AttributionPage() {
                   <p className="text-[10px] text-muted-foreground">Leads</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold text-green-600">{group.conversions}</p>
+                  <p className="text-lg font-bold text-aurea-primary">{group.conversions}</p>
                   <p className="text-[10px] text-muted-foreground">{group.conversionRate}% conv.</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold text-emerald-600">{formatCurrency(group.revenue)}</p>
+                  <p className="text-lg font-bold text-aurea-primary">{formatCurrency(group.revenue)}</p>
                   <p className="text-[10px] text-muted-foreground">Revenue</p>
                 </div>
               </div>
@@ -342,7 +343,7 @@ export default function AttributionPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-blue-500" />
+                <TrendingUp className="h-5 w-5 text-aurea-ink-3" />
                 Conversion Funnel by Source
               </CardTitle>
               <CardDescription>How leads from each source progress through the pipeline</CardDescription>
@@ -363,19 +364,19 @@ export default function AttributionPage() {
                           </span>
                         </div>
                         <div className="flex gap-1 h-5">
-                          <div className="bg-blue-500 rounded-l h-full transition-all" style={{ width: `${(source.total / maxWidth) * 100}%` }} title={`Total: ${source.total}`} />
-                          <div className="bg-amber-500 h-full transition-all" style={{ width: `${maxWidth > 0 ? (source.qualified / maxWidth) * 100 : 0}%` }} title={`Qualified: ${source.qualified}`} />
-                          <div className="bg-purple-500 h-full transition-all" style={{ width: `${maxWidth > 0 ? (source.consulted / maxWidth) * 100 : 0}%` }} title={`Consulted: ${source.consulted}`} />
-                          <div className="bg-green-500 rounded-r h-full transition-all" style={{ width: `${maxWidth > 0 ? (source.converted / maxWidth) * 100 : 0}%` }} title={`Converted: ${source.converted}`} />
+                          <div className="bg-aurea-primary rounded-l h-full transition-all" style={{ width: `${(source.total / maxWidth) * 100}%` }} title={`Total: ${source.total}`} />
+                          <div className="bg-aurea-amber h-full transition-all" style={{ width: `${maxWidth > 0 ? (source.qualified / maxWidth) * 100 : 0}%` }} title={`Qualified: ${source.qualified}`} />
+                          <div className="bg-aurea-ink-2 h-full transition-all" style={{ width: `${maxWidth > 0 ? (source.consulted / maxWidth) * 100 : 0}%` }} title={`Consulted: ${source.consulted}`} />
+                          <div className="bg-aurea-primary/50 rounded-r h-full transition-all" style={{ width: `${maxWidth > 0 ? (source.converted / maxWidth) * 100 : 0}%` }} title={`Converted: ${source.converted}`} />
                         </div>
                       </div>
                     )
                   })}
                   <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2">
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-blue-500" /> Total</span>
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-amber-500" /> Qualified</span>
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-purple-500" /> Consulted</span>
-                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-green-500" /> Converted</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-aurea-primary" /> Total</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-aurea-amber" /> Qualified</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-aurea-ink-2" /> Consulted</span>
+                    <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-aurea-primary/50" /> Converted</span>
                   </div>
                 </div>
               )}
@@ -386,7 +387,7 @@ export default function AttributionPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <Clock className="h-5 w-5 text-orange-500" />
+                <Clock className="h-5 w-5 text-aurea-amber" />
                 Time to Convert by Source
               </CardTitle>
               <CardDescription>Average days from lead capture to conversion</CardDescription>
@@ -489,11 +490,11 @@ function AttributionTable({
                   </td>
                   <td className="py-2.5 text-right tabular-nums">{row.leads}</td>
                   <td className="py-2.5 text-right tabular-nums">
-                    {row.hotLeads > 0 && <span className="text-red-500">{row.hotLeads}</span>}
+                    {row.hotLeads > 0 && <span className="text-aurea-rose">{row.hotLeads}</span>}
                     {row.hotLeads === 0 && <span className="text-muted-foreground">0</span>}
                   </td>
                   <td className="py-2.5 text-right tabular-nums">{row.consultations}</td>
-                  <td className="py-2.5 text-right tabular-nums font-medium text-green-600">{row.conversions}</td>
+                  <td className="py-2.5 text-right tabular-nums font-medium text-aurea-primary">{row.conversions}</td>
                   <td className="py-2.5 text-right">
                     <Badge
                       variant={row.conversionRate > 20 ? 'default' : row.conversionRate > 10 ? 'secondary' : 'outline'}
@@ -506,7 +507,7 @@ function AttributionTable({
                   <td className="py-2.5 text-right tabular-nums text-muted-foreground">{formatCurrency(row.avgDealSize)}</td>
                   <td className="py-2.5 text-right tabular-nums">
                     {row.avgScore > 0 ? (
-                      <span className={row.avgScore >= 70 ? 'text-green-600' : row.avgScore >= 40 ? 'text-amber-600' : 'text-muted-foreground'}>
+                      <span className={row.avgScore >= 70 ? 'text-aurea-primary' : row.avgScore >= 40 ? 'text-aurea-amber' : 'text-muted-foreground'}>
                         {row.avgScore}
                       </span>
                     ) : (
@@ -533,16 +534,14 @@ function KPICard({
   subtitle?: string
 }) {
   return (
-    <Card>
-      <CardContent className="pt-4 pb-3">
-        <div className="flex items-center gap-2 mb-1.5">
-          <Icon className={`h-4 w-4 ${color}`} />
-          <span className="text-xs text-muted-foreground">{label}</span>
-        </div>
-        <p className="text-2xl font-bold">{value}</p>
-        {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
-      </CardContent>
-    </Card>
+    <div className="aurea-card p-4">
+      <div className="flex items-center gap-2 mb-1.5">
+        <Icon className={`h-4 w-4 ${color}`} strokeWidth={1.75} />
+        <span className="aurea-eyebrow">{label}</span>
+      </div>
+      <p className="aurea-display text-[26px] tabular-nums">{value}</p>
+      {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+    </div>
   )
 }
 
@@ -656,28 +655,28 @@ function SpendROASView({
           icon={DollarSign}
           label="Total Spend"
           value={formatCurrency(totalSpend)}
-          color="text-rose-600"
+          color="text-aurea-rose"
           subtitle={merged.length > 0 ? `${merged.length} campaign${merged.length === 1 ? '' : 's'}` : undefined}
         />
         <KPICard
           icon={Calculator}
           label="Avg CPC"
           value={cpc > 0 ? `$${cpc.toFixed(2)}` : '—'}
-          color="text-blue-600"
+          color="text-aurea-ink-3"
           subtitle={`${totalClicks.toLocaleString()} clicks`}
         />
         <KPICard
           icon={Calculator}
           label="CPA (CRM)"
           value={cpa > 0 ? `$${cpa.toFixed(0)}` : '—'}
-          color="text-amber-600"
+          color="text-aurea-amber"
           subtitle={`${totalCrmConversions} conversions`}
         />
         <KPICard
           icon={TrendingUp}
           label="Blended ROAS"
           value={roas > 0 ? `${roas.toFixed(2)}×` : '—'}
-          color={roas >= 3 ? 'text-emerald-600' : roas >= 1 ? 'text-amber-600' : 'text-rose-600'}
+          color={roas >= 3 ? 'text-aurea-primary' : roas >= 1 ? 'text-aurea-amber' : 'text-aurea-rose'}
           subtitle={totalCrmRevenue > 0 ? 'CRM revenue ÷ spend' : 'Platform revenue ÷ spend'}
         />
       </div>
@@ -720,7 +719,7 @@ function SpendROASView({
                       <td className="py-2.5 text-right tabular-nums">{formatCurrency(c.conversion_value)}</td>
                       <td className="py-2.5 text-right tabular-nums">
                         {channelRoas > 0 ? (
-                          <span className={channelRoas >= 3 ? 'text-emerald-600 font-medium' : channelRoas >= 1 ? 'text-amber-600' : 'text-rose-600'}>
+                          <span className={channelRoas >= 3 ? 'text-aurea-primary font-medium' : channelRoas >= 1 ? 'text-aurea-amber' : 'text-aurea-rose'}>
                             {channelRoas.toFixed(2)}×
                           </span>
                         ) : <span className="text-muted-foreground">—</span>}
@@ -776,7 +775,7 @@ function SpendROASView({
                         <div className="flex items-center gap-1.5">
                           {!row.matched && (
                             <span title="No matching utm_campaign in CRM leads — check tagging">
-                              <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
+                              <AlertTriangle className="h-3 w-3 text-aurea-amber shrink-0" />
                             </span>
                           )}
                           <span className="truncate">{row.campaignName}</span>
@@ -795,12 +794,12 @@ function SpendROASView({
                       <td className="py-2.5 text-right tabular-nums">
                         {row.matched ? row.crmLeads : <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="py-2.5 text-right tabular-nums font-medium text-green-600">
+                      <td className="py-2.5 text-right tabular-nums font-medium text-aurea-primary">
                         {row.matched ? row.crmConversions : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="py-2.5 text-right tabular-nums">
                         {rowCpa > 0 ? (
-                          <span className={rowCpa <= 100 ? 'text-emerald-600' : rowCpa <= 500 ? 'text-amber-600' : 'text-rose-600'}>
+                          <span className={rowCpa <= 100 ? 'text-aurea-primary' : rowCpa <= 500 ? 'text-aurea-amber' : 'text-aurea-rose'}>
                             ${rowCpa.toFixed(0)}
                           </span>
                         ) : <span className="text-muted-foreground">—</span>}
@@ -808,7 +807,7 @@ function SpendROASView({
                       <td className="py-2.5 text-right tabular-nums">{formatCurrency(rowRevenue)}</td>
                       <td className="py-2.5 text-right tabular-nums">
                         {rowRoas > 0 ? (
-                          <span className={rowRoas >= 3 ? 'text-emerald-600 font-bold' : rowRoas >= 1 ? 'text-amber-600' : 'text-rose-600'}>
+                          <span className={rowRoas >= 3 ? 'text-aurea-primary font-semibold' : rowRoas >= 1 ? 'text-aurea-amber' : 'text-aurea-rose'}>
                             {rowRoas.toFixed(2)}×
                           </span>
                         ) : <span className="text-muted-foreground">—</span>}

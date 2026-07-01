@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -17,19 +16,27 @@ const AGENT_CONFIG = {
   setter: {
     label: 'Setter',
     description: 'Qualifying & booking consultations',
-    color: 'bg-blue-100 text-blue-800 border-blue-200',
+    // emerald = active AI role
+    dotColor: 'bg-aurea-primary',
+    textColor: 'text-aurea-primary',
+    chipClass: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
     icon: Phone,
   },
   closer: {
     label: 'Closer',
     description: 'Closing deals & commitment',
-    color: 'bg-purple-100 text-purple-800 border-purple-200',
+    // gold = conversion / deal-closing
+    dotColor: 'bg-aurea-gold',
+    textColor: 'text-aurea-gold',
+    chipClass: 'bg-aurea-gold/10 text-aurea-gold border border-aurea-gold/20',
     icon: Target,
   },
   none: {
     label: 'Manual',
     description: 'No AI agent assigned',
-    color: 'bg-gray-100 text-gray-600 border-gray-200',
+    dotColor: 'bg-aurea-ink-3',
+    textColor: 'text-aurea-ink-3',
+    chipClass: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
     icon: UserCheck,
   },
 } as const
@@ -85,12 +92,12 @@ export function AgentIndicator({
   return (
     <div className="flex items-center gap-2">
       <div className="flex items-center gap-1.5" title={config.description}>
-        <Badge variant="outline" className={`${config.color} gap-1 text-xs font-medium`}>
-          <Icon className="h-3 w-3" />
+        <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-medium ${config.chipClass}`}>
+          <Icon className="h-3 w-3" strokeWidth={1.75} />
           {config.label} Agent
-        </Badge>
+        </span>
         {handoffCount != null && handoffCount > 0 && (
-          <span className="text-xs text-muted-foreground" title={`${handoffCount} handoff(s) in this conversation`}>
+          <span className="text-[11px] text-aurea-ink-3" title={`${handoffCount} handoff(s) in this conversation`}>
             ({handoffCount} handoff{handoffCount > 1 ? 's' : ''})
           </span>
         )}
@@ -101,7 +108,7 @@ export function AgentIndicator({
         onValueChange={(v) => v && handleAgentSwitch(v)}
         disabled={switching}
       >
-        <SelectTrigger className="w-24 h-7 text-xs">
+        <SelectTrigger className="h-7 w-24 text-xs">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -124,9 +131,7 @@ export function AgentMessageLabel({ agent }: { agent?: string }) {
   if (!config) return null
 
   return (
-    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-      agent === 'setter' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'
-    }`}>
+    <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${config.chipClass}`}>
       {config.label}
     </span>
   )
@@ -151,14 +156,14 @@ export function HandoffMessage({
 
   return (
     <div className="flex justify-center my-3">
-      <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 border text-xs text-muted-foreground">
-        <Badge variant="outline" className={`${fromConfig.color} text-[10px] px-1.5 py-0`}>
+      <div className="inline-flex items-center gap-2 rounded-full border border-aurea-border bg-aurea-surface px-3 py-1.5 text-[11px] text-aurea-ink-3">
+        <span className={`inline-flex items-center rounded border px-1.5 py-0 text-[10px] font-medium ${fromConfig.chipClass}`}>
           {fromConfig.label}
-        </Badge>
+        </span>
         <span>&rarr;</span>
-        <Badge variant="outline" className={`${toConfig.color} text-[10px] px-1.5 py-0`}>
+        <span className={`inline-flex items-center rounded border px-1.5 py-0 text-[10px] font-medium ${toConfig.chipClass}`}>
           {toConfig.label}
-        </Badge>
+        </span>
         <span className="opacity-70">{reason}</span>
       </div>
     </div>

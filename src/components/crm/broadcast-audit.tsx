@@ -93,21 +93,21 @@ export function BroadcastAudit() {
   // Detail view
   if (selectedCampaign) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 animate-in fade-in-0 duration-500">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => setSelectedCampaign(null)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1">
-            <h2 className="text-lg font-bold flex items-center gap-2">
+            <h2 className="aurea-display text-[28px] text-aurea-ink flex items-center gap-2">
               {selectedCampaign.channel === 'sms' ? (
-                <Send className="h-5 w-5 text-blue-500" />
+                <Send className="h-5 w-5 text-aurea-ink-3" strokeWidth={1.75} />
               ) : (
-                <Mail className="h-5 w-5 text-purple-500" />
+                <Mail className="h-5 w-5 text-aurea-ink-2" strokeWidth={1.75} />
               )}
               {selectedCampaign.name}
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-aurea-ink-2">
               {formatDistanceToNow(new Date(selectedCampaign.created_at), { addSuffix: true })}
               {selectedCampaign.smart_lists && (
                 <> · Smart List: <span className="font-medium">{selectedCampaign.smart_lists.name}</span></>
@@ -121,28 +121,28 @@ export function BroadcastAudit() {
           <div className="grid grid-cols-4 gap-3">
             <Card>
               <CardContent className="pt-4 text-center">
-                <p className="text-2xl font-bold">{selectedStats.total}</p>
-                <p className="text-xs text-muted-foreground">Total Targets</p>
+                <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{selectedStats.total}</p>
+                <p className="aurea-eyebrow">Total Targets</p>
               </CardContent>
             </Card>
-            <Card className="border-green-200 dark:border-green-900">
+            <Card className="border-aurea-border-strong">
               <CardContent className="pt-4 text-center">
-                <p className="text-2xl font-bold text-green-600">{selectedStats.sent}</p>
-                <p className="text-xs text-muted-foreground">Delivered</p>
+                <p className="aurea-display text-[32px] tabular-nums text-aurea-primary">{selectedStats.sent}</p>
+                <p className="aurea-eyebrow">Delivered</p>
               </CardContent>
             </Card>
-            <Card className="border-red-200 dark:border-red-900">
+            <Card className="border-aurea-rose/20">
               <CardContent className="pt-4 text-center">
-                <p className="text-2xl font-bold text-red-500">{selectedStats.failed}</p>
-                <p className="text-xs text-muted-foreground">Failed</p>
+                <p className="aurea-display text-[32px] tabular-nums text-aurea-rose">{selectedStats.failed}</p>
+                <p className="aurea-eyebrow">Failed</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4 text-center">
-                <p className="text-2xl font-bold text-green-600">
+                <p className="aurea-display text-[32px] tabular-nums text-aurea-primary">
                   {selectedStats.total > 0 ? Math.round((selectedStats.sent / selectedStats.total) * 100) : 0}%
                 </p>
-                <p className="text-xs text-muted-foreground">Success Rate</p>
+                <p className="aurea-eyebrow">Success Rate</p>
               </CardContent>
             </Card>
           </div>
@@ -152,7 +152,7 @@ export function BroadcastAudit() {
         {(selectedCampaign.metadata?.message_template || selectedCampaign.metadata?.subject_template) && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Message Template Used</CardTitle>
+              <CardTitle className="aurea-display text-[18px]">Message Template Used</CardTitle>
             </CardHeader>
             <CardContent>
               {selectedCampaign.metadata.subject_template && (
@@ -221,16 +221,16 @@ export function BroadcastAudit() {
                       </TableCell>
                       <TableCell>
                         {entry.status === 'sent' ? (
-                          <Badge className="bg-green-100 text-green-800 text-xs gap-1">
+                          <Badge className="bg-aurea-primary/10 text-aurea-primary text-xs gap-1">
                             <CheckCircle2 className="h-3 w-3" /> Delivered
                           </Badge>
                         ) : entry.status === 'failed' ? (
                           <span>
-                            <Badge className="bg-red-100 text-red-800 text-xs gap-1">
+                            <Badge className="bg-aurea-rose/10 text-aurea-rose text-xs gap-1">
                               <XCircle className="h-3 w-3" /> Failed
                             </Badge>
                             {entry.error && (
-                              <p className="text-[10px] text-red-500 mt-0.5 max-w-48 truncate">
+                              <p className="text-[10px] text-aurea-rose mt-0.5 max-w-48 truncate">
                                 {entry.error}
                               </p>
                             )}
@@ -266,13 +266,14 @@ export function BroadcastAudit() {
 
   // List view
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-in fade-in-0 duration-500">
       <div>
-        <h2 className="text-lg font-bold flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-primary" />
+        <p className="aurea-eyebrow mb-1">Campaigns</p>
+        <h2 className="aurea-display text-[28px] text-aurea-ink flex items-center gap-2">
+          <BarChart3 className="h-5 w-5 text-aurea-ink-3" strokeWidth={1.75} />
           Broadcast Audit Log
         </h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-aurea-ink-2">
           Track delivery status of all mass SMS and email broadcasts
         </p>
       </div>
@@ -303,18 +304,15 @@ export function BroadcastAudit() {
             return (
               <Card
                 key={c.id}
-                className="cursor-pointer hover:bg-accent/30 transition-colors"
+                className="cursor-pointer hover:bg-aurea-surface-2 transition-colors"
                 onClick={() => setSelectedCampaign(c)}
               >
                 <CardContent className="flex items-center gap-4 py-3">
-                  <div className={cn(
-                    'h-10 w-10 rounded-lg flex items-center justify-center shrink-0',
-                    c.channel === 'sms' ? 'bg-blue-100 dark:bg-blue-950/30' : 'bg-purple-100 dark:bg-purple-950/30'
-                  )}>
+                  <div className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0 bg-aurea-surface-2">
                     {c.channel === 'sms' ? (
-                      <Send className="h-5 w-5 text-blue-600" />
+                      <Send className="h-5 w-5 text-aurea-ink-2" />
                     ) : (
-                      <Mail className="h-5 w-5 text-purple-600" />
+                      <Mail className="h-5 w-5 text-aurea-ink-2" />
                     )}
                   </div>
 
@@ -335,19 +333,19 @@ export function BroadcastAudit() {
 
                   <div className="flex items-center gap-4 shrink-0">
                     <div className="text-center">
-                      <p className="text-sm font-bold text-green-600">{sentCount}</p>
+                      <p className="text-sm font-bold text-aurea-primary">{sentCount}</p>
                       <p className="text-[10px] text-muted-foreground">Sent</p>
                     </div>
                     {failedCount > 0 && (
                       <div className="text-center">
-                        <p className="text-sm font-bold text-red-500">{failedCount}</p>
+                        <p className="text-sm font-bold text-aurea-rose">{failedCount}</p>
                         <p className="text-[10px] text-muted-foreground">Failed</p>
                       </div>
                     )}
                     <div className="text-center">
                       <p className={cn(
                         'text-sm font-bold',
-                        successRate >= 90 ? 'text-green-600' : successRate >= 70 ? 'text-amber-500' : 'text-red-500'
+                        successRate >= 90 ? 'text-aurea-primary' : successRate >= 70 ? 'text-aurea-amber' : 'text-aurea-rose'
                       )}>
                         {successRate}%
                       </p>

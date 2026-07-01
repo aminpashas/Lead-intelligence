@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Send,
@@ -362,68 +361,61 @@ export function RolePlayArena() {
       <div className="space-y-4">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => setView('picker')}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Back
+            <ArrowLeft className="h-4 w-4 mr-1" strokeWidth={1.75} /> Back
           </Button>
-          <h3 className="font-medium">Past Sessions</h3>
+          <h3 className="aurea-display text-[18px] text-aurea-ink">Past Sessions</h3>
         </div>
 
         {savedSessions.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <History className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">No past sessions yet</p>
-            </CardContent>
-          </Card>
+          <div className="aurea-card py-12 text-center">
+            <History className="h-10 w-10 text-aurea-ink-3/30 mx-auto mb-3" strokeWidth={1.75} />
+            <p className="text-[13px] text-aurea-ink-3">No past sessions yet</p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {savedSessions.map((s) => (
-              <Card
+              <div
                 key={s.id}
-                className="cursor-pointer hover:border-primary/30 hover:shadow-sm transition-all"
+                className="aurea-card cursor-pointer px-4 py-3.5 transition-colors hover:bg-aurea-surface-2"
                 onClick={() => handleLoadSession(s.id)}
               >
-                <CardContent className="py-3.5 px-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h4 className="font-medium text-sm truncate">{s.title}</h4>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <Badge variant="secondary" className="text-[10px] h-5">
-                          {s.user_role === 'patient' ? '🧑 Patient' : '💼 TC'}
-                        </Badge>
-                        <Badge variant="outline" className="text-[10px] h-5">
-                          {s.agent_target === 'setter' ? 'Setter' : 'Closer'}
-                        </Badge>
-                        <Badge
-                          variant={s.status === 'active' ? 'default' : 'secondary'}
-                          className="text-[10px] h-5"
-                        >
-                          {s.status}
-                        </Badge>
-                        {s.extracted_example_count > 0 && (
-                          <Badge variant="secondary" className="text-[10px] h-5">
-                            {s.extracted_example_count} examples
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {new Date(s.created_at).toLocaleDateString()} at{' '}
-                        {new Date(s.created_at).toLocaleTimeString()}
-                      </p>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h4 className="text-[14px] font-medium text-aurea-ink truncate">{s.title}</h4>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center rounded border border-aurea-border px-2 py-0.5 text-[10px] text-aurea-ink-3">
+                        {s.user_role === 'patient' ? '🧑 Patient' : '💼 TC'}
+                      </span>
+                      <span className="inline-flex items-center rounded border border-aurea-border px-2 py-0.5 text-[10px] text-aurea-ink-3">
+                        {s.agent_target === 'setter' ? 'Setter' : 'Closer'}
+                      </span>
+                      <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-medium ${s.status === 'active' ? 'border-aurea-primary/20 bg-aurea-primary/10 text-aurea-primary' : 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-3'}`}>
+                        {s.status}
+                      </span>
+                      {s.extracted_example_count > 0 && (
+                        <span className="inline-flex items-center rounded border border-aurea-border px-2 py-0.5 font-mono text-[10px] tabular-nums text-aurea-ink-3">
+                          {s.extracted_example_count} examples
+                        </span>
+                      )}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDeleteSession(s.id)
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    </Button>
+                    <p className="mt-1 font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                      {new Date(s.created_at).toLocaleDateString()} at{' '}
+                      {new Date(s.created_at).toLocaleTimeString()}
+                    </p>
                   </div>
-                </CardContent>
-              </Card>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteSession(s.id)
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -437,112 +429,100 @@ export function RolePlayArena() {
       <div className="space-y-4">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => setView('picker')}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> New Session
+            <ArrowLeft className="h-4 w-4 mr-1" strokeWidth={1.75} /> New Session
           </Button>
-          <h3 className="font-medium">Session Summary</h3>
-          <Badge variant="secondary">{messages.length} messages</Badge>
+          <h3 className="aurea-display text-[18px] text-aurea-ink">Session Summary</h3>
+          <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">{messages.length} messages</span>
         </div>
 
         {/* Summary Card */}
         {sessionSummary && (
-          <Card className="border-primary/20">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                Training Summary
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
+          <div className="aurea-card overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-aurea-border px-4 py-3">
+              <Sparkles className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />
+              <h4 className="aurea-display text-[15px] text-aurea-ink">Training Summary</h4>
+            </div>
+            <div className="p-4">
+              <div className="whitespace-pre-wrap text-[13px] text-aurea-ink-2">
                 {sessionSummary}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
 
         {/* Stats Row */}
         <div className="grid grid-cols-3 gap-3">
-          <Card>
-            <CardContent className="py-3 flex items-center gap-2">
-              <Star className="h-4 w-4 text-amber-500" />
-              <div>
-                <p className="text-lg font-bold">{goldenCount}</p>
-                <p className="text-xs text-muted-foreground">Golden Examples</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-3 flex items-center gap-2">
-              <ThumbsUp className="h-4 w-4 text-green-500" />
-              <div>
-                <p className="text-lg font-bold">{goodCount}</p>
-                <p className="text-xs text-muted-foreground">Good Responses</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-3 flex items-center gap-2">
-              <ThumbsDown className="h-4 w-4 text-red-500" />
-              <div>
-                <p className="text-lg font-bold">{badCount}</p>
-                <p className="text-xs text-muted-foreground">Needs Work</p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="aurea-card flex items-center gap-3 p-4">
+            <Star className="h-4 w-4 text-aurea-amber" strokeWidth={1.75} />
+            <div>
+              <p className="aurea-display text-[22px] tabular-nums text-aurea-ink">{goldenCount}</p>
+              <p className="text-[11px] text-aurea-ink-3">Golden Examples</p>
+            </div>
+          </div>
+          <div className="aurea-card flex items-center gap-3 p-4">
+            <ThumbsUp className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />
+            <div>
+              <p className="aurea-display text-[22px] tabular-nums text-aurea-ink">{goodCount}</p>
+              <p className="text-[11px] text-aurea-ink-3">Good Responses</p>
+            </div>
+          </div>
+          <div className="aurea-card flex items-center gap-3 p-4">
+            <ThumbsDown className="h-4 w-4 text-aurea-rose" strokeWidth={1.75} />
+            <div>
+              <p className="aurea-display text-[22px] tabular-nums text-aurea-ink">{badCount}</p>
+              <p className="text-[11px] text-aurea-ink-3">Needs Work</p>
+            </div>
+          </div>
         </div>
 
         {/* Extracted Examples */}
         {extractedExamples.length > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <FileDown className="h-4 w-4 text-primary" />
+          <div className="aurea-card overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-aurea-border px-4 py-3">
+              <FileDown className="h-4 w-4 text-aurea-primary" strokeWidth={1.75} />
+              <h4 className="aurea-display text-[15px] text-aurea-ink">
                 Extracted Training Examples ({extractedExamples.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+              </h4>
+            </div>
+            <div className="space-y-3 p-4">
               {extractedExamples.map((ex, i) => (
-                <div key={i} className="border rounded-lg p-3 space-y-2">
+                <div key={i} className="rounded-lg border border-aurea-border p-3 space-y-2">
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-[10px]">
+                    <span className="inline-flex items-center rounded border border-aurea-border px-2 py-0.5 text-[10px] text-aurea-ink-3">
                       {ex.category.replace(/_/g, ' ')}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">{ex.scenario_context}</span>
+                    </span>
+                    <span className="text-[11px] text-aurea-ink-3">{ex.scenario_context}</span>
                   </div>
                   <div className="grid grid-cols-1 gap-2">
-                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded p-2">
-                      <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 mb-0.5">
-                        PATIENT
-                      </p>
-                      <p className="text-xs">{ex.patient_message}</p>
+                    <div className="rounded bg-aurea-surface-2 border border-aurea-border p-2">
+                      <p className="aurea-eyebrow mb-0.5 text-[10px]">PATIENT</p>
+                      <p className="text-[12px] text-aurea-ink-2">{ex.patient_message}</p>
                     </div>
-                    <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded p-2">
-                      <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 mb-0.5">
-                        IDEAL RESPONSE
-                      </p>
-                      <p className="text-xs">{ex.ideal_response}</p>
+                    <div className="rounded bg-aurea-primary/10 border border-aurea-primary/20 p-2">
+                      <p className="aurea-eyebrow mb-0.5 text-[10px] text-aurea-primary">IDEAL RESPONSE</p>
+                      <p className="text-[12px] text-aurea-ink-2">{ex.ideal_response}</p>
                     </div>
                   </div>
                   {ex.coaching_notes && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 italic">
-                      💡 {ex.coaching_notes}
+                    <p className="text-[12px] text-aurea-amber italic">
+                      {ex.coaching_notes}
                     </p>
                   )}
                 </div>
               ))}
-              <p className="text-xs text-muted-foreground text-center pt-1">
+              <p className="pt-1 text-center text-[12px] text-aurea-ink-3">
                 These examples have been saved as drafts. Approve them in the Memory tab to use in live agent conversations.
               </p>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
 
         {/* Conversation Review */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Conversation Review</CardTitle>
-          </CardHeader>
-          <CardContent className="max-h-[400px] overflow-y-auto">
+        <div className="aurea-card overflow-hidden">
+          <div className="border-b border-aurea-border px-4 py-3">
+            <h4 className="aurea-display text-[15px] text-aurea-ink">Conversation Review</h4>
+          </div>
+          <div className="max-h-[400px] overflow-y-auto p-4">
             {messages.map((msg, i) => (
               <RolePlayMessage
                 key={i}
@@ -557,8 +537,8 @@ export function RolePlayArena() {
                 onFinalize={() => {}}
               />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     )
   }
@@ -570,18 +550,18 @@ export function RolePlayArena() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white shadow-sm">
-              <Sparkles className="h-5 w-5" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-aurea-border bg-aurea-surface-2">
+              <Sparkles className="h-5 w-5 text-aurea-primary" strokeWidth={1.75} />
             </div>
             <div>
-              <h2 className="font-semibold text-lg">Role Play Arena</h2>
-              <p className="text-xs text-muted-foreground">
+              <h2 className="aurea-display text-[18px] text-aurea-ink">Role Play Arena</h2>
+              <p className="text-[12px] text-aurea-ink-3">
                 Practice conversations to train your AI agents
               </p>
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={() => setView('history')}>
-            <History className="h-4 w-4 mr-1" />
+            <History className="h-4 w-4 mr-1" strokeWidth={1.75} />
             Past Sessions ({savedSessions.length})
           </Button>
         </div>
@@ -602,18 +582,15 @@ export function RolePlayArena() {
           </Button>
           <div>
             <h3 className="font-medium text-sm">{activeSession?.title || 'Role Play'}</h3>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <Badge
-                variant="secondary"
-                className="text-[10px] h-4"
-              >
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <span className="inline-flex items-center rounded border border-aurea-border px-2 py-0.5 text-[10px] text-aurea-ink-3">
                 {activeSession?.user_role === 'patient' ? '🧑 You: Patient' : '💼 You: TC'}
-              </Badge>
-              <Badge variant="outline" className="text-[10px] h-4">
+              </span>
+              <span className="inline-flex items-center rounded border border-aurea-border px-2 py-0.5 text-[10px] text-aurea-ink-3">
                 Training: {activeSession?.agent_target === 'setter' ? 'Setter' : 'Closer'}
-              </Badge>
+              </span>
               {messages.length > 0 && (
-                <span className="text-[10px] text-muted-foreground">
+                <span className="font-mono text-[10px] tabular-nums text-aurea-ink-3">
                   {messages.length} msgs
                 </span>
               )}
@@ -624,16 +601,16 @@ export function RolePlayArena() {
         <div className="flex items-center gap-2">
           {/* Training stats */}
           {finalizedCount > 0 && (
-            <Badge variant="secondary" className="gap-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-              <Check className="h-3 w-3" />
+            <span className="inline-flex items-center gap-1 rounded border border-aurea-primary/20 bg-aurea-primary/10 px-2 py-0.5 font-mono text-[10px] tabular-nums text-aurea-primary">
+              <Check className="h-3 w-3" strokeWidth={1.75} />
               {finalizedCount} accepted
-            </Badge>
+            </span>
           )}
           {goldenCount > 0 && (
-            <Badge variant="secondary" className="gap-1">
-              <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+            <span className="inline-flex items-center gap-1 rounded border border-aurea-amber/20 bg-aurea-amber/10 px-2 py-0.5 font-mono text-[10px] tabular-nums text-aurea-amber">
+              <Star className="h-3 w-3 fill-current" strokeWidth={1.75} />
               {goldenCount}
-            </Badge>
+            </span>
           )}
           <Button
             variant="destructive"
@@ -658,11 +635,11 @@ export function RolePlayArena() {
 
       {/* Scenario Context Bar */}
       {activeSession?.scenario_description && (
-        <div className="bg-muted/50 rounded-lg px-3 py-2 mb-3 text-xs text-muted-foreground border border-muted">
-          <span className="font-medium">Scenario:</span> {activeSession.scenario_description}
+        <div className="mb-3 rounded-lg border border-aurea-border bg-aurea-surface-2 px-3 py-2 text-[12px] text-aurea-ink-3">
+          <span className="font-medium text-aurea-ink-2">Scenario:</span> {activeSession.scenario_description}
           {activeSession.patient_persona && (
             <span className="ml-2">
-              · Patient: {activeSession.patient_persona.name} ({activeSession.patient_persona.personality_type}, {activeSession.patient_persona.emotional_state})
+              &middot; Patient: {activeSession.patient_persona.name} ({activeSession.patient_persona.personality_type}, {activeSession.patient_persona.emotional_state})
             </span>
           )}
         </div>
@@ -672,18 +649,18 @@ export function RolePlayArena() {
       <Card className="flex-1 flex flex-col min-h-0">
         <CardContent className="flex-1 overflow-y-auto py-4 px-4">
           {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-violet-500/20 to-purple-600/20 flex items-center justify-center mb-4">
-                <Sparkles className="h-8 w-8 text-violet-500" />
+            <div className="flex h-full flex-col items-center justify-center text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-aurea-border bg-aurea-surface-2">
+                <Sparkles className="h-8 w-8 text-aurea-primary" strokeWidth={1.75} />
               </div>
-              <h3 className="font-semibold text-lg">Ready to Practice!</h3>
-              <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+              <h3 className="aurea-display text-[20px] text-aurea-ink">Ready to Practice!</h3>
+              <p className="mt-1 max-w-sm text-[13px] text-aurea-ink-2">
                 {activeSession?.user_role === 'treatment_coordinator'
                   ? 'You\'re the Treatment Coordinator. Start the conversation — the AI patient is waiting.'
                   : 'You\'re the Patient. Send your first message to test the AI agent.'}
               </p>
-              <p className="text-xs text-muted-foreground mt-3 max-w-xs">
-                💡 Tip: After each AI response, you can <strong>Accept ✅</strong>, <strong>Retry 🔄</strong>, or <strong>Course Correct 💬</strong> until you&apos;re happy with it!
+              <p className="mt-3 max-w-xs text-[12px] text-aurea-ink-3">
+                Tip: After each AI response, you can Accept, Retry, or Course Correct until you&apos;re happy with it.
               </p>
             </div>
           ) : (
@@ -703,12 +680,12 @@ export function RolePlayArena() {
                 />
               ))}
               {loading && (
-                <div className="flex gap-3 mb-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/20 to-purple-600/20">
-                    <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+                <div className="mb-4 flex gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-aurea-border bg-aurea-surface-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-aurea-ink-3" strokeWidth={1.75} />
                   </div>
-                  <div className="bg-muted/60 rounded-2xl px-4 py-3 border border-muted">
-                    <p className="text-sm text-muted-foreground animate-pulse">
+                  <div className="rounded-2xl border border-aurea-border bg-aurea-surface-2 px-4 py-3">
+                    <p className="animate-pulse text-[13px] text-aurea-ink-3">
                       {activeSession?.user_role === 'treatment_coordinator'
                         ? 'Patient is typing...'
                         : 'TC is composing a response...'}
@@ -722,7 +699,7 @@ export function RolePlayArena() {
         </CardContent>
 
         {/* Input Area */}
-        <div className="border-t p-3">
+        <div className="border-t border-aurea-border p-3">
           <div className="flex gap-2">
             <Textarea
               ref={textareaRef}
@@ -755,16 +732,16 @@ export function RolePlayArena() {
               )}
             </Button>
           </div>
-          <div className="flex items-center justify-between mt-1.5">
-            <p className="text-xs text-muted-foreground">
+          <div className="mt-1.5 flex items-center justify-between">
+            <p className="text-[12px] text-aurea-ink-3">
               Press Cmd+Enter to send
             </p>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-3 text-[12px] text-aurea-ink-3">
               <span className="flex items-center gap-1">
-                <Check className="h-3 w-3" /> Accept responses
+                <Check className="h-3 w-3" strokeWidth={1.75} /> Accept responses
               </span>
               <span className="flex items-center gap-1">
-                <RotateCcw className="h-3 w-3" /> Retry or course correct
+                <RotateCcw className="h-3 w-3" strokeWidth={1.75} /> Retry or course correct
               </span>
             </div>
           </div>

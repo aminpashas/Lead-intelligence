@@ -26,7 +26,8 @@ import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techni
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { formatFinancingContextForPrompt } from './financial-coach'
-import { SETTER_TOOLS, executeAgentTool } from '@/lib/autopilot/agent-tools'
+import { SETTER_TOOLS } from '@/lib/autopilot/agent-tools'
+import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -277,12 +278,15 @@ Also assess the lead's CURRENT state in lead_assessment — this feeds into your
 
 ═══ OUTPUT FORMAT ═══
 
+"self_confidence" is YOUR honest 0.0-1.0 estimate of how confident you are that this exact reply is correct, on-policy, compliant, and safe to send to the patient WITHOUT a human reviewing it first. Be calibrated: use a high value only when the message is routine and clearly safe; lower it when the situation is clinical, legal, financial, emotional, ambiguous, or you are unsure. This score gates whether the system sends automatically or escalates to a human, so do not inflate it.
+
 Respond with ONLY valid JSON (no markdown, no code blocks):
 {
   "message": "your response to the patient",
   "action_taken": "${skill === 'speed_to_lead' ? 'greeted' : skill === 'natural_qualification' ? 'asked_qualifying_question' : skill === 'rapport_building' ? 'built_rapport' : skill === 'appointment_scheduling' ? 'attempted_scheduling' : 'responded'}",
   "should_handoff": false,
   "handoff_reason": null,
+  "self_confidence": 0.9,
   "internal_notes": "brief note about your reasoning and what to do next (staff-visible only)",
   "techniques_used": [
     {"technique_id": "engagement_open_questions", "confidence": 0.9, "effectiveness": "effective", "context_note": "why you chose this"}
@@ -320,60 +324,30 @@ export async function setterAgentRespond(
     content: scrubPHI(msg.content),
   }))
 
-  const response = await getAnthropic().messages.create({
+  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 1024
+
+  // Multi-round agentic loop: lets the setter chain tool calls (e.g.
+  // check_availability → create_booking) within a single turn instead of
+  // being capped at one tool hop. See src/lib/ai/agent-loop.ts.
+  const loop = await runAgentToolLoop({
+    anthropic: getAnthropic(),
+    supabase,
     model: 'claude-sonnet-4-20250514',
-    max_tokens: context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 1024,
+    maxTokens,
     system: systemPrompt,
     messages: safeHistory,
     tools: SETTER_TOOLS,
+    toolContext: {
+      organization_id: context.organization_id,
+      lead_id: context.lead.id!,
+      lead: context.lead as Record<string, unknown>,
+      conversation_id: context.conversation_id,
+      channel: context.channel,
+    },
   })
 
-  // Handle tool use — if Claude wants to call a tool, execute it and continue
-  let finalResponse = response
-  const toolMessages = [...safeHistory]
-
-  if (response.stop_reason === 'tool_use') {
-    // Build assistant message with all content blocks
-    toolMessages.push({ role: 'assistant' as const, content: response.content as unknown as string })
-
-    // Execute each tool call
-    const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = []
-    for (const block of response.content) {
-      if (block.type === 'tool_use') {
-        const result = await executeAgentTool(
-          supabase,
-          block.name,
-          block.input as Record<string, unknown>,
-          {
-            organization_id: context.organization_id,
-            lead_id: context.lead.id!,
-            lead: context.lead as Record<string, unknown>,
-            conversation_id: context.conversation_id,
-            channel: context.channel,
-          }
-        )
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: result.message,
-        })
-      }
-    }
-
-    // Send tool results back to Claude for final response
-    toolMessages.push({ role: 'user' as const, content: toolResults as unknown as string })
-
-    finalResponse = await getAnthropic().messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 1024,
-      system: systemPrompt,
-      messages: toolMessages,
-      tools: SETTER_TOOLS,
-    })
-  }
-
-  const text = finalResponse.content.find(b => b.type === 'text')
-  const responseText = text && text.type === 'text' ? text.text : ''
+  const finalResponse = loop.finalResponse
+  const responseText = loop.responseText
 
   // Parse JSON response
   let parsed: {
@@ -381,6 +355,7 @@ export async function setterAgentRespond(
     action_taken: string
     should_handoff: boolean
     handoff_reason: string | null
+    self_confidence?: number
     internal_notes: string | null
     techniques_used?: Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>
     lead_assessment?: {
@@ -429,20 +404,27 @@ export async function setterAgentRespond(
     lead_id: context.lead.id,
     interaction_type: 'setter_agent_response',
     model: 'claude-sonnet-4-20250514',
-    prompt_tokens: finalResponse.usage?.input_tokens || 0,
-    completion_tokens: finalResponse.usage?.output_tokens || 0,
+    prompt_tokens: loop.usage.input_tokens,
+    completion_tokens: loop.usage.output_tokens,
     success: true,
     metadata: {
       agent: 'setter',
       action: parsed.action_taken,
       channel: context.channel,
       should_handoff: parsed.should_handoff,
+      tool_rounds: loop.rounds,
+      tools_called: loop.toolCalls.map((t) => t.name),
+      hit_round_cap: loop.hitRoundCap,
     },
   }) // Non-critical logging
 
   return {
     message: finalMessage,
-    confidence: hasCriticalIssue ? 0.5 : 0.85,
+    confidence: deriveConfidence({
+      selfConfidence: parsed.self_confidence,
+      hasCriticalCompliance: hasCriticalIssue,
+      hitRoundCap: loop.hitRoundCap,
+    }),
     agent: 'setter',
     action_taken: (parsed.action_taken || 'responded') as AgentResponse['action_taken'],
     should_handoff: parsed.should_handoff || false,

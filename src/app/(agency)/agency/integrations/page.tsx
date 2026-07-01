@@ -9,14 +9,14 @@ export const metadata = {
 function IntegrationStatus({ configured }: { configured: boolean }) {
   if (configured) {
     return (
-      <div className="flex items-center gap-1.5 text-emerald-400">
+      <div className="flex items-center gap-1.5 text-aurea-primary">
         <CheckCircle2 className="h-4 w-4" />
         <span className="text-xs font-medium">Connected</span>
       </div>
     )
   }
   return (
-    <div className="flex items-center gap-1.5 text-red-400">
+    <div className="flex items-center gap-1.5 text-aurea-rose">
       <XCircle className="h-4 w-4" />
       <span className="text-xs font-medium">Not configured</span>
     </div>
@@ -99,31 +99,31 @@ export default function AgencyIntegrationsPage() {
   ]
 
   const IMPACT_BADGE: Record<string, string> = {
-    critical: 'bg-red-500/10 text-red-400 border-red-500/20',
-    high: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    medium: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    critical: 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/20',
+    high: 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20',
+    medium: 'bg-aurea-surface-2 text-aurea-ink-2 border-aurea-border',
   }
 
   return (
     <div className="space-y-6">
       <div>
         <div className="flex items-center gap-2 mb-1">
-          <Plug className="h-5 w-5 text-violet-400" />
-          <h1 className="text-2xl font-bold text-white">Integrations</h1>
+          <Plug className="h-5 w-5 text-aurea-primary" />
+          <h1 className="text-2xl font-bold text-aurea-ink">Integrations</h1>
         </div>
-        <p className="text-slate-400 text-sm">
+        <p className="text-aurea-ink-2 text-sm">
           All platform-level API keys and external service connections. Configure these in{' '}
-          <code className="bg-slate-800 text-violet-300 px-1.5 py-0.5 rounded text-xs">.env.local</code>.
+          <code className="bg-aurea-surface-2 text-aurea-ink-2 px-1.5 py-0.5 rounded text-xs">.env.local</code>.
         </p>
       </div>
 
-      <Card className="bg-amber-500/5 border-amber-500/20">
+      <Card className="bg-aurea-amber/5 border-aurea-amber/20">
         <CardContent className="pt-5">
           <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <AlertCircle className="h-5 w-5 text-aurea-amber shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-amber-300">Agency-Only</p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-sm font-medium text-aurea-amber">Agency-Only</p>
+              <p className="text-xs text-aurea-ink-2 mt-1">
                 These integration keys are never exposed to practice users. They are managed
                 server-side and visible only to agency admins.
               </p>
@@ -134,30 +134,30 @@ export default function AgencyIntegrationsPage() {
 
       {integrations.map((category) => (
         <div key={category.category}>
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+          <h2 className="aurea-eyebrow mb-3">
             {category.category}
           </h2>
           <div className="space-y-3">
             {category.items.map((integration) => (
               <Card
                 key={integration.name}
-                className="bg-slate-900 border-slate-800 hover:border-slate-700 transition-colors"
+                className="bg-aurea-surface border-aurea-border hover:border-aurea-border-strong transition-colors"
               >
                 <CardContent className="pt-4 pb-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <CardTitle className="text-white text-sm">{integration.name}</CardTitle>
+                        <CardTitle className="text-aurea-ink text-sm">{integration.name}</CardTitle>
                         <Badge
                           className={`text-[9px] h-4 px-1.5 border ${IMPACT_BADGE[integration.impact]}`}
                         >
                           {integration.impact}
                         </Badge>
                       </div>
-                      <CardDescription className="text-slate-500 text-xs">
+                      <CardDescription className="text-aurea-ink-3 text-xs">
                         {integration.description}
                       </CardDescription>
-                      <code className="mt-2 block text-[10px] text-slate-600 font-mono">
+                      <code className="mt-2 block text-[10px] text-aurea-ink-3 font-mono">
                         {integration.envKey}
                       </code>
                     </div>
@@ -168,7 +168,7 @@ export default function AgencyIntegrationsPage() {
                           href={integration.docUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-[10px] text-violet-400 hover:text-violet-300 underline"
+                          className="text-[10px] text-aurea-primary hover:text-aurea-primary/80 underline"
                         >
                           Open Console →
                         </a>

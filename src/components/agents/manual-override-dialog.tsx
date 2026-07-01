@@ -88,7 +88,7 @@ export function ManualOverrideDialog({
               placeholder="Why is this override warranted? E.g. data anomaly, integration outage skewed booking rate, hands-on coaching plan in place."
             />
           </div>
-          {error && <div className="text-sm text-rose-600">{error}</div>}
+          {error && <div className="text-sm text-aurea-rose">{error}</div>}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={onClose} disabled={saving}>
               Cancel

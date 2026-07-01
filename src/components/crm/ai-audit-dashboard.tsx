@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { formatDistanceToNow } from 'date-fns'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -101,9 +100,10 @@ function StarRating({
           <Star
             className={`h-4 w-4 ${
               star <= value
-                ? 'fill-amber-400 text-amber-400'
-                : 'text-gray-300'
+                ? 'fill-aurea-amber text-aurea-amber'
+                : 'text-aurea-border'
             }`}
+            strokeWidth={1.75}
           />
         </button>
       ))}
@@ -116,59 +116,54 @@ function StarRating({
 // ════════════════════════════════════════════════════════════════
 
 function KPICards({ stats }: { stats: AuditStats }) {
+  const kpis = [
+    {
+      index: '01',
+      label: 'AI Conversations',
+      value: stats.total_ai_conversations,
+      sub: 'total audited',
+      icon: MessageSquare,
+    },
+    {
+      index: '02',
+      label: 'Avg Rating',
+      value: stats.avg_rating ?? '—',
+      sub: `${stats.total_rated} rated`,
+      icon: Star,
+    },
+    {
+      index: '03',
+      label: 'Flagged',
+      value: stats.flagged_count,
+      sub: 'need review',
+      icon: Flag,
+      accent: stats.flagged_count > 0 ? 'rose' as const : undefined,
+    },
+    {
+      index: '04',
+      label: 'Agent Split',
+      value: `${stats.setter_conversations}/${stats.closer_conversations}`,
+      sub: 'setter / closer',
+      icon: Bot,
+    },
+  ]
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <Card>
-        <CardContent className="pt-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MessageSquare className="h-4 w-4" />
-            AI Conversations
+      {kpis.map((kpi) => (
+        <div key={kpi.label} className="aurea-card p-5">
+          <div className="flex items-center justify-between">
+            <p className="aurea-eyebrow">{kpi.label}</p>
+            <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">/{kpi.index}</span>
           </div>
-          <p className="text-2xl font-bold mt-1">{stats.total_ai_conversations}</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="pt-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Star className="h-4 w-4" />
-            Avg Rating
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-2xl font-bold">{stats.avg_rating ?? '—'}</p>
-            <span className="text-xs text-muted-foreground">({stats.total_rated} rated)</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="pt-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Flag className="h-4 w-4 text-red-500" />
-            Flagged
-          </div>
-          <p className="text-2xl font-bold mt-1">{stats.flagged_count}</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="pt-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Bot className="h-4 w-4" />
-            Agent Split
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-              <Phone className="h-3 w-3 mr-1" />
-              {stats.setter_conversations}
-            </Badge>
-            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-xs">
-              <Target className="h-3 w-3 mr-1" />
-              {stats.closer_conversations}
-            </Badge>
-          </div>
-        </CardContent>
-      </Card>
+          <p className={`mt-4 aurea-display text-[36px] tabular-nums ${
+            kpi.accent === 'rose' ? 'text-aurea-rose' : 'text-aurea-ink'
+          }`}>
+            {kpi.value}
+          </p>
+          <p className="mt-2 text-[11.5px] text-aurea-ink-3">{kpi.sub}</p>
+        </div>
+      ))}
     </div>
   )
 }
@@ -230,35 +225,37 @@ function ConversationRow({
   const leadName = `${conv.lead.first_name} ${conv.lead.last_name || ''}`.trim()
 
   return (
-    <div className="border rounded-lg">
+    <div className="aurea-card overflow-hidden">
       {/* Summary Row */}
       <button
         type="button"
         onClick={handleExpand}
-        className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors text-left"
+        className="w-full flex items-center gap-3 p-4 hover:bg-aurea-surface-2 transition-colors text-left"
       >
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">{leadName}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[14px] font-medium text-aurea-ink">{leadName}</span>
             <Badge variant="outline" className="text-[10px]">{conv.channel}</Badge>
-            <Badge variant="outline" className={`text-[10px] ${
-              conv.active_agent === 'setter' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-              conv.active_agent === 'closer' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-              ''
+            <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
+              conv.active_agent === 'setter'
+                ? 'border-aurea-primary/30 bg-aurea-primary/5 text-aurea-primary'
+                : conv.active_agent === 'closer'
+                ? 'border-aurea-amber/30 bg-aurea-amber/5 text-aurea-amber'
+                : 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-3'
             }`}>
               {conv.active_agent === 'setter' ? 'Setter' : conv.active_agent === 'closer' ? 'Closer' : 'Manual'}
-            </Badge>
+            </span>
             {conv.rating?.flagged && (
-              <Flag className="h-3 w-3 text-red-500" />
+              <Flag className="h-3 w-3 text-aurea-rose" strokeWidth={1.75} />
             )}
           </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-3 mt-1 font-mono text-[11px] text-aurea-ink-3">
             <span>{conv.message_count} msgs ({conv.ai_message_count} AI)</span>
             {conv.avg_confidence != null && (
-              <span>Confidence: {(conv.avg_confidence * 100).toFixed(0)}%</span>
+              <span>Conf: {(conv.avg_confidence * 100).toFixed(0)}%</span>
             )}
             {conv.analysis?.compliance_score != null && (
-              <span className={conv.analysis.compliance_score < 80 ? 'text-red-500' : 'text-green-600'}>
+              <span className={conv.analysis.compliance_score < 80 ? 'text-aurea-rose' : 'text-aurea-primary'}>
                 HIPAA: {conv.analysis.compliance_score}%
               </span>
             )}
@@ -272,26 +269,29 @@ function ConversationRow({
           {conv.rating ? (
             <StarRating value={conv.rating.rating} readonly />
           ) : (
-            <span className="text-xs text-muted-foreground">Unrated</span>
+            <span className="text-[12px] text-aurea-ink-3">Unrated</span>
           )}
-          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          {expanded
+            ? <ChevronUp className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+            : <ChevronDown className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+          }
         </div>
       </button>
 
       {/* Expanded Content */}
       {expanded && (
-        <div className="border-t">
+        <div className="border-t border-aurea-border">
           {/* Analysis Summary */}
           {conv.analysis && (
-            <div className="px-4 py-3 bg-muted/30 flex items-center gap-4 text-xs">
+            <div className="px-4 py-3 bg-aurea-surface-2 flex items-center gap-4 text-[12px] text-aurea-ink-2">
               {conv.analysis.engagement_score != null && (
-                <span>Engagement: <strong>{conv.analysis.engagement_score}/10</strong></span>
+                <span>Engagement: <strong className="text-aurea-ink">{conv.analysis.engagement_score}/10</strong></span>
               )}
               {conv.analysis.trust_score != null && (
-                <span>Trust: <strong>{conv.analysis.trust_score}/10</strong></span>
+                <span>Trust: <strong className="text-aurea-ink">{conv.analysis.trust_score}/10</strong></span>
               )}
               {conv.analysis.coaching_notes && (
-                <span className="text-muted-foreground italic truncate flex-1" title={conv.analysis.coaching_notes}>
+                <span className="text-aurea-ink-3 italic truncate flex-1" title={conv.analysis.coaching_notes}>
                   Coach: {conv.analysis.coaching_notes}
                 </span>
               )}
@@ -300,12 +300,12 @@ function ConversationRow({
 
           {/* Handoff History */}
           {conv.handoffs.length > 0 && (
-            <div className="px-4 py-2 bg-blue-50/50 border-b flex items-center gap-2 text-xs">
-              <ArrowRight className="h-3 w-3 text-blue-500" />
-              <span className="text-blue-700">
+            <div className="px-4 py-2.5 bg-aurea-surface-2 border-t border-b border-aurea-border flex items-center gap-2 text-[12px]">
+              <ArrowRight className="h-3 w-3 text-aurea-primary" strokeWidth={1.75} />
+              <span className="text-aurea-ink-2">
                 {conv.handoffs.length} handoff{conv.handoffs.length > 1 ? 's' : ''}:
                 {conv.handoffs.map((h, i) => (
-                  <span key={i} className="ml-1">
+                  <span key={i} className="ml-1 font-medium text-aurea-ink">
                     {h.from_agent} → {h.to_agent}
                     {i < conv.handoffs.length - 1 ? ',' : ''}
                   </span>
@@ -318,10 +318,10 @@ function ConversationRow({
           <div className="p-4 max-h-96 overflow-y-auto space-y-3">
             {loadingMessages ? (
               <div className="flex justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <Loader2 className="h-5 w-5 animate-spin text-aurea-ink-3" />
               </div>
             ) : messages.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground py-4">No messages</p>
+              <p className="text-center text-[13px] text-aurea-ink-3 py-4">No messages</p>
             ) : (
               messages.map((msg) => (
                 <div
@@ -329,32 +329,35 @@ function ConversationRow({
                   className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                    className={`max-w-[75%] rounded-lg px-3 py-2 text-[13px] ${
                       msg.direction === 'outbound'
-                        ? 'bg-primary/10 border border-primary/20'
-                        : 'bg-muted'
+                        ? 'bg-aurea-primary/[0.06] border border-aurea-primary/15'
+                        : 'bg-aurea-surface-2 border border-aurea-border'
                     }`}
                   >
-                    <div className="flex items-center gap-1.5 mb-1 text-xs text-muted-foreground">
-                      {msg.sender_type === 'ai' ? <Bot className="h-3 w-3" /> : <User className="h-3 w-3" />}
+                    <div className="flex items-center gap-1.5 mb-1 text-[11px] text-aurea-ink-3">
+                      {msg.sender_type === 'ai'
+                        ? <Bot className="h-3 w-3" strokeWidth={1.75} />
+                        : <User className="h-3 w-3" strokeWidth={1.75} />
+                      }
                       <span>{msg.sender_type === 'ai' ? 'AI' : msg.sender_type === 'lead' ? 'Patient' : 'Staff'}</span>
                       {msg.ai_generated && msg.metadata && (
-                        <Badge variant="outline" className={`text-[9px] px-1 py-0 ${
+                        <span className={`inline-flex items-center rounded border px-1 py-0 text-[9px] font-medium ${
                           (msg.metadata as Record<string, string>).agent === 'setter'
-                            ? 'bg-blue-50 text-blue-600'
+                            ? 'border-aurea-primary/30 bg-aurea-primary/5 text-aurea-primary'
                             : (msg.metadata as Record<string, string>).agent === 'closer'
-                              ? 'bg-purple-50 text-purple-600'
-                              : ''
+                            ? 'border-aurea-amber/30 bg-aurea-amber/5 text-aurea-amber'
+                            : 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-3'
                         }`}>
                           {(msg.metadata as Record<string, string>).agent || 'AI'}
-                        </Badge>
+                        </span>
                       )}
                       {msg.ai_confidence != null && (
-                        <span className="opacity-60">{(msg.ai_confidence * 100).toFixed(0)}%</span>
+                        <span className="font-mono opacity-60">{(msg.ai_confidence * 100).toFixed(0)}%</span>
                       )}
                     </div>
-                    <p className="whitespace-pre-wrap text-xs">{msg.body}</p>
-                    <span className="text-[10px] text-muted-foreground/60 mt-1 block">
+                    <p className="whitespace-pre-wrap text-[12px] text-aurea-ink">{msg.body}</p>
+                    <span className="font-mono text-[10px] text-aurea-ink-3/60 mt-1 block">
                       {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
                     </span>
                   </div>
@@ -363,38 +366,36 @@ function ConversationRow({
             )}
           </div>
 
-          <Separator />
+          <Separator className="bg-aurea-border" />
 
           {/* Rating Controls */}
           <div className="p-4 space-y-3">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <div>
-                <span className="text-xs text-muted-foreground block mb-1">Rate this conversation</span>
+                <span className="aurea-eyebrow mb-1 block">Rate this conversation</span>
                 <StarRating value={ratingValue} onChange={setRatingValue} />
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsFlagged(!isFlagged)}
-                  className={`flex items-center gap-1 text-xs px-2 py-1 rounded border transition-colors ${
-                    isFlagged
-                      ? 'bg-red-50 border-red-200 text-red-700'
-                      : 'border-gray-200 text-muted-foreground hover:border-red-200 hover:text-red-600'
-                  }`}
-                >
-                  <Flag className="h-3 w-3" />
-                  {isFlagged ? 'Flagged' : 'Flag'}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsFlagged(!isFlagged)}
+                className={`flex items-center gap-1.5 text-[12px] px-2.5 py-1 rounded-md border transition-colors ${
+                  isFlagged
+                    ? 'border-aurea-rose/30 bg-aurea-rose/5 text-aurea-rose'
+                    : 'border-aurea-border text-aurea-ink-3 hover:border-aurea-rose/30 hover:text-aurea-rose'
+                }`}
+              >
+                <Flag className="h-3 w-3" strokeWidth={1.75} />
+                {isFlagged ? 'Flagged' : 'Flag'}
+              </button>
 
               <Button
                 size="sm"
                 onClick={handleSaveRating}
                 disabled={saving || ratingValue === 0}
-                className="ml-auto"
+                className="ml-auto gap-1.5"
               >
-                {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" strokeWidth={1.75} />}
                 Save Rating
               </Button>
             </div>
@@ -404,7 +405,7 @@ function ConversationRow({
               onChange={(e) => setRatingNotes(e.target.value)}
               placeholder="Optional notes about this conversation quality..."
               rows={2}
-              className="text-xs"
+              className="text-[12px]"
             />
           </div>
         </div>
@@ -516,7 +517,7 @@ export function AiAuditDashboard() {
           </SelectContent>
         </Select>
 
-        <span className="text-sm text-muted-foreground ml-auto">
+        <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3 ml-auto">
           {total} conversation{total !== 1 ? 's' : ''}
         </span>
       </div>
@@ -524,15 +525,13 @@ export function AiAuditDashboard() {
       {/* Conversation List */}
       {loading ? (
         <div className="flex justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <Loader2 className="h-6 w-6 animate-spin text-aurea-ink-3" />
         </div>
       ) : conversations.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Shield className="h-8 w-8 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No AI conversations found matching filters.</p>
-          </CardContent>
-        </Card>
+        <div className="aurea-card p-12 text-center">
+          <Shield className="h-8 w-8 mx-auto text-aurea-ink-3 mb-3" strokeWidth={1.75} />
+          <p className="text-[13px] text-aurea-ink-3">No AI conversations found matching filters.</p>
+        </div>
       ) : (
         <div className="space-y-2">
           {conversations.map((conv) => (
@@ -543,7 +542,7 @@ export function AiAuditDashboard() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-3">
           <Button
             variant="outline"
             size="sm"
@@ -552,7 +551,7 @@ export function AiAuditDashboard() {
           >
             Previous
           </Button>
-          <span className="text-sm text-muted-foreground">
+          <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
             Page {page} of {totalPages}
           </span>
           <Button

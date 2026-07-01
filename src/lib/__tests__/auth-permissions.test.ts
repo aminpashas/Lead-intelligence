@@ -219,8 +219,9 @@ describe('canViewBilling', () => {
 describe('canAccessRoute', () => {
   it('allows admin to access any route', () => {
     expect(canAccessRoute('doctor_admin', '/dashboard')).toBe(true)
-    expect(canAccessRoute('doctor_admin', '/billing')).toBe(true)
-    expect(canAccessRoute('doctor_admin', '/team')).toBe(true)
+    expect(canAccessRoute('doctor_admin', '/settings/billing')).toBe(true)
+    expect(canAccessRoute('doctor_admin', '/settings/team')).toBe(true)
+    expect(canAccessRoute('doctor_admin', '/settings/ai')).toBe(true)
     expect(canAccessRoute('doctor_admin', '/settings')).toBe(true)
     expect(canAccessRoute('doctor_admin', '/settings/legal')).toBe(true)
   })
@@ -234,32 +235,53 @@ describe('canAccessRoute', () => {
   })
 
   it('nurse cannot access admin routes', () => {
-    expect(canAccessRoute('nurse', '/billing')).toBe(false)
-    expect(canAccessRoute('nurse', '/team')).toBe(false)
+    expect(canAccessRoute('nurse', '/settings/billing')).toBe(false)
+    expect(canAccessRoute('nurse', '/settings/team')).toBe(false)
     expect(canAccessRoute('nurse', '/settings/legal')).toBe(false)
   })
 
   it('handles prefix matching for nested routes', () => {
     expect(canAccessRoute('nurse', '/leads/lead-123')).toBe(true)
     expect(canAccessRoute('nurse', '/cases/case-456')).toBe(true)
-    expect(canAccessRoute('nurse', '/billing/invoices')).toBe(false)
+    expect(canAccessRoute('nurse', '/settings/billing/invoices')).toBe(false)
+  })
+
+  it('resolves the most specific prefix (nested gate beats parent)', () => {
+    // /settings itself is readable by clinical roles, but the connectors subtree
+    // must stay agency-only even though it lives under /settings.
+    expect(canAccessRoute('nurse', '/settings')).toBe(true)
+    expect(canAccessRoute('nurse', '/settings/connectors/events')).toBe(false)
+    expect(canAccessRoute('agency_admin', '/settings/connectors/events')).toBe(true)
+  })
+
+  it('gates the contract templates tab + its detail route', () => {
+    expect(canAccessRoute('doctor_admin', '/settings/contracts/templates')).toBe(true)
+    expect(canAccessRoute('doctor_admin', '/settings/contracts/templates/abc')).toBe(true)
+    expect(canAccessRoute('nurse', '/settings/contracts/templates')).toBe(false)
   })
 
   it('allows access to unknown routes (safe fallback)', () => {
     expect(canAccessRoute('member', '/some/unknown/route')).toBe(true)
   })
 
-  it('treatment_coordinator can access campaign routes', () => {
+  it('treatment_coordinator can access campaign + broadcast routes', () => {
     expect(canAccessRoute('treatment_coordinator', '/campaigns')).toBe(true)
     expect(canAccessRoute('treatment_coordinator', '/reactivation')).toBe(true)
-    expect(canAccessRoute('treatment_coordinator', '/smart-lists')).toBe(true)
+    expect(canAccessRoute('treatment_coordinator', '/leads/lists')).toBe(true)
     expect(canAccessRoute('treatment_coordinator', '/call-center')).toBe(true)
-    expect(canAccessRoute('treatment_coordinator', '/funnel')).toBe(true)
+    expect(canAccessRoute('treatment_coordinator', '/campaigns/playbook')).toBe(true)
+    expect(canAccessRoute('treatment_coordinator', '/broadcasts/sms')).toBe(true)
+    expect(canAccessRoute('treatment_coordinator', '/broadcasts/audit')).toBe(true)
+  })
+
+  it('nurse cannot broadcast', () => {
+    expect(canAccessRoute('nurse', '/broadcasts/sms')).toBe(false)
+    expect(canAccessRoute('nurse', '/leads/lists')).toBe(false)
   })
 
   it('treatment_coordinator cannot access billing or team management', () => {
-    expect(canAccessRoute('treatment_coordinator', '/billing')).toBe(false)
-    expect(canAccessRoute('treatment_coordinator', '/team')).toBe(false)
+    expect(canAccessRoute('treatment_coordinator', '/settings/billing')).toBe(false)
+    expect(canAccessRoute('treatment_coordinator', '/settings/team')).toBe(false)
   })
 })
 

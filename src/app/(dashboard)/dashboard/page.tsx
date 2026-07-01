@@ -109,7 +109,7 @@ export default async function DashboardPage() {
   const weekLeads = weekLeadsResult.count || 0
 
   return (
-    <div className="space-y-4">
+    <div className="animate-in fade-in-0 duration-500 space-y-4">
       <OrgGoalsCard />
       <DashboardHome
       userName={profile?.full_name?.split(' ')[0] || 'there'}

@@ -10,18 +10,18 @@ export default function AgencySettingsPage() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center gap-2 mb-1">
-          <Settings className="h-5 w-5 text-violet-400" />
-          <h1 className="text-2xl font-bold text-white">Agency Settings</h1>
+          <Settings className="h-5 w-5 text-aurea-primary" />
+          <h1 className="text-2xl font-bold text-aurea-ink">Agency Settings</h1>
         </div>
-        <p className="text-slate-400 text-sm">
+        <p className="text-aurea-ink-2 text-sm">
           Configure agency-level preferences and platform defaults.
         </p>
       </div>
 
-      <Card className="bg-slate-900 border-slate-800">
+      <Card className="bg-aurea-surface border-aurea-border">
         <CardHeader>
-          <CardTitle className="text-white text-base">Platform Identity</CardTitle>
-          <CardDescription className="text-slate-500 text-xs">
+          <CardTitle className="text-aurea-ink text-base">Platform Identity</CardTitle>
+          <CardDescription className="text-aurea-ink-3 text-xs">
             How your agency appears on the platform.
           </CardDescription>
         </CardHeader>
@@ -34,8 +34,8 @@ export default function AgencySettingsPage() {
               { label: 'Architecture', value: 'Agency / Practice (Multi-Tenant)' },
             ].map((item) => (
               <div key={item.label} className="space-y-1">
-                <p className="text-xs text-slate-500">{item.label}</p>
-                <p className="text-sm font-medium text-slate-200">{item.value}</p>
+                <p className="text-xs text-aurea-ink-3">{item.label}</p>
+                <p className="text-sm font-medium text-aurea-ink-2">{item.value}</p>
               </div>
             ))}
           </div>

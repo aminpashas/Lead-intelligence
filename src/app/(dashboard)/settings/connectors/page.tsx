@@ -30,7 +30,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
-type ConnectorType = 'google_ads' | 'meta_capi' | 'ga4' | 'outbound_webhook' | 'slack' | 'google_reviews' | 'callrail'
+type ConnectorType = 'google_ads' | 'meta_capi' | 'ga4' | 'outbound_webhook' | 'slack' | 'google_reviews' | 'callrail' | 'ghl'
 
 type ConnectorInfo = {
   type: ConnectorType
@@ -64,7 +64,7 @@ const CONNECTOR_INFO: ConnectorInfo[] = [
     name: 'Google Ads',
     description: 'Push offline conversions back to Google Ads so Smart Bidding optimizes for real patient outcomes, not just form fills.',
     icon: Megaphone,
-    color: 'text-blue-500',
+    color: 'text-aurea-ink-2',
     docsUrl: 'https://developers.google.com/google-ads/api/docs/conversions/upload-clicks',
     fields: [
       { key: 'customerId', label: 'Customer ID', placeholder: '123-456-7890 (no dashes)', required: true },
@@ -80,7 +80,7 @@ const CONNECTOR_INFO: ConnectorInfo[] = [
     name: 'Meta Conversions API',
     description: 'Server-side events to Facebook & Instagram that bypass iOS privacy restrictions and ad blockers — restores ~40% lost attribution.',
     icon: Megaphone,
-    color: 'text-indigo-500',
+    color: 'text-aurea-primary',
     docsUrl: 'https://developers.facebook.com/docs/marketing-api/conversions-api',
     fields: [
       { key: 'pixelId', label: 'Pixel ID', placeholder: 'Your Meta pixel ID', required: true },
@@ -93,7 +93,7 @@ const CONNECTOR_INFO: ConnectorInfo[] = [
     name: 'Google Analytics 4',
     description: 'Send CRM pipeline events to GA4 for full-funnel visibility — from ad click to consultation to case closed.',
     icon: BarChart3,
-    color: 'text-orange-500',
+    color: 'text-aurea-amber',
     docsUrl: 'https://developers.google.com/analytics/devguides/collection/protocol/ga4',
     fields: [
       { key: 'measurementId', label: 'Measurement ID', placeholder: 'G-XXXXXXXXXX', required: true },
@@ -105,7 +105,7 @@ const CONNECTOR_INFO: ConnectorInfo[] = [
     name: 'Outbound Webhooks',
     description: 'Send CRM events to any URL — connects to Zapier, Make.com, n8n, or your own systems without custom code.',
     icon: Webhook,
-    color: 'text-emerald-500',
+    color: 'text-aurea-primary',
     docsUrl: '',
     fields: [
       { key: 'url', label: 'Webhook URL', placeholder: 'https://hooks.zapier.com/xxx or your endpoint', required: true },
@@ -117,7 +117,7 @@ const CONNECTOR_INFO: ConnectorInfo[] = [
     name: 'Slack Notifications',
     description: 'Real-time alerts to your team Slack channel — hot leads, consultations booked, cases closed, no-shows.',
     icon: MessageSquare,
-    color: 'text-purple-500',
+    color: 'text-aurea-ink-2',
     docsUrl: 'https://api.slack.com/messaging/webhooks',
     fields: [
       { key: 'webhookUrl', label: 'Incoming Webhook URL', placeholder: 'https://hooks.slack.com/services/T.../B.../xxx', required: true },
@@ -129,7 +129,7 @@ const CONNECTOR_INFO: ConnectorInfo[] = [
     name: 'Google Reviews',
     description: 'Automatically request Google reviews from patients after treatment — boosts your practice\'s online reputation.',
     icon: Star,
-    color: 'text-yellow-500',
+    color: 'text-aurea-amber',
     docsUrl: 'https://developers.google.com/maps/documentation/places/web-service/place-id',
     fields: [
       { key: 'placeId', label: 'Google Place ID', placeholder: 'ChIJ... (find at Google Maps → Share → Embed)', required: true },
@@ -142,11 +142,24 @@ const CONNECTOR_INFO: ConnectorInfo[] = [
     name: 'CallRail',
     description: 'Track phone calls from ads — know which campaigns, keywords, and landing pages drive phone conversions.',
     icon: Phone,
-    color: 'text-teal-500',
+    color: 'text-aurea-ink-3',
     docsUrl: 'https://www.callrail.com/apidocs',
     fields: [
       { key: 'companyId', label: 'CallRail Company ID', placeholder: 'Your CallRail company ID', required: true },
       { key: 'apiKey', label: 'API Key', placeholder: 'CallRail API key for verification', type: 'password', required: true },
+    ],
+  },
+  {
+    type: 'ghl',
+    name: 'GoHighLevel',
+    description: 'Pull opportunities from your GHL pipeline into Lead Intelligence every 15 minutes. Contacts sync in with consent left unknown — nothing is auto-contacted until re-permission earns it.',
+    icon: Plug,
+    color: 'text-aurea-ink-2',
+    docsUrl: 'https://highlevel.stoplight.io/docs/integrations/',
+    fields: [
+      { key: 'api_token', label: 'Private Integration Token', placeholder: 'Location-scoped GHL API token', type: 'password', required: true },
+      { key: 'location_id', label: 'Location ID', placeholder: 'Your GHL location / sub-account ID', required: true },
+      { key: 'pipeline_id', label: 'Pipeline ID (optional)', placeholder: 'Leave blank to sync every pipeline' },
     ],
   },
 ]
@@ -176,6 +189,7 @@ export default function ConnectorsPage() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState<ConnectorType | null>(null)
   const [testResult, setTestResult] = useState<{ type: ConnectorType; success: boolean; message: string } | null>(null)
+  const [syncing, setSyncing] = useState(false)
 
   const fetchConnectors = useCallback(async () => {
     try {
@@ -312,97 +326,121 @@ export default function ConnectorsPage() {
     }
   }
 
+  async function handleSyncNow() {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/connectors/ghl/sync', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok && data.result) {
+        const r = data.result
+        toast.success(`GoHighLevel synced: ${r.inserted} new, ${r.stageUpdated} moved, ${r.skipped} unchanged`)
+        fetchConnectors()
+      } else {
+        toast.error(data.error || 'Sync failed')
+      }
+    } catch {
+      toast.error('Failed to reach the sync endpoint')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="h-6 w-6 animate-spin text-aurea-ink-3" />
       </div>
     )
   }
 
   return (
-    <div className="max-w-3xl">
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Link href="/settings" className="text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-4 w-4" />
+    <div className="max-w-3xl animate-in fade-in-0 duration-500">
+      {/* Page header */}
+      <div className="mb-8">
+        <div className="flex items-center gap-3 mb-4">
+          <Link href="/settings" className="text-aurea-ink-3 hover:text-aurea-ink transition-colors">
+            <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
           </Link>
-          <Plug className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">Marketing Connectors</h1>
+          <Plug className="h-[18px] w-[18px] text-aurea-ink-3" strokeWidth={1.75} />
         </div>
-        <p className="text-muted-foreground ml-[52px]">
+        <p className="aurea-eyebrow mb-2">Settings</p>
+        <h1 className="aurea-display text-[32px] text-aurea-ink">Marketing Connectors</h1>
+        <p className="mt-3 text-[14px] leading-relaxed text-aurea-ink-2">
           Connect your ad platforms, analytics, and team tools for closed-loop ROI tracking
         </p>
       </div>
 
       {oauthError && (
-        <Card className="mb-6 border-amber-500/40 bg-amber-500/5">
-          <CardContent className="py-3 flex items-start gap-2 text-sm">
-            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+        <div className="mb-6 aurea-card p-4 border-aurea-amber/40 bg-aurea-amber/5">
+          <div className="flex items-start gap-2.5 text-sm">
+            <AlertTriangle className="h-4 w-4 text-aurea-amber mt-0.5 shrink-0" strokeWidth={1.75} />
             <div>
-              <p className="font-medium">Connection didn&apos;t complete</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
+              <p className="font-medium text-aurea-ink">Connection didn&apos;t complete</p>
+              <p className="text-xs text-aurea-ink-3 mt-0.5">
                 Error code: <code className="font-mono">{oauthError}</code>. Try reconnecting, or use the &quot;Configure manually&quot; button to enter credentials directly.
               </p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Quick Stats */}
       {connectors.some((c) => c.configured) && (
-        <Card className="mb-6">
-          <CardContent className="py-4">
+        <div className="aurea-card mb-6">
+          <div className="p-4">
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <p className="text-2xl font-bold">
+                <p className="aurea-display text-[28px] tabular-nums text-aurea-ink">
                   {connectors.filter((c) => c.enabled).length}
                 </p>
-                <p className="text-xs text-muted-foreground">Active Connectors</p>
+                <p className="aurea-eyebrow mt-1">Active Connectors</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="aurea-display text-[28px] tabular-nums text-aurea-primary">
                   {connectors.reduce((s, c) => s + c.stats.sent, 0)}
                 </p>
-                <p className="text-xs text-muted-foreground">Events Sent (24h)</p>
+                <p className="aurea-eyebrow mt-1">Events Sent (24h)</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-red-500">
+                <p className="aurea-display text-[28px] tabular-nums text-aurea-rose">
                   {connectors.reduce((s, c) => s + c.stats.failed, 0)}
                 </p>
-                <p className="text-xs text-muted-foreground">Failures (24h)</p>
+                <p className="aurea-eyebrow mt-1">Failures (24h)</p>
               </div>
             </div>
-            <div className="text-center mt-3">
+            <div className="text-center mt-4 pt-4 border-t border-aurea-border">
               <Link
                 href="/settings/connectors/events"
-                className="text-xs text-primary hover:underline flex items-center justify-center gap-1"
+                className="text-xs text-aurea-primary hover:underline flex items-center justify-center gap-1"
               >
-                <Activity className="h-3 w-3" />
+                <Activity className="h-3 w-3" strokeWidth={1.75} />
                 View Event Log
               </Link>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Connector Cards */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {CONNECTOR_INFO.map((info) => {
           const data = connectors.find((c) => c.connector_type === info.type)
           const isExpanded = expandedConnector === info.type
 
           return (
-            <Card key={info.type} className={data?.enabled ? 'border-primary/30' : ''}>
+            <Card
+              key={info.type}
+              className={`shadow-none border-aurea-border transition-colors ${data?.enabled ? 'border-aurea-primary/30' : 'hover:border-aurea-border-strong'}`}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg bg-muted ${info.color}`}>
-                      <info.icon className="h-5 w-5" />
+                    <div className="p-2 rounded-lg bg-aurea-surface-2 border border-aurea-border">
+                      <info.icon className={`h-[17px] w-[17px] ${info.color}`} strokeWidth={1.75} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <CardTitle className="text-base">{info.name}</CardTitle>
+                        <CardTitle className="text-[14px] font-semibold text-aurea-ink">{info.name}</CardTitle>
                         {data?.configured && (
                           <Badge
                             variant={data.enabled ? 'default' : 'secondary'}
@@ -412,11 +450,11 @@ export default function ConnectorsPage() {
                           </Badge>
                         )}
                         {data?.stats && (data.stats.sent > 0 || data.stats.failed > 0) && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 h-4 gap-1">
-                            <Activity className="h-2.5 w-2.5" />
-                            {data.stats.sent} sent
+                          <Badge variant="outline" className="text-[10px] px-1.5 h-4 gap-1 border-aurea-border text-aurea-ink-3">
+                            <Activity className="h-2.5 w-2.5" strokeWidth={1.75} />
+                            <span className="font-mono tabular-nums">{data.stats.sent}</span> sent
                             {data.stats.failed > 0 && (
-                              <span className="text-red-500">· {data.stats.failed} failed</span>
+                              <span className="text-aurea-rose font-mono tabular-nums">· {data.stats.failed} failed</span>
                             )}
                           </Badge>
                         )}
@@ -424,7 +462,7 @@ export default function ConnectorsPage() {
                           <SyncBadge sync={data.syncStatus} />
                         )}
                       </div>
-                      <CardDescription className="text-xs mt-0.5">
+                      <CardDescription className="text-xs mt-0.5 text-aurea-ink-3">
                         {info.description}
                       </CardDescription>
                     </div>
@@ -440,10 +478,10 @@ export default function ConnectorsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                          className="h-8 w-8 text-aurea-ink-3 hover:text-aurea-rose"
                           onClick={() => handleDelete(info.type, info.name)}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                         </Button>
                       </>
                     )}
@@ -471,6 +509,7 @@ export default function ConnectorsPage() {
                       <Button
                         variant="outline"
                         size="sm"
+                        className="border-aurea-border text-aurea-ink-2 hover:text-aurea-ink hover:bg-aurea-surface-2"
                         onClick={() => {
                           setExpandedConnector(isExpanded ? null : info.type)
                           setFormData({})
@@ -489,20 +528,37 @@ export default function ConnectorsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-xs"
+                          className="text-xs text-aurea-ink-2 hover:text-aurea-ink"
                           disabled={testing === info.type}
                           onClick={() => handleTestConnection(info.type, info.name)}
                         >
                           {testing === info.type ? (
-                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            <Loader2 className="h-3 w-3 animate-spin mr-1" strokeWidth={1.75} />
                           ) : (
-                            <Activity className="h-3 w-3 mr-1" />
+                            <Activity className="h-3 w-3 mr-1" strokeWidth={1.75} />
                           )}
                           Test
                         </Button>
+                        {info.type === 'ghl' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-aurea-ink-2 hover:text-aurea-ink"
+                            disabled={syncing}
+                            onClick={handleSyncNow}
+                          >
+                            {syncing ? (
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" strokeWidth={1.75} />
+                            ) : (
+                              <Plug className="h-3 w-3 mr-1" strokeWidth={1.75} />
+                            )}
+                            Sync now
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
+                          className="text-xs text-aurea-ink-2 hover:text-aurea-ink"
                           onClick={() => setExpandedConnector(isExpanded ? null : info.type)}
                         >
                           Edit
@@ -516,14 +572,14 @@ export default function ConnectorsPage() {
               {/* Expanded Configuration Form */}
               {isExpanded && (
                 <CardContent className="pt-0">
-                  <Separator className="mb-4" />
+                  <Separator className="mb-4 bg-aurea-border" />
 
                   <div className="space-y-4">
                     {info.fields.map((field) => (
                       <div key={field.key} className="space-y-1.5">
-                        <Label className="text-sm">
+                        <Label className="text-sm text-aurea-ink-2">
                           {field.label}
-                          {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                          {field.required && <span className="text-aurea-rose ml-0.5">*</span>}
                         </Label>
                         <Input
                           type={field.type || 'text'}
@@ -540,12 +596,12 @@ export default function ConnectorsPage() {
                     {/* Event Selection for webhooks and slack */}
                     {['outbound_webhook', 'slack'].includes(info.type) && (
                       <div className="space-y-2">
-                        <Label className="text-sm">Events to Send</Label>
+                        <Label className="text-sm text-aurea-ink-2">Events to Send</Label>
                         <div className="grid grid-cols-2 gap-2">
                           {EVENT_OPTIONS.map((ev) => (
                             <label
                               key={ev.value}
-                              className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted p-1.5 rounded"
+                              className="flex items-center gap-2 text-xs text-aurea-ink-2 cursor-pointer hover:bg-aurea-surface-2 p-1.5 rounded"
                             >
                               <input
                                 type="checkbox"
@@ -558,8 +614,8 @@ export default function ConnectorsPage() {
                           ))}
                         </div>
                         {selectedEvents.length === 0 && (
-                          <p className="text-[10px] text-amber-600 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
+                          <p className="text-[10px] text-aurea-amber flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" strokeWidth={1.75} />
                             No events selected — all events will be sent
                           </p>
                         )}
@@ -573,9 +629,9 @@ export default function ConnectorsPage() {
                             href={info.docsUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                            className="text-xs text-aurea-ink-3 hover:text-aurea-ink flex items-center gap-1"
                           >
-                            <ExternalLink className="h-3 w-3" />
+                            <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
                             API Docs
                           </a>
                         )}
@@ -584,6 +640,7 @@ export default function ConnectorsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          className="text-aurea-ink-2 hover:text-aurea-ink"
                           onClick={() => {
                             setExpandedConnector(null)
                             setFormData({})
@@ -599,9 +656,9 @@ export default function ConnectorsPage() {
                           ) === false}
                         >
                           {saving ? (
-                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            <Loader2 className="h-3 w-3 animate-spin mr-1" strokeWidth={1.75} />
                           ) : (
-                            <Save className="h-3 w-3 mr-1" />
+                            <Save className="h-3 w-3 mr-1" strokeWidth={1.75} />
                           )}
                           Save & Enable
                         </Button>
@@ -616,42 +673,38 @@ export default function ConnectorsPage() {
       </div>
 
       {/* How It Works */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-sm">How Connectors Work</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-muted-foreground">
-            <div className="flex items-start gap-2">
-              <div className="bg-primary text-primary-foreground rounded-full h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                1
-              </div>
-              <div>
-                <p className="font-medium text-foreground">CRM Event Fires</p>
-                <p>When a lead is created or moves through your pipeline, an event is generated.</p>
-              </div>
+      <div className="aurea-card mt-6 p-5">
+        <p className="aurea-eyebrow mb-4">How Connectors Work</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs text-aurea-ink-3">
+          <div className="flex items-start gap-2.5">
+            <div className="bg-aurea-primary text-white rounded-full h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+              1
             </div>
-            <div className="flex items-start gap-2">
-              <div className="bg-primary text-primary-foreground rounded-full h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                2
-              </div>
-              <div>
-                <p className="font-medium text-foreground">Dispatcher Routes</p>
-                <p>The event is sent to all your enabled connectors simultaneously, in the background.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <div className="bg-primary text-primary-foreground rounded-full h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                3
-              </div>
-              <div>
-                <p className="font-medium text-foreground">Platforms Optimize</p>
-                <p>Google & Meta use your conversion data to find more patients like your best cases.</p>
-              </div>
+            <div>
+              <p className="font-medium text-aurea-ink mb-0.5">CRM Event Fires</p>
+              <p>When a lead is created or moves through your pipeline, an event is generated.</p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+          <div className="flex items-start gap-2.5">
+            <div className="bg-aurea-primary text-white rounded-full h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+              2
+            </div>
+            <div>
+              <p className="font-medium text-aurea-ink mb-0.5">Dispatcher Routes</p>
+              <p>The event is sent to all your enabled connectors simultaneously, in the background.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2.5">
+            <div className="bg-aurea-primary text-white rounded-full h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+              3
+            </div>
+            <div>
+              <p className="font-medium text-aurea-ink mb-0.5">Platforms Optimize</p>
+              <p>Google & Meta use your conversion data to find more patients like your best cases.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -676,7 +729,7 @@ function SyncBadge({
   if (!sync.last_synced_at) {
     return (
       <Badge variant="secondary" className="text-[10px] px-1.5 h-4 gap-1">
-        <Clock className="h-2.5 w-2.5" />
+        <Clock className="h-2.5 w-2.5" strokeWidth={1.75} />
         Pull pending
       </Badge>
     )
@@ -688,17 +741,17 @@ function SyncBadge({
         className="text-[10px] px-1.5 h-4 gap-1"
         title={sync.last_error}
       >
-        <AlertTriangle className="h-2.5 w-2.5" />
+        <AlertTriangle className="h-2.5 w-2.5" strokeWidth={1.75} />
         Sync failed
       </Badge>
     )
   }
   return (
-    <Badge variant="outline" className="text-[10px] px-1.5 h-4 gap-1">
-      <Clock className="h-2.5 w-2.5" />
-      Synced {formatRelativeTime(sync.last_synced_at)}
+    <Badge variant="outline" className="text-[10px] px-1.5 h-4 gap-1 border-aurea-border text-aurea-ink-3">
+      <Clock className="h-2.5 w-2.5" strokeWidth={1.75} />
+      <span className="font-mono tabular-nums">Synced {formatRelativeTime(sync.last_synced_at)}</span>
       {sync.rows_inserted_last_run != null && sync.rows_inserted_last_run > 0 && (
-        <span className="text-muted-foreground">· {sync.rows_inserted_last_run} rows</span>
+        <span className="font-mono tabular-nums">· {sync.rows_inserted_last_run} rows</span>
       )}
     </Badge>
   )

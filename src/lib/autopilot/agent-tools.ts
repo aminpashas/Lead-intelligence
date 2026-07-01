@@ -27,7 +27,35 @@ import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
 import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
 import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/treatment/treatment-closing'
+import { executeStageTransition } from '@/lib/funnel/executor'
+import { ensureContractDraftForCase } from '@/lib/contracts/orchestrator'
+import type { LeadStatus } from '@/types/database'
 import type Anthropic from '@anthropic-ai/sdk'
+
+// ═══════════════════════════════════════════════════════════
+// AGENT-DRIVABLE PIPELINE TRANSITIONS
+// ═══════════════════════════════════════════════════════════
+//
+// The agent may only move a lead FORWARD through engagement/sales stages it
+// can legitimately infer from the conversation. Everything else is deliberately
+// off-limits: booking (create_booking owns consultation_scheduled), contracts
+// (contract tooling owns contract_sent/signed), clinical states
+// (scheduled/in_treatment/completed), and negative outcomes
+// (lost/disqualified/no_show — a human or the disqualify cron decides those).
+// A stale allow-list is safer than an agent that can silently mark a lead
+// "completed" or "lost".
+export const AGENT_STAGE_TRANSITIONS: Partial<Record<LeadStatus, LeadStatus[]>> = {
+  new: ['contacted', 'qualified'],
+  contacted: ['qualified'],
+  consultation_completed: ['treatment_presented', 'financing'],
+  treatment_presented: ['financing'],
+}
+
+/** Pure guard: may the agent move a lead from `from` to `to` on its own? */
+export function isAgentStageTransitionAllowed(from: LeadStatus, to: LeadStatus): boolean {
+  if (from === to) return false
+  return (AGENT_STAGE_TRANSITIONS[from] ?? []).includes(to)
+}
 
 // ═══════════════════════════════════════════════════════════
 // TOOL DEFINITIONS (sent to Claude)
@@ -113,6 +141,25 @@ const CROSS_CHANNEL_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: [],
+    },
+  },
+  {
+    name: 'advance_lead_stage',
+    description: 'Move the patient FORWARD in the sales pipeline to record real progress you observe in the conversation. Set "contacted" once you have genuinely engaged them; "qualified" once they clearly meet the criteria (interested, a viable candidate, and the decision-maker); "treatment_presented" once you have walked them through the treatment plan; "financing" once the conversation has moved to how they will pay. Do NOT use this to book consultations (use create_booking) or to send/sign contracts (handled separately). Only ever move forward, and only when it is genuinely true — this drives the practice\'s pipeline and reporting.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        to_stage: {
+          type: 'string',
+          enum: ['contacted', 'qualified', 'treatment_presented', 'financing'],
+          description: 'The stage the patient has genuinely reached based on the conversation.',
+        },
+        reason: {
+          type: 'string',
+          description: 'One short sentence: what in the conversation shows the patient reached this stage.',
+        },
+      },
+      required: ['to_stage'],
     },
   },
 ]
@@ -220,6 +267,24 @@ export const CLOSER_TOOLS: Anthropic.Tool[] = [
       required: [],
     },
   },
+  {
+    name: 'check_contract_status',
+    description: 'Check whether this patient has a treatment contract yet and where it stands (no clinical case yet, draft, awaiting review, approved, sent, viewed, signed, or executed). Call this before discussing paperwork so you say the right thing.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'prepare_contract_draft',
+    description: 'Prepare the patient\'s treatment contract DRAFT once they have verbally agreed to move forward (and a clinical case / treatment plan exists). This creates a draft for a human team member to review, approve, and send — it does NOT send, sign, or execute anything itself. Use it to get the paperwork moving the moment the patient commits, then tell them the team will send it over shortly.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
   ...CROSS_CHANNEL_TOOLS,
 ]
 
@@ -288,6 +353,15 @@ export async function executeAgentTool(
     case 'schedule_follow_up_consultation':
       return executeScheduleFollowUp(supabase, context, toolInput.preferred_day as string | undefined, (toolInput.consultation_type as string) || 'in_person')
 
+    case 'advance_lead_stage':
+      return executeAdvanceLeadStage(supabase, context, toolInput.to_stage as string, toolInput.reason as string | undefined)
+
+    case 'check_contract_status':
+      return executeCheckContractStatus(supabase, context)
+
+    case 'prepare_contract_draft':
+      return executePrepareContractDraft(supabase, context)
+
     default:
       return { success: false, data: {}, message: `Unknown tool: ${toolName}` }
   }
@@ -296,6 +370,213 @@ export async function executeAgentTool(
 // ═══════════════════════════════════════════════════════════
 // TOOL IMPLEMENTATIONS
 // ═══════════════════════════════════════════════════════════
+
+/**
+ * Move a lead forward in the pipeline on the agent's own initiative, gated by
+ * the AGENT_STAGE_TRANSITIONS whitelist. Records an activity and fires the
+ * existing funnel automations for the transition (best-effort).
+ */
+async function executeAdvanceLeadStage(
+  supabase: SupabaseClient,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+  },
+  toStage: string,
+  reason?: string
+): Promise<ToolResult> {
+  const to = toStage as LeadStatus
+
+  // Read the current stage fresh — context.lead may be stale mid-conversation.
+  const { data: current } = await supabase
+    .from('leads')
+    .select('status')
+    .eq('id', context.lead_id)
+    .single()
+
+  const from = (current?.status ?? context.lead.status) as LeadStatus | undefined
+  if (!from) {
+    return { success: false, data: {}, message: 'Could not determine the patient\'s current pipeline stage.' }
+  }
+
+  if (from === to) {
+    return { success: false, data: { from, to }, message: `The patient is already at the "${to}" stage.` }
+  }
+
+  if (!isAgentStageTransitionAllowed(from, to)) {
+    const allowed = AGENT_STAGE_TRANSITIONS[from] ?? []
+    const guidance = allowed.length
+      ? `From "${from}" you may only advance to: ${allowed.join(', ')}.`
+      : `You cannot change the stage from "${from}" yourself — booking, contracts, and outcomes are handled by dedicated tools or a human.`
+    return { success: false, data: { from, to, allowed }, message: `Not allowed. ${guidance}` }
+  }
+
+  const { error } = await supabase
+    .from('leads')
+    .update({ status: to })
+    .eq('id', context.lead_id)
+
+  if (error) {
+    return { success: false, data: {}, message: 'Failed to update the pipeline stage. Please try again.' }
+  }
+
+  await supabase.from('lead_activities').insert({
+    organization_id: context.organization_id,
+    lead_id: context.lead_id,
+    activity_type: 'stage_advanced',
+    title: `AI advanced stage: ${from} → ${to}`,
+    metadata: {
+      from,
+      to,
+      reason: reason || null,
+      source: 'ai_agent',
+      conversation_id: context.conversation_id,
+    },
+  })
+
+  // Fire funnel automations for the transition (best-effort — a failure here
+  // must not undo the stage change the agent legitimately made).
+  let automationsExecuted = 0
+  try {
+    const results = await executeStageTransition(supabase, {
+      organizationId: context.organization_id,
+      leadId: context.lead_id,
+      lead: { ...context.lead, status: to },
+      fromStageSlug: from,
+      toStageSlug: to,
+    })
+    automationsExecuted = results.reduce((n, r) => n + r.actionsExecuted, 0)
+  } catch {
+    // Automations are non-critical to the stage transition itself.
+  }
+
+  return {
+    success: true,
+    data: { from, to, automationsExecuted },
+    message: `Advanced the patient from "${from}" to "${to}".${automationsExecuted ? ` Triggered ${automationsExecuted} follow-up action(s).` : ''}`,
+  }
+}
+
+/** Most-recent clinical case for the lead, or null. Contracts hang off cases. */
+async function resolveLeadCase(
+  supabase: SupabaseClient,
+  organizationId: string,
+  leadId: string
+): Promise<{ id: string; status: string; patient_accepted_at: string | null } | null> {
+  const { data } = await supabase
+    .from('clinical_cases')
+    .select('id, status, patient_accepted_at, created_at')
+    .eq('organization_id', organizationId)
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return (data as { id: string; status: string; patient_accepted_at: string | null } | null) ?? null
+}
+
+const CONTRACT_STATUS_PHRASING: Record<string, string> = {
+  draft: 'in draft (not yet reviewed by the team)',
+  pending_review: 'awaiting the team\'s review',
+  changes_requested: 'being revised by the team',
+  approved: 'approved and ready to send',
+  sent: 'sent to the patient to sign',
+  viewed: 'opened by the patient, not yet signed',
+  signed: 'signed by the patient',
+  executed: 'fully executed',
+  declined: 'declined',
+  expired: 'expired',
+  voided: 'voided',
+}
+
+/** Read-only: tell the agent where this patient's contract stands. */
+async function executeCheckContractStatus(
+  supabase: SupabaseClient,
+  context: { organization_id: string; lead_id: string }
+): Promise<ToolResult> {
+  const kase = await resolveLeadCase(supabase, context.organization_id, context.lead_id)
+  if (!kase) {
+    return {
+      success: true,
+      data: { has_case: false, has_contract: false },
+      message: 'There is no clinical case for this patient yet, so no contract exists. A treatment plan/case has to be created by the team before a contract can be prepared.',
+    }
+  }
+
+  const { data: contract } = await supabase
+    .from('patient_contracts')
+    .select('id, status')
+    .eq('organization_id', context.organization_id)
+    .eq('clinical_case_id', kase.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle<{ id: string; status: string }>()
+
+  if (!contract) {
+    return {
+      success: true,
+      data: { has_case: true, has_contract: false, case_status: kase.status },
+      message: `There is a clinical case (status: ${kase.status}) but no contract has been prepared yet. Once the patient agrees to proceed you can prepare a draft.`,
+    }
+  }
+
+  return {
+    success: true,
+    data: { has_case: true, has_contract: true, status: contract.status },
+    message: `The treatment contract is ${CONTRACT_STATUS_PHRASING[contract.status] ?? contract.status}.`,
+  }
+}
+
+/**
+ * Create the patient's contract DRAFT (agent-initiated) once they commit.
+ * Deliberately stops at the draft: approval and sending remain a human,
+ * permission-gated action — the agent never autonomously executes a legal
+ * document. Closes the "agent can't move toward the close" gap safely.
+ */
+async function executePrepareContractDraft(
+  supabase: SupabaseClient,
+  context: { organization_id: string; lead_id: string }
+): Promise<ToolResult> {
+  const kase = await resolveLeadCase(supabase, context.organization_id, context.lead_id)
+  if (!kase) {
+    return {
+      success: false,
+      data: { has_case: false },
+      message: 'Can\'t prepare a contract yet — there is no clinical case/treatment plan for this patient. Let them know the team will set up their treatment plan first, then send the agreement.',
+    }
+  }
+
+  const result = await ensureContractDraftForCase({
+    supabase,
+    organizationId: context.organization_id,
+    caseId: kase.id,
+    actorType: 'ai_agent',
+    actorId: null,
+  })
+
+  if (!result.ok) {
+    const message =
+      result.code === 'missing_legal'
+        ? 'I couldn\'t prepare the contract because the practice\'s legal/contract settings are incomplete. A team member will handle the paperwork.'
+        : result.code === 'no_template'
+          ? 'I couldn\'t prepare the contract because no contract template is published for this practice yet. A team member will follow up with the agreement.'
+          : result.code === 'already_in_progress'
+            ? 'A contract is already being prepared for this patient — the team will send it shortly.'
+            : result.code === 'case_not_found'
+              ? 'I couldn\'t locate the patient\'s case to prepare the contract; a team member will follow up.'
+              : 'I couldn\'t prepare the contract right now, but a team member will follow up with the agreement.'
+    return { success: false, data: { code: result.code, missing: result.missing ?? [] }, message }
+  }
+
+  return {
+    success: true,
+    data: { contract_id: result.contract_id, status: result.status, needs_manual_draft: result.needs_manual_draft },
+    message: result.needs_manual_draft
+      ? 'I\'ve started the contract, but a team member needs to finish drafting it. Tell the patient the team will send their agreement over shortly.'
+      : `I've prepared the patient's contract draft. A team member will review and send it for signature — tell the patient to expect it soon.`,
+  }
+}
 
 async function executeCheckAvailability(
   supabase: SupabaseClient,

@@ -68,13 +68,14 @@ export default async function FunnelPage() {
   const totalLeads = leads?.length || 0
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Funnel Playbook</h1>
-        <p className="text-muted-foreground">
-          Sales strategies, engagement rules, and automations for every stage of the patient journey
+    <div className="animate-in fade-in-0 duration-500 space-y-8">
+      <header className="border-b border-aurea-border pb-8">
+        <p className="aurea-eyebrow mb-3">Campaigns</p>
+        <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px]">Funnel Playbook</h1>
+        <p className="mt-4 max-w-2xl text-[16px] leading-relaxed text-aurea-ink-2">
+          Sales strategies, engagement rules, and automations for every stage of the patient journey.
         </p>
-      </div>
+      </header>
 
       <FunnelPlaybook
         stages={stages || []}

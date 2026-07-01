@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,18 +17,19 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   ArrowLeft, Users, Megaphone, Brain, Pencil, ChevronLeft,
-  ChevronRight, Loader2, RefreshCw, Tags as TagsIcon, MessageSquare, Mail,
+  ChevronRight, Loader2, RefreshCw, MessageSquare, Mail,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TagBadgeList } from './tag-badge'
-import type { Lead, PipelineStage, SmartList, Tag } from '@/types/database'
+import type { Lead, SmartList, Tag } from '@/types/database'
 
+// Lead qualification chips — Aurea semantic colors, no blue
 const qualificationColors: Record<string, string> = {
-  hot: 'bg-red-100 text-red-800',
-  warm: 'bg-orange-100 text-orange-800',
-  cold: 'bg-blue-100 text-blue-800',
-  unqualified: 'bg-gray-100 text-gray-600',
-  unscored: 'bg-gray-50 text-gray-400',
+  hot: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  warm: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  cold: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
+  unqualified: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  unscored: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
 interface SmartListDetailProps {
@@ -89,49 +90,50 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
   if (c.sms_consent) criteriaLabels.push('SMS consent')
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in-0 duration-500">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4" />
+      <div className="flex items-center gap-4 border-b border-aurea-border pb-6">
+        <Button variant="ghost" size="icon" onClick={onBack} className="text-aurea-ink-3 hover:text-aurea-ink">
+          <ArrowLeft className="h-[17px] w-[17px]" strokeWidth={1.75} />
         </Button>
         <div
-          className="h-10 w-10 rounded-lg flex items-center justify-center"
-          style={{ backgroundColor: smartList.color + '20' }}
+          className="h-10 w-10 rounded-lg flex items-center justify-center border border-aurea-border bg-aurea-surface-2"
         >
-          <Users className="h-5 w-5" style={{ color: smartList.color }} />
+          <Users className="h-[17px] w-[17px] text-aurea-ink-2" strokeWidth={1.75} />
         </div>
         <div className="flex-1">
-          <h1 className="text-xl font-bold">{smartList.name}</h1>
+          <h1 className="aurea-display text-[22px] text-aurea-ink">{smartList.name}</h1>
           {smartList.description && (
-            <p className="text-sm text-muted-foreground">{smartList.description}</p>
+            <p className="text-[13px] text-aurea-ink-3 mt-0.5">{smartList.description}</p>
           )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="gap-1.5">
-            {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {refreshing
+              ? <Loader2 className="h-[15px] w-[15px] animate-spin" />
+              : <RefreshCw className="h-[15px] w-[15px]" strokeWidth={1.75} />}
             Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={onEdit} className="gap-1.5">
-            <Pencil className="h-4 w-4" />
+            <Pencil className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Edit
           </Button>
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
-            onClick={() => router.push(`/mass-sms?smart_list_id=${smartList.id}`)}
+            onClick={() => router.push(`/broadcasts/sms?smart_list_id=${smartList.id}`)}
           >
-            <MessageSquare className="h-4 w-4" />
+            <MessageSquare className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Mass SMS
           </Button>
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
-            onClick={() => router.push(`/mass-email?smart_list_id=${smartList.id}`)}
+            onClick={() => router.push(`/broadcasts/email?smart_list_id=${smartList.id}`)}
           >
-            <Mail className="h-4 w-4" />
+            <Mail className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Mass Email
           </Button>
           <Button
@@ -139,7 +141,7 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
             className="gap-1.5"
             onClick={() => router.push(`/campaigns?smart_list_id=${smartList.id}`)}
           >
-            <Megaphone className="h-4 w-4" />
+            <Megaphone className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Launch Campaign
           </Button>
         </div>
@@ -147,43 +149,42 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
 
       {/* Stats & Criteria */}
       <div className="grid grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <p className="text-2xl font-bold">{total.toLocaleString()}</p>
-            <p className="text-xs text-muted-foreground">Matching Leads</p>
-          </CardContent>
-        </Card>
-        <Card className="col-span-3">
-          <CardContent className="pt-4">
-            <p className="text-xs font-medium text-muted-foreground mb-2">Active Filters</p>
-            <div className="flex flex-wrap gap-1.5">
-              {criteriaLabels.length > 0 ? criteriaLabels.map((label, i) => (
-                <Badge key={i} variant="secondary" className="text-xs capitalize">
-                  {label}
-                </Badge>
-              )) : (
-                <span className="text-xs text-muted-foreground">No filters set — showing all leads</span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="aurea-card p-5">
+          <p className="aurea-eyebrow mb-3">Matching Leads</p>
+          <p className="aurea-display text-[40px] tabular-nums text-aurea-ink">{total.toLocaleString()}</p>
+        </div>
+        <div className="aurea-card col-span-3 p-5">
+          <p className="aurea-eyebrow mb-3">Active Filters</p>
+          <div className="flex flex-wrap gap-1.5">
+            {criteriaLabels.length > 0 ? criteriaLabels.map((label, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center rounded-full border border-aurea-border bg-aurea-surface-2 px-2.5 py-0.5 text-[11px] font-medium text-aurea-ink-2 capitalize"
+              >
+                {label}
+              </span>
+            )) : (
+              <span className="text-[12px] text-aurea-ink-3">No filters set — showing all leads</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Leads Table */}
       {loading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <Loader2 className="h-6 w-6 animate-spin text-aurea-ink-3" />
         </div>
       ) : leads.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center py-16">
-            <Users className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="font-medium">No matching leads</p>
-            <p className="text-sm text-muted-foreground">
+        <div className="aurea-card">
+          <div className="flex flex-col items-center py-16">
+            <Users className="h-10 w-10 text-aurea-ink-3 mb-3" strokeWidth={1.75} />
+            <p className="font-medium text-aurea-ink">No matching leads</p>
+            <p className="text-[13px] text-aurea-ink-3 mt-1">
               Adjust your filters to match more leads
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : (
         <>
           <Card>
@@ -206,62 +207,62 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
                     return (
                       <TableRow
                         key={lead.id}
-                        className="cursor-pointer"
+                        className="cursor-pointer hover:bg-aurea-surface-2"
                         onClick={() => router.push(`/leads/${lead.id}`)}
                       >
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <Avatar className="h-8 w-8">
-                              <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                              <AvatarFallback className="text-xs bg-aurea-surface-2 text-aurea-ink-2">{initials}</AvatarFallback>
                             </Avatar>
                             <div>
-                              <p className="font-medium text-sm">
+                              <p className="font-medium text-[13px] text-aurea-ink">
                                 {lead.first_name} {lead.last_name}
                               </p>
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-[11px] text-aurea-ink-3">
                                 {lead.email || lead.phone}
                               </p>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge className={qualificationColors[lead.ai_qualification]}>
-                            <Brain className="h-3 w-3 mr-1" />
-                            {lead.ai_score}
-                          </Badge>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${qualificationColors[lead.ai_qualification] || qualificationColors.unscored}`}>
+                            <Brain className="h-3 w-3" strokeWidth={1.75} />
+                            <span className="font-mono tabular-nums">{lead.ai_score}</span>
+                          </span>
                         </TableCell>
                         <TableCell>
                           {lead.pipeline_stage && (
                             <div className="flex items-center gap-1.5">
                               <div
-                                className="h-2 w-2 rounded-full"
+                                className="h-1.5 w-1.5 rounded-full shrink-0"
                                 style={{ backgroundColor: lead.pipeline_stage.color }}
                               />
-                              <span className="text-sm">{lead.pipeline_stage.name}</span>
+                              <span className="text-[13px] text-aurea-ink-2">{lead.pipeline_stage.name}</span>
                             </div>
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="text-xs capitalize">
+                          <Badge variant="outline" className="text-[11px] capitalize">
                             {lead.status.replace(/_/g, ' ')}
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm text-muted-foreground capitalize">
+                          <span className="text-[13px] text-aurea-ink-3 capitalize">
                             {lead.source_type?.replace(/_/g, ' ') || '—'}
                           </span>
                         </TableCell>
                         <TableCell>
                           {lead.treatment_value ? (
-                            <span className="font-medium text-green-600">
+                            <span className="font-mono tabular-nums text-[13px] font-medium text-aurea-primary">
                               ${lead.treatment_value.toLocaleString()}
                             </span>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            <span className="text-aurea-ink-3">—</span>
                           )}
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
                             {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
                           </span>
                         </TableCell>
@@ -276,7 +277,7 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
+              <p className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
                 Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total}
               </p>
               <div className="flex items-center gap-2">
@@ -286,10 +287,10 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
                   disabled={page <= 1}
                   onClick={() => setPage(page - 1)}
                 >
-                  <ChevronLeft className="h-4 w-4" />
+                  <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
                 </Button>
-                <span className="text-sm">
-                  Page {page} of {totalPages}
+                <span className="font-mono text-[12px] tabular-nums text-aurea-ink-2">
+                  {page} / {totalPages}
                 </span>
                 <Button
                   variant="outline"
@@ -297,7 +298,7 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
                   disabled={page >= totalPages}
                   onClick={() => setPage(page + 1)}
                 >
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="h-[15px] w-[15px]" strokeWidth={1.75} />
                 </Button>
               </div>
             </div>

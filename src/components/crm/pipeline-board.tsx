@@ -92,7 +92,7 @@ export function PipelineBoard({
   // Prevent hydration mismatch — DnD-kit generates unique IDs at runtime
   if (!mounted) {
     return (
-      <div className="flex gap-4 overflow-x-auto pb-4 h-[calc(100vh-13rem)]">
+      <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-13rem)]">
         {stages.filter((s) => !s.is_lost).map((stage) => {
           const stageLeads = leads.filter((l) => l.stage_id === stage.id)
           return (
@@ -110,7 +110,7 @@ export function PipelineBoard({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-4 overflow-x-auto pb-4 h-[calc(100vh-13rem)]">
+      <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-13rem)]">
         {stages
           .filter((s) => !s.is_lost)
           .map((stage) => {

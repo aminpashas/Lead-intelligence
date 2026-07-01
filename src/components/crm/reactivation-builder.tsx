@@ -258,13 +258,14 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
   return (
     <div className="space-y-6" id="reactivation-builder">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 border-b border-aurea-border pb-6">
         <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">Create Reactivation Campaign</h1>
-          <p className="text-sm text-muted-foreground">Build a custom campaign to re-engage dormant leads</p>
+          <p className="aurea-eyebrow mb-2">New Campaign</p>
+          <h1 className="aurea-display text-[32px] text-aurea-ink">Create Reactivation Campaign</h1>
+          <p className="mt-1.5 text-[13px] text-aurea-ink-3">Build a custom campaign to re-engage dormant leads</p>
         </div>
       </div>
 
@@ -278,23 +279,23 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
             <div key={step.id} className="flex items-center gap-2">
               <button
                 onClick={() => setCurrentStep(step.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
                   isActive
-                    ? 'bg-purple-100 text-purple-700 shadow-sm'
+                    ? 'bg-aurea-primary-soft text-aurea-primary'
                     : isPast
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'text-muted-foreground hover:bg-accent'
+                      ? 'text-aurea-primary hover:bg-aurea-surface-2'
+                      : 'text-aurea-ink-3 hover:bg-aurea-surface-2'
                 }`}
               >
                 {isPast ? (
-                  <Check className="h-4 w-4" />
+                  <Check className="h-4 w-4" strokeWidth={1.75} />
                 ) : (
-                  <StepIcon className="h-4 w-4" />
+                  <StepIcon className="h-4 w-4" strokeWidth={1.75} />
                 )}
                 <span className="hidden sm:inline">{step.label}</span>
               </button>
               {i < BUILDER_STEPS.length - 1 && (
-                <div className={`w-6 h-px ${isPast ? 'bg-emerald-300' : 'bg-border'}`} />
+                <div className={`h-px w-6 ${isPast ? 'bg-aurea-primary/40' : 'bg-aurea-border'}`} />
               )}
             </div>
           )
@@ -313,10 +314,10 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                   <button
                     key={t.id}
                     onClick={() => applyTemplate(t.id)}
-                    className={`p-3 rounded-lg border text-left transition-all text-sm ${
+                    className={`rounded-lg border p-3 text-left text-sm transition-colors ${
                       templateId === t.id
-                        ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-200'
-                        : 'hover:border-purple-200 hover:bg-purple-50/50'
+                        ? 'border-aurea-primary bg-aurea-primary-soft ring-1 ring-aurea-primary/30'
+                        : 'border-aurea-border hover:border-aurea-border-strong hover:bg-aurea-surface-2'
                     }`}
                   >
                     <p className="font-medium text-xs">{t.name}</p>
@@ -427,7 +428,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                   <CardContent className="pt-4 space-y-3">
                     <div className="flex items-start justify-between">
                       <Badge variant="outline" className="text-xs gap-1">
-                        <Gift className="h-3 w-3 text-pink-500" />
+                        <Gift className="h-3 w-3 text-aurea-gold" />
                         Offer {i + 1}
                       </Badge>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeOffer(i)}>
@@ -513,7 +514,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
               if (!option) return null
 
               return (
-                <Card key={hook.strategy} className={`transition-all ${hook.enabled ? 'border-purple-300 bg-purple-50/30' : ''}`}>
+                <Card key={hook.strategy} className={`transition-colors ${hook.enabled ? 'border-aurea-primary/40 bg-aurea-primary-soft' : ''}`}>
                   <CardContent className="pt-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -653,7 +654,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                           onCheckedChange={v => updateSequenceStep(i, { ai_personalize: v })}
                         />
                         <Label className="text-xs flex items-center gap-1">
-                          <Sparkles className="h-3 w-3 text-purple-500" />
+                          <Sparkles className="h-3 w-3 text-aurea-primary" strokeWidth={1.75} />
                           AI Generate
                         </Label>
                       </div>
@@ -670,8 +671,8 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                   )}
 
                   {step.ai_personalize ? (
-                    <div className="rounded-lg bg-purple-50 border border-purple-200 p-3 text-sm text-purple-700 flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 shrink-0" />
+                    <div className="flex items-center gap-2 rounded-lg border border-aurea-primary/30 bg-aurea-primary-soft p-3 text-sm text-aurea-ink-2">
+                      <Sparkles className="h-4 w-4 shrink-0 text-aurea-primary" strokeWidth={1.75} />
                       AI will generate a personalized message based on the lead&apos;s profile, your hook strategies, and active offers.
                     </div>
                   ) : (
@@ -768,7 +769,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                 <div className="space-y-2">
                   {offers.filter(o => o.name).map((offer, i) => (
                     <div key={i} className="flex items-center gap-3 text-sm">
-                      <Gift className="h-4 w-4 text-pink-500 shrink-0" />
+                      <Gift className="h-4 w-4 text-aurea-gold shrink-0" />
                       <span className="font-medium">{offer.name}</span>
                       <Badge variant="outline" className="text-xs">
                         {offer.type === 'percentage_off' ? `${offer.value}% off` :
@@ -796,8 +797,8 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                     </Badge>
                     <span className="font-medium flex-1">{step.name}</span>
                     {step.ai_personalize && (
-                      <Badge className="bg-purple-100 text-purple-700 text-xs gap-1">
-                        <Sparkles className="h-3 w-3" /> AI
+                      <Badge className="gap-1 bg-aurea-primary-soft text-aurea-primary text-xs">
+                        <Sparkles className="h-3 w-3" strokeWidth={1.75} /> AI
                       </Badge>
                     )}
                     <span className="text-xs text-muted-foreground">
@@ -819,8 +820,8 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
         </Button>
 
         {currentStep === 'review' ? (
-          <Button onClick={handleSave} disabled={saving} className="gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+          <Button onClick={handleSave} disabled={saving} className="gap-1.5">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" strokeWidth={1.75} />}
             Create Campaign
           </Button>
         ) : (

@@ -66,22 +66,22 @@ function defaultRange() {
 
 const STATUS_STYLES: Record<KpiStatus, { chip: string; ring: string; label: string }> = {
   green: {
-    chip: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/25',
-    ring: 'ring-emerald-500/30',
+    chip: 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20',
+    ring: 'ring-aurea-primary/20',
     label: 'On target',
   },
   yellow: {
-    chip: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/25',
-    ring: 'ring-amber-500/30',
+    chip: 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20',
+    ring: 'ring-aurea-amber/20',
     label: 'Watch',
   },
   red: {
-    chip: 'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/25',
-    ring: 'ring-rose-500/30',
+    chip: 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/20',
+    ring: 'ring-aurea-rose/20',
     label: 'Below target',
   },
   no_target: {
-    chip: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20',
+    chip: 'bg-aurea-surface-2 text-aurea-ink-3 border-aurea-border',
     ring: '',
     label: '—',
   },
@@ -136,21 +136,22 @@ export function AgentScorecard() {
   }, [range])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in-0 duration-500">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
+          <p className="aurea-eyebrow mb-3">Agent Performance</p>
           <div className="flex items-center gap-2">
-            <Gauge className="h-5 w-5 text-primary" />
-            <h1 className="text-2xl font-bold">Agent KPI Dashboard</h1>
+            <Gauge className="text-aurea-ink-3 h-[17px] w-[17px]" strokeWidth={1.75} />
+            <h1 className="aurea-display text-[40px] text-aurea-ink">Agent KPI Dashboard</h1>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-[15px] text-aurea-ink-2 mt-2">
             Per-agent scorecard against target percentages. Green hits the target, yellow is a warning, red is below critical.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
           <Link
-            href="/agent-kpi/protocols"
-            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mr-1"
+            href="/analytics/agents/protocols"
+            className="text-xs text-aurea-ink-3 hover:text-aurea-ink inline-flex items-center gap-1 mr-1"
           >
             Protocols & discipline <ArrowRight className="h-3 w-3" />
           </Link>
@@ -182,7 +183,7 @@ export function AgentScorecard() {
 
       {error && (
         <Card>
-          <CardContent className="p-4 text-sm text-rose-600">Error loading KPIs: {error}</CardContent>
+          <CardContent className="p-4 text-sm text-aurea-rose">Error loading KPIs: {error}</CardContent>
         </Card>
       )}
 
@@ -261,12 +262,12 @@ function AgentCard({
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b bg-muted/30">
+      <CardHeader className="border-b border-aurea-border bg-aurea-surface-2/50">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <CardTitle className="flex items-center gap-2">
-              <RoleIcon className="h-4 w-4 text-primary" />
-              {agent.name}
+              <RoleIcon className="text-aurea-ink-3 h-[17px] w-[17px]" strokeWidth={1.75} />
+              <span className="aurea-display text-[22px]">{agent.name}</span>
             </CardTitle>
             <CardDescription className="mt-1">
               {agent.role === 'setter'
@@ -285,14 +286,14 @@ function AgentCard({
             <Badge variant="outline" className="capitalize">{agent.role}</Badge>
             {canEditTargets && (
               <Button variant="outline" size="icon" onClick={onEdit} aria-label="Edit targets">
-                <Settings2 className="h-4 w-4" />
+                <Settings2 className="h-4 w-4" strokeWidth={1.75} />
               </Button>
             )}
           </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="grid grid-cols-2 divide-x divide-y">
+        <div className="grid grid-cols-2 divide-x divide-y divide-aurea-border">
           {KPI_DISPLAY_ORDER.map((kpiName) => {
             const cell = agent.kpis[kpiName]
             if (!cell) return null
@@ -311,18 +312,18 @@ function KpiCell({ name, cell }: { name: string; cell: KpiCell }) {
   const arrow = kpiDirectionArrow(cell.direction)
 
   return (
-    <div className={cn('p-4 transition-colors', cell.status === 'red' && 'bg-rose-500/5', cell.status === 'yellow' && 'bg-amber-500/5')}>
+    <div className={cn('p-4 transition-colors', cell.status === 'red' && 'bg-aurea-rose/5', cell.status === 'yellow' && 'bg-aurea-amber/5')}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-xs font-medium text-muted-foreground truncate" title={KPI_DESCRIPTIONS[name]}>
+          <div className="aurea-eyebrow !text-[10px] truncate" title={KPI_DESCRIPTIONS[name]}>
             {KPI_LABELS[name]}
           </div>
           <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="text-2xl font-bold tabular-nums">
+            <span className="aurea-display text-[28px] tabular-nums text-aurea-ink">
               {formatKpiValue(cell.value, unit)}
             </span>
             {arrow && (
-              <span className="text-xs text-muted-foreground" aria-label="goal direction">{arrow}</span>
+              <span className="text-xs text-aurea-ink-3" aria-label="goal direction">{arrow}</span>
             )}
           </div>
         </div>
@@ -336,7 +337,7 @@ function KpiCell({ name, cell }: { name: string; cell: KpiCell }) {
         )}
       </div>
       {!displayOnly && cell.target !== null && (
-        <div className="mt-1.5 text-[11px] text-muted-foreground">
+        <div className="mt-1.5 text-[11px] text-aurea-ink-3">
           Target {formatKpiValue(cell.target, unit)}
           {cell.warning !== null && cell.critical !== null && (
             <>

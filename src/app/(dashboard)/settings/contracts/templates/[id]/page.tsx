@@ -3,12 +3,10 @@
 import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { RoleGuard } from '@/components/auth/role-guard'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
@@ -22,6 +20,12 @@ type TemplateData = {
   status: string
   sections: ContractTemplateSection[]
   required_variables: string[]
+}
+
+const TEMPLATE_STATUS_STYLES: Record<string, string> = {
+  published: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  draft: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  archived: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
 function TemplateEditorContent({ id }: { id: string }) {
@@ -70,9 +74,13 @@ function TemplateEditorContent({ id }: { id: string }) {
   }
 
   if (loading) {
-    return <div className="p-6 flex items-center justify-center min-h-[60vh]"><Loader2 className="h-5 w-5 animate-spin" /></div>
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-aurea-ink-3" />
+      </div>
+    )
   }
-  if (!tpl) return <div className="p-6 text-sm text-slate-500">Not found.</div>
+  if (!tpl) return <div className="text-[13px] text-aurea-ink-3">Not found.</div>
 
   const editable = tpl.status === 'draft'
 
@@ -82,17 +90,24 @@ function TemplateEditorContent({ id }: { id: string }) {
   }
 
   return (
-    <div className="p-6 max-w-4xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">{tpl.name}</h1>
-          <div className="text-xs text-slate-500 mt-1">
-            {tpl.slug} • v{tpl.version} • <Badge variant="outline">{tpl.status}</Badge>
+    <div className="animate-in fade-in-0 duration-500 max-w-4xl space-y-6">
+      {/* ── Header ─────────────────────────────────────────── */}
+      <header className="border-b border-aurea-border pb-6">
+        <p className="aurea-eyebrow mb-2">Settings / Contract Templates</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="aurea-display text-[32px] text-aurea-ink">{tpl.name}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[12px] text-aurea-ink-3">{tpl.slug}</span>
+              <span className="text-aurea-ink-3">&middot;</span>
+              <span className="font-mono text-[12px] text-aurea-ink-3">v{tpl.version}</span>
+              <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium capitalize ${TEMPLATE_STATUS_STYLES[tpl.status] ?? 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border'}`}>
+                {tpl.status}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2">
           {editable && (
-            <>
+            <div className="flex shrink-0 gap-2">
               <Button size="sm" onClick={save} disabled={saving}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Save draft
@@ -101,83 +116,95 @@ function TemplateEditorContent({ id }: { id: string }) {
                 {publishing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Publish
               </Button>
-            </>
+            </div>
           )}
         </div>
-      </div>
+      </header>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base">Template metadata</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* ── Template metadata ──────────────────────────────── */}
+      <section className="aurea-card overflow-hidden">
+        <div className="border-b border-aurea-border px-5 py-4">
+          <h2 className="aurea-display text-[18px] text-aurea-ink">Template metadata</h2>
+        </div>
+        <div className="grid grid-cols-1 gap-4 px-5 py-5 md:grid-cols-2">
           <div>
-            <Label>Name</Label>
+            <Label className="text-[12px] text-aurea-ink-3">Name</Label>
             <Input
               value={tpl.name}
               onChange={(e) => setTpl({ ...tpl, name: e.target.value })}
               disabled={!editable}
+              className="mt-1"
             />
           </div>
           <div>
-            <Label>Slug (read-only)</Label>
-            <Input value={tpl.slug} disabled />
+            <Label className="text-[12px] text-aurea-ink-3">Slug (read-only)</Label>
+            <Input value={tpl.slug} disabled className="mt-1 font-mono" />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       <Separator />
 
+      {/* ── Sections ───────────────────────────────────────── */}
       {tpl.sections.map((s, idx) => (
-        <Card key={s.id}>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              {s.title}
-              <Badge variant="outline" className="text-xs">{s.kind}</Badge>
-              {s.consent_key && (
-                <Badge variant="outline" className="text-xs">consent:{s.consent_key}</Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <section key={s.id} className="aurea-card overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+            <h2 className="aurea-display text-[18px] text-aurea-ink flex-1">{s.title}</h2>
+            <span className="inline-flex items-center rounded-md border border-aurea-border bg-aurea-surface-2 px-2 py-0.5 text-[10.5px] font-medium text-aurea-ink-3">
+              {s.kind}
+            </span>
+            {s.consent_key && (
+              <span className="inline-flex items-center rounded-md border border-aurea-border bg-aurea-surface-2 px-2 py-0.5 text-[10.5px] font-medium text-aurea-ink-3">
+                consent:{s.consent_key}
+              </span>
+            )}
+          </div>
+          <div className="space-y-3 px-5 py-4">
             {(s.kind === 'boilerplate' || s.kind === 'consent' || s.kind === 'signature') && (
               <div>
-                <Label className="text-xs">Body (may include {'{{'}variable{'}}'}  tokens)</Label>
+                <Label className="text-[12px] text-aurea-ink-3">
+                  Body (may include {'{{'}{'}}'} tokens)
+                </Label>
                 <Textarea
                   value={s.body ?? ''}
                   rows={6}
                   onChange={(e) => updateSection(idx, { body: e.target.value })}
                   disabled={!editable}
+                  className="mt-1 text-[13px]"
                 />
               </div>
             )}
             {s.kind === 'ai_narrative' && (
               <>
                 <div>
-                  <Label className="text-xs">AI instruction</Label>
+                  <Label className="text-[12px] text-aurea-ink-3">AI instruction</Label>
                   <Textarea
                     value={s.ai_prompt ?? ''}
                     rows={4}
                     onChange={(e) => updateSection(idx, { ai_prompt: e.target.value })}
                     disabled={!editable}
+                    className="mt-1 text-[13px]"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Max words</Label>
+                  <Label className="text-[12px] text-aurea-ink-3">Max words</Label>
                   <Input
                     type="number"
                     value={s.max_ai_words ?? 200}
                     onChange={(e) => updateSection(idx, { max_ai_words: Number(e.target.value) })}
                     disabled={!editable}
+                    className="mt-1 w-32 font-mono"
                   />
                 </div>
               </>
             )}
             {s.kind === 'data_table' && (
-              <div className="text-xs text-slate-500">
+              <p className="text-[12px] text-aurea-ink-3">
                 Renders from server-side data ({s.data_source ?? '—'}). No body editing.
-              </div>
+              </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       ))}
     </div>
   )

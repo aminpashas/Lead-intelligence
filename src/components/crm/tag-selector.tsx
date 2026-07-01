@@ -8,7 +8,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { Badge } from '@/components/ui/badge'
 import { Check, Plus, Search, Tags, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -42,7 +41,7 @@ export function TagSelector({
   const [creating, setCreating] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [newTagName, setNewTagName] = useState('')
-  const [newTagColor, setNewTagColor] = useState('#6366F1')
+  const [newTagColor, setNewTagColor] = useState('#10B981')
 
   useEffect(() => {
     if (!initialTags) {
@@ -106,32 +105,38 @@ export function TagSelector({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger>
         <span
-          className={cn('inline-flex items-center justify-start gap-2 font-normal rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer hover:bg-accent/50 transition-colors', className)}
+          className={cn(
+            'inline-flex items-center justify-start gap-2 font-normal rounded-md border border-aurea-border bg-aurea-surface px-3 py-2 text-sm cursor-pointer hover:bg-aurea-surface-2 transition-colors',
+            className
+          )}
           id="tag-selector-trigger"
         >
-          <Tags className="h-4 w-4 text-muted-foreground" />
+          <Tags className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
           {selectedTags.length > 0 ? (
             <span className="flex items-center gap-1">
               {selectedTags.slice(0, 2).map((t) => (
-                <Badge key={t.id} variant="secondary" className="text-xs px-1.5 py-0 gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: t.color }} />
+                <span
+                  key={t.id}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-aurea-border bg-aurea-surface-2 text-[11px] font-medium text-aurea-ink-2"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                   {t.name}
-                </Badge>
+                </span>
               ))}
               {selectedTags.length > 2 && (
-                <span className="text-xs text-muted-foreground">+{selectedTags.length - 2}</span>
+                <span className="text-[11px] text-aurea-ink-3">+{selectedTags.length - 2}</span>
               )}
             </span>
           ) : (
-            <span className="text-muted-foreground">{placeholder}</span>
+            <span className="text-aurea-ink-3">{placeholder}</span>
           )}
         </span>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="start">
         {/* Search */}
-        <div className="p-2 border-b">
+        <div className="p-2 border-b border-aurea-border">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-aurea-ink-3" strokeWidth={1.75} />
             <Input
               placeholder="Search tags..."
               className="pl-8 h-8 text-sm"
@@ -145,10 +150,10 @@ export function TagSelector({
         <div className="max-h-48 overflow-y-auto p-1">
           {loading ? (
             <div className="flex items-center justify-center py-6">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <Loader2 className="h-4 w-4 animate-spin text-aurea-ink-3" />
             </div>
           ) : filtered.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-4">
+            <p className="text-[11px] text-aurea-ink-3 text-center py-4">
               {search ? 'No tags found' : 'No tags yet'}
             </p>
           ) : (
@@ -160,7 +165,9 @@ export function TagSelector({
                   onClick={() => toggleTag(tag.id)}
                   className={cn(
                     'flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-sm transition-colors',
-                    isSelected ? 'bg-accent' : 'hover:bg-accent/50'
+                    isSelected
+                      ? 'bg-aurea-surface-2 text-aurea-ink'
+                      : 'hover:bg-aurea-surface-2 text-aurea-ink-2'
                   )}
                 >
                   <span
@@ -168,8 +175,8 @@ export function TagSelector({
                     style={{ backgroundColor: tag.color }}
                   />
                   <span className="flex-1 text-left truncate">{tag.name}</span>
-                  <span className="text-xs text-muted-foreground">{tag.lead_count}</span>
-                  {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                  <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">{tag.lead_count}</span>
+                  {isSelected && <Check className="h-3.5 w-3.5 text-aurea-primary shrink-0" strokeWidth={1.75} />}
                 </button>
               )
             })
@@ -177,7 +184,7 @@ export function TagSelector({
         </div>
 
         {/* Create new tag */}
-        <div className="border-t p-2">
+        <div className="border-t border-aurea-border p-2">
           {showCreate ? (
             <div className="space-y-2">
               <Input
@@ -195,7 +202,7 @@ export function TagSelector({
                     onClick={() => setNewTagColor(color)}
                     className={cn(
                       'h-5 w-5 rounded-full transition-transform',
-                      newTagColor === color && 'ring-2 ring-offset-1 ring-primary scale-110'
+                      newTagColor === color && 'ring-2 ring-offset-1 ring-aurea-primary scale-110'
                     )}
                     style={{ backgroundColor: color }}
                   />
@@ -214,10 +221,10 @@ export function TagSelector({
             <Button
               variant="ghost"
               size="sm"
-              className="w-full justify-start gap-1.5 h-7 text-xs"
+              className="w-full justify-start gap-1.5 h-7 text-xs text-aurea-ink-2"
               onClick={() => setShowCreate(true)}
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="h-3 w-3" strokeWidth={1.75} />
               Create new tag
             </Button>
           )}

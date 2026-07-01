@@ -76,15 +76,16 @@ export default async function MetaSelectPage({
   const pixelsByAccount = metadata.pixels_by_account || {}
 
   return (
-    <div className="max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">Finish connecting Meta</h1>
-        <p className="text-muted-foreground">
+    <div className="max-w-3xl animate-in fade-in-0 duration-500">
+      <div className="mb-8">
+        <p className="aurea-eyebrow mb-2">Connectors</p>
+        <h1 className="aurea-display text-[32px] text-aurea-ink mb-3">Finish connecting Meta</h1>
+        <p className="text-[14px] leading-relaxed text-aurea-ink-2">
           Pick the ad account and Pixel you want CRM events sent to.
           {metadata.token_expires_at && (
             <>
               {' '}The access token expires{' '}
-              <span className="font-medium">
+              <span className="font-medium text-aurea-ink">
                 {new Date(metadata.token_expires_at).toLocaleDateString()}
               </span>
               {' '}— you&apos;ll be prompted to reconnect before then.
