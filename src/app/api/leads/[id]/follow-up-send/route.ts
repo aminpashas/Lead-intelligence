@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
-import { isAllowlisted } from '@/lib/messaging/test-allowlist'
+import { isSendAllowed } from '@/lib/messaging/test-allowlist'
 import { decryptField } from '@/lib/encryption'
 
 const schema = z.object({
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!recipient) return NextResponse.json({ error: `Lead has no ${channel} address` }, { status: 400 })
 
   // Safety gate — only allowlisted recipients while the allowlist is active.
-  if (!isAllowlisted(recipient)) {
+  if (!isSendAllowed(recipient)) {
     return NextResponse.json({ error: 'Recipient not on the send allowlist' }, { status: 403 })
   }
 

@@ -203,7 +203,7 @@ ${safeHistory.map((m, i) => `[${m.role === 'user' ? 'PATIENT' : 'STAFF'}] ${m.co
   })
 
   const response = await getAnthropic().messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: PSYCHOLOGY_ANALYSIS_PROMPT,
     messages: [{ role: 'user', content: prompt }],
@@ -236,7 +236,7 @@ ${safeHistory.map((m, i) => `[${m.role === 'user' ? 'PATIENT' : 'STAFF'}] ${m.co
     organization_id: config.organization_id,
     lead_id: config.lead_id,
     interaction_type: 'classification',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     prompt_tokens: response.usage?.input_tokens || 0,
     completion_tokens: response.usage?.output_tokens || 0,
     total_tokens: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
@@ -301,7 +301,7 @@ ${config.channel}
 }`
 
   const response = await getAnthropic().messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: FOLLOW_UP_PROMPT,
     messages: [{ role: 'user', content: prompt }],
@@ -318,7 +318,7 @@ ${config.channel}
     organization_id: config.organization_id,
     lead_id: config.lead_id,
     interaction_type: 'engagement',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     prompt_tokens: response.usage?.input_tokens || 0,
     completion_tokens: response.usage?.output_tokens || 0,
     total_tokens: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),

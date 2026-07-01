@@ -26,7 +26,7 @@ function fakeAnthropic(queue: unknown[]) {
 
 const baseParams = {
   supabase: {} as never,
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-sonnet-4-6',
   maxTokens: 512,
   system: 'sys',
   messages: [{ role: 'user' as const, content: 'hi' }],

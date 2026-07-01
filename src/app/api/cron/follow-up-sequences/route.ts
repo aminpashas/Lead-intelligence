@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { nextDueStep, DEFAULT_FOLLOWUP_SEQUENCE, type Enrollment } from '@/lib/followup/sequence'
-import { isAllowlisted } from '@/lib/messaging/test-allowlist'
+import { isSendAllowed } from '@/lib/messaging/test-allowlist'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { decryptField } from '@/lib/encryption'
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
     const recipient = (channel === 'email'
       ? decryptField(lead.email) || lead.email
       : decryptField(lead.phone_formatted) || lead.phone_formatted) || ''
-    if (!recipient || !isAllowlisted(recipient)) { summary.skipped++; continue }
+    if (!recipient || !isSendAllowed(recipient)) { summary.skipped++; continue }
 
     const copy = STEP_COPY[channel]
     const body = copy.body.replace('{first}', lead.first_name || 'there')

@@ -585,7 +585,7 @@ export async function closerAgentRespond(
   const loop = await runAgentToolLoop({
     anthropic: getAnthropic(),
     supabase,
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     maxTokens,
     system: systemPrompt,
     messages: safeHistory,
@@ -656,7 +656,7 @@ export async function closerAgentRespond(
     organization_id: context.organization_id,
     lead_id: context.lead.id,
     interaction_type: 'closer_agent_response',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     prompt_tokens: loop.usage.input_tokens,
     completion_tokens: loop.usage.output_tokens,
     success: true,

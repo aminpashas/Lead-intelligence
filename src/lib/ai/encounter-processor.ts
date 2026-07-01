@@ -934,7 +934,7 @@ async function logAIInteraction(supabase: SupabaseClient, data: EncounterData, s
     organization_id: data.orgId,
     lead_id: data.leadId,
     interaction_type: `${data.channel}_encounter`,
-    model: data.channel === 'voice' ? 'retell-claude-4.5-sonnet' : 'claude-sonnet-4-20250514',
+    model: data.channel === 'voice' ? 'retell-claude-4.5-sonnet' : 'claude-sonnet-4-6',
     output_summary: `${data.channel} encounter: score=${score}, qual=${qualification}`,
     success: true,
     metadata: {
