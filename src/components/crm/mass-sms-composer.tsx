@@ -85,6 +85,11 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
   const [previewCount, setPreviewCount] = useState<number | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [usSmsBlocked, setUsSmsBlocked] = useState(false)
+  const [eligibility, setEligibility] = useState<null | {
+    sms: { total: number; eligible: number; no_consent: number; opted_out: number; no_contact: number }
+    list_total: number
+    capped: boolean
+  }>(null)
 
   useEffect(() => {
     fetchSmartLists()
@@ -94,8 +99,10 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
   useEffect(() => {
     if (selectedListId) {
       fetchPreviewCount()
+      fetchEligibility()
     } else {
       setPreviewCount(null)
+      setEligibility(null)
     }
   }, [selectedListId])
 
@@ -135,6 +142,17 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
       }
     } finally {
       setPreviewLoading(false)
+    }
+  }
+
+  // Consent/eligibility breakdown — how many recipients are actually reachable by SMS.
+  async function fetchEligibility() {
+    if (!selectedListId) return
+    try {
+      const res = await fetch(`/api/smart-lists/${selectedListId}/eligibility`)
+      if (res.ok) setEligibility(await res.json())
+    } catch {
+      /* non-fatal — the plain count still shows */
     }
   }
 
@@ -327,6 +345,27 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
                         </>
                       )}
                     </p>
+                    {eligibility && (
+                      <p className="mt-0.5 text-[11px] text-aurea-ink-3">
+                        <span className="font-medium text-aurea-primary">
+                          {eligibility.sms.eligible.toLocaleString()} SMS-eligible
+                        </span>
+                        {eligibility.sms.total > eligibility.sms.eligible && (
+                          <>
+                            {' · '}
+                            {(eligibility.sms.total - eligibility.sms.eligible).toLocaleString()} excluded
+                            {' ('}
+                            {[
+                              eligibility.sms.no_consent > 0 ? `${eligibility.sms.no_consent} no consent` : null,
+                              eligibility.sms.opted_out > 0 ? `${eligibility.sms.opted_out} opted out` : null,
+                              eligibility.sms.no_contact > 0 ? `${eligibility.sms.no_contact} no phone` : null,
+                            ].filter(Boolean).join(', ')}
+                            {')'}
+                          </>
+                        )}
+                        {eligibility.capped && <>{' · '}sampled from {eligibility.list_total.toLocaleString()}</>}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
