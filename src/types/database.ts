@@ -12,6 +12,7 @@ export type Organization = {
   address: Record<string, string> | null
   settings: Record<string, unknown>
   feature_flags: Record<string, boolean>
+  dion_practice_id: string | null
   subscription_tier: 'trial' | 'starter' | 'professional' | 'enterprise'
   subscription_status: 'active' | 'past_due' | 'canceled' | 'trialing'
   trial_ends_at: string | null
@@ -219,6 +220,8 @@ export type Lead = {
   // Scheduling
   consultation_date: string | null
   consultation_type: 'in_person' | 'virtual' | 'phone' | null
+  /** Set when a consultation appointment is marked completed (attend-but-no-close window opens). */
+  consult_completed_at: string | null
   treatment_date: string | null
 
   // Financial
@@ -407,6 +410,8 @@ export type CampaignStep = {
   ai_personalize: boolean
   send_condition: Record<string, unknown> | null
   exit_condition: Record<string, unknown> | null
+  /** Per-step generator/intent config, e.g. {"ai_generator":"closer","nurture_goal":"..."}. */
+  metadata: Record<string, unknown> | null
   total_sent: number
   total_delivered: number
   total_opened: number
@@ -415,6 +420,8 @@ export type CampaignStep = {
 }
 
 export type AppointmentConfirmedVia = 'sms_reply' | 'email_click' | 'voice_call' | 'manual'
+
+export type EhrSyncStatus = 'pending' | 'synced' | 'failed' | 'skipped'
 
 export type Appointment = {
   id: string
@@ -458,6 +465,13 @@ export type Appointment = {
   no_show_fee_cents: number | null
   no_show_fee_charged_at: string | null
   no_show_fee_payment_intent_id: string | null
+
+  // EHR sync (CareStack write-back + Dion Clinical event bus)
+  carestack_appointment_id: string | null
+  carestack_sync_status: EhrSyncStatus
+  dion_sync_status: EhrSyncStatus
+  ehr_sync_attempts: number
+  ehr_sync_error: string | null
 
   metadata: Record<string, unknown>
   created_at: string
