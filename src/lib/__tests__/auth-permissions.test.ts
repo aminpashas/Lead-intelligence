@@ -328,6 +328,40 @@ describe('agency-only permissions', () => {
   })
 })
 
+// No red/green transition is observable here on the current role matrix:
+// campaigns:read is granted ONLY alongside the broadcast/audience perms
+// (in TC_PERMISSIONS and FULL_PERMISSIONS), so no existing role can witness the
+// looser /campaigns → campaigns:read gate "widening" access to a relocated
+// route. The explicit map entries lock the gates against a FUTURE role that
+// splits them (e.g. campaigns:read without mass_sms:write). The parity test
+// below encodes the real invariant: relocation preserves the access decision.
+describe('canAccessRoute — relocated Campaigns hub routes keep original permissions', () => {
+  it('Audiences inherits the smart_lists:read gate (same as old /leads/lists)', () => {
+    expect(canAccessRoute('treatment_coordinator', '/campaigns/audiences')).toBe(true)
+    expect(canAccessRoute('nurse', '/campaigns/audiences')).toBe(false)
+  })
+
+  it('Broadcasts SMS/Email/Audit keep their original write/read gates', () => {
+    expect(canAccessRoute('treatment_coordinator', '/campaigns/broadcasts/sms')).toBe(true)
+    expect(canAccessRoute('treatment_coordinator', '/campaigns/broadcasts/audit')).toBe(true)
+    expect(canAccessRoute('nurse', '/campaigns/broadcasts/sms')).toBe(false)
+  })
+
+  it('relocated routes yield the same access decision as their legacy equivalents, for every role', () => {
+    const pairs: [string, string][] = [
+      ['/campaigns/audiences', '/leads/lists'],
+      ['/campaigns/broadcasts/sms', '/broadcasts/sms'],
+      ['/campaigns/broadcasts/email', '/broadcasts/email'],
+      ['/campaigns/broadcasts/audit', '/broadcasts/audit'],
+    ]
+    for (const role of Object.keys(ROLE_PERMISSIONS)) {
+      for (const [relocated, legacy] of pairs) {
+        expect(canAccessRoute(role, relocated)).toBe(canAccessRoute(role, legacy))
+      }
+    }
+  })
+})
+
 // ═══════════════════════════════════════════════════════════════
 // Service-key org allowlist (multi-tenant IDOR guard)
 // A verified bridge caller may only act on its allowlisted org ids.
