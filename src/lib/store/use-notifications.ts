@@ -6,6 +6,7 @@ export type NotificationType =
   | 'hot_lead'
   | 'lead_cold'
   | 'appointment_booked'
+  | 'appointment_needs_outcome'
   | 'inbound_message'
   | 'campaign_completed'
   | 'agent_status_down'
