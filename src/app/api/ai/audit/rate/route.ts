@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { isAdminRole } from '@/lib/auth/permissions'
 
@@ -13,6 +14,8 @@ const rateSchema = z.object({
 // POST /api/ai/audit/rate — Rate an AI conversation
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = rateSchema.safeParse(body)
 
@@ -40,7 +43,7 @@ export async function POST(request: NextRequest) {
     .from('conversations')
     .select('id, lead_id, organization_id')
     .eq('id', parsed.data.conversation_id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!conversation) {
@@ -52,7 +55,7 @@ export async function POST(request: NextRequest) {
     .from('ai_conversation_ratings')
     .upsert(
       {
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         conversation_id: parsed.data.conversation_id,
         lead_id: conversation.lead_id,
         rated_by: profile.id,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const createTagSchema = z.object({
@@ -12,6 +13,8 @@ const createTagSchema = z.object({
 // GET /api/tags — List all tags for organization
 export async function GET() {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -25,7 +28,7 @@ export async function GET() {
   const { data: tags, error } = await supabase
     .from('tags')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('category')
     .order('name')
 
@@ -39,6 +42,8 @@ export async function GET() {
 // POST /api/tags — Create a new tag
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = createTagSchema.safeParse(body)
 
@@ -67,7 +72,7 @@ export async function POST(request: NextRequest) {
   const { data: tag, error } = await supabase
     .from('tags')
     .insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       name: parsed.data.name,
       slug,
       color: parsed.data.color,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
@@ -37,6 +38,8 @@ const retrySchema = z.object({
 // GET — List role-play sessions
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -46,7 +49,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('ai_roleplay_sessions')
     .select('id, title, user_role, agent_target, scenario_description, status, overall_rating, extracted_example_count, created_at, updated_at')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -68,6 +71,8 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('id, organization_id')
@@ -91,7 +96,7 @@ export async function POST(request: NextRequest) {
       .from('ai_roleplay_sessions')
       .select('*')
       .eq('id', session_id)
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .single()
 
     if (sessionError || !session) {
@@ -113,7 +118,7 @@ export async function POST(request: NextRequest) {
     try {
       const aiResponseText = await generateRolePlayRetry(
         supabase,
-        profile.organization_id,
+        orgId,
         {
           user_role: session.user_role,
           agent_target: session.agent_target,
@@ -169,7 +174,7 @@ export async function POST(request: NextRequest) {
       .from('ai_roleplay_sessions')
       .select('*')
       .eq('id', session_id)
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .single()
 
     if (sessionError || !session) {
@@ -201,7 +206,7 @@ export async function POST(request: NextRequest) {
     try {
       const aiResponseText = await generateRolePlayResponse(
         supabase,
-        profile.organization_id,
+        orgId,
         {
           user_role: session.user_role,
           agent_target: session.agent_target,
@@ -252,7 +257,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('ai_roleplay_sessions')
       .insert({
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         created_by: profile.id,
         title: parsed.data.title,
         user_role: parsed.data.user_role,

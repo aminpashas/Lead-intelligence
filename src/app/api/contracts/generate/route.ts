@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { hasPermission } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { ensureContractDraftForCase } from '@/lib/contracts/orchestrator'
 
 export const runtime = 'nodejs'
@@ -27,6 +28,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const body = await request.json().catch(() => ({}))
   const caseId = String(body.case_id ?? '')
   if (!caseId) {
@@ -38,12 +44,12 @@ export async function POST(request: NextRequest) {
     .from('clinical_cases')
     .select('id')
     .eq('id', caseId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .maybeSingle()
   if (!caseRow) return NextResponse.json({ error: 'Case not found' }, { status: 404 })
 
   const result = await ensureContractDraftForCase({
-    organizationId: profile.organization_id,
+    organizationId: orgId,
     caseId,
     actorId: user.id,
     actorType: 'user',

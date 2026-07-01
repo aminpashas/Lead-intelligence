@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { hasPermission } from '@/lib/auth/permissions'
 
 export const runtime = 'nodejs'
@@ -10,6 +11,8 @@ export const runtime = 'nodejs'
  */
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase
@@ -26,7 +29,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     .from('contract_templates')
     .select('id, slug, status')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .maybeSingle()
   if (!tpl) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (tpl.status === 'published') {
@@ -37,7 +40,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   await supabase
     .from('contract_templates')
     .update({ status: 'archived' })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('slug', tpl.slug)
     .eq('status', 'published')
 

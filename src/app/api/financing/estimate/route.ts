@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { paymentEstimateRequestSchema } from '@/lib/validators/financing'
 import { getLenderAdapter } from '@/lib/financing/adapters'
 import { decryptCredentials } from '@/lib/financing/encryption-helpers'
@@ -15,6 +16,8 @@ import type { PaymentEstimate, LenderSlug } from '@/lib/financing/types'
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
+    const { orgId } = await resolveActiveOrg(supabase)
+    if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -40,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { amount } = validation.data
-    const organizationId = profile.organization_id
+    const organizationId = orgId
 
     // Load active lenders
     const { data: lenderConfigs } = await supabase

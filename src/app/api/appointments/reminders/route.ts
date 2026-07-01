@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 /**
  * GET /api/appointments/reminders?appointment_id=xxx
@@ -8,6 +9,8 @@ import { createClient } from '@/lib/supabase/server'
  */
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { searchParams } = new URL(request.url)
   const appointmentId = searchParams.get('appointment_id')
 
@@ -23,7 +26,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('appointment_reminders')
     .select('*')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: true })
 
   if (appointmentId) {
@@ -46,6 +49,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
 
   const { appointment_id, channel } = body
@@ -68,7 +73,7 @@ export async function POST(request: NextRequest) {
     .from('appointments')
     .select('*, lead:leads(id, first_name, last_name, phone, email)')
     .eq('id', appointment_id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!apt) {
@@ -84,7 +89,7 @@ export async function POST(request: NextRequest) {
   const { data: org } = await supabase
     .from('organizations')
     .select('name')
-    .eq('id', profile.organization_id)
+    .eq('id', orgId)
     .single()
 
   const practiceName = org?.name || 'our office'
@@ -113,7 +118,7 @@ export async function POST(request: NextRequest) {
       const result = { sid: sendRes.sid }
 
       await supabase.from('appointment_reminders').insert({
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         appointment_id,
         lead_id: lead.id,
         channel: 'sms',
@@ -142,8 +147,8 @@ export async function POST(request: NextRequest) {
         dateTime,
         location: apt.location,
         practiceName,
-        confirmUrl: getConfirmationUrl(appointment_id, profile.organization_id),
-        rescheduleUrl: getRescheduleUrl(appointment_id, profile.organization_id),
+        confirmUrl: getConfirmationUrl(appointment_id, orgId),
+        rescheduleUrl: getRescheduleUrl(appointment_id, orgId),
       })
 
       const result = await sendEmail({
@@ -154,7 +159,7 @@ export async function POST(request: NextRequest) {
       })
 
       await supabase.from('appointment_reminders').insert({
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         appointment_id,
         lead_id: lead.id,
         channel: 'email',
@@ -172,7 +177,7 @@ export async function POST(request: NextRequest) {
 
   // Log activity
   await supabase.from('lead_activities').insert({
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     lead_id: lead.id,
     user_id: profile.id,
     activity_type: 'manual_reminder_sent',

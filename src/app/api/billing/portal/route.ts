@@ -10,9 +10,12 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export async function POST() {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -31,7 +34,7 @@ export async function POST() {
   const { data: org } = await supabase
     .from('organizations')
     .select('stripe_customer_id')
-    .eq('id', profile.organization_id)
+    .eq('id', orgId)
     .single()
 
   if (!org?.stripe_customer_id) {

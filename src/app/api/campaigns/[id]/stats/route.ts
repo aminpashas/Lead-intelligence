@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // GET /api/campaigns/[id]/stats — Campaign performance statistics
 export async function GET(
@@ -9,15 +10,15 @@ export async function GET(
   const { id } = await params
   const supabase = await createClient()
 
-  const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
-  if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Get campaign with steps
   const { data: campaign } = await supabase
     .from('campaigns')
     .select('*, steps:campaign_steps(*)')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })

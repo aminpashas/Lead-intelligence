@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const enrollSchema = z.object({
@@ -19,12 +20,9 @@ export async function POST(
     return NextResponse.json({ error: 'lead_ids required' }, { status: 400 })
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
+  const { orgId } = await resolveActiveOrg(supabase)
 
-  if (!profile) {
+  if (!orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -39,7 +37,7 @@ export async function POST(
   const nextStepAt = new Date(Date.now() + (firstStep?.delay_minutes || 0) * 60 * 1000).toISOString()
 
   const enrollments = parsed.data.lead_ids.map((lead_id) => ({
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     campaign_id: id,
     lead_id,
     status: 'active',

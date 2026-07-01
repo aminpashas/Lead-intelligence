@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { hasPermission } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export const runtime = 'nodejs'
 
@@ -16,7 +17,10 @@ async function ctx(request: NextRequest) {
   if (!profile || !hasPermission(profile.role, 'legal_settings:manage')) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
-  return { supabase, profile, user }
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  return { supabase, profile, user, orgId }
 }
 
 export async function GET(request: NextRequest) {
@@ -25,7 +29,7 @@ export async function GET(request: NextRequest) {
   const { data } = await c.supabase
     .from('organizations')
     .select('settings')
-    .eq('id', c.profile.organization_id)
+    .eq('id', c.orgId)
     .single()
   const settings = (data?.settings ?? {}) as { legal?: unknown; contracts?: unknown }
   return NextResponse.json({
@@ -46,7 +50,7 @@ export async function PATCH(request: NextRequest) {
   const { data: current } = await c.supabase
     .from('organizations')
     .select('settings')
-    .eq('id', c.profile.organization_id)
+    .eq('id', c.orgId)
     .single()
   const currentSettings = (current?.settings ?? {}) as Record<string, unknown>
   const currentLegal = (currentSettings.legal ?? {}) as Record<string, unknown>
@@ -61,7 +65,7 @@ export async function PATCH(request: NextRequest) {
   const { error } = await c.supabase
     .from('organizations')
     .update({ settings: merged })
-    .eq('id', c.profile.organization_id)
+    .eq('id', c.orgId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true, legal: merged.legal, contracts: merged.contracts })
 }

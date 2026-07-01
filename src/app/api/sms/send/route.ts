@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { z } from 'zod'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
@@ -20,6 +21,8 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = sendSMSSchema.safeParse(body)
 
@@ -37,7 +40,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const entError = await assertActiveSubscription(supabase, profile.organization_id)
+  const entError = await assertActiveSubscription(supabase, orgId)
   if (entError) return entError
 
   // Get lead — scoped to caller's org (defense-in-depth beyond RLS)
@@ -45,7 +48,7 @@ export async function POST(request: NextRequest) {
     .from('leads')
     .select('id, phone_formatted, phone, first_name, last_name, organization_id')
     .eq('id', parsed.data.lead_id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!lead || !lead.phone_formatted) {
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest) {
     const { data: newConvo } = await supabase
       .from('conversations')
       .insert({
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         lead_id: lead.id,
         channel: 'sms',
         status: 'active',
@@ -128,7 +131,7 @@ export async function POST(request: NextRequest) {
     const { data: message } = await supabase
       .from('messages')
       .insert({
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         conversation_id: conversation.id,
         lead_id: lead.id,
         direction: 'outbound',
@@ -146,7 +149,7 @@ export async function POST(request: NextRequest) {
 
     // Log activity
     await supabase.from('lead_activities').insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       lead_id: lead.id,
       user_id: profile.id,
       activity_type: 'sms_sent',

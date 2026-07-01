@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { updateLeadSchema } from '@/lib/validators/lead'
 import { executeStageTransition } from '@/lib/funnel/executor'
 import { decryptLeadPII, encryptLeadPII } from '@/lib/encryption'
@@ -13,6 +14,8 @@ export async function GET(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auth + org scoping: verify user belongs to an org
   const { data: profile } = await supabase
@@ -33,7 +36,7 @@ export async function GET(
       assigned_user:user_profiles!leads_assigned_to_fkey(*)
     `)
     .eq('id', id)
-    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
+    .eq('organization_id', orgId) // Defense-in-depth: explicit org scoping
     .single()
 
   if (error || !lead) {
@@ -86,6 +89,8 @@ export async function PATCH(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
   const parsed = updateLeadSchema.safeParse(body)
@@ -112,7 +117,7 @@ export async function PATCH(
     .from('leads')
     .select('status, stage_id, ai_score, assigned_to, organization_id')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
+    .eq('organization_id', orgId) // Defense-in-depth: explicit org scoping
     .single()
 
   if (!currentLead) {
@@ -240,6 +245,8 @@ export async function DELETE(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auth + org scoping
   const { data: profile } = await supabase
@@ -256,14 +263,14 @@ export async function DELETE(
     .from('leads')
     .select('organization_id')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
+    .eq('organization_id', orgId) // Defense-in-depth: explicit org scoping
     .single()
 
   if (!deleteLead) {
     return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
   }
 
-  const { error } = await supabase.from('leads').delete().eq('id', id).eq('organization_id', profile.organization_id)
+  const { error } = await supabase.from('leads').delete().eq('id', id).eq('organization_id', orgId)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

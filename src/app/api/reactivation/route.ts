@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const createReactivationSchema = z.object({
@@ -43,6 +44,8 @@ const createReactivationSchema = z.object({
 // GET /api/reactivation - List reactivation campaigns
 export async function GET() {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -56,7 +59,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('reactivation_campaigns')
     .select('*, offers:reactivation_offers(*)')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .neq('status', 'archived')
     .order('created_at', { ascending: false })
 
@@ -70,6 +73,8 @@ export async function GET() {
 // POST /api/reactivation - Create reactivation campaign
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = createReactivationSchema.safeParse(body)
 
@@ -97,7 +102,7 @@ export async function POST(request: NextRequest) {
     const { data: campaign, error: campaignError } = await supabase
       .from('campaigns')
       .insert({
-        organization_id: profile.organization_id,
+        organization_id: orgId,
         created_by: profile.id,
         name: `[Reactivation] ${campaignData.name}`,
         description: campaignData.description || `Reactivation campaign: ${campaignData.goal}`,
@@ -122,7 +127,7 @@ export async function POST(request: NextRequest) {
         steps.map((step) => ({
           ...step,
           campaign_id: campaign.id,
-          organization_id: profile.organization_id,
+          organization_id: orgId,
           body_template: step.body_template || '',
         }))
       )
@@ -136,7 +141,7 @@ export async function POST(request: NextRequest) {
   const { data: reactivation, error: reactivationError } = await supabase
     .from('reactivation_campaigns')
     .insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       campaign_id: campaignId,
       created_by: profile.id,
       name: campaignData.name,
@@ -166,7 +171,7 @@ export async function POST(request: NextRequest) {
       .from('reactivation_offers')
       .insert(
         offers.map((offer) => ({
-          organization_id: profile.organization_id,
+          organization_id: orgId,
           reactivation_campaign_id: reactivation.id,
           name: offer.name,
           description: offer.description,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { updateLenderConfigsSchema } from '@/lib/validators/financing'
 import { encryptCredentials } from '@/lib/financing/encryption-helpers'
 import { LENDER_INFO } from '@/lib/financing/adapters'
@@ -14,6 +15,8 @@ import type { LenderSlug } from '@/lib/financing/types'
 export async function GET() {
   try {
     const supabase = await createClient()
+    const { orgId } = await resolveActiveOrg(supabase)
+    if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -32,7 +35,7 @@ export async function GET() {
     const { data: configs } = await supabase
       .from('financing_lender_configs')
       .select('id, lender_slug, display_name, is_active, priority_order, config, integration_type, updated_at')
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .order('priority_order', { ascending: true })
 
     // Merge with static lender info (features, credential fields, etc.)
@@ -69,6 +72,8 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const supabase = await createClient()
+    const { orgId } = await resolveActiveOrg(supabase)
+    if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -98,7 +103,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const organizationId = profile.organization_id
+    const organizationId = orgId
     const updates = validation.data.lenders
 
     for (const lenderUpdate of updates) {

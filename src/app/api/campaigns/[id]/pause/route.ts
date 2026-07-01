@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export async function POST(
   request: NextRequest,
@@ -8,22 +9,19 @@ export async function POST(
   const { id } = await params
   const supabase = await createClient()
 
-  // Auth + org scoping
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  // Auth + org scoping — effective org honors agency acting-as (matches RLS).
+  const { orgId } = await resolveActiveOrg(supabase)
 
-  if (!profile) {
+  if (!orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Verify campaign belongs to user's org
+  // Verify campaign belongs to the effective org
   const { data: campaign } = await supabase
     .from('campaigns')
     .select('id')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!campaign) {
@@ -35,14 +33,14 @@ export async function POST(
     .from('campaigns')
     .update({ status: 'paused' })
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   // Pause all active enrollments
   await supabase
     .from('campaign_enrollments')
     .update({ status: 'paused' })
     .eq('campaign_id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .eq('status', 'active')
 
   return NextResponse.json({ success: true })

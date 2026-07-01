@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { generatePredictiveInsights } from '@/lib/ai/predictive'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
@@ -26,8 +27,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
-    const insights = await generatePredictiveInsights(supabase, profile.organization_id)
+    const insights = await generatePredictiveInsights(supabase, orgId)
     return NextResponse.json(insights)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

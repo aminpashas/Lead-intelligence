@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { resolveSmartListLeads, applySmartListCriteria } from '@/lib/campaigns/smart-list-resolver'
 import { decryptLeadsPII } from '@/lib/encryption'
 
@@ -10,6 +11,8 @@ export async function GET(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { searchParams } = new URL(request.url)
 
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
@@ -29,7 +32,7 @@ export async function GET(
     .from('smart_lists')
     .select('*')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!smartList) {
@@ -43,7 +46,7 @@ export async function GET(
   if (criteria.tags && criteria.tags.ids && criteria.tags.ids.length > 0) {
     const { leadIds } = await resolveSmartListLeads(
       supabase,
-      profile.organization_id,
+      orgId,
       { tags: criteria.tags },
       { limit: 10000 }
     )
@@ -60,7 +63,7 @@ export async function GET(
   let query = supabase
     .from('leads')
     .select('*, pipeline_stage:pipeline_stages(*), source:lead_sources(*)', { count: 'exact' })
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   // Apply tag filter
   if (tagFilteredIds) {

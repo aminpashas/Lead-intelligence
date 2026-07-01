@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
 
@@ -19,6 +20,8 @@ export async function GET(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -33,7 +36,7 @@ export async function GET(
     .from('smart_lists')
     .select('*')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (error || !smartList) {
@@ -43,7 +46,7 @@ export async function GET(
   // Refresh lead count
   const { count } = await resolveSmartListLeads(
     supabase,
-    profile.organization_id,
+    orgId,
     smartList.criteria,
     { countOnly: true }
   )
@@ -68,6 +71,8 @@ export async function PATCH(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = updateSmartListSchema.safeParse(body)
 
@@ -93,7 +98,7 @@ export async function PATCH(
   if (parsed.data.criteria) {
     const { count } = await resolveSmartListLeads(
       supabase,
-      profile.organization_id,
+      orgId,
       parsed.data.criteria as any,
       { countOnly: true }
     )
@@ -105,7 +110,7 @@ export async function PATCH(
     .from('smart_lists')
     .update(updates)
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .select()
     .single()
 
@@ -123,6 +128,8 @@ export async function DELETE(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -137,7 +144,7 @@ export async function DELETE(
     .from('smart_lists')
     .delete()
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

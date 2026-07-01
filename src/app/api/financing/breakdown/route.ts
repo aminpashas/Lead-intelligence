@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { buildFinancingBreakdown, type BreakdownOptions } from '@/lib/financing/calculator'
 import { generatePatientFinancingSummary } from '@/lib/financing/patient-summary'
 import type { LenderSlug } from '@/lib/financing/types'
@@ -30,6 +31,8 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -44,7 +47,7 @@ export async function GET(request: NextRequest) {
     .from('leads')
     .select('*')
     .eq('id', leadId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (error || !lead) {
@@ -103,6 +106,8 @@ export async function POST(request: NextRequest) {
 
   // Require an authenticated org member — the previous handler was fully open.
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('organization_id')

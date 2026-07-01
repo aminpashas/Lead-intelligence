@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { isAdminRole } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 type TargetUpdate = {
   kpi_name: string
@@ -29,11 +30,14 @@ export async function GET(
     .single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { data, error } = await supabase
     .from('agent_kpi_targets')
     .select('id, kpi_name, target_value, warning_threshold, critical_threshold, direction, updated_at')
     .eq('agent_id', agentId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ targets: data || [] })
@@ -56,6 +60,9 @@ export async function PATCH(
     .single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   if (!isAdminRole(profile.role)) {
     return NextResponse.json({ error: 'Only admins can edit targets' }, { status: 403 })
   }
@@ -65,7 +72,7 @@ export async function PATCH(
     .from('ai_agents')
     .select('id')
     .eq('id', agentId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .maybeSingle()
 
   if (!agent) {
@@ -95,7 +102,7 @@ export async function PATCH(
 
   const rows = targets.map((t) => ({
     agent_id: agentId,
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     kpi_name: t.kpi_name,
     target_value: t.target_value,
     warning_threshold: t.warning_threshold,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { auditPHIRead } from '@/lib/hipaa-audit'
 
 // GET /api/conversations/[id]/messages - Get messages for a conversation
@@ -9,6 +10,8 @@ export async function GET(
 ) {
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auth + org scoping
   const { data: profile } = await supabase
@@ -25,7 +28,7 @@ export async function GET(
     .from('conversations')
     .select('id, organization_id, lead_id')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
+    .eq('organization_id', orgId) // Defense-in-depth: explicit org scoping
     .single()
 
   if (!convo) {

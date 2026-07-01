@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAdminRole, canActOnRole } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 /**
  * PATCH /api/team/[id] — Update a team member's role/info
@@ -30,6 +31,12 @@ export async function PATCH(
 
   if (!profile || !isAdminRole(profile.role)) {
     return NextResponse.json({ error: 'Forbidden: admin role required' }, { status: 403 })
+  }
+
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // Prevent self-demotion for safety
@@ -77,7 +84,7 @@ export async function PATCH(
     .eq('id', id)
     .single()
 
-  if (!target || target.organization_id !== profile.organization_id) {
+  if (!target || target.organization_id !== orgId) {
     return NextResponse.json({ error: 'Member not found' }, { status: 404 })
   }
 
@@ -136,6 +143,12 @@ export async function DELETE(
     return NextResponse.json({ error: 'Forbidden: admin role required' }, { status: 403 })
   }
 
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   // Prevent self-deactivation
   if (id === user.id) {
     return NextResponse.json(
@@ -151,7 +164,7 @@ export async function DELETE(
     .eq('id', id)
     .single()
 
-  if (!target || target.organization_id !== profile.organization_id) {
+  if (!target || target.organization_id !== orgId) {
     return NextResponse.json({ error: 'Member not found' }, { status: 404 })
   }
 
@@ -169,7 +182,7 @@ export async function DELETE(
     const { count } = await supabase
       .from('user_profiles')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .eq('is_active', true)
       .in('role', ['doctor_admin', 'office_manager', 'owner', 'admin'])
     if ((count ?? 0) <= 1) {

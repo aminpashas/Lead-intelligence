@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const createAppointmentSchema = z.object({
@@ -15,6 +16,8 @@ const createAppointmentSchema = z.object({
 // GET /api/appointments
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { searchParams } = new URL(request.url)
 
   const { data: profile } = await supabase
@@ -29,7 +32,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('appointments')
     .select('*, lead:leads(id, first_name, last_name, phone, email)')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('scheduled_at', { ascending: true })
 
   const status = searchParams.get('status')
@@ -53,6 +56,8 @@ export async function GET(request: NextRequest) {
 // POST /api/appointments
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = createAppointmentSchema.safeParse(body)
 
@@ -74,7 +79,7 @@ export async function POST(request: NextRequest) {
     .from('leads')
     .select('id')
     .eq('id', parsed.data.lead_id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (leadError || !verifiedLead) {
@@ -85,7 +90,7 @@ export async function POST(request: NextRequest) {
     .from('appointments')
     .insert({
       ...parsed.data,
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       assigned_to: parsed.data.assigned_to || profile.id,
     })
     .select('*, lead:leads(id, first_name, last_name)')
@@ -107,7 +112,7 @@ export async function POST(request: NextRequest) {
 
   // Log activity
   await supabase.from('lead_activities').insert({
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     lead_id: parsed.data.lead_id,
     user_id: profile.id,
     activity_type: 'appointment_scheduled',
@@ -121,6 +126,8 @@ export async function POST(request: NextRequest) {
 // PATCH /api/appointments
 export async function PATCH(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
 
   const { appointment_id, status, notes } = body
@@ -163,7 +170,7 @@ export async function PATCH(request: NextRequest) {
     .from('appointments')
     .update(updateData)
     .eq('id', appointment_id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .select('*, lead:leads(id, first_name, last_name, no_show_count)')
     .single()
 
@@ -187,7 +194,7 @@ export async function PATCH(request: NextRequest) {
   const lead = appointment.lead as any
   if (lead) {
     await supabase.from('lead_activities').insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       lead_id: lead.id,
       user_id: profile.id,
       activity_type: `appointment_${status}`,

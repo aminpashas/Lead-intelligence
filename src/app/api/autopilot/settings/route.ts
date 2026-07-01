@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { isAdminRole } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // Day schedule schema for per-day-of-week settings
 const dayScheduleSchema = z.object({
@@ -72,6 +73,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { data: org } = await supabase
     .from('organizations')
     .select(`
@@ -88,7 +94,7 @@ export async function GET(request: NextRequest) {
       autopilot_speed_to_lead,
       autopilot_schedule
     `)
-    .eq('id', profile.organization_id)
+    .eq('id', orgId)
     .single()
 
   if (!org) {
@@ -126,6 +132,11 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Only admins can modify autopilot settings' }, { status: 403 })
   }
 
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   // Safe JSON parsing (MED-5 fix)
   let body: unknown
   try {
@@ -158,7 +169,7 @@ export async function PATCH(request: NextRequest) {
   const { error } = await supabase
     .from('organizations')
     .update(updates)
-    .eq('id', profile.organization_id)
+    .eq('id', orgId)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

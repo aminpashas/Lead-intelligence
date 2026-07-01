@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { NextRequest } from 'next/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // GET /api/analytics — Aggregated analytics data for the dashboard
 export async function GET(request: NextRequest) {
@@ -20,7 +21,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const orgId = profile.organization_id
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   // Date range params (default 30 days)
   const startParam = request.nextUrl.searchParams.get('start_date')

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { generateLeadEngagement } from '@/lib/ai/scoring'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
@@ -18,6 +19,8 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = engageSchema.safeParse(body)
 
@@ -69,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     // Log AI interaction
     await supabase.from('ai_interactions').insert({
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       lead_id: lead.id,
       interaction_type: 'engagement',
       model: 'claude-sonnet-4-20250514',

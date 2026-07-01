@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const launchCampaignSchema = z.object({
@@ -32,6 +33,8 @@ export async function POST(
 ) {
   const { id: smartListId } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
   const parsed = launchCampaignSchema.safeParse(body)
 
@@ -56,7 +59,7 @@ export async function POST(
     .from('smart_lists')
     .select('id, name, criteria')
     .eq('id', smartListId)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!smartList) {
@@ -70,7 +73,7 @@ export async function POST(
     .from('campaigns')
     .insert({
       ...campaignData,
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       created_by: profile.id,
       smart_list_id: smartListId,
       target_criteria: smartList.criteria,
@@ -91,7 +94,7 @@ export async function POST(
         steps.map((step) => ({
           ...step,
           campaign_id: campaign.id,
-          organization_id: profile.organization_id,
+          organization_id: orgId,
         }))
       )
 

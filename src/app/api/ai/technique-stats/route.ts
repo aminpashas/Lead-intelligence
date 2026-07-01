@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 // GET /api/ai/technique-stats — Sales technique usage statistics
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -74,19 +77,19 @@ export async function GET(request: NextRequest) {
     supabase
       .from('message_technique_tracking')
       .select('technique_id, technique_category, predicted_effectiveness')
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(500),
     supabase
       .from('conversation_technique_summaries')
       .select('*')
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(50),
     supabase
       .from('lead_engagement_assessments')
       .select('engagement_temperature, resistance_level, buying_readiness, emotional_state, created_at')
-      .eq('organization_id', profile.organization_id)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(100),
   ])

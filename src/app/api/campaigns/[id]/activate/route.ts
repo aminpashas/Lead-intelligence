@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 export async function POST(
   request: NextRequest,
@@ -8,13 +9,10 @@ export async function POST(
   const { id } = await params
   const supabase = await createClient()
 
-  // Auth + org scoping
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  // Auth + org scoping — effective org honors agency acting-as (matches RLS).
+  const { orgId } = await resolveActiveOrg(supabase)
 
-  if (!profile) {
+  if (!orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -22,7 +20,7 @@ export async function POST(
     .from('campaigns')
     .update({ status: 'active', start_at: new Date().toISOString() })
     .eq('id', id)
-    .eq('organization_id', profile.organization_id) // Defense-in-depth: explicit org scoping
+    .eq('organization_id', orgId) // Defense-in-depth: explicit org scoping
     .select()
     .single()
 

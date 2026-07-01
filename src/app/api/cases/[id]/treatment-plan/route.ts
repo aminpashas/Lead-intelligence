@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { hasPermission } from '@/lib/auth/permissions'
 
 /**
@@ -12,6 +13,8 @@ export async function POST(
 ) {
   const { id: caseId } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -37,7 +40,7 @@ export async function POST(
     .from('case_treatment_plans')
     .upsert({
       case_id: caseId,
-      organization_id: profile.organization_id,
+      organization_id: orgId,
       plan_summary,
       items,
       total_estimated_cost: total_estimated_cost || null,

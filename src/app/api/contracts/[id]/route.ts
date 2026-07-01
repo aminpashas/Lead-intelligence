@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { hasPermission } from '@/lib/auth/permissions'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import type { RenderedContractSection } from '@/types/database'
 import { logContractEvent } from '@/lib/contracts/orchestrator'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
@@ -17,7 +18,10 @@ async function requireOrgUser(request: NextRequest) {
     .eq('id', user.id)
     .single()
   if (!profile) return { error: NextResponse.json({ error: 'Profile not found' }, { status: 404 }) }
-  return { supabase, user, profile }
+  // Effective org honors an agency_admin's entered client account.
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  return { supabase, user, profile, orgId }
 }
 
 /** GET /api/contracts/[id] — full contract + event timeline + clinical context for staff review UI. */
@@ -36,7 +40,7 @@ export async function GET(
     .from('patient_contracts')
     .select('*')
     .eq('id', id)
-    .eq('organization_id', ctx.profile.organization_id)
+    .eq('organization_id', ctx.orgId)
     .maybeSingle()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!contract) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -82,7 +86,7 @@ export async function PATCH(
     .from('patient_contracts')
     .select('id, organization_id, status, generated_content')
     .eq('id', id)
-    .eq('organization_id', ctx.profile.organization_id)
+    .eq('organization_id', ctx.orgId)
     .maybeSingle()
   if (!contract) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -182,7 +186,7 @@ export async function DELETE(
     .from('patient_contracts')
     .select('id, organization_id, status')
     .eq('id', id)
-    .eq('organization_id', ctx.profile.organization_id)
+    .eq('organization_id', ctx.orgId)
     .maybeSingle()
   if (!contract) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (['signed', 'executed'].includes(contract.status)) {

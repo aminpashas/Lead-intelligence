@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const createCampaignSchema = z.object({
@@ -35,19 +36,16 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const status = searchParams.get('status')
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
+  const { orgId } = await resolveActiveOrg(supabase)
 
-  if (!profile) {
+  if (!orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   let query = supabase
     .from('campaigns')
     .select('*, steps:campaign_steps(count)')
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   if (status) {
@@ -76,24 +74,24 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: { user } } = await supabase.auth.getUser()
+  const { orgId } = await resolveActiveOrg(supabase)
 
-  if (!profile) {
+  if (!user || !orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const { steps, smart_list_id, ...campaignData } = parsed.data
 
-  // Create campaign
+  // Create campaign — org is the *effective* org (the client practice when an
+  // agency admin has entered an account), matching RLS get_user_org_id(). Using
+  // the caller's home org here would fail the campaigns WITH CHECK and 500.
   const { data: campaign, error: campaignError } = await supabase
     .from('campaigns')
     .insert({
       ...campaignData,
-      organization_id: profile.organization_id,
-      created_by: profile.id,
+      organization_id: orgId,
+      created_by: user.id,
       smart_list_id: smart_list_id || null,
       status: 'draft',
     })
@@ -112,7 +110,7 @@ export async function POST(request: NextRequest) {
         steps.map((step) => ({
           ...step,
           campaign_id: campaign.id,
-          organization_id: profile.organization_id,
+          organization_id: orgId,
         }))
       )
 

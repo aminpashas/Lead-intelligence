@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { hasPermission } from '@/lib/auth/permissions'
 import { ensureContractDraftForCase } from '@/lib/contracts/orchestrator'
 
@@ -16,6 +17,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -33,7 +36,7 @@ export async function POST(
     .from('patient_contracts')
     .select('id, status, organization_id, clinical_case_id')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .maybeSingle()
   if (!contract) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -48,7 +51,7 @@ export async function POST(
   await supabase.from('patient_contracts').update({ status: 'voided' }).eq('id', id)
 
   const result = await ensureContractDraftForCase({
-    organizationId: profile.organization_id,
+    organizationId: orgId,
     caseId: contract.clinical_case_id,
     actorId: user.id,
     actorType: 'user',

@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 
 const PRICE_IDS: Record<string, string | undefined> = {
   starter: process.env.STRIPE_PRICE_STARTER,
@@ -30,6 +31,11 @@ export async function POST(request: NextRequest) {
 
   if (!profile || !['owner', 'admin'].includes(profile.role)) {
     return NextResponse.json({ error: 'Only owners and admins can manage billing' }, { status: 403 })
+  }
+
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const body = await request.json()
@@ -62,7 +68,7 @@ export async function POST(request: NextRequest) {
   const { data: org } = await supabase
     .from('organizations')
     .select('id, name, email, stripe_customer_id')
-    .eq('id', profile.organization_id)
+    .eq('id', orgId)
     .single()
 
   if (!org) {

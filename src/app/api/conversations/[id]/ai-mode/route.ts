@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
@@ -20,6 +21,8 @@ export async function PATCH(
 
   const { id } = await params
   const supabase = await createClient()
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auth
   const { data: profile } = await supabase
@@ -54,7 +57,7 @@ export async function PATCH(
     .from('conversations')
     .select('id, lead_id, ai_mode')
     .eq('id', id)
-    .eq('organization_id', profile.organization_id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!conversation) {
@@ -77,7 +80,7 @@ export async function PATCH(
   // Log activity on the lead
   const modeLabels = { auto: 'Auto (autonomous)', assist: 'Assist (draft only)', off: 'Off (human only)' }
   await supabase.from('lead_activities').insert({
-    organization_id: profile.organization_id,
+    organization_id: orgId,
     lead_id: conversation.lead_id,
     activity_type: 'ai_mode_changed',
     title: `AI mode changed to ${modeLabels[ai_mode]}`,
