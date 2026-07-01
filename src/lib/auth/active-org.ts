@@ -93,3 +93,55 @@ export async function requireAgencyClientOrg(
   }
   return { orgId: active.orgId }
 }
+
+/** Error codes surfaced as `?oauth_error=` on the connectors settings page. */
+export type ConnectorPickerError =
+  | 'unauthorized'
+  | 'forbidden'
+  | 'no_active_account'
+  | 'state_org_mismatch'
+
+export type ConnectorPickerAccess =
+  | { ok: true; orgId: string }
+  | { ok: false; error: ConnectorPickerError }
+
+/**
+ * Pure access gate for the OAuth picker pages
+ * (`/settings/connectors/{google,meta}/select`).
+ *
+ * The connector flow is agency-owned: only an `agency_admin` who has entered a
+ * client account may finish connecting, and the pending `oauth_state` row must
+ * belong to THAT client — not the admin's home org and not blindly accepted.
+ * This mirrors `requireAgencyClientOrg` (the POST finalize guard) so the picker
+ * page and the route it submits to can never drift apart.
+ *
+ * Kept pure/dependency-free (like `postLoginPath`) so it can be unit-tested and
+ * shared by the two server-component pages without pulling in Supabase or Next.
+ */
+export function evaluateConnectorPickerAccess({
+  role,
+  actingAsClient,
+  activeOrgId,
+  stateOrgId,
+}: {
+  role: string | null
+  actingAsClient: boolean
+  activeOrgId: string | null
+  stateOrgId: string | null
+}): ConnectorPickerAccess {
+  if (!role) {
+    return { ok: false, error: 'unauthorized' }
+  }
+  if (role !== 'agency_admin') {
+    return { ok: false, error: 'forbidden' }
+  }
+  if (!actingAsClient || !activeOrgId) {
+    return { ok: false, error: 'no_active_account' }
+  }
+  // CSRF/ownership: the state must belong to the client the admin is currently
+  // inside. Compare against the EFFECTIVE acting org, never accept blindly.
+  if (stateOrgId !== activeOrgId) {
+    return { ok: false, error: 'state_org_mismatch' }
+  }
+  return { ok: true, orgId: activeOrgId }
+}

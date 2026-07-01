@@ -14,6 +14,7 @@
 import { redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase/server'
 import { createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg, evaluateConnectorPickerAccess } from '@/lib/auth/active-org'
 import { GoogleSelectForm } from './form'
 
 type StateMetadata = {
@@ -50,20 +51,16 @@ export default async function GoogleSelectPage({
     redirect('/settings/connectors?oauth_error=missing_picker_state')
   }
 
-  // Auth gate — the picker is behind (dashboard) layout already, but we
-  // also need the user's org to verify the state row belongs to them.
+  // Auth gate — the connector flow is agency-owned: only an agency_admin who
+  // has entered a client account reaches this picker (the connect/callback
+  // routes reject everyone else). Resolve the EFFECTIVE acting org so the
+  // state-row ownership check below compares against the client, not the
+  // admin's home org.
   const userSupabase = await createClient()
-  const { data: profile } = await userSupabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile || !['owner', 'admin'].includes(profile.role)) {
-    redirect('/settings/connectors?oauth_error=forbidden')
-  }
+  const active = await resolveActiveOrg(userSupabase)
 
   // Service client bypasses RLS for the state lookup. We verify org
-  // membership manually below.
+  // ownership manually below.
   const service = createServiceClient()
   const { data: stateRow } = await service
     .from('oauth_states')
@@ -75,9 +72,17 @@ export default async function GoogleSelectPage({
   if (!stateRow) {
     redirect('/settings/connectors?oauth_error=invalid_or_consumed_state')
   }
-  if (stateRow.organization_id !== profile.organization_id) {
-    redirect('/settings/connectors?oauth_error=state_org_mismatch')
+
+  const access = evaluateConnectorPickerAccess({
+    role: active.role,
+    actingAsClient: active.actingAsClient,
+    activeOrgId: active.orgId,
+    stateOrgId: stateRow.organization_id,
+  })
+  if (!access.ok) {
+    redirect(`/settings/connectors?oauth_error=${access.error}`)
   }
+
   if (new Date(stateRow.expires_at).getTime() < Date.now()) {
     redirect('/settings/connectors?oauth_error=state_expired')
   }

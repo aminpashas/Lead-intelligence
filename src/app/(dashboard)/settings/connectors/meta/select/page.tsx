@@ -8,6 +8,7 @@
 
 import { redirect } from 'next/navigation'
 import { createServiceClient, createClient } from '@/lib/supabase/server'
+import { resolveActiveOrg, evaluateConnectorPickerAccess } from '@/lib/auth/active-org'
 import { MetaSelectForm } from './form'
 
 type StateMetadata = {
@@ -43,15 +44,11 @@ export default async function MetaSelectPage({
     redirect('/settings/connectors?oauth_error=missing_picker_state')
   }
 
+  // Agency-owned flow: resolve the effective acting org (the entered client)
+  // and gate identically to the POST finalize route — see
+  // evaluateConnectorPickerAccess.
   const userSupabase = await createClient()
-  const { data: profile } = await userSupabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
-
-  if (!profile || !['owner', 'admin'].includes(profile.role)) {
-    redirect('/settings/connectors?oauth_error=forbidden')
-  }
+  const active = await resolveActiveOrg(userSupabase)
 
   const service = createServiceClient()
   const { data: stateRow } = await service
@@ -64,9 +61,17 @@ export default async function MetaSelectPage({
   if (!stateRow) {
     redirect('/settings/connectors?oauth_error=invalid_or_consumed_state')
   }
-  if (stateRow.organization_id !== profile.organization_id) {
-    redirect('/settings/connectors?oauth_error=state_org_mismatch')
+
+  const access = evaluateConnectorPickerAccess({
+    role: active.role,
+    actingAsClient: active.actingAsClient,
+    activeOrgId: active.orgId,
+    stateOrgId: stateRow.organization_id,
+  })
+  if (!access.ok) {
+    redirect(`/settings/connectors?oauth_error=${access.error}`)
   }
+
   if (new Date(stateRow.expires_at).getTime() < Date.now()) {
     redirect('/settings/connectors?oauth_error=state_expired')
   }
