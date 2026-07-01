@@ -822,6 +822,11 @@ export type SmartListCriteria = {
   has_email?: boolean
   sms_consent?: boolean
   email_consent?: boolean
+  keywords?: {
+    terms: string[]
+    match: 'any' | 'all'
+    scopes: ('conversation' | 'lead_fields' | 'inbound_sms' | 'tags')[]
+  }
 }
 
 export type SmartList = {
