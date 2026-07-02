@@ -4,6 +4,7 @@ import { LeadCSVImport } from '@/components/crm/lead-csv-import'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import type { Tag } from '@/types/database'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { decryptLeadsPII, searchHash } from '@/lib/encryption'
 
 export default async function LeadsPage({
   searchParams,
@@ -34,8 +35,11 @@ export default async function LeadsPage({
     query = query.eq('ai_qualification', params.qualification)
   }
   if (params.search) {
+    // email/phone are encrypted at rest — ilike can't match ciphertext, so
+    // exact-match those via their deterministic search hashes instead.
+    const hash = searchHash(params.search)
     query = query.or(
-      `first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%,email.ilike.%${params.search}%,phone.ilike.%${params.search}%`
+      `first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%,email_hash.eq.${hash},phone_hash.eq.${hash}`
     )
   }
 
@@ -85,7 +89,11 @@ export default async function LeadsPage({
   const perPage = 50
   query = query.range((page - 1) * perPage, page * perPage - 1)
 
-  const { data: leads, count } = await query
+  const { data: leadRows, count } = await query
+
+  // PII (email/phone/etc.) is encrypted at rest — decrypt server-side before
+  // handing rows to the client component, or the table renders `enc::…` blobs.
+  const leads = decryptLeadsPII(leadRows || [])
 
   // Fetch pipeline stages for filters
   const { data: stages } = await supabase
@@ -137,7 +145,7 @@ export default async function LeadsPage({
       </header>
 
       <LeadsTable
-        leads={leads || []}
+        leads={leads}
         stages={stages || []}
         total={count || 0}
         page={page}

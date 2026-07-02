@@ -88,11 +88,28 @@ export async function POST(req: NextRequest) {
     let orgId = callMetadata.organization_id as string | null
     let conversationId = callMetadata.conversation_id as string | null
 
-    if ((!leadId || !orgId) && callData.from_number) {
+    // Which side of the call is the patient depends on direction: inbound
+    // calls come FROM the patient; outbound calls go TO the patient. The other
+    // side is the practice's Twilio number → resolves the org.
+    const direction = (callData.direction as string) === 'outbound' ? 'outbound' : 'inbound'
+    const rawPatientNumber = (direction === 'inbound' ? callData.from_number : callData.to_number) as string | undefined
+    const rawPracticeNumber = (direction === 'inbound' ? callData.to_number : callData.from_number) as string | undefined
+
+    if ((!leadId || !orgId) && rawPatientNumber) {
       // Sanitize to phone chars before interpolating into a PostgREST .or() filter.
-      const callerPhone = (callData.from_number as string).replace(/[^+0-9]/g, '')
-      const normalizedPhone = callerPhone.replace(/^\+1/, '').replace(/\D/g, '')
-      const phoneVariants = [callerPhone, normalizedPhone, `+1${normalizedPhone}`]
+      const patientPhone = rawPatientNumber.replace(/[^+0-9]/g, '')
+      const normalizedPhone = patientPhone.replace(/^\+1/, '').replace(/\D/g, '')
+      const phoneVariants = [patientPhone, normalizedPhone, `+1${normalizedPhone}`]
+
+      if (!orgId && rawPracticeNumber) {
+        // SIP-trunk calls never pass through our /api/voice routes, so no
+        // metadata — attribute by the practice's configured caller-ID number.
+        const { data: orgByNumber } = await supabase
+          .from('organizations').select('id')
+          .eq('voice_outbound_caller_id', rawPracticeNumber.replace(/[^+0-9]/g, ''))
+          .maybeSingle()
+        orgId = orgByNumber?.id || null
+      }
 
       if (!orgId) {
         // Only attribute to a sole org when the deployment is genuinely
@@ -104,15 +121,31 @@ export async function POST(req: NextRequest) {
       }
 
       if (orgId && !leadId) {
-        const { data: phoneLead } = await supabase
+        // leads.phone/phone_formatted are encrypted at rest (enc::…), so
+        // plaintext equality can never match. phone_hash is the deterministic
+        // HMAC computed at write time exactly for this lookup.
+        const { searchHash } = await import('@/lib/encryption')
+        const hashes = [...new Set(phoneVariants.map(p => searchHash(p)).filter(Boolean))] as string[]
+        const { data: hashLead } = await supabase
           .from('leads').select('id')
           .eq('organization_id', orgId)
-          .or([
-            ...phoneVariants.map(p => `phone.eq.${p}`),
-            ...phoneVariants.map(p => `phone_formatted.eq.${p}`),
-          ].join(','))
-          .limit(1).single()
-        leadId = phoneLead?.id || null
+          .in('phone_hash', hashes)
+          .limit(1).maybeSingle()
+        leadId = hashLead?.id || null
+
+        if (!leadId) {
+          // Legacy fallback: rows created before encryption may still hold
+          // plaintext phone values.
+          const { data: phoneLead } = await supabase
+            .from('leads').select('id')
+            .eq('organization_id', orgId)
+            .or([
+              ...phoneVariants.map(p => `phone.eq.${p}`),
+              ...phoneVariants.map(p => `phone_formatted.eq.${p}`),
+            ].join(','))
+            .limit(1).maybeSingle()
+          leadId = phoneLead?.id || null
+        }
       }
 
       if (orgId && leadId && !conversationId) {
@@ -163,29 +196,50 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── 5. Update voice_call record (voice-specific) ──
+    // ── 5. Persist the voice_call record (voice-specific) ──
+    // Inbound SIP-trunk calls are never pre-registered through our API, so a
+    // row usually does NOT exist yet — insert it here (update if it does).
+    // Note: user sentiment lives in metadata.call_analysis; voice_calls has no
+    // sentiment column.
+    const callRecord = {
+      status: 'completed',
+      ended_at: new Date().toISOString(),
+      duration_seconds: callDuration,
+      recording_url: recordingUrl,
+      transcript: transcript.slice(0, 50000),
+      transcript_summary: (callAnalysis.call_summary as string) || null,
+      outcome: extracted.appointmentBooked ? 'appointment_booked'
+        : (callAnalysis.call_successful ? 'interested' : disconnectionReason),
+      metadata: {
+        ...callMetadata,
+        call_analysis: callAnalysis,
+        extracted_info: extracted,
+        disconnection_reason: disconnectionReason,
+      },
+    }
+
     const { data: existingCall } = await supabase
       .from('voice_calls').select('id')
-      .eq('retell_call_id', retellCallId).single()
+      .eq('retell_call_id', retellCallId).maybeSingle()
 
     if (existingCall) {
-      await supabase.from('voice_calls').update({
-        status: 'completed',
-        ended_at: new Date().toISOString(),
-        duration_seconds: callDuration,
-        recording_url: recordingUrl,
-        transcript: transcript.slice(0, 50000),
-        transcript_summary: (callAnalysis.call_summary as string) || null,
-        outcome: extracted.appointmentBooked ? 'appointment_booked'
-          : (callAnalysis.call_successful ? 'interested' : disconnectionReason),
-        sentiment: (callAnalysis.user_sentiment as string) || null,
-        metadata: {
-          ...callMetadata,
-          call_analysis: callAnalysis,
-          extracted_info: extracted,
-          disconnection_reason: disconnectionReason,
-        },
-      }).eq('id', existingCall.id)
+      await supabase.from('voice_calls').update(callRecord).eq('id', existingCall.id)
+    } else {
+      const { error: insertError } = await supabase.from('voice_calls').insert({
+        ...callRecord,
+        organization_id: orgId,
+        lead_id: leadId,
+        conversation_id: conversationId,
+        direction,
+        retell_call_id: retellCallId,
+        from_number: (callData.from_number as string) || null,
+        to_number: (callData.to_number as string) || null,
+        started_at: callData.start_timestamp
+          ? new Date(callData.start_timestamp as number).toISOString()
+          : new Date().toISOString(),
+        consent_verified: true,
+      })
+      if (insertError) console.error('[Voice Events] voice_calls insert failed:', insertError)
     }
 
     // ── 5b. Record the actual voice cost (billable ledger) ──

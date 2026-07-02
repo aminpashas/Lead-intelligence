@@ -71,12 +71,45 @@ export async function GET(
     .eq('lead_id', id)
     .order('scheduled_at', { ascending: false })
 
-  return NextResponse.json({
+  const response: Record<string, unknown> = {
     lead: decryptLeadPII(lead as any),
     activities: activities || [],
     conversations: conversations || [],
     appointments: appointments || [],
-  })
+  }
+
+  // ?include=patient_summary — the AI intelligence bundle PatientSummaryCard
+  // renders (profile + AI message count + active agent + last handoff).
+  if (request.nextUrl.searchParams.get('include') === 'patient_summary') {
+    const [{ data: patientProfile }, { count: aiMessageCount }, { data: lastHandoff }] =
+      await Promise.all([
+        supabase
+          .from('patient_profiles')
+          .select('*')
+          .eq('lead_id', id)
+          .maybeSingle(),
+        supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('lead_id', id)
+          .eq('ai_generated', true),
+        supabase
+          .from('agent_handoffs')
+          .select('from_agent, to_agent, trigger_reason')
+          .eq('lead_id', id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+
+    response.patient_profile = patientProfile
+    response.conversation_count = (conversations || []).length
+    response.ai_message_count = aiMessageCount || 0
+    response.active_agent = (conversations || [])[0]?.active_agent || null
+    response.last_handoff = lastHandoff
+  }
+
+  return NextResponse.json(response)
 }
 
 // PATCH /api/leads/[id] - Update a lead

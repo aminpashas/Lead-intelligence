@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { ConversationThread } from '@/components/crm/conversation-thread'
 import { notFound } from 'next/navigation'
+import { decryptLeadPII } from '@/lib/encryption'
 
 export default async function ConversationDetailPage({
   params,
@@ -32,7 +33,7 @@ export default async function ConversationDetailPage({
 
   return (
     <ConversationThread
-      lead={conversation.lead as any}
+      lead={decryptLeadPII(conversation.lead as Record<string, unknown>) as any}
       conversation={conversation}
       messages={messages || []}
     />

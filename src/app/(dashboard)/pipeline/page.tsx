@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { PipelineBoard } from '@/components/crm/pipeline-board'
+import { decryptLeadsPII } from '@/lib/encryption'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
@@ -28,7 +29,8 @@ export default async function PipelinePage() {
     .order('ai_score', { ascending: false })
 
   // Per-lead close probability + suggested stage moves (pure, in-process).
-  const allLeads = leads || []
+  // PII is encrypted at rest — decrypt server-side before rendering.
+  const allLeads = decryptLeadsPII(leads || [])
   const allStages = stages || []
   const nowMs = Date.now()
   const baseRate = computeCloseBaseRate(allLeads.map((l) => l.status))

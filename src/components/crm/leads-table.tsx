@@ -21,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Brain, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { TagBadgeList } from './tag-badge'
+import { formatCampaignAttribution } from '@/lib/attribution'
 import type { Lead, PipelineStage, Tag } from '@/types/database'
 import { useState } from 'react'
 
@@ -169,6 +170,9 @@ export function LeadsTable({
             {leads.map((lead) => {
               const initials = `${lead.first_name?.[0] || ''}${lead.last_name?.[0] || ''}`.toUpperCase()
               const tags = leadTagsMap?.[lead.id] || []
+              // Exact campaign line ("Google Ads — Implants June") synced from
+              // DGS; the bare source_type stays as the fallback label.
+              const campaignLine = formatCampaignAttribution(lead.campaign_attribution)
               return (
                 <TableRow
                   key={lead.id}
@@ -220,9 +224,19 @@ export function LeadsTable({
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-[13px] text-aurea-ink-3 capitalize">
-                      {lead.source_type?.replace(/_/g, ' ') || '—'}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className="text-[13px] text-aurea-ink-3 capitalize">
+                        {lead.source_type?.replace(/_/g, ' ') || '—'}
+                      </span>
+                      {campaignLine && (
+                        <span
+                          className="max-w-[220px] truncate font-mono text-[11px] text-aurea-ink-2"
+                          title={campaignLine}
+                        >
+                          {campaignLine}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">

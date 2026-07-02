@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { CallCenterDashboard } from '@/components/voice/call-center-dashboard'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { decryptLeadPII } from '@/lib/encryption'
 
 export default async function CallCenterPage() {
   const supabase = await createClient()
@@ -10,12 +11,18 @@ export default async function CallCenterPage() {
   if (!orgId) return null
 
   // Fetch recent voice calls
-  const { data: recentCalls } = await supabase
+  const { data: recentCallRows } = await supabase
     .from('voice_calls')
     .select('*, lead:leads(id, first_name, last_name, phone, ai_qualification, status)')
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)
+
+  // Lead PII is encrypted at rest — decrypt server-side before rendering.
+  const recentCalls = (recentCallRows || []).map((call) => ({
+    ...call,
+    lead: call.lead ? decryptLeadPII(call.lead as Record<string, unknown>) : call.lead,
+  }))
 
   // Fetch voice campaigns
   const { data: campaigns } = await supabase
