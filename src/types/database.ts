@@ -134,6 +134,24 @@ export type FinancingContext = {
   }
 }
 
+// Campaign-level attribution resolved by Dion Growth Studio and synced over
+// the /api/v1/leads bridge (leads.campaign_attribution jsonb). All keys
+// optional — the resolver degrades from exact campaign match (confidence 1.0)
+// down to channel-only guesses (0.3).
+export type CampaignAttribution = {
+  channel?: string
+  campaign_id?: string
+  campaign_name?: string
+  ad_group_id?: string
+  ad_group_name?: string
+  keyword_text?: string
+  click_id_type?: string
+  attribution_model?: string
+  attribution_confidence?: number
+  resolved_at?: string
+  source_system?: string
+}
+
 export type Lead = {
   id: string
   organization_id: string
@@ -194,6 +212,7 @@ export type Lead = {
   referrer_url: string | null
   gclid: string | null
   fbclid: string | null
+  campaign_attribution: CampaignAttribution | null
 
   // AI scoring
   ai_score: number
