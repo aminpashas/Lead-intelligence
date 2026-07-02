@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { RISK_TIER1 } from '@/lib/campaigns/attendance-risk'
 import {
   Calendar,
   CheckCircle2,
@@ -58,6 +59,9 @@ type AppointmentData = {
   confirmed_at: string | null
   reschedule_requested: boolean
   no_show_risk_score: number
+  escalation_tier: number | null
+  checkin_sent_at: string | null
+  checkin_replied_at: string | null
   lead: AppointmentLead
 }
 
@@ -169,7 +173,7 @@ export default function AppointmentsPage() {
 
   const confirmedCount = appointments.filter(a => a.confirmation_received && new Date(a.scheduled_at) > now).length
   const pendingCount = upcomingApts.filter(a => !a.confirmation_received).length
-  const atRiskCount = upcomingApts.filter(a => a.no_show_risk_score >= 50).length
+  const atRiskCount = upcomingApts.filter(a => a.no_show_risk_score >= RISK_TIER1).length
   const confirmedRate = upcomingApts.length > 0 ? Math.round((confirmedCount / upcomingApts.length) * 100) : 0
 
   // No-show analytics
@@ -186,7 +190,7 @@ export default function AppointmentsPage() {
     if (statusFilter === 'all') return true
     if (statusFilter === 'confirmed') return a.confirmation_received
     if (statusFilter === 'pending') return !a.confirmation_received
-    if (statusFilter === 'at_risk') return a.no_show_risk_score >= 50
+    if (statusFilter === 'at_risk') return a.no_show_risk_score >= RISK_TIER1
     return a.status === statusFilter
   })
 
@@ -437,6 +441,15 @@ function AppointmentCard({
                   </Badge>
                 )}
                 <RiskBadge score={apt.no_show_risk_score} />
+                {apt.escalation_tier === 2 && (
+                  <Badge variant="destructive" className="text-xs">Escalated — call now</Badge>
+                )}
+                {apt.escalation_tier === 1 && !apt.checkin_replied_at && (
+                  <Badge variant="outline" className="text-xs">Check-in sent</Badge>
+                )}
+                {apt.escalation_tier === 1 && apt.checkin_replied_at && (
+                  <Badge variant="secondary" className="text-xs">Check-in ✓</Badge>
+                )}
               </div>
             </div>
 
