@@ -145,7 +145,7 @@ export default async function LeadsPage({
       </header>
 
       <LeadsTable
-        leads={leads || []}
+        leads={leads}
         stages={stages || []}
         total={count || 0}
         page={page}
