@@ -55,9 +55,7 @@ describe('CareStack appointment adapter', () => {
     vi.mocked(searchCsPatients).mockResolvedValue([])
     vi.mocked(createCsPatient).mockResolvedValue({ id: 500 })
     vi.mocked(createCsAppointment).mockResolvedValue({
-      appointmentId: 9001, patientId: '500', locationId: '10', providerId: '20',
-      scheduledStart: '', scheduledEnd: '', duration: 60, appointmentType: 'Consultation',
-      status: 'scheduled', isNewPatient: true,
+      id: 9001, patientId: '500', locationId: '10', providerIds: ['20'], startDateTime: '', duration: 60,
     })
   })
 
@@ -90,12 +88,9 @@ describe('CareStack appointment adapter', () => {
     expect(body).toMatchObject({
       patientId: '500',
       locationId: '10', // fallback to first location
-      providerId: '20', // fallback to first provider
+      providerIds: ['20'], // fallback to first provider, as an array
       duration: 60,
-      status: 'scheduled',
-      isNewPatient: true,
-      scheduledStart: '2026-07-10T15:00:00.000Z',
-      scheduledEnd: '2026-07-10T16:00:00.000Z',
+      startDateTime: '2026-07-10T15:00:00.000Z',
     })
   })
 
@@ -109,7 +104,7 @@ describe('CareStack appointment adapter', () => {
     expect(getCsLocations).not.toHaveBeenCalled()
     expect(getCsProviders).not.toHaveBeenCalled()
     const body = vi.mocked(createCsAppointment).mock.calls[0][1]
-    expect(body).toMatchObject({ locationId: 'L9', providerId: 'P9', appointmentType: 'New Patient Exam', duration: 30 })
+    expect(body).toMatchObject({ locationId: 'L9', providerIds: ['P9'], productionTypeId: 'New Patient Exam', duration: 30 })
   })
 
   it('cancelAppointmentInCareStack calls the cancel endpoint', async () => {

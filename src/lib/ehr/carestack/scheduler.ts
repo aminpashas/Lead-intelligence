@@ -11,20 +11,23 @@ export type CsAppointmentStatus =
   | 'scheduled' | 'confirmed' | 'arrived' | 'in_chair'
   | 'completed' | 'cancelled' | 'no_show' | 'rescheduled'
 
+/**
+ * CareStack appointment. Field names verified against the live /sync/appointments
+ * response (v1.0.54): the API carries a start + duration (no explicit end), a
+ * providerIds ARRAY, and a numeric productionTypeId — NOT scheduledStart/End,
+ * providerId, or appointmentType.
+ */
 export interface CsAppointment {
-  appointmentId: string | number
-  patientId: string
-  locationId: string
-  providerId: string
-  operatoryId?: string
-  scheduledStart: string
-  scheduledEnd: string
-  duration: number
-  appointmentType: string
-  cdtCodes?: string[]
-  status: CsAppointmentStatus
+  id?: string | number
+  patientId: string | number
+  locationId: string | number
+  providerIds: Array<string | number>
+  operatoryId?: string | number
+  startDateTime: string            // ISO 8601
+  duration: number                 // minutes
+  productionTypeId?: string | number
+  status?: string
   notes?: string
-  isNewPatient: boolean
 }
 
 export interface CsOperatory { id: number; locationId: number; name: string }
