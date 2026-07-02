@@ -143,22 +143,21 @@ export async function pushAppointmentToCareStack(
 
   const start = new Date(appointment.scheduled_at)
   const duration = appointment.duration_minutes ?? 60
-  const end = new Date(start.getTime() + duration * 60_000)
 
+  // Field names verified against the live CareStack appointment schema (v1.0.54):
+  // startDateTime + duration (no explicit end), providerIds ARRAY, productionTypeId.
   const created = await createCsAppointment(config, {
     patientId,
     locationId,
-    providerId,
-    operatoryId: settings.carestack_operatory_id ?? undefined,
-    appointmentType: settings.carestack_appointment_type ?? 'Consultation',
-    scheduledStart: start.toISOString(),
-    scheduledEnd: end.toISOString(),
+    providerIds: [providerId],
+    ...(settings.carestack_operatory_id ? { operatoryId: settings.carestack_operatory_id } : {}),
+    startDateTime: start.toISOString(),
     duration,
-    status: 'scheduled',
-    isNewPatient: isNew,
+    ...(settings.carestack_appointment_type ? { productionTypeId: settings.carestack_appointment_type } : {}),
+    notes: isNew ? 'Online booking (new patient)' : 'Online booking',
   })
 
-  return String(created.appointmentId)
+  return String(created.id ?? '')
 }
 
 export async function cancelAppointmentInCareStack(

@@ -54,18 +54,17 @@ describe('CareStack scheduler API', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('createCsAppointment POSTs /api/v1.0/appointments with the body', async () => {
-    const { api } = installFetchMock({ appointmentId: 999 })
+    const { api } = installFetchMock({ id: 999 })
     const body = {
-      patientId: '5', locationId: '1', providerId: '2',
-      scheduledStart: '2026-07-10T15:00:00Z', scheduledEnd: '2026-07-10T16:00:00Z',
-      duration: 60, appointmentType: 'consultation', status: 'scheduled' as const, isNewPatient: true,
+      patientId: '5', locationId: '1', providerIds: ['2'],
+      startDateTime: '2026-07-10T15:00:00Z', duration: 60,
     }
     const res = await createCsAppointment(cfg, body)
     const call = api()
     expect(call.url).toBe('https://pmsglobal.carestack.com/api/v1.0/appointments')
     expect(call.init?.method).toBe('POST')
     expect(JSON.parse(call.init!.body as string)).toMatchObject({ patientId: '5', duration: 60 })
-    expect((res as { appointmentId: number }).appointmentId).toBe(999)
+    expect((res as { id: number }).id).toBe(999)
   })
 
   it('cancelCsAppointment PUTs /api/v1.0/appointments/{id}/cancel', async () => {
