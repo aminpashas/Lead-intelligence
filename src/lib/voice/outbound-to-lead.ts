@@ -63,7 +63,7 @@ export async function placeOutboundCallToLead(
   // Look up lead phone (decrypt if needed) + the org's outbound caller-ID number.
   const { data: lead } = await params.supabase
     .from('leads')
-    .select('id, first_name, phone, phone_formatted')
+    .select('id, first_name, last_name, phone, phone_formatted')
     .eq('id', params.leadId)
     .single()
 
@@ -105,7 +105,17 @@ export async function placeOutboundCallToLead(
         conversation_id: conversationId ?? '',
         caller: params.caller,
       },
+      // Variable names MUST match the Retell hosted-LLM prompt ({{caller_*}} +
+      // {{call_direction}}). Populating the name on this outbound path stops the
+      // agent from opening with "thanks for calling" / re-asking a name we know.
       retell_llm_dynamic_variables: {
+        call_direction: 'outbound',
+        caller_first_name: (lead.first_name as string) || '',
+        caller_full_name:
+          `${(lead.first_name as string) || ''} ${(lead.last_name as string) || ''}`.trim() || '',
+        is_new_lead: 'false',
+        is_returning: 'true',
+        // Back-compat: some older prompt copies still read {{first_name}}.
         first_name: (lead.first_name as string) || 'there',
         ...(params.dynamicVariables || {}),
       },
