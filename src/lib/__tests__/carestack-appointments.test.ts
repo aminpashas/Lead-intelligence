@@ -60,7 +60,7 @@ describe('CareStack appointment adapter', () => {
   })
 
   it('ensureCareStackPatient reuses an existing lead→patient mapping', async () => {
-    const res = await ensureCareStackPatient(supa({ ehr_patient_id: 'cs-777' }), CONFIG, 'org1', LEAD)
+    const res = await ensureCareStackPatient(supa({ ehr_patient_id: 'cs-777' }), CONFIG, 'org1', LEAD, 1)
     expect(res).toEqual({ patientId: 'cs-777', isNew: false })
     expect(searchCsPatients).not.toHaveBeenCalled()
     expect(createCsPatient).not.toHaveBeenCalled()
@@ -68,15 +68,18 @@ describe('CareStack appointment adapter', () => {
 
   it('ensureCareStackPatient reuses an email-search hit without creating', async () => {
     vi.mocked(searchCsPatients).mockResolvedValueOnce([{ id: 888 }])
-    const res = await ensureCareStackPatient(supa(null), CONFIG, 'org1', LEAD)
+    const res = await ensureCareStackPatient(supa(null), CONFIG, 'org1', LEAD, 1)
     expect(res).toEqual({ patientId: '888', isNew: false })
     expect(createCsPatient).not.toHaveBeenCalled()
   })
 
   it('ensureCareStackPatient creates a patient when none is found', async () => {
-    const res = await ensureCareStackPatient(supa(null), CONFIG, 'org1', LEAD)
+    const res = await ensureCareStackPatient(supa(null), CONFIG, 'org1', LEAD, 1)
     expect(res).toEqual({ patientId: '500', isNew: true })
-    expect(createCsPatient).toHaveBeenCalledWith(CONFIG, expect.objectContaining({ firstName: 'Sam', email: 'sam@x.com' }))
+    expect(createCsPatient).toHaveBeenCalledWith(
+      CONFIG,
+      expect.objectContaining({ firstName: 'Sam', dob: '1900-01-01', gender: 4, defaultLocationId: 1, email: 'sam@x.com', mobile: '+13105551234' }),
+    )
   })
 
   it('pushAppointmentToCareStack builds the CsAppointment body and returns the id', async () => {

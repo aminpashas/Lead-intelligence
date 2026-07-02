@@ -33,7 +33,23 @@ export interface CsAppointment {
 export interface CsOperatory { id: number; locationId: number; name: string }
 export interface CsProvider { id: number; firstName?: string; lastName?: string; fullName?: string }
 export interface CsLocation { id: number; name: string; timeZone?: string }
-export interface CsPatient { id: number; firstName?: string; lastName?: string; email?: string; mobileNumber?: string }
+/**
+ * CareStack patient. CREATE field names verified live (v1.0.54): `dob` (not
+ * dateOfBirth), integer `gender` (4 = Not Set), `defaultLocationId`, `mobile`
+ * (not phones[]). The create/search response carries the id as `id`.
+ */
+export interface CsPatient {
+  id?: number | string
+  patientId?: number | string
+  firstName?: string
+  lastName?: string
+  dob?: string                      // ISO date
+  gender?: number                   // integer enum; 4 = Not Set
+  defaultLocationId?: number | string
+  email?: string
+  mobile?: string
+  status?: number
+}
 export interface CsSyncAppointmentsResponse {
   results?: Array<Record<string, unknown>>
   continueToken?: string | null
