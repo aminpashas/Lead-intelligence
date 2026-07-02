@@ -5,6 +5,8 @@ import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
 import { calculateNoShowRisk } from '@/lib/campaigns/reminders'
+import { seedNoShowRecovery } from '@/lib/campaigns/no-show-recovery'
+import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
 import { decryptField } from '@/lib/encryption'
 import { z } from 'zod'
 
@@ -267,6 +269,19 @@ export async function PATCH(request: NextRequest) {
         status: 'no_show',
       })
       .eq('id', lead.id)
+
+    // Recovery: seed the org's rebook sequence (idempotent) and enroll this lead.
+    // Non-fatal — a failure here never blocks the status update.
+    try {
+      await seedNoShowRecovery(supabase, orgId)
+      await processTriggerCampaigns(supabase, {
+        event: 'appointment_no_show',
+        lead_id: lead.id,
+        organization_id: orgId,
+      })
+    } catch (err) {
+      console.error('[appointments] no-show recovery enrollment failed:', err instanceof Error ? err.message : err)
+    }
   }
 
   // Kanban: hard-move the card on cancel/no-show (non-blocking).
