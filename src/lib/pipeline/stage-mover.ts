@@ -43,6 +43,25 @@ export function resolveStageForEvent(
 }
 
 /**
+ * Map an EHR appointment event to a stage event. Prefers the appointment's own
+ * status text (CareStack sends cancellations as 'Status' events whose trigger
+ * name says nothing); falls back to the trigger name for create/reschedule.
+ */
+export function mapEhrEventToStageEvent(
+  trigger: string,
+  appointmentStatus?: string | null
+): AppointmentStageEvent | null {
+  const status = (appointmentStatus ?? '').toLowerCase()
+  if (/no.?show|missed/.test(status)) return 'no_show'
+  if (/cancel|delet/.test(status)) return 'canceled'
+  const t = trigger.toLowerCase()
+  if (/cancel|delet/.test(t)) return 'canceled'
+  if (/no.?show|missed/.test(t)) return 'no_show'
+  if (/creat|schedul|book|resched|confirm/.test(t) || /schedul|confirm|book/.test(status)) return 'booked'
+  return null
+}
+
+/**
  * Move a lead's pipeline stage for an appointment event. Non-fatal by design:
  * every failure is logged and swallowed so it can never block a booking flow.
  * Call sites invoke it fire-and-forget (`void moveLeadStageForAppointmentEvent(...)`).

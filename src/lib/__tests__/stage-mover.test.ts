@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { resolveStageForEvent, type AppointmentStageEvent } from '@/lib/pipeline/stage-mover'
+import {
+  mapEhrEventToStageEvent,
+  resolveStageForEvent,
+  type AppointmentStageEvent,
+} from '@/lib/pipeline/stage-mover'
 import type { PipelineStage } from '@/types/database'
 
 const stage = (over: Partial<PipelineStage>): PipelineStage => ({
@@ -66,5 +70,30 @@ describe('resolveStageForEvent', () => {
   it('null current stage still resolves a target', () => {
     const r = resolveStageForEvent(STAGES, 'booked', null)
     expect(r).toEqual({ stage: expect.objectContaining({ id: 's-booked' }) })
+  })
+})
+
+describe('mapEhrEventToStageEvent', () => {
+  it("classifies cancels from the appointment status, not the 'Status' trigger name", () => {
+    expect(mapEhrEventToStageEvent('Status', 'Cancelled')).toBe('canceled')
+  })
+
+  it('classifies no-shows from the appointment status', () => {
+    expect(mapEhrEventToStageEvent('Status', 'NoShow')).toBe('no_show')
+    expect(mapEhrEventToStageEvent('Status', 'No Show')).toBe('no_show')
+  })
+
+  it('falls back to the trigger name for create/reschedule', () => {
+    expect(mapEhrEventToStageEvent('Scheduled', undefined)).toBe('booked')
+    expect(mapEhrEventToStageEvent('Rescheduled', null)).toBe('booked')
+  })
+
+  it('a confirmed status counts as booked', () => {
+    expect(mapEhrEventToStageEvent('Status', 'Confirmed')).toBe('booked')
+  })
+
+  it('returns null when neither trigger nor status classifies the event', () => {
+    expect(mapEhrEventToStageEvent('Status', undefined)).toBeNull()
+    expect(mapEhrEventToStageEvent('Updated', 'SomethingElse')).toBeNull()
   })
 })

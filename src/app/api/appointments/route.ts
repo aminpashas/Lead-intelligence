@@ -251,9 +251,10 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: error?.message || 'Not found' }, { status: error ? 500 : 404 })
   }
 
+  const lead = appointment.lead as any
+
   // If marking as no-show, increment the lead's no_show_count
-  if (status === 'no_show' && appointment.lead) {
-    const lead = appointment.lead as any
+  if (status === 'no_show' && lead) {
     await supabase
       .from('leads')
       .update({
@@ -264,16 +265,15 @@ export async function PATCH(request: NextRequest) {
   }
 
   // Kanban: hard-move the card on cancel/no-show (non-blocking).
-  if ((status === 'canceled' || status === 'no_show') && appointment.lead) {
+  if ((status === 'canceled' || status === 'no_show') && lead) {
     void moveLeadStageForAppointmentEvent(supabase, {
       orgId,
-      leadId: (appointment.lead as { id: string }).id,
+      leadId: lead.id,
       event: status === 'no_show' ? 'no_show' : 'canceled',
     })
   }
 
   // Log activity
-  const lead = appointment.lead as any
   if (lead) {
     await supabase.from('lead_activities').insert({
       organization_id: orgId,

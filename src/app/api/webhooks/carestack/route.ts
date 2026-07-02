@@ -25,7 +25,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { upsertCareStackPatient } from '@/lib/ehr/carestack/match'
-import { moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
+import { mapEhrEventToStageEvent, moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
 import { logger } from '@/lib/logger'
 
 type CareStackEvent = {
@@ -213,14 +213,12 @@ async function handleAppointmentEvent(
       .eq('id', existing.id)
   }
 
-  // Kanban stage automation from EHR-originated appointment events.
+  // Kanban stage automation from EHR-originated appointment events. The trigger
+  // name alone can't classify cancels/no-shows (they arrive as 'Status' events),
+  // so the mapper prefers the appointment's own status text from the payload.
   if (leadId) {
-    const t = trigger.toLowerCase()
-    const stageEvent =
-      /cancel|delet/.test(t) ? ('canceled' as const)
-      : /no.?show|missed/.test(t) ? ('no_show' as const)
-      : /creat|schedul|book|resched|confirm/.test(t) ? ('booked' as const)
-      : null
+    const rawStatus = newApt.Status ?? newApt.status
+    const stageEvent = mapEhrEventToStageEvent(trigger, typeof rawStatus === 'string' ? rawStatus : null)
     if (stageEvent) {
       void moveLeadStageForAppointmentEvent(supabase, { orgId: organizationId, leadId, event: stageEvent })
     }
