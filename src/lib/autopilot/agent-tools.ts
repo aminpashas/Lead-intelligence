@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
+import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { encryptLeadPII } from '@/lib/encryption'
@@ -620,7 +621,9 @@ async function executeCheckAvailability(
     max_bookings_per_slot: settings.max_bookings_per_slot || 1,
   }
 
-  const slots = generateAvailableSlots(config, (existingAppts || []) as ExistingAppointment[])
+  // Merge real CareStack occupancy so we never offer a chair that's already taken.
+  const ehrBusy = await fetchEhrBusyAsAppointments(supabase, organizationId, settings.advance_days)
+  const slots = generateAvailableSlots(config, [...((existingAppts || []) as ExistingAppointment[]), ...ehrBusy])
 
   // Filter by preferred day if specified
   let filteredSlots = slots
@@ -738,7 +741,8 @@ async function executeCreateBooking(
     max_bookings_per_slot: settings.max_bookings_per_slot || 1,
   }
 
-  const availableSlots = generateAvailableSlots(config, (existingAppts || []) as ExistingAppointment[])
+  const ehrBusy = await fetchEhrBusyAsAppointments(supabase, context.organization_id, settings.advance_days)
+  const availableSlots = generateAvailableSlots(config, [...((existingAppts || []) as ExistingAppointment[]), ...ehrBusy])
   const daySlots = availableSlots.find(d => d.date === date)
 
   if (!daySlots || !daySlots.times.includes(time)) {
@@ -1838,7 +1842,8 @@ async function executeScheduleFollowUp(
     max_bookings_per_slot: settings.max_bookings_per_slot || 1,
   }
 
-  const slots = generateAvailableSlots(config, (existingAppts || []) as ExistingAppointment[])
+  const ehrBusy = await fetchEhrBusyAsAppointments(supabase, context.organization_id, settings.advance_days)
+  const slots = generateAvailableSlots(config, [...((existingAppts || []) as ExistingAppointment[]), ...ehrBusy])
 
   // Filter by preferred day if specified
   let filteredSlots = slots

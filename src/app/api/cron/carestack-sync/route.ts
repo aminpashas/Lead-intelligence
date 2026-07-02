@@ -19,6 +19,7 @@
 import { withCron } from '@/lib/cron/with-cron'
 import { getCareStackConfig } from '@/lib/ehr/carestack/client'
 import { syncPatients, syncTreatmentProcedures, syncInvoices } from '@/lib/ehr/carestack/sync'
+import { syncCareStackBusySlots } from '@/lib/ehr/carestack/busy-sync'
 
 export const POST = withCron('carestack-sync', async ({ supabase }) => {
   // All orgs with a CareStack connector configured AND enabled.
@@ -65,6 +66,9 @@ export const POST = withCron('carestack-sync', async ({ supabase }) => {
 
     // 3) Invoices — emits actual collected revenue.
     runs.push(await syncInvoices(supabase, org.organization_id, config))
+
+    // 4) Busy slots — mirror PMS occupancy so booking availability stays accurate.
+    runs.push(await syncCareStackBusySlots(supabase, org.organization_id, config))
 
     results.push({ organization_id: org.organization_id, runs })
   }
