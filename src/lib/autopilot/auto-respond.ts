@@ -36,6 +36,7 @@ import { createEscalation } from './escalation'
 import type { AgentContext, AgentResponse, ConversationMessage } from '@/lib/ai/agent-types'
 import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
 import { buildFinancingContext } from '@/lib/ai/financial-coach'
+import { getActiveRuleSetStamp } from '@/lib/ai/learning/rule-stamp'
 import { logger } from '@/lib/logger'
 
 export type AutoResponseResult = {
@@ -418,8 +419,13 @@ async function sendAgentResponse(
   }
   void lead // (channel/consent state read inside the gate via leadId)
 
-  // Store outbound message
-  const agentId = await getAgentIdForRole(supabase, organization_id, agentResponse.agent)
+  // Store outbound message. The rule-set stamp records which agency rules were
+  // live when this message was generated, so the weekly learning pass can
+  // compare outcomes across rule cohorts. Must never block the send path.
+  const [agentId, ruleStamp] = await Promise.all([
+    getAgentIdForRole(supabase, organization_id, agentResponse.agent),
+    getActiveRuleSetStamp(supabase),
+  ])
   await supabase.from('messages').insert({
     organization_id,
     conversation_id,
@@ -438,6 +444,7 @@ async function sendAgentResponse(
       agent: agentResponse.agent,
       action_taken: agentResponse.action_taken,
       autopilot: true,
+      ...(ruleStamp ? { rule_set: ruleStamp } : {}),
     },
   })
 

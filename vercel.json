@@ -61,6 +61,14 @@
       "schedule": "30 3 * * *"
     },
     {
+      "path": "/api/cron/learning-episodes",
+      "schedule": "15 4 * * *"
+    },
+    {
+      "path": "/api/cron/learning-distill",
+      "schedule": "30 4 * * 1"
+    },
+    {
       "path": "/api/cron/contracts",
       "schedule": "0 3 * * *"
     },
