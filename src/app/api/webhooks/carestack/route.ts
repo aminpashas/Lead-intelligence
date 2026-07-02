@@ -221,6 +221,13 @@ async function handleAppointmentEvent(
     const stageEvent = mapEhrEventToStageEvent(trigger, typeof rawStatus === 'string' ? rawStatus : null)
     if (stageEvent) {
       void moveLeadStageForAppointmentEvent(supabase, { orgId: organizationId, leadId, event: stageEvent })
+    } else if (trigger === 'Status') {
+      // Undocumented webhook contract: if Status arrives as a numeric ID (like the
+      // Sync API) instead of text, mapping silently yields null — make that visible.
+      logger.info('carestack Status event did not map to a stage event', {
+        organizationId,
+        rawStatus: rawStatus ?? null,
+      })
     }
   }
 
