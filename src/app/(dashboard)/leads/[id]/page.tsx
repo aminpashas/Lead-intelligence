@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { LeadDetail } from '@/components/crm/lead-detail'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
+import { decryptLeadPII } from '@/lib/encryption'
 
 export default async function LeadDetailPage({
   params,
@@ -13,7 +14,7 @@ export default async function LeadDetailPage({
   const supabase = await createClient()
 
   // Fetch lead with relations
-  const { data: lead } = await supabase
+  const { data: leadRow } = await supabase
     .from('leads')
     .select(`
       *,
@@ -24,7 +25,10 @@ export default async function LeadDetailPage({
     .eq('id', id)
     .single()
 
-  if (!lead) notFound()
+  if (!leadRow) notFound()
+
+  // PII is encrypted at rest — decrypt server-side before rendering.
+  const lead = decryptLeadPII(leadRow)
 
   // Fetch activities
   const { data: activities } = await supabase

@@ -4,6 +4,7 @@ import { MessageSquare } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { decryptLeadPII } from '@/lib/encryption'
 
 export default async function ConversationsPage() {
   const supabase = await createClient()
@@ -12,7 +13,7 @@ export default async function ConversationsPage() {
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return null
 
-  const { data: conversations } = await supabase
+  const { data: convoRows } = await supabase
     .from('conversations')
     .select(`
       *,
@@ -21,6 +22,12 @@ export default async function ConversationsPage() {
     .eq('organization_id', orgId)
     .order('last_message_at', { ascending: false })
     .limit(100)
+
+  // Lead PII is encrypted at rest — decrypt server-side before rendering.
+  const conversations = (convoRows || []).map((c) => ({
+    ...c,
+    lead: c.lead ? decryptLeadPII(c.lead as Record<string, unknown>) : c.lead,
+  }))
 
   return (
     <div className="animate-in fade-in-0 duration-500">
