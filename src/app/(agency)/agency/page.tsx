@@ -8,8 +8,10 @@ import {
   GraduationCap,
   ArrowRight,
   ArrowUpRight,
+  DollarSign,
 } from 'lucide-react'
 import Link from 'next/link'
+import { loadAgencySpend, formatUsd, marginPct } from '@/lib/billing/spend-summary'
 
 export const metadata = {
   title: 'Agency Home | Lead Intelligence',
@@ -62,6 +64,9 @@ export default async function AgencyHomePage() {
   const aiPersonaSetting = agencySettings?.find((s) => s.key === 'ai_persona')
   const aiModel = aiModelSetting?.value as { model?: string } | undefined
   const aiPersona = aiPersonaSetting?.value as { name?: string } | undefined
+
+  // Blended spend across all practices (30d): what we pay providers vs. what we re-bill.
+  const { summary: spend } = await loadAgencySpend(supabase, { sinceDays: 30 })
 
   const practiceCount = organizations?.length ?? 0
   const activeCount = organizations?.filter((o) => o.subscription_status === 'active').length ?? 0
@@ -118,6 +123,7 @@ export default async function AgencyHomePage() {
   const quickActions: { label: string; desc: string; href: string; icon: typeof Building2 }[] = [
     { label: 'Manage Practices', desc: 'Onboard & configure', href: '/agency/practices', icon: Building2 },
     { label: 'AI Configuration', desc: 'Model & persona', href: '/agency/ai-config', icon: Brain },
+    { label: 'Spend & Margin', desc: 'Cost & re-billing', href: '/agency/spend', icon: DollarSign },
     { label: 'Integrations', desc: 'Channels & keys', href: '/agency/integrations', icon: Plug },
     { label: 'AI Training', desc: 'Tune responses', href: '/agency/ai-training', icon: GraduationCap },
   ]
@@ -173,6 +179,35 @@ export default async function AgencyHomePage() {
           </div>
         ))}
       </div>
+
+      {/* ── Spend summary (30d) ────────────────────────────── */}
+      <Link
+        href="/agency/spend"
+        className="group mt-5 flex flex-col gap-4 rounded-[var(--aurea-radius,12px)] border border-aurea-border bg-aurea-surface p-5 transition-colors hover:bg-aurea-surface-2 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="flex items-center gap-3">
+          <DollarSign className="h-[18px] w-[18px] text-aurea-ink-2" strokeWidth={1.75} />
+          <div>
+            <p className="aurea-eyebrow">Spend &amp; Margin — Last 30 Days</p>
+            <p className="mt-0.5 text-[12px] text-aurea-ink-3">Anthropic + Twilio + Retell, across all practices</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-6">
+          <div>
+            <p className="font-mono text-[18px] tabular-nums text-aurea-ink">{formatUsd(spend.totalCostCents)}</p>
+            <p className="text-[10.5px] uppercase tracking-[0.12em] text-aurea-ink-3">Cost</p>
+          </div>
+          <div>
+            <p className="font-mono text-[18px] tabular-nums text-aurea-ink">{formatUsd(spend.totalBillableCents)}</p>
+            <p className="text-[10.5px] uppercase tracking-[0.12em] text-aurea-ink-3">Billable</p>
+          </div>
+          <div>
+            <p className="font-mono text-[18px] tabular-nums text-aurea-primary">+{formatUsd(spend.marginCents)}</p>
+            <p className="text-[10.5px] uppercase tracking-[0.12em] text-aurea-ink-3">Margin · {marginPct(spend).toFixed(0)}%</p>
+          </div>
+          <ArrowRight className="hidden h-4 w-4 shrink-0 text-aurea-ink-3 transition-transform group-hover:translate-x-0.5 sm:block" />
+        </div>
+      </Link>
 
       {/* ── Practices + AI Platform ────────────────────────── */}
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
