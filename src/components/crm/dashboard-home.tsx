@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { formatDistanceToNow, format } from 'date-fns'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { CommandCenter } from './command-center'
 import {
   Users, Flame, TrendingUp, DollarSign, Calendar, MessageSquare,
   ArrowRight, Clock, Phone, Mail, Zap, Brain, Bell,
@@ -80,7 +81,8 @@ export function DashboardHome({
           {greeting}, {userName}
         </h1>
         <p className="mt-4 max-w-2xl text-[16px] leading-relaxed text-aurea-ink-2">
-          Here&apos;s what&apos;s happening with your leads today.
+          Ask your AI agent below to run outreach, follow up with a group, or answer
+          questions about your pipeline.
         </p>
       </header>
 
@@ -95,9 +97,13 @@ export function DashboardHome({
         <MiniKPI icon={Bell} label="Unread" value={kpis.unreadMessages} accent={kpis.unreadMessages > 0 ? 'rose' : undefined} />
       </div>
 
+      {/* ── Command center (hero) + priority rail ──────────── */}
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* ── Left column — priority items ─────────────────── */}
-        <div className="space-y-5 lg:col-span-2">
+        <div className="lg:col-span-2">
+          <CommandCenter userName={userName} />
+        </div>
+
+        <div className="space-y-5">
           {/* Unread Messages */}
           {unreadConversations.length > 0 && (
             <section className="aurea-card overflow-hidden">
@@ -256,9 +262,13 @@ export function DashboardHome({
               ))
             )}
           </SectionCard>
+        </div>
+      </div>
 
-          {/* Recent Leads */}
-          <SectionCard
+      {/* ── Secondary row — new leads, campaigns, activity ──── */}
+      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+        {/* Recent Leads */}
+        <SectionCard
             title="New Leads"
             subtitle="Last 48 hours"
             dot="emerald"
@@ -293,12 +303,9 @@ export function DashboardHome({
               ))
             )}
           </SectionCard>
-        </div>
 
-        {/* ── Right column — campaigns + activity ──────────── */}
-        <div className="space-y-5">
-          {/* Active Campaigns */}
-          <SectionCard
+        {/* Active Campaigns */}
+        <SectionCard
             title="Active Campaigns"
             dot="amber"
             action={{ label: 'Manage', href: '/campaigns' }}
@@ -358,16 +365,6 @@ export function DashboardHome({
             )}
           </SectionCard>
 
-          {/* Quick Actions */}
-          <SectionCard title="Quick Actions">
-            <div className="space-y-2 py-1">
-              <QuickAction href="/leads" icon={Users} label="View All Leads" />
-              <QuickAction href="/pipeline" icon={TrendingUp} label="Pipeline Board" />
-              <QuickAction href="/campaigns" icon={Megaphone} label="Deploy Campaign" />
-              <QuickAction href="/analytics" icon={Brain} label="View Analytics" />
-            </div>
-          </SectionCard>
-        </div>
       </div>
     </div>
   )
@@ -421,18 +418,6 @@ function SectionCard({
 
 function EmptyRow({ children }: { children: React.ReactNode }) {
   return <p className="py-8 text-center text-[13px] text-aurea-ink-3">{children}</p>
-}
-
-function QuickAction({ href, icon: Icon, label }: { href: string; icon: LucideIcon; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="group flex items-center gap-2.5 rounded-lg border border-aurea-border px-3 py-2 transition-colors hover:bg-aurea-surface-2"
-    >
-      <Icon className="h-4 w-4 shrink-0 text-aurea-ink-3 transition-colors group-hover:text-aurea-primary" strokeWidth={1.75} />
-      <span className="text-[13px] font-medium text-aurea-ink">{label}</span>
-    </Link>
-  )
 }
 
 function MiniKPI({
