@@ -13,6 +13,9 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { NurtureStepSeed } from './post-consult-nurture'
+
+export type { NurtureStepSeed } from './post-consult-nurture'
 
 /** Stable key used to find/upsert this system campaign per org. */
 export const NO_SHOW_RECOVERY_KEY = 'no_show_recovery'
@@ -42,29 +45,8 @@ const EXIT_CONDITION = {
   if_status_in: [...NO_SHOW_RECOVERY_EXIT_STATUSES],
 } as const
 
-/**
- * Seed shape for a lazily-seeded system-campaign step. Mirrors NurtureStepSeed
- * in src/lib/campaigns/post-consult-nurture.ts (feat/online-booking-ehr) —
- * swap this local definition for an import of that type once the branches merge.
- */
-export type NurtureStepSeed = {
-  step_number: number
-  name: string
-  channel: 'sms' | 'email'
-  /** Delay from the previous step (or from enrollment for step 1), in minutes. */
-  delay_minutes: number
-  subject?: string
-  /** Fallback copy used only if AI composition fails (or when ai_personalize is false). */
-  body_template: string
-  ai_personalize: boolean
-  send_condition?: Record<string, unknown>
-  metadata: {
-    /** 'closer' → objection-aware AI composition; omitted → fixed template send. */
-    ai_generator?: 'closer'
-    /** Steers the closer's proactive touch. */
-    nurture_goal?: string
-  }
-}
+// post-consult-nurture.ts merged to main — the shared seed type is re-exported
+// from the top of this file for existing importers.
 
 const DAY = 1440 // minutes
 
