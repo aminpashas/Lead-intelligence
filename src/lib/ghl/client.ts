@@ -64,7 +64,11 @@ export async function getGhlConfig(
     location_id: string
     pipeline_id: string
   }>
-  const settings = (data.settings || {}) as Partial<{ location_id: string; pipeline_id: string }>
+  const settings = (data.settings || {}) as Partial<{
+    location_id: string
+    pipeline_id: string
+    stage_authority: 'li' | 'ghl'
+  }>
 
   const apiToken = (creds.api_token || '').trim()
   const locationId = (creds.location_id || settings.location_id || '').trim()
@@ -78,6 +82,8 @@ export async function getGhlConfig(
     pipelineId,
     baseUrl: assertGhlHost(GHL_BASE),
     version: GHL_VERSION,
+    // Default: LI owns the pipeline once a lead is imported (switch-to-LI).
+    stageAuthority: settings.stage_authority === 'ghl' ? 'ghl' : 'li',
   }
 }
 

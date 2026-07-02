@@ -15,6 +15,7 @@ const config: GhlConfig = {
   pipelineId: null,
   baseUrl: GHL_BASE,
   version: GHL_VERSION,
+  stageAuthority: 'li',
 }
 
 describe('assertGhlHost (SSRF guard)', () => {

@@ -65,6 +65,15 @@ export type GhlConfig = {
   pipelineId: string | null
   baseUrl: string
   version: string
+  /**
+   * Who owns a synced lead's pipeline stage after import.
+   *  - 'li'  (default): GHL sets the stage on FIRST import only; LI-side moves
+   *    are authoritative and never overwritten by later syncs. Use this once
+   *    you operate the pipeline in LI.
+   *  - 'ghl': legacy behaviour — every sync mirrors GHL's stage onto the lead,
+   *    overwriting any LI-side move.
+   */
+  stageAuthority: 'li' | 'ghl'
 }
 
 /** Outcome counts for one org's sync run — returned by the cron + manual trigger. */

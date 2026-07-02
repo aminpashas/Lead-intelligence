@@ -160,7 +160,10 @@ export async function syncGhlLeads(
         const known = existing.get(opp.id)
 
         if (known) {
-          if (stageChanged(known.stageId, liStageId)) {
+          // LI-authoritative (default): GHL set the stage on first import; never
+          // overwrite an LI-side move on later syncs. Only mirror GHL→LI when the
+          // connector is explicitly configured with stageAuthority 'ghl'.
+          if (config.stageAuthority === 'ghl' && stageChanged(known.stageId, liStageId)) {
             await supabase.from('leads').update({ stage_id: liStageId }).eq('id', known.leadId)
             await supabase.from('lead_activities').insert({
               organization_id: organizationId,
