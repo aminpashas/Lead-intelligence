@@ -89,34 +89,32 @@ export function AgentIndicator({
     }
   }
 
+  // The chip IS the control: one select styled as the agent badge, instead of
+  // a static chip duplicated next to a bare dropdown.
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex items-center gap-1.5" title={config.description}>
-        <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[11px] font-medium ${config.chipClass}`}>
-          <Icon className="h-3 w-3" strokeWidth={1.75} />
-          {config.label} Agent
-        </span>
-        {handoffCount != null && handoffCount > 0 && (
-          <span className="text-[11px] text-aurea-ink-3" title={`${handoffCount} handoff(s) in this conversation`}>
-            ({handoffCount} handoff{handoffCount > 1 ? 's' : ''})
-          </span>
-        )}
-      </div>
-
+    <div className="flex items-center gap-1.5" title={config.description}>
       <Select
         value={activeAgent}
         onValueChange={(v) => v && handleAgentSwitch(v)}
         disabled={switching}
       >
-        <SelectTrigger className="h-7 w-24 text-xs">
+        <SelectTrigger
+          className={`h-7 gap-1.5 rounded-lg px-2.5 text-[11px] font-medium shadow-none ${config.chipClass}`}
+        >
+          <Icon className="h-3 w-3" strokeWidth={1.75} />
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="setter">Setter</SelectItem>
-          <SelectItem value="closer">Closer</SelectItem>
+          <SelectItem value="setter">Setter Agent</SelectItem>
+          <SelectItem value="closer">Closer Agent</SelectItem>
           <SelectItem value="none">Manual</SelectItem>
         </SelectContent>
       </Select>
+      {handoffCount != null && handoffCount > 0 && (
+        <span className="text-[11px] text-aurea-ink-3" title={`${handoffCount} handoff(s) in this conversation`}>
+          ({handoffCount} handoff{handoffCount > 1 ? 's' : ''})
+        </span>
+      )}
     </div>
   )
 }
