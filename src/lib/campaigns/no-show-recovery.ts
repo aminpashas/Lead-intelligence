@@ -6,10 +6,8 @@
  * exits the sequence. Seeded lazily per org like the post-consult nurture so
  * there's no migration-managed campaign SQL to drift.
  *
- * NOTE: steps 2–3 carry `ai_generator: 'closer'` metadata, but the closer-routing
- * nurture executor lives on feat/online-booking-ehr and hasn't merged — until it
- * does, those steps send via the generic ai_personalize path (still AI-composed,
- * just not objection-aware). No reseed needed when it lands.
+ * Steps 2–3 carry `ai_generator: 'closer'` metadata — the nurture executor routes
+ * those through the objection-aware closer composition (nurture-executor.ts).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
