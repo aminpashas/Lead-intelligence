@@ -264,14 +264,141 @@ export async function processVoiceTranscript(
     ? await getOrgTransferNumber(supabase, organization_id)
     : undefined
 
+  // Hang up when EITHER side has clearly signed off. Two triggers:
+  //   1. the agent's own farewell (handled by isVoiceCallEnding), and
+  //   2. the PATIENT saying goodbye — the previously-missing case. The caller
+  //      controls when a call is over, so "ok thanks, bye" must end it no matter
+  //      how the model phrases its reply. Without this the line stayed open,
+  //      Retell fired another turn, and the agent re-greeted ("hi…"), looping.
+  // Don't end if we're mid-transfer.
+  const userSignedOff = isUserEndingCall(latestUserMessage)
+
+  // If the patient signed off but the model is still probing (reply ends on a
+  // question), don't hang up on a dangling "?" — give a short, warm close.
+  let finalResponse = voiceResponse
+  if (userSignedOff && finalResponse.trim().endsWith('?')) {
+    const fn = (lead.first_name as string) || ''
+    finalResponse = fn
+      ? `You got it, ${fn} — thanks so much for your time. Take care!`
+      : `You got it — thanks so much for your time. Take care!`
+  }
+
+  const endCall = shouldTransfer
+    ? false
+    : userSignedOff || isVoiceCallEnding(finalResponse, agentResponse.action_taken)
+
   return {
-    response: voiceResponse,
-    end_call: false,
+    response: finalResponse,
+    end_call: endCall,
     transfer_number: transferNumber,
     agent: agentResponse.agent,
     confidence: agentResponse.confidence,
     action_taken: agentResponse.action_taken,
   }
+}
+
+/**
+ * Decide whether this turn should hang up the call.
+ *
+ * We end when the agent has clearly signed off: a graceful disengagement, or a
+ * farewell phrase with NO trailing question. The "no open question" guard keeps
+ * ordinary pleasantries that still move the call forward (e.g. "Thanks for
+ * calling — how can I help?") from cutting it short. Transfers never end here.
+ */
+export function isVoiceCallEnding(message: string, action: string): boolean {
+  if (action === 'escalated_to_human') return false
+  if (action === 'disengaged_gracefully') return true
+
+  const text = message.toLowerCase().trim()
+  if (!text || text.endsWith('?')) return false
+
+  const farewells = [
+    'take care',
+    'have a great day',
+    'have a good day',
+    'have a wonderful day',
+    'rest of your day',
+    'goodbye',
+    'good bye',
+    'bye for now',
+    'bye bye',
+    'talk to you soon',
+    'talk soon',
+    "we'll see you",
+    'see you then',
+    'see you soon',
+    'thanks for your time',
+    'thank you for your time',
+  ]
+  return farewells.some((f) => text.includes(f))
+}
+
+/**
+ * Decide whether the PATIENT (caller) has signed off, so we hang up even if the
+ * model's own reply doesn't read as a farewell.
+ *
+ * WHY THIS EXISTS: the caller — not the agent — controls when a call is over. If
+ * the patient says "ok thanks, bye" and the model answers with a fresh question
+ * (or, worse, re-greets with "hi…"), the line stays open, Retell fires another
+ * turn, and the call loops. Catching the caller's goodbye here breaks that loop.
+ *
+ * Kept deliberately conservative: we only trip on clear terminal sign-offs, and
+ * never when the patient's own line ends on a question (they're still engaged).
+ */
+export function isUserEndingCall(userMessage: string): boolean {
+  const text = userMessage.toLowerCase().trim()
+  if (!text || text.endsWith('?')) return false
+
+  // Unambiguous goodbyes — a substring match is safe for these.
+  const hardSignoffs = [
+    'goodbye',
+    'good bye',
+    'bye bye',
+    'gotta go',
+    'got to go',
+    'have to go',
+    'have to run',
+    'need to go',
+    'talk to you later',
+    'talk to you soon',
+    'talk later',
+    'talk soon',
+    'have a good one',
+    'have a great day',
+    'have a good day',
+    "that's all i needed",
+    "that's all for now",
+    "i'm all set",
+    'im all set',
+    "we're all set",
+  ]
+  if (hardSignoffs.some((p) => text.includes(p))) return true
+
+  // "bye" / "byebye" as a standalone word (not inside "maybe", "goodbye" handled above).
+  if (/\b(bye|byebye)\b/.test(text)) return true
+
+  // Short, clearly-terminal acknowledgements: "ok thanks", "no thanks", "that's it",
+  // "all good thanks". Require brevity so a long sentence that merely contains
+  // "thanks" doesn't cut the call off.
+  const shortClosers = [
+    'ok thanks',
+    'okay thanks',
+    'no thanks',
+    "no that's all",
+    'nope thanks',
+    "that's it",
+    'thats it',
+    "that's all",
+    'thats all',
+    'all good thanks',
+    "i'm good thanks",
+    'im good thanks',
+    'thank you so much',
+  ]
+  const wordCount = text.split(/\s+/).length
+  if (wordCount <= 6 && shortClosers.some((p) => text.includes(p))) return true
+
+  return false
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -30,7 +30,7 @@ const STATUS_META: Record<string, { dot: string; text: string; label: string }> 
   completed: { dot: 'bg-aurea-gold', text: 'text-aurea-gold', label: 'Completed' },
 }
 
-export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] }) {
+export function CampaignsList({ campaigns: initial, initialSmartListId }: { campaigns: Campaign[]; initialSmartListId?: string }) {
   const [campaigns, setCampaigns] = useState(initial)
   const [deploying, setDeploying] = useState<string | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
@@ -128,7 +128,7 @@ export function CampaignsList({ campaigns: initial }: { campaigns: Campaign[] })
             <TrendingUp className="h-4 w-4" strokeWidth={1.75} />
             Performance
           </button>
-          <CampaignBuilder />
+          <CampaignBuilder initialSmartListId={initialSmartListId} autoOpen={!!initialSmartListId} />
         </div>
       </header>
 

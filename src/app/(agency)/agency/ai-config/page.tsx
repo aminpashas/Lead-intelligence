@@ -24,7 +24,7 @@ export default async function AgencyAiConfigPage() {
   }
 
   const initialModel = {
-    model: String(modelRaw?.model ?? 'claude-3-5-sonnet-20241022'),
+    model: String(modelRaw?.model ?? 'claude-sonnet-4-6'),
     max_tokens: Number(modelRaw?.max_tokens ?? 1024),
   }
 

@@ -41,7 +41,8 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }))
 
-import { processVoiceTranscript, VOICE_CHANNEL_INSTRUCTIONS, type VoiceAgentContext } from '@/lib/voice/voice-agent'
+import { processVoiceTranscript, isVoiceCallEnding, VOICE_CHANNEL_INSTRUCTIONS, type VoiceAgentContext } from '@/lib/voice/voice-agent'
+import { buildCurrentDateBlock } from '@/lib/ai/datetime-context'
 import { routeToAgent } from '@/lib/ai/agent-handoff'
 import { detectStopWord } from '@/lib/autopilot/config'
 import { getAutopilotConfig } from '@/lib/autopilot/config'
@@ -383,5 +384,55 @@ describe('VOICE_CHANNEL_INSTRUCTIONS', () => {
     expect(VOICE_CHANNEL_INSTRUCTIONS).toContain('BREVITY')
     expect(VOICE_CHANNEL_INSTRUCTIONS).toContain('CONVERSATIONAL TONE')
     expect(VOICE_CHANNEL_INSTRUCTIONS).toContain('WARM TRANSFER')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
+// isVoiceCallEnding — hang-up detection
+// ═══════════════════════════════════════════════════════════════
+
+describe('isVoiceCallEnding', () => {
+  it('ends on a clear farewell with no trailing question', () => {
+    expect(isVoiceCallEnding('Thanks so much, John — take care!', 'confirmed_appointment')).toBe(true)
+    expect(isVoiceCallEnding("Perfect, we'll see you Tuesday. Have a great day!", 'responded')).toBe(true)
+    expect(isVoiceCallEnding('Goodbye!', 'responded')).toBe(true)
+  })
+
+  it('ends when the agent gracefully disengages', () => {
+    expect(isVoiceCallEnding('No problem at all, reach out anytime.', 'disengaged_gracefully')).toBe(true)
+  })
+
+  it('does NOT end when the message still asks a question', () => {
+    expect(isVoiceCallEnding('Thanks for calling — how can I help you today?', 'greeted')).toBe(false)
+    // Even a farewell phrase followed by a question keeps the line open.
+    expect(isVoiceCallEnding('Take care of that tooth! Does Tuesday work for you?', 'attempted_scheduling')).toBe(false)
+  })
+
+  it('does NOT end mid-conversation with no farewell', () => {
+    expect(isVoiceCallEnding('The All-on-4 uses four implants for a full arch.', 'provided_education')).toBe(false)
+    expect(isVoiceCallEnding('', 'responded')).toBe(false)
+  })
+
+  it('never ends when escalating to a human (transfer, not hang-up)', () => {
+    expect(isVoiceCallEnding('Let me connect you with someone. Take care.', 'escalated_to_human')).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
+// buildCurrentDateBlock — date awareness
+// ═══════════════════════════════════════════════════════════════
+
+describe('buildCurrentDateBlock', () => {
+  it('states today as ground truth and includes the day of month', () => {
+    const block = buildCurrentDateBlock('America/New_York')
+    expect(block).toContain("TODAY'S DATE (GROUND TRUTH)")
+    expect(block).toContain('America/New_York')
+    expect(block).toMatch(/day \d+ of the month/)
+  })
+
+  it('falls back gracefully on an invalid timezone', () => {
+    expect(() => buildCurrentDateBlock('Not/AZone')).not.toThrow()
+    expect(() => buildCurrentDateBlock(null)).not.toThrow()
+    expect(() => buildCurrentDateBlock(undefined)).not.toThrow()
   })
 })

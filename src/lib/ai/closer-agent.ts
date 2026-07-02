@@ -19,6 +19,7 @@ import { buildSafeLeadContext, checkResponseCompliance, logHIPAAEvent, scrubPHI 
 import type { AgentContext, AgentResponse } from './agent-types'
 import { formatPatientPsychologyForPrompt } from './agent-types'
 import { buildPricingIntegrityBlock } from './pricing-integrity'
+import { buildCurrentDateBlock } from './datetime-context'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
@@ -450,7 +451,9 @@ ${context.channel === 'voice' ? `- VOICE CALL: You are speaking on a LIVE phone 
 - End with ONE clear question or next step.
 - Reference what the patient just said before giving your response.
 - For sensitive financial or medical details, say "We can go over the specifics when you come in."
-- If they need a human: "Let me connect you with someone who can walk you through that."` :
+- If they need a human: "Let me connect you with someone who can walk you through that."
+- MID-CALL: the call is already in progress — never restart with "Hi"/"Hello" or re-introduce yourself. Just continue.
+- WRAP UP CLEANLY: once everything is handled, give ONE warm sign-off ("Thanks so much, [Name] — take care!") and STOP. Don't add another question or keep talking after saying goodbye.` :
 context.channel === 'sms' ? `- SMS: Keep messages under 400 characters. Be direct but warm.
 - You can be more substantive than the Setter — this patient is further along.
 - One clear point per message.` : `- Email: Professional, confident tone. You're their trusted advisor.
@@ -605,7 +608,7 @@ export async function closerAgentRespond(
     buildAgencyPersonaBlock(supabase),
     supabase
       .from('booking_settings')
-      .select('consult_price_range_text')
+      .select('consult_price_range_text, timezone')
       .eq('organization_id', context.organization_id)
       .maybeSingle(),
     buildAgencyRulesBlock(supabase),
@@ -623,7 +626,9 @@ export async function closerAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const dateBlock = buildCurrentDateBlock(bookingSettings.data?.timezone as string | null | undefined)
+
+  const systemPrompt = [composedPrompt, dateBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

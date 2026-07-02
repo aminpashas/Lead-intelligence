@@ -19,8 +19,8 @@ import { Brain, Sparkles, Save, CheckCircle2 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 
 const MODELS = [
-  { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (Recommended)' },
-  { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (Fast)' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Recommended)' },
+  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (Fast)' },
   { value: 'claude-opus-4-5', label: 'Claude Opus (Most Powerful)' },
 ]
 
