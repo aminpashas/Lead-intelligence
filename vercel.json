@@ -95,6 +95,14 @@
     {
       "path": "/api/cron/consent-capture",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/follow-up-sequences",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-costs",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

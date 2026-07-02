@@ -188,6 +188,21 @@ export async function POST(req: NextRequest) {
       }).eq('id', existingCall.id)
     }
 
+    // ── 5b. Record the actual voice cost (billable ledger) ──
+    // Retell reports call_cost.combined_cost in cents (engine + telephony). Capture it as a
+    // final cost_event now — voice has no useful pre-call estimate, so this is the only write.
+    const combinedCostCents = Number(callData.call_cost?.combined_cost ?? 0)
+    if (combinedCostCents > 0) {
+      const { recordVoiceFinal } = await import('@/lib/billing/cost-events')
+      await recordVoiceFinal(supabase, {
+        organizationId: orgId,
+        retellCallId,
+        seconds: callDuration,
+        costCents: combinedCostCents,
+        leadId,
+      })
+    }
+
     // ── 6. Post-call follow-up: send SMS/email if AI promised it ──
     // Detect common follow-up promises in the transcript and action them.
     await sendPostCallFollowUps(supabase, {

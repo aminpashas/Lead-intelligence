@@ -7,6 +7,76 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SmartListCriteria } from '@/types/database'
+import { combineTermMatches, sanitizeTerm } from './keyword-match'
+
+const LEAD_TEXT_COLUMNS = [
+  'first_name', 'last_name', 'city',
+  'ai_summary', 'dental_condition_details', 'current_dental_situation',
+] as const
+
+/**
+ * Resolve a keyword clause to the set of matching lead IDs (org-scoped).
+ * One query per (term, scope); per-term sets union across scopes, then combine
+ * across terms by `match` (any=union, all=intersect). Encryption-aware: only
+ * plaintext columns + messages.body are searched (never encrypted email/phone).
+ * Returns null when there is nothing to filter (no usable terms/scopes).
+ */
+export async function resolveKeywordLeadIds(
+  supabase: SupabaseClient,
+  organizationId: string,
+  keywords: NonNullable<SmartListCriteria['keywords']>
+): Promise<Set<string> | null> {
+  const terms = keywords.terms.map(sanitizeTerm).filter((t) => t.length > 0)
+  const scopes = keywords.scopes
+  if (terms.length === 0 || scopes.length === 0) return null
+
+  const perTerm: Set<string>[] = []
+
+  for (const term of terms) {
+    const ids = new Set<string>()
+
+    if (scopes.includes('lead_fields')) {
+      const orFilter = LEAD_TEXT_COLUMNS.map((c) => `${c}.ilike.%${term}%`).join(',')
+      const { data } = await supabase
+        .from('leads').select('id')
+        .eq('organization_id', organizationId).or(orFilter).limit(5000)
+      for (const r of data || []) ids.add((r as { id: string }).id)
+    }
+
+    if (scopes.includes('conversation')) {
+      const { data } = await supabase
+        .from('messages').select('lead_id')
+        .eq('organization_id', organizationId).ilike('body', `%${term}%`).limit(10000)
+      for (const r of data || []) { const id = (r as { lead_id: string | null }).lead_id; if (id) ids.add(id) }
+    }
+
+    if (scopes.includes('inbound_sms')) {
+      const { data } = await supabase
+        .from('messages').select('lead_id')
+        .eq('organization_id', organizationId)
+        .eq('direction', 'inbound').eq('channel', 'sms')
+        .ilike('body', `%${term}%`).limit(10000)
+      for (const r of data || []) { const id = (r as { lead_id: string | null }).lead_id; if (id) ids.add(id) }
+    }
+
+    if (scopes.includes('tags')) {
+      const { data: tagRows } = await supabase
+        .from('tags').select('id')
+        .eq('organization_id', organizationId).ilike('name', `%${term}%`).limit(500)
+      const tagIds = (tagRows || []).map((t) => (t as { id: string }).id)
+      if (tagIds.length > 0) {
+        const { data: links } = await supabase
+          .from('lead_tags').select('lead_id')
+          .eq('organization_id', organizationId).in('tag_id', tagIds).limit(10000)
+        for (const r of links || []) ids.add((r as { lead_id: string }).lead_id)
+      }
+    }
+
+    perTerm.push(ids)
+  }
+
+  return combineTermMatches(perTerm, keywords.match)
+}
 
 /**
  * Build a Supabase query from SmartListCriteria.
@@ -143,6 +213,20 @@ export async function resolveSmartListLeads(
       }
 
       tagFilteredLeadIds = [...new Set(tagLinks.map((l) => l.lead_id))]
+    }
+  }
+
+  // Keyword pre-filter (same pattern as tags): resolve to lead IDs and intersect.
+  if (criteria.keywords) {
+    const kwSet = await resolveKeywordLeadIds(supabase, organizationId, criteria.keywords)
+    if (kwSet !== null) {
+      if (kwSet.size === 0) return { leadIds: [], count: 0 }
+      if (tagFilteredLeadIds !== null) {
+        tagFilteredLeadIds = tagFilteredLeadIds.filter((id) => kwSet.has(id))
+        if (tagFilteredLeadIds.length === 0) return { leadIds: [], count: 0 }
+      } else {
+        tagFilteredLeadIds = [...kwSet]
+      }
     }
   }
 

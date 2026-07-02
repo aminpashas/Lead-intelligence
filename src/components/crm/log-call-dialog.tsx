@@ -1,18 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { Phone, Loader2 } from 'lucide-react'
+import { Phone, Loader2, ChevronDown, BookOpen } from 'lucide-react'
 import { toast } from 'sonner'
 
 const OUTCOMES = [
@@ -26,6 +27,19 @@ const OUTCOMES = [
   { value: 'do_not_call', label: 'Do not call' },
 ] as const
 
+// Mirrors the lead.budget_range enum. 'no_change' is a UI-only sentinel meaning
+// "don't touch the lead's budget" (not sent to the API).
+const NO_CHANGE = 'no_change'
+const BUDGET_RANGES = [
+  { value: 'under_10k', label: 'Under $10k' },
+  { value: '10k_15k', label: '$10k–$15k' },
+  { value: '15k_20k', label: '$15k–$20k' },
+  { value: '20k_25k', label: '$20k–$25k' },
+  { value: '25k_30k', label: '$25k–$30k' },
+  { value: 'over_30k', label: 'Over $30k' },
+  { value: 'unknown', label: 'Unknown' },
+] as const
+
 export function LogCallDialog({ leadId }: { leadId: string }) {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -33,7 +47,24 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
   const [outcome, setOutcome] = useState<string>('interested')
   const [minutes, setMinutes] = useState('')
   const [notes, setNotes] = useState('')
+  const [budgetRange, setBudgetRange] = useState<string>(NO_CHANGE)
+  const [testimonialSent, setTestimonialSent] = useState(false)
+  const [painPoints, setPainPoints] = useState('')
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [script, setScript] = useState<string | null>(null)
+  const [scriptLoading, setScriptLoading] = useState(false)
   const router = useRouter()
+
+  // Fetch the practice's discovery script the first time the dialog opens.
+  useEffect(() => {
+    if (!open || script !== null || scriptLoading) return
+    setScriptLoading(true)
+    fetch('/api/discovery-script')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setScript(typeof data?.script === 'string' ? data.script : ''))
+      .catch(() => setScript(''))
+      .finally(() => setScriptLoading(false))
+  }, [open, script, scriptLoading])
 
   async function save() {
     setSaving(true)
@@ -46,12 +77,18 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
           outcome,
           duration_seconds: Math.round((parseFloat(minutes) || 0) * 60),
           notes: notes.trim() || null,
+          budget_range: budgetRange === NO_CHANGE ? null : budgetRange,
+          testimonial_sent: testimonialSent,
+          pain_points: painPoints.trim() || null,
         }),
       })
       if (!res.ok) throw new Error('Save failed')
       toast.success('Call logged')
       setMinutes('')
       setNotes('')
+      setBudgetRange(NO_CHANGE)
+      setTestimonialSent(false)
+      setPainPoints('')
       setOpen(false)
       router.refresh()
     } catch {
@@ -75,6 +112,38 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
         </DialogHeader>
 
         <div className="mt-2 space-y-3">
+          {/* Collapsible discovery-call guide */}
+          <div className="rounded-lg border border-aurea-border">
+            <button
+              type="button"
+              onClick={() => setGuideOpen((v) => !v)}
+              aria-expanded={guideOpen}
+              className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2"
+            >
+              <span className="inline-flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+                Discovery script
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 text-aurea-ink-3 transition-transform ${guideOpen ? 'rotate-180' : ''}`}
+                strokeWidth={1.75}
+              />
+            </button>
+            {guideOpen && (
+              <div className="border-t border-aurea-border px-3 py-2.5">
+                {scriptLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-aurea-ink-3">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading script…
+                  </div>
+                ) : (
+                  <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap font-sans text-xs leading-relaxed text-aurea-ink-2">
+                    {script || 'No discovery script configured.'}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
               <Label className="text-xs text-aurea-ink-3">Direction</Label>
@@ -102,6 +171,29 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs text-aurea-ink-3">Budget range</Label>
+            <Select value={budgetRange} onValueChange={(v) => v && setBudgetRange(v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_CHANGE}>No change</SelectItem>
+                {BUDGET_RANGES.map((b) => (
+                  <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs text-aurea-ink-3">Pain points</Label>
+            <Textarea value={painPoints} onChange={(e) => setPainPoints(e.target.value)} placeholder="What's driving them? (added to the lead's profile)" rows={2} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-aurea-border px-3 py-2">
+            <Label htmlFor="testimonial-sent" className="text-sm text-aurea-ink">Testimonial sent during call</Label>
+            <Switch id="testimonial-sent" checked={testimonialSent} onCheckedChange={setTestimonialSent} />
           </div>
 
           <div className="space-y-1.5">

@@ -2,6 +2,8 @@ import { Resend } from 'resend'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/lib/consent/gate'
 import { checkCompliance } from '@/lib/ai/compliance-filter'
+import { isSendAllowed } from '@/lib/messaging/test-allowlist'
+import { logger } from '@/lib/logger'
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY!)
@@ -21,6 +23,16 @@ export async function sendEmail(params: {
   replyTo?: string
   headers?: Record<string, string>
 }): Promise<{ id: string }> {
+  // TEST-MODE hard clamp: when TEST_SEND_ALLOWLIST is set, refuse any recipient
+  // not on the list. Lowest-level choke point for every email path (sendEmailToLead,
+  // campaign/cron/agent-tool sends, raw transactional sends).
+  if (!isSendAllowed(params.to)) {
+    logger.warn('TEST_SEND_ALLOWLIST active — blocked email to non-allowlisted recipient', {
+      to: params.to,
+    })
+    return { id: 'blocked-by-test-allowlist' }
+  }
+
   const { data, error } = await getResend().emails.send({
     from: params.from || process.env.RESEND_FROM_EMAIL!,
     to: params.to,
@@ -118,6 +130,17 @@ export async function sendBatchEmails(
     text?: string
   }>
 ): Promise<{ ids: string[] }> {
+  // TEST-MODE hard clamp: drop any batch recipient not on the allowlist.
+  const allowed = emails.filter((e) => isSendAllowed(e.to))
+  if (allowed.length < emails.length) {
+    logger.warn('TEST_SEND_ALLOWLIST active — dropped non-allowlisted batch recipients', {
+      dropped: emails.length - allowed.length,
+      kept: allowed.length,
+    })
+  }
+  if (allowed.length === 0) return { ids: [] }
+  emails = allowed
+
   const { data, error } = await getResend().batch.send(
     emails.map((e) => ({
       from: process.env.RESEND_FROM_EMAIL!,

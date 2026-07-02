@@ -11,6 +11,8 @@ import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
 import { personalize, PERSONALIZABLE_LEAD_SELECT, type PersonalizableLead } from '@/lib/campaigns/personalization'
 import { claimIdempotencyKey, recordIdempotencyResponse, countTodaysOutbound, DAILY_SMS_CAP } from '@/lib/messaging/send-guards'
 import { assertActiveSubscription } from '@/lib/auth/entitlement'
+import { getOrgFlags } from '@/lib/org/flags'
+import { isUsSmsBlocked, A2P_PENDING_MESSAGE } from '@/lib/messaging/a2p-gate'
 
 const massSMSSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
@@ -26,6 +28,15 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // A2P 10DLC hard-block: refuse US SMS broadcasts until this org's 10DLC campaign
+  // is verified (us_sms_enabled flag). Authoritative server gate; the composer also
+  // surfaces this pre-emptively. Fail-closed via isUsSmsBlocked.
+  const orgFlags = await getOrgFlags(supabase, orgId)
+  if (isUsSmsBlocked(orgFlags)) {
+    return NextResponse.json({ error: A2P_PENDING_MESSAGE, a2p_pending: true }, { status: 403 })
+  }
+
   const body = await request.json()
   const parsed = massSMSSchema.safeParse(body)
 

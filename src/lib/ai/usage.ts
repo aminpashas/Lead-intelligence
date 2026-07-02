@@ -10,6 +10,9 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { estimateAnthropicCents, getAnthropicRate } from '@/lib/billing/pricing'
+import { computeBillable } from '@/lib/billing/markup'
+import { loadMarkupConfig } from '@/lib/billing/cost-events'
 
 export type AiUsageFeature =
   | 'summarize'
@@ -29,33 +32,38 @@ export type RecordAiUsageParams = {
   model: string
   tokensIn: number
   tokensOut: number
+  /** Anthropic usage.cache_read_input_tokens (billed ≈ 0.1× input). */
+  cacheReadTokens?: number
+  /** Anthropic usage.cache_creation_input_tokens (billed ≈ 1.25× input). */
+  cacheWriteTokens?: number
   durationMs?: number
   succeeded?: boolean
   errorMessage?: string
   metadata?: Record<string, unknown>
 }
 
-/**
- * Approximate Claude pricing in USD-cents per 1K tokens.
- * Sourced from anthropic.com/pricing (as of 2026-04). Update as prices change.
- * Used purely for in-app cost tracking — billing is reconciled against the actual Anthropic invoice.
- */
-const PRICE_PER_1K_CENTS: Record<string, { in: number; out: number }> = {
-  'claude-haiku-4-5':              { in: 0.10, out: 0.50 },
-  'claude-sonnet-4-5':             { in: 0.30, out: 1.50 },
-  'claude-sonnet-4-6':      { in: 0.30, out: 1.50 },
-  'claude-opus-4-5':               { in: 1.50, out: 7.50 },
-  'claude-opus-4-7':               { in: 1.50, out: 7.50 },
-}
-
-function estimateCostCents(model: string, tokensIn: number, tokensOut: number): number {
-  const price = PRICE_PER_1K_CENTS[model]
-  if (!price) return 0
-  return (tokensIn / 1000) * price.in + (tokensOut / 1000) * price.out
-}
-
 export async function recordAiUsage(params: RecordAiUsageParams): Promise<void> {
   try {
+    const cacheReadTokens = params.cacheReadTokens ?? 0
+    const cacheWriteTokens = params.cacheWriteTokens ?? 0
+
+    // Cost comes from the shared provider rate card (single source of truth, correct Opus
+    // pricing). An unmapped model books a conservative non-zero cost and is flagged in
+    // metadata — never a silent $0 that hides spend.
+    const costCents = estimateAnthropicCents({
+      model: params.model,
+      tokensIn: params.tokensIn,
+      tokensOut: params.tokensOut,
+      cacheReadTokens,
+      cacheWriteTokens,
+    })
+    const modelKnown = getAnthropicRate(params.model).known
+
+    // Snapshot the re-billed amount using the practice's AI markup so a later markup change
+    // never retroactively re-prices historical usage. (Off the response critical path.)
+    const markup = await loadMarkupConfig(params.supabase, params.organizationId)
+    const { billableCents } = computeBillable(costCents, 'ai', markup)
+
     await params.supabase.from('ai_usage').insert({
       organization_id: params.organizationId,
       lead_id: params.leadId ?? null,
@@ -63,11 +71,14 @@ export async function recordAiUsage(params: RecordAiUsageParams): Promise<void> 
       model: params.model,
       tokens_in: params.tokensIn,
       tokens_out: params.tokensOut,
-      cost_cents: estimateCostCents(params.model, params.tokensIn, params.tokensOut),
+      cache_read_tokens: cacheReadTokens,
+      cache_write_tokens: cacheWriteTokens,
+      cost_cents: costCents,
+      billable_cents: billableCents,
       duration_ms: params.durationMs ?? null,
       succeeded: params.succeeded ?? true,
       error_message: params.errorMessage ?? null,
-      metadata: params.metadata ?? {},
+      metadata: modelKnown ? (params.metadata ?? {}) : { ...(params.metadata ?? {}), unknown_model: true },
     })
   } catch {
     // Cost logging is observability — never fail the parent call on an insert error.

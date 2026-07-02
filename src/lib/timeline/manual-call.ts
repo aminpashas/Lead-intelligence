@@ -1,4 +1,4 @@
-import type { VoiceCallOutcome } from '@/types/database'
+import type { BudgetRange, VoiceCallOutcome } from '@/types/database'
 
 export interface ManualCallInput {
   orgId: string
@@ -8,6 +8,7 @@ export interface ManualCallInput {
   outcome: VoiceCallOutcome | null
   durationSeconds: number
   notes: string | null
+  testimonialSent: boolean
   nowIso: string
 }
 
@@ -36,7 +37,7 @@ export function buildManualCallRows(input: ManualCallInput): ManualCallRows {
     outcome: input.outcome,
     outcome_notes: input.notes,
     consent_verified: true,
-    metadata: { source: 'manual_log' },
+    metadata: { source: 'manual_log', testimonial_sent: input.testimonialSent },
   }
 
   const activity = {
@@ -49,4 +50,44 @@ export function buildManualCallRows(input: ManualCallInput): ManualCallRows {
   }
 
   return { voiceCall, activity }
+}
+
+export interface LeadCaptureInput {
+  budgetRange: BudgetRange | null
+  painPoints: string | null
+  currentProfile: Record<string, unknown> | null
+}
+
+/**
+ * Compute the (possibly empty) patch applied to the `leads` row from the
+ * structured discovery-call capture fields. `budget_range` is set only when a
+ * concrete range is chosen (not null / 'unknown'); pain points are *appended*
+ * to `personality_profile.pain_points` so the history across calls is
+ * preserved. Returns `{}` when nothing was captured, so callers can skip the
+ * write entirely.
+ */
+export function buildLeadCapturePatch(input: LeadCaptureInput): {
+  budget_range?: BudgetRange
+  personality_profile?: Record<string, unknown>
+} {
+  const patch: { budget_range?: BudgetRange; personality_profile?: Record<string, unknown> } = {}
+
+  if (input.budgetRange && input.budgetRange !== 'unknown') {
+    patch.budget_range = input.budgetRange
+  }
+
+  const painPoint = input.painPoints?.trim()
+  if (painPoint) {
+    const profile = { ...(input.currentProfile ?? {}) }
+    const existing = profile.pain_points
+    const priorList = Array.isArray(existing)
+      ? existing
+      : typeof existing === 'string' && existing.trim()
+        ? [existing]
+        : []
+    profile.pain_points = [...priorList, painPoint]
+    patch.personality_profile = profile
+  }
+
+  return patch
 }
