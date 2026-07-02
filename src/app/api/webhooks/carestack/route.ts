@@ -245,10 +245,14 @@ async function handleAppointmentEvent(
             })
             .eq('id', leadId)
         }
-        // Booking is the desired outcome — end active nurture/recovery enrollments
-        // (e.g. No-Show Recovery) immediately instead of waiting for the campaign
-        // executor's send-time status check. Same helper the Cal.com webhook uses.
-        await exitAllCampaigns(supabase, leadId, 'Booked consultation via CareStack').catch(() => {})
+        // Booking is the desired outcome for a PRE-consult lead — end active
+        // nurture/recovery enrollments (e.g. No-Show Recovery) immediately instead
+        // of waiting for the campaign executor's send-time status check. Gated on
+        // pre-consult: CareStack pushes ALL appointment traffic (hygiene, records),
+        // and a routine visit must not kill a post-consult funding nurture.
+        if (lead && isPreConsultStatus(lead.status as string)) {
+          await exitAllCampaigns(supabase, leadId, 'Booked consultation via CareStack').catch(() => {})
+        }
       } else if (stageEvent === 'no_show' && existing) {
         // Idempotency against replays/duplicate Status pushes: only transition an
         // appointment that is still open.
