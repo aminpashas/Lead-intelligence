@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { runCommandAgent } from '@/lib/ai/command-agent'
@@ -38,10 +38,7 @@ export async function POST(request: NextRequest) {
     const { orgId } = await resolveActiveOrg(supabase)
     if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('full_name')
-      .single()
+    const { data: profile } = await getOwnProfile(supabase, 'full_name')
 
     const parsed = chatSchema.safeParse(await request.json())
     if (!parsed.success) {

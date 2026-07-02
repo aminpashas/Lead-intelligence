@@ -22,7 +22,8 @@ async function requireAgencyAdmin() {
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('role')
-    .single()
+    .eq('id', user.id)
+    .maybeSingle()
   if (!profile || profile.role !== 'agency_admin') {
     return { error: NextResponse.json({ error: 'Forbidden — agency access required' }, { status: 403 }) }
   }
