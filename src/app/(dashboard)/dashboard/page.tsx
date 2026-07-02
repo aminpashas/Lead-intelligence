@@ -1,17 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { DashboardHome } from '@/components/crm/dashboard-home'
 import { OrgGoalsCard } from '@/components/crm/org-goals-card'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { decryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
 
   // The user's display name comes from their own profile…
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('full_name')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'full_name')
 
   // …but the data is scoped to the effective org, which honors an agency_admin's
   // entered client account (see resolveActiveOrg).

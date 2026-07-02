@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { sendEmail } from '@/lib/messaging/resend'
 import { z } from 'zod'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
@@ -41,10 +41,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Provide either smart_list_id or lead_ids' }, { status: 400 })
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id, full_name, email')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id, full_name, email')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

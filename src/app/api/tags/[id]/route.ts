@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const updateTagSchema = z.object({
@@ -29,10 +29,7 @@ export async function PATCH(
     )
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -76,10 +73,7 @@ export async function DELETE(
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

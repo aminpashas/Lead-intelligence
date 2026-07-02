@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { isSendAllowed } from '@/lib/messaging/test-allowlist'
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('user_profiles').select('id, full_name').single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, full_name')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const parsed = schema.safeParse(await request.json().catch(() => ({})))

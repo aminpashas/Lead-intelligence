@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { updateLeadSchema } from '@/lib/validators/lead'
 import { executeStageTransition } from '@/lib/funnel/executor'
 import { decryptLeadPII, encryptLeadPII } from '@/lib/encryption'
@@ -18,10 +18,7 @@ export async function GET(
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auth + org scoping: verify user belongs to an org
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -136,10 +133,7 @@ export async function PATCH(
   }
 
   // Auth + org scoping
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -282,10 +276,7 @@ export async function DELETE(
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auth + org scoping
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 
 // GET /api/ai/audit — Fetch AI conversation audit data
 export async function GET(request: NextRequest) {
@@ -8,10 +8,7 @@ export async function GET(request: NextRequest) {
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id, role')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { buildManualCallRows, buildLeadCapturePatch } from '@/lib/timeline/manual-call'
 import type { BudgetRange } from '@/types/database'
 
@@ -36,10 +36,7 @@ export async function POST(
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const parsed = logCallSchema.safeParse(await request.json())

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { resolveSmartListLeads, applySmartListCriteria, resolveKeywordLeadIds } from '@/lib/campaigns/smart-list-resolver'
 import { decryptLeadsPII } from '@/lib/encryption'
 
@@ -18,10 +18,7 @@ export async function GET(
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
   const perPage = Math.min(100, Math.max(1, parseInt(searchParams.get('per_page') || '50')))
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
