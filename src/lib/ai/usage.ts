@@ -23,6 +23,7 @@ export type AiUsageFeature =
   | 'post_call_analysis'
   | 'review_response_draft'
   | 'contract_draft'
+  | 'command_chat'
 
 export type RecordAiUsageParams = {
   supabase: SupabaseClient
