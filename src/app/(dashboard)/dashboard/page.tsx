@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { DashboardHome } from '@/components/crm/dashboard-home'
 import { OrgGoalsCard } from '@/components/crm/org-goals-card'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { decryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -99,6 +100,13 @@ export default async function DashboardPage() {
       .gte('created_at', sevenDaysAgo),
   ])
 
+  // PII is encrypted at rest — decrypt server-side before rendering.
+  const hotLeads = decryptLeadsPII(hotLeadsResult.data || [])
+  const todayAppointments = (todayApptsResult.data || []).map((appt) => ({
+    ...appt,
+    lead: appt.lead ? decryptLeadPII(appt.lead as Record<string, unknown>) : appt.lead,
+  }))
+
   const allLeads = kpiResult.data || []
   const totalLeads = allLeads.length
   const hotCount = allLeads.filter((l) => l.ai_qualification === 'hot').length
@@ -113,8 +121,8 @@ export default async function DashboardPage() {
       <OrgGoalsCard />
       <DashboardHome
       userName={profile?.full_name?.split(' ')[0] || 'there'}
-      hotLeads={hotLeadsResult.data || []}
-      todayAppointments={todayApptsResult.data || []}
+      hotLeads={hotLeads}
+      todayAppointments={todayAppointments}
       recentLeads={recentLeadsResult.data || []}
       unreadConversations={unreadConvosResult.data || []}
       activeCampaigns={activeCampaignsResult.data || []}
