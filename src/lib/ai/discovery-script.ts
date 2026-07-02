@@ -1,49 +1,68 @@
 /**
- * Phone-first discovery-call script.
+ * Discovery Call Script — the phone-first protocol's conversation guide.
  *
- * Reps run this talk-track during the positive-intent discovery call that gates
- * every consult booking (see the phone-first booking protocol). A practice can
- * override the default with its own script stored in
- * `booking_settings.discovery_script`; `resolveDiscoveryScript` falls back to
- * {@link DEFAULT_DISCOVERY_SCRIPT} whenever the override is missing/blank.
+ * Used two ways:
+ *  • Rendered as an on-screen guide for human reps in the log-a-call flow.
+ *  • Injected into the AI setter's VOICE prompt so an AI discovery call follows
+ *    the same arc.
  *
- * Pure module — safe to import from both client components and API routes.
+ * A practice can override the default in Settings → Booking protocol
+ * (booking_settings.discovery_script). resolveDiscoveryScript() returns the
+ * override when present, else the default below.
  */
 
-export const DEFAULT_DISCOVERY_SCRIPT = `Phone-First Discovery Call
+export const DEFAULT_DISCOVERY_SCRIPT = `DISCOVERY — build value, excitement, and rapport BEFORE talking money or booking.
+Works the same on a call or over text: qualify first, quote never.
 
-1. Warm open (build rapport)
-   • "Hi {first_name}, this is {rep} calling from {practice} — is now still a good time for a few minutes?"
-   • Confirm you're speaking with the patient and thank them for the interest.
+1) OPEN-ENDED DISCOVERY (let them talk)
+   - "Tell me what's been going on with your smile — what made you reach out?"
+   - "How is it affecting your day to day?" (eating, confidence, smiling in photos,
+     making memories with kids/grandkids)
+   - Learn the GOAL: is it the upper, the lower, or both? How many teeth?
+   - Learn the TIMELINE: are they looking to handle this soon, or still exploring?
+   - Listen. When the patient names the pain themselves, they get invested in a
+     solution. Don't rush to pitch.
 
-2. Understand the situation (pain points)
-   • "Tell me what's going on with your teeth right now — what made you reach out?"
-   • "How long has this been bothering you, and how is it affecting daily life (eating, smiling, confidence)?"
-   • Listen for and capture the specific pain points below.
+2) INTRODUCE FULL-ARCH (AOX) AS THE SOLUTION
+   - Connect their specific pain points to how full-arch treatment changes lives.
+   - Offer to send the doctor's patient testimonial videos so they hear it from
+     patients who've been transformed by the procedure.
 
-3. Motivation & timing
-   • "If we could fix this, what would change for you?"
-   • "Are you looking to move forward in the next few weeks, or still gathering information?"
+3) CASUAL CREDIT READ (once there's rapport — never up front)
+   - Keep it light and in buckets: "Roughly, would you say your credit is great,
+     good, or still rebuilding?" This tailors what you tell them next.
+   - NEVER ask for a number, a credit score, or an SSN.
 
-4. Budget & financing (set expectations early)
-   • "Full-arch implant treatment is a real investment. Do you have a rough budget range in mind so I can point you to the right options?"
-   • Record the range on the call. Mention financing exists — do NOT quote a final price on the phone.
+4) SET BUDGET EXPECTATIONS (a range, not a quote — and only now)
+   - Only after goal + timeline + a credit read: give a realistic RANGE so they
+     understand this is a significant investment — NOT a $3,000 procedure. This
+     qualifies serious consultations.
+   - Do not quote an exact price or invent a monthly payment; the consult
+     determines the specifics.
 
-5. Social proof
-   • Offer to text a short patient testimonial or before/after that matches their case, then mark "testimonial sent".
+5) BOOK + RESERVE
+   - Once there's genuine value and excitement, book the consultation.
+   - The consult is complimentary, but a card is collected to reserve it — a $50
+     fee applies only if they miss without notice. Framed after real value is
+     built, this reinforces the appointment's importance rather than deterring.`
 
-6. Book the discovery consult (the only path forward)
-   • "The next step is a complimentary consult with the doctor so we can look at your specific case."
-   • Offer two concrete times. Confirm the appointment and that a card-on-file secures the slot.
-
-Notes to log: pain points, budget range, whether a testimonial was sent, and the outcome.`
-
-/**
- * Return the practice's discovery script, or the built-in default when no
- * usable override is provided. A blank/whitespace-only override is treated as
- * "no override".
- */
+/** Return the practice's discovery script, falling back to the default. */
 export function resolveDiscoveryScript(override?: string | null): string {
   const trimmed = override?.trim()
   return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_DISCOVERY_SCRIPT
+}
+
+/**
+ * Build a compact block to inject into the AI setter's voice prompt. `priceRange`
+ * is the practice's configured talking point (booking_settings.consult_price_range_text).
+ */
+export function buildDiscoveryPromptBlock(params: {
+  script?: string | null
+  priceRange?: string | null
+}): string {
+  const script = resolveDiscoveryScript(params.script)
+  const price = params.priceRange?.trim()
+  return `═══ DISCOVERY GUIDE ═══
+
+${script}${price ? `\n\nPractice price-range talking point (use ONLY after discovery, as a range): ${price}` : ''}`
 }

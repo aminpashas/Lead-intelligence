@@ -40,6 +40,22 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
 
+  // ── SMS TRAINING CONSOLE ──
+  // Allowlisted trainer numbers are owned entirely by the training module and
+  // never reach the lead pipeline. This also means a trainer number can't double
+  // as a normal test-lead — training always wins (by design).
+  const { handleTrainerSms } = await import('@/lib/autopilot/sms-training')
+  const training = await handleTrainerSms(supabase, { from, body })
+  if (training.handled) {
+    const reply = training.reply
+      ? `<Message>${training.reply.replace(/[<&]/g, (c) => (c === '<' ? '&lt;' : '&amp;'))}</Message>`
+      : ''
+    return new NextResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><Response>${reply}</Response>`,
+      { headers: { 'Content-Type': 'text/xml' } }
+    )
+  }
+
   // Find lead by phone hash (encrypted lookup) or plaintext fallback
   const phoneHashValue = searchHash(from)
   let lead: any = null

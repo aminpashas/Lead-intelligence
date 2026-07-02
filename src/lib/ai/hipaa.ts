@@ -173,6 +173,8 @@ export function buildSafeLeadContext(lead: Record<string, unknown>): string {
   // Financial context (generalized)
   if (lead.financing_interest) parts.push(`Financing Interest: ${String(lead.financing_interest).replace(/_/g, ' ')}`)
   if (lead.budget_range) parts.push(`Budget Range: ${String(lead.budget_range).replace(/_/g, ' ')}`)
+  if (lead.credit_range && lead.credit_range !== 'unknown') parts.push(`Self-Reported Credit: ${String(lead.credit_range)}`)
+  if (lead.timeline_note) parts.push(`Stated Timeline: ${neutralizeUntrusted(String(lead.timeline_note))}`)
 
   // Behavioral context (no PHI)
   if (lead.ai_qualification) parts.push(`Qualification: ${lead.ai_qualification}`)

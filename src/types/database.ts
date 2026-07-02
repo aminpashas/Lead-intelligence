@@ -90,6 +90,8 @@ export type LeadSource = {
 export type DentalCondition = 'missing_all_upper' | 'missing_all_lower' | 'missing_all_both' | 'missing_multiple' | 'failing_teeth' | 'denture_problems' | 'other'
 export type FinancingInterest = 'cash_pay' | 'financing_needed' | 'insurance_only' | 'undecided'
 export type BudgetRange = 'under_10k' | '10k_15k' | '15k_20k' | '20k_25k' | '25k_30k' | 'over_30k' | 'unknown'
+// Casual credit bucket captured during discovery — feeds financial-readiness scoring.
+export type CreditRange = 'excellent' | 'good' | 'fair' | 'rebuilding' | 'unknown'
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'consultation_scheduled' | 'consultation_completed' | 'treatment_presented' | 'financing' | 'contract_sent' | 'contract_signed' | 'scheduled' | 'in_treatment' | 'completed' | 'lost' | 'disqualified' | 'no_show' | 'unresponsive' | 'dormant'
 export type AIQualification = 'hot' | 'warm' | 'cold' | 'unqualified' | 'unscored'
 export type LeadAIOverride = 'default' | 'force_on' | 'force_off' | 'assist_only'
@@ -170,6 +172,8 @@ export type Lead = {
   // Financial
   financing_interest: FinancingInterest | null
   budget_range: BudgetRange | null
+  credit_range: CreditRange | null
+  timeline_note: string | null
   financing_approved: boolean | null
   financing_amount: number | null
 
@@ -439,6 +443,21 @@ export type Appointment = {
 
   // Risk assessment
   no_show_risk_score: number
+
+  // Phone-first protocol: which path booked this + soft-gate override audit
+  booked_via: 'ai' | 'staff' | 'public' | null
+  call_gate_overridden: boolean
+  override_reason: string | null
+  override_by: string | null
+
+  // Card-on-file (Stripe SetupIntent) + no-show fee lifecycle
+  card_on_file: boolean
+  stripe_customer_id: string | null
+  stripe_payment_method_id: string | null
+  no_show_fee_status: 'none' | 'pending' | 'charged' | 'failed' | 'waived'
+  no_show_fee_cents: number | null
+  no_show_fee_charged_at: string | null
+  no_show_fee_payment_intent_id: string | null
 
   metadata: Record<string, unknown>
   created_at: string
@@ -730,6 +749,40 @@ export type RolePlayScenario = {
   patient_persona: AIRolePlaySession['patient_persona']
   difficulty: 'easy' | 'medium' | 'hard'
   is_built_in: boolean
+}
+
+// ── SMS Training Console ────────────────────────────────────────
+
+/** Agency-WIDE durable rule authored over SMS. No organization_id — injected
+ *  into every practice's live setter/closer prompt via buildAgencyRulesBlock. */
+export type AgencyAiRule = {
+  id: string
+  title: string
+  content: string
+  category: string
+  priority: number
+  is_enabled: boolean
+  source: string
+  created_by: string | null
+  created_at: string
+}
+
+export type SmsTrainingMode = 'roleplay' | 'dry_run'
+
+/** Per-trainer-phone training state, persisted between stateless webhook hits. */
+export type SmsTrainingSession = {
+  id: string
+  trainer_phone: string
+  mode: SmsTrainingMode
+  scenario_key: string | null
+  patient_persona: Record<string, unknown> | null
+  reference_org_id: string | null
+  transcript: Array<{ role: 'user' | 'assistant'; content: string }>
+  rules_saved: number
+  status: 'active' | 'ended'
+  started_at: string
+  last_activity_at: string
+  ended_at: string | null
 }
 
 // ── Financing (re-exported from lib/financing/types) ────────────

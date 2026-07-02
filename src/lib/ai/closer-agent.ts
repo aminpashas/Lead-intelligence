@@ -18,6 +18,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildSafeLeadContext, checkResponseCompliance, logHIPAAEvent, scrubPHI } from './hipaa'
 import type { AgentContext, AgentResponse } from './agent-types'
 import { formatPatientPsychologyForPrompt } from './agent-types'
+import { buildPricingIntegrityBlock } from './pricing-integrity'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
@@ -26,6 +27,7 @@ import { getTreatmentClosing, formatClosingForPrompt } from '@/lib/treatment/tre
 import { CLOSER_TOOLS } from '@/lib/autopilot/agent-tools'
 import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
+import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -565,11 +567,30 @@ export async function closerAgentRespond(
   // Inject the org's trained memories + knowledge base into the LIVE closer, so
   // trained guidance governs real conversations (not just the playground).
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock] = await Promise.all([
+  const [knowledgeBlock, personaBlock, bookingSettings, rulesBlock] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
+    supabase
+      .from('booking_settings')
+      .select('consult_price_range_text')
+      .eq('organization_id', context.organization_id)
+      .maybeSingle(),
+    buildAgencyRulesBlock(supabase),
   ])
-  const systemPrompt = [composedPrompt, personaBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+
+  // Pricing integrity: the closer is post-consult (discovery IS complete), but it
+  // must still never invent figures. It may cite real financing numbers when this
+  // lead has them, else fall back to the practice's configured range.
+  const fc = context.financing_context
+  const hasRealFinancingData =
+    !!fc && (fc.status === 'approved' || fc.status === 'partial' || typeof fc.monthly_payment === 'number')
+  const pricingBlock = buildPricingIntegrityBlock({
+    configuredRange: bookingSettings.data?.consult_price_range_text as string | null | undefined,
+    discoveryComplete: true,
+    hasRealFinancingData,
+  })
+
+  const systemPrompt = [composedPrompt, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({
@@ -577,7 +598,9 @@ export async function closerAgentRespond(
     content: scrubPHI(msg.content),
   }))
 
-  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 512 : 2048
+  // SMS raised 512→1024: the response is a full JSON object (message + techniques +
+  // lead_assessment), and 512 truncated it mid-object, breaking JSON.parse.
+  const maxTokens = context.channel === 'voice' ? 256 : context.channel === 'sms' ? 1024 : 2048
 
   // Multi-round agentic loop: lets the closer chain tool calls (e.g.
   // check_financing_status → send_financing_link, or check_closing_progress →

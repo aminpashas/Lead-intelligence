@@ -123,6 +123,12 @@ export async function POST(request: NextRequest) {
 
       case 'checkout.session.completed': {
         const sess = event.data.object as Stripe.Checkout.Session
+        // Card-on-file (SetupIntent) for the no-show fee saves a card and charges
+        // nothing, so it never reaches the paid-only ingest path below.
+        if (sess.mode === 'setup' && sess.metadata?.purpose === 'no_show_card_on_file') {
+          await storeCardOnFile(supabase, organizationId, sess, config)
+          break
+        }
         if ((sess.payment_status as string) !== 'paid') {
           await markEventStatus(supabase, event.id, 'ignored', `not_paid_${sess.payment_status}`)
           break
@@ -306,6 +312,63 @@ async function ingestPayment(
       .from('stripe_payments')
       .update({ forwarded: true, forwarded_at: new Date().toISOString() })
       .eq('id', inserted.id)
+  }
+}
+
+/**
+ * Persist a saved card onto the appointment after a setup-mode Checkout. Reads
+ * the payment_method off the session's SetupIntent so the later no-show charge
+ * can bill it off-session.
+ */
+async function storeCardOnFile(
+  supabase: ReturnType<typeof createServiceClient>,
+  organizationId: string,
+  sess: Stripe.Checkout.Session,
+  config: StripeConfig
+): Promise<void> {
+  const appointmentId = sess.metadata?.appointment_id
+  if (!appointmentId) return
+
+  const customerId = typeof sess.customer === 'string' ? sess.customer : sess.customer?.id || null
+
+  let paymentMethodId: string | null = null
+  const setupIntentId = typeof sess.setup_intent === 'string' ? sess.setup_intent : sess.setup_intent?.id || null
+  if (setupIntentId) {
+    try {
+      const stripe = getStripeClient(config)
+      const si = await stripe.setupIntents.retrieve(setupIntentId)
+      paymentMethodId = typeof si.payment_method === 'string' ? si.payment_method : si.payment_method?.id || null
+    } catch {
+      // If we can't read the payment_method we still record the customer; a
+      // later charge attempt will surface 'no_card_on_file' for staff follow-up.
+    }
+  }
+
+  await supabase
+    .from('appointments')
+    .update({
+      card_on_file: true,
+      stripe_customer_id: customerId,
+      stripe_payment_method_id: paymentMethodId,
+    })
+    .eq('id', appointmentId)
+    .eq('organization_id', organizationId)
+
+  const { data: appt } = await supabase
+    .from('appointments')
+    .select('lead_id')
+    .eq('id', appointmentId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (appt?.lead_id) {
+    await supabase.from('lead_activities').insert({
+      organization_id: organizationId,
+      lead_id: appt.lead_id,
+      activity_type: 'card_on_file_saved',
+      title: 'Card saved on file for no-show fee',
+      metadata: { appointment_id: appointmentId },
+    })
   }
 }
 
