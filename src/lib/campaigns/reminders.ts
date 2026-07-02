@@ -29,6 +29,7 @@ import {
   getConfirmationUrl,
   getRescheduleUrl,
 } from './reminder-templates'
+import { computeNoShowRisk, isCheckinExpired } from './attendance-risk'
 import { renderEmail } from '@/emails/render'
 import { BookingReminder } from '@/emails/BookingReminder'
 import { logger } from '@/lib/logger'
@@ -103,6 +104,19 @@ export async function sendAppointmentReminders(
     .single()
 
   const practiceName = org?.name || 'our office'
+
+  // Keep day-of risk fresh: recompute for everything inside 48h each run.
+  const horizon = new Date(now.getTime() + 48 * 60 * 60 * 1000)
+  const { data: upcoming } = await supabase
+    .from('appointments')
+    .select('id')
+    .eq('organization_id', orgId)
+    .in('status', ['scheduled', 'confirmed'])
+    .gte('scheduled_at', now.toISOString())
+    .lte('scheduled_at', horizon.toISOString())
+  for (const a of upcoming || []) {
+    await calculateNoShowRisk(supabase, a.id)
+  }
 
   // ─── 72-HOUR REMINDERS (Email) ──────────────────────────────
   const r72h = await send72hReminders(supabase, orgId, practiceName, now)
@@ -558,9 +572,11 @@ export async function confirmAppointment(
       confirmation_received: true,
       confirmed_via: method,
       confirmed_at: new Date().toISOString(),
-      no_show_risk_score: 5, // Very low risk - confirmed
     })
     .eq('id', appointmentId)
+
+  // Confirmation lowers risk but no longer erases history (serial no-showers stay visible).
+  await calculateNoShowRisk(supabase, appointmentId)
 
   // Get lead for sending confirmation email
   const { data: lead } = await supabase
@@ -645,67 +661,42 @@ export async function confirmAppointment(
 
 /**
  * Calculate no-show risk score based on engagement patterns.
- * Called periodically to update risk assessments.
+ * Called periodically to update risk assessments. Pure math lives in
+ * attendance-risk.ts — confirmation lowers risk but never erases history.
  */
 export async function calculateNoShowRisk(
   supabase: SupabaseClient,
   appointmentId: string
 ): Promise<number> {
-  // Get appointment with reminders
   const { data: apt } = await supabase
     .from('appointments')
-    .select('*, lead:leads(no_show_count, engagement_score)')
+    .select('confirmation_received, checkin_sent_at, checkin_replied_at, lead:leads(no_show_count, engagement_score)')
     .eq('id', appointmentId)
     .single()
 
   if (!apt) return 50
 
-  let risk = 30 // Base risk
-
-  // Confirmed = very low risk
-  if (apt.confirmation_received) {
-    risk = 5
-    return risk
-  }
-
-  // Check how many reminders were sent and responded to
   const { data: reminders } = await supabase
     .from('appointment_reminders')
     .select('status, confirmation_status')
     .eq('appointment_id', appointmentId)
 
-  if (reminders) {
-    const totalSent = reminders.filter((r: { status: string }) => r.status === 'sent').length
-    const totalFailed = reminders.filter((r: { status: string }) => r.status === 'failed').length
-    const noResponses = reminders.filter((r: { confirmation_status: string }) => r.confirmation_status === 'no_response').length
+  const sent = (reminders || []).filter((r) => r.status === 'sent').length
+  const failed = (reminders || []).filter((r) => r.status === 'failed').length
+  const unanswered = (reminders || []).filter((r) => r.confirmation_status === 'no_response').length
 
-    // Failed reminders = higher risk
-    if (totalFailed > 0) risk += 15
+  const lead = apt.lead as unknown as { no_show_count: number | null; engagement_score: number | null } | null
+  const risk = computeNoShowRisk({
+    confirmed: apt.confirmation_received === true,
+    priorNoShows: lead?.no_show_count ?? 0,
+    engagementScore: lead?.engagement_score ?? null,
+    remindersSent: sent,
+    remindersFailed: failed,
+    remindersUnanswered: unanswered,
+    checkinExpiredUnanswered: isCheckinExpired(apt.checkin_sent_at, apt.checkin_replied_at, new Date()),
+  })
 
-    // No responses to any reminders = higher risk
-    if (totalSent > 0 && noResponses === totalSent) risk += 20
-  }
-
-  // Previous no-shows = higher risk
-  const lead = apt.lead as any
-  if (lead?.no_show_count > 0) {
-    risk += Math.min(lead.no_show_count * 15, 30)
-  }
-
-  // Low engagement score = higher risk
-  if (lead?.engagement_score !== undefined && lead.engagement_score < 20) {
-    risk += 15
-  }
-
-  // Cap at 100
-  risk = Math.min(risk, 100)
-
-  // Update the appointment
-  await supabase
-    .from('appointments')
-    .update({ no_show_risk_score: risk })
-    .eq('id', appointmentId)
-
+  await supabase.from('appointments').update({ no_show_risk_score: risk }).eq('id', appointmentId)
   return risk
 }
 

@@ -4,6 +4,7 @@ import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
+import { calculateNoShowRisk } from '@/lib/campaigns/reminders'
 import { decryptField } from '@/lib/encryption'
 import { z } from 'zod'
 
@@ -231,7 +232,6 @@ export async function PATCH(request: NextRequest) {
     updateData.confirmation_received = true
     updateData.confirmed_via = 'manual'
     updateData.confirmed_at = new Date().toISOString()
-    updateData.no_show_risk_score = 5
   }
 
   // Handle no-show
@@ -249,6 +249,11 @@ export async function PATCH(request: NextRequest) {
 
   if (error || !appointment) {
     return NextResponse.json({ error: error?.message || 'Not found' }, { status: error ? 500 : 404 })
+  }
+
+  // Confirmation lowers risk but no longer erases history (serial no-showers stay visible).
+  if (status === 'confirmed') {
+    await calculateNoShowRisk(supabase, appointment_id)
   }
 
   const lead = appointment.lead as any
