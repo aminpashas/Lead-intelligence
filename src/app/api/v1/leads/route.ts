@@ -11,9 +11,15 @@
  *   expected response shape in dion-growth-studio.
  *
  * POST /api/v1/leads
- *   Body: { customer_id, full_name, email?, phone?, source, notes? }
+ *   Body: { customer_id, full_name, email?, phone?, source, notes?,
+ *           utm_source?, utm_medium?, utm_campaign?, utm_term?, utm_content?,
+ *           gclid?, fbclid?, landing_page_url?, referrer_url?,
+ *           campaign_attribution?, external_ref?, sms_consent?, ... }
  *   Splits full_name into first_name/last_name, looks up source by name,
  *   encrypts PII, audits as HIPAA PHI write. Returns { id, lead_id }.
+ *   Re-POSTing an existing lead (matched by external_ref, then contact hash)
+ *   dedups AND merges any newly-resolved campaign attribution onto it — DGS
+ *   uses this to back-sync campaigns that resolve after the initial push.
  */
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -30,6 +36,79 @@ function asBool(v: unknown): boolean | undefined {
 }
 function asStr(v: unknown): string | null {
   return typeof v === 'string' && v ? v : null
+}
+
+// Whitelisted keys of the DGS-resolved campaign attribution blob. Anything
+// else the caller sends is dropped so the jsonb column can't be used as a
+// dumping ground by a compromised bridge key.
+const CAMPAIGN_ATTR_KEYS = [
+  'channel', 'campaign_id', 'campaign_name', 'ad_group_id', 'ad_group_name',
+  'keyword_text', 'click_id_type', 'attribution_model', 'resolved_at', 'source_system',
+] as const
+
+function sanitizeCampaignAttribution(v: unknown): Record<string, string | number> | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  const raw = v as Record<string, unknown>
+  const out: Record<string, string | number> = {}
+  for (const k of CAMPAIGN_ATTR_KEYS) {
+    const s = raw[k]
+    if (typeof s === 'string' && s) out[k] = s.slice(0, 500)
+  }
+  const conf = raw.attribution_confidence
+  if (typeof conf === 'number' && Number.isFinite(conf)) out.attribution_confidence = conf
+  return Object.keys(out).length ? out : null
+}
+
+// Attribution columns consulted/patched on a dedup hit.
+const ATTR_UTM_COLS = [
+  'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+  'gclid', 'fbclid', 'landing_page_url', 'referrer_url',
+] as const
+type AttrUtmCol = (typeof ATTR_UTM_COLS)[number]
+
+interface DedupRow extends Partial<Record<AttrUtmCol, string | null>> {
+  id: string
+  external_ref: string | null
+  campaign_attribution: Record<string, unknown> | null
+}
+
+interface IncomingAttribution extends Partial<Record<AttrUtmCol, string | null>> {
+  campaign_attribution: Record<string, string | number> | null
+}
+
+/**
+ * Merge attribution onto an existing lead on a dedup hit. This is what makes
+ * the DGS attribution back-sync work: the first push often lands BEFORE the
+ * DGS resolver has matched a campaign (batch ingests resolve after pushing),
+ * so DGS re-POSTs the same external_ref once resolved and the campaign blob
+ * is merged here instead of creating a duplicate lead.
+ *
+ * Policy: campaign_attribution is replaced when the incoming confidence is >=
+ * what we hold (attribution improves monotonically: 0.85 click-id-only → 1.0
+ * once the campaign syncs); flat utm/click-id columns are backfilled only when
+ * currently null. Returns true when anything was written.
+ */
+async function mergeAttributionOnDedup(
+  supabase: ReturnType<typeof serviceRoleClient>,
+  existing: DedupRow,
+  incoming: IncomingAttribution,
+): Promise<boolean> {
+  const patch: Record<string, unknown> = {}
+  const inc = incoming.campaign_attribution
+  if (inc) {
+    const curConf = Number(existing.campaign_attribution?.attribution_confidence ?? 0)
+    const newConf = Number(inc.attribution_confidence ?? 0)
+    const replaces = !existing.campaign_attribution || newConf >= curConf
+    if (replaces && JSON.stringify(inc) !== JSON.stringify(existing.campaign_attribution)) {
+      patch.campaign_attribution = inc
+    }
+  }
+  for (const k of ATTR_UTM_COLS) {
+    if (!existing[k] && incoming[k]) patch[k] = incoming[k]
+  }
+  if (Object.keys(patch).length === 0) return false
+  const { error } = await supabase.from('leads').update(patch).eq('id', existing.id)
+  return !error
 }
 
 const MAX_LIMIT = 200
@@ -167,6 +246,20 @@ export async function POST(request: NextRequest) {
   const utm_source = asStr(b?.utm_source)
   const gclid = asStr(b?.gclid)
   const fbclid = asStr(b?.fbclid)
+  const utm_medium = asStr(b?.utm_medium)
+  const utm_campaign = asStr(b?.utm_campaign)
+  const utm_term = asStr(b?.utm_term)
+  const utm_content = asStr(b?.utm_content)
+  const landing_page_url = asStr(b?.landing_page_url) ?? asStr(b?.landing_page)
+  const referrer_url = asStr(b?.referrer_url) ?? asStr(b?.referrer)
+  // Exact campaign-level attribution resolved by DGS (channel + campaign_id/
+  // campaign_name + ad group + keyword + confidence). Stored as jsonb.
+  const campaignAttribution = sanitizeCampaignAttribution(b?.campaign_attribution)
+  const incomingAttribution: IncomingAttribution = {
+    campaign_attribution: campaignAttribution,
+    utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+    gclid, fbclid, landing_page_url, referrer_url,
+  }
   // Explicit DGS correlation id — preferred over regexing it out of notes for the
   // conversion writeback trigger. Accept either spelling.
   const external_ref = asStr(b?.external_ref) ?? asStr(b?.dgs_lead_id)
@@ -184,34 +277,59 @@ export async function POST(request: NextRequest) {
   // downgraded). searchHash is HMAC-SHA256 hex → safe in a PostgREST or-filter.
   const emailHash = email ? searchHash(email) : null
   const phoneHash = (phoneFormatted || phoneRaw) ? searchHash(phoneFormatted || phoneRaw) : null
-  if (emailHash || phoneHash) {
+  const DEDUP_COLS =
+    'id, external_ref, campaign_attribution, ' + ATTR_UTM_COLS.join(', ')
+
+  // Dedup pass 0: exact correlation id. A re-POST with the same external_ref
+  // is an update-intent call (DGS re-syncs attribution after its resolver
+  // runs), so match it BEFORE the contact hash — it targets the exact lead
+  // even if the contact details were edited in LI since.
+  let existing: DedupRow | null = null
+  if (externalRef) {
+    const { data } = await supabase
+      .from('leads')
+      .select(DEDUP_COLS)
+      .eq('organization_id', customerId)
+      .eq('external_ref', externalRef)
+      .limit(1)
+      .maybeSingle()
+    existing = (data as DedupRow | null) ?? null
+  }
+  if (!existing && (emailHash || phoneHash)) {
     const orFilter = [
       emailHash ? `email_hash.eq.${emailHash}` : null,
       phoneHash ? `phone_hash.eq.${phoneHash}` : null,
     ].filter(Boolean).join(',')
-    const { data: existing } = await supabase
+    const { data } = await supabase
       .from('leads')
-      .select('id, external_ref')
+      .select(DEDUP_COLS)
       .eq('organization_id', customerId)
       .or(orFilter)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-    if (existing) {
-      // Backfill external_ref only when missing — never overwrite an existing
-      // correlation id (the first DGS submit owns it).
-      if (externalRef && !existing.external_ref) {
-        await supabase
-          .from('leads')
-          .update({ external_ref: externalRef })
-          .eq('id', existing.id)
-          .is('external_ref', null)
-      }
-      return NextResponse.json(
-        { id: existing.id, lead_id: existing.id, deduplicated: true },
-        { status: 200 },
-      )
+    existing = (data as DedupRow | null) ?? null
+  }
+  if (existing) {
+    // Backfill external_ref only when missing — never overwrite an existing
+    // correlation id (the first DGS submit owns it).
+    if (externalRef && !existing.external_ref) {
+      await supabase
+        .from('leads')
+        .update({ external_ref: externalRef })
+        .eq('id', existing.id)
+        .is('external_ref', null)
     }
+    const attribution_updated = await mergeAttributionOnDedup(supabase, existing, incomingAttribution)
+    return NextResponse.json(
+      {
+        id: existing.id,
+        lead_id: existing.id,
+        deduplicated: true,
+        ...(attribution_updated ? { attribution_updated: true } : {}),
+      },
+      { status: 200 },
+    )
   }
 
   // Look up source_id by name (or null if not found) — keeps the call
@@ -249,8 +367,15 @@ export async function POST(request: NextRequest) {
     ...(externalRef ? { external_ref: externalRef } : {}),
     ...consentFields,
     ...(utm_source ? { utm_source } : {}),
+    ...(utm_medium ? { utm_medium } : {}),
+    ...(utm_campaign ? { utm_campaign } : {}),
+    ...(utm_term ? { utm_term } : {}),
+    ...(utm_content ? { utm_content } : {}),
     ...(gclid ? { gclid } : {}),
     ...(fbclid ? { fbclid } : {}),
+    ...(landing_page_url ? { landing_page_url } : {}),
+    ...(referrer_url ? { referrer_url } : {}),
+    ...(campaignAttribution ? { campaign_attribution: campaignAttribution } : {}),
     ...(external_ref ? { external_ref } : {}),
   })
 
