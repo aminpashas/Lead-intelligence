@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { decryptLeadPII } from '@/lib/encryption'
 
 /**
  * GET /api/appointments/reminders?appointment_id=xxx
@@ -74,7 +75,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
   }
 
-  const lead = apt.lead as any
+  // phone/email are encrypted at rest — sendSMSToLead/sendEmail need plaintext.
+  const lead = apt.lead ? (decryptLeadPII(apt.lead as Record<string, unknown>) as any) : null
   if (!lead) {
     return NextResponse.json({ error: 'Lead not found for appointment' }, { status: 404 })
   }
