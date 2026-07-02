@@ -10,6 +10,7 @@ import { encryptLeadPII } from '@/lib/encryption'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { escapeHtml } from '@/lib/utils'
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
+import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 
 const bookingSchema = z.object({
   slot_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -134,7 +135,8 @@ export async function POST(
     max_bookings_per_slot: settings.max_bookings_per_slot || 1,
   }
 
-  const availableSlots = generateAvailableSlots(config, (existingAppts || []) as ExistingAppointment[])
+  const ehrBusy = await fetchEhrBusyAsAppointments(supabase, orgId, settings.advance_days)
+  const availableSlots = generateAvailableSlots(config, [...((existingAppts || []) as ExistingAppointment[]), ...ehrBusy])
   const daySlots = availableSlots.find((d) => d.date === slot_date)
   if (!daySlots || !daySlots.times.includes(slot_time)) {
     return NextResponse.json({ error: 'This time slot is no longer available. Please select another time.' }, { status: 409 })

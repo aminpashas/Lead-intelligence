@@ -1474,6 +1474,20 @@ export type TreatmentPlan = {
   updated_at: string
 }
 
+export type EhrBusySlot = {
+  id: string
+  organization_id: string
+  ehr_source: EhrSource
+  ehr_appointment_id: string
+  ehr_patient_id: string | null
+  starts_at: string
+  ends_at: string
+  status: string | null
+  appointment_type: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type TreatmentProcedure = {
   id: string
   organization_id: string

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
+import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 
@@ -60,9 +61,10 @@ export async function GET(
     max_bookings_per_slot: settings.max_bookings_per_slot || 1,
   }
 
+  const ehrBusy = await fetchEhrBusyAsAppointments(supabase, orgId, settings.advance_days)
   const slots = generateAvailableSlots(
     config,
-    (appointments || []) as ExistingAppointment[]
+    [...((appointments || []) as ExistingAppointment[]), ...ehrBusy]
   )
 
   return NextResponse.json({
