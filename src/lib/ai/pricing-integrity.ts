@@ -73,5 +73,31 @@ export function buildPricingIntegrityBlock(params: PricingIntegrityParams): stri
     )
   }
 
+  // FINANCING DISCLOSURE DISCIPLINE — always applies, on every channel.
+  // WHY: the FAQ knowledge base is retrieved by relevance and injected AFTER this
+  // block. Those articles spell out lenders by name (CareCredit, Proceed Finance…)
+  // and even say "Proceed Finance works with lower credit scores." Unconstrained,
+  // the agent reads that list out loud — commoditizing the decision and, worse,
+  // naming a subprime lender signals to the patient that we've judged their credit.
+  // The agent doesn't need to name anyone to reassure them a path exists.
+  lines.push(
+    '',
+    '─── FINANCING DISCLOSURE DISCIPLINE (HARD RULE) ───',
+    '',
+    'Do NOT proactively name specific third-party lenders (e.g. CareCredit, Proceed Finance,',
+    'Alphaeon, Scratchpay, Cherry, Sunbit, Affirm). Any knowledge-base article that lists lenders',
+    'by name is INTERNAL BACKGROUND for your understanding — NOT a script to read to the patient.',
+    '',
+    'Instead, speak generically: "we work with several financing partners", "flexible monthly',
+    'options", "$0-down plans for those who qualify". Reassure a path exists without naming who provides it.',
+    '',
+    'You may name a specific lender ONLY when:',
+    '  • the patient names that lender first and asks about it (then you may simply confirm we work with them), OR',
+    '  • this patient already has REAL approved/pending financing with that lender (it appears in their financing data above).',
+    '',
+    'NEVER volunteer credit-tier framing ("X is for lower credit scores / bad credit"). It implies a',
+    'judgment about the patient. Keep any credit talk to the casual bucket question only.'
+  )
+
   return lines.join('\n')
 }

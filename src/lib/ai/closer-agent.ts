@@ -19,6 +19,7 @@ import { buildSafeLeadContext, checkResponseCompliance, logHIPAAEvent, scrubPHI 
 import type { AgentContext, AgentResponse } from './agent-types'
 import { formatPatientPsychologyForPrompt } from './agent-types'
 import { buildPricingIntegrityBlock } from './pricing-integrity'
+import { buildCurrentDateBlock } from './datetime-context'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
@@ -572,11 +573,15 @@ export async function closerAgentRespond(
     buildAgencyPersonaBlock(supabase),
     supabase
       .from('booking_settings')
-      .select('consult_price_range_text')
+      .select('consult_price_range_text, timezone')
       .eq('organization_id', context.organization_id)
       .maybeSingle(),
     buildAgencyRulesBlock(supabase),
   ])
+
+  // Ground the closer in today's real date (practice timezone) — it books
+  // follow-ups and talks timelines constantly, and must not guess the day.
+  const dateBlock = buildCurrentDateBlock(bookingSettings.data?.timezone as string | null | undefined)
 
   // Pricing integrity: the closer is post-consult (discovery IS complete), but it
   // must still never invent figures. It may cite real financing numbers when this
@@ -590,7 +595,7 @@ export async function closerAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, dateBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

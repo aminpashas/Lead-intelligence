@@ -24,6 +24,7 @@ import {
   isDiscoveryComplete,
 } from './agent-types'
 import { buildPricingIntegrityBlock } from './pricing-integrity'
+import { buildCurrentDateBlock } from './datetime-context'
 import { captureQualificationFromResponse } from './qualification-capture'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
@@ -370,9 +371,13 @@ export async function setterAgentRespond(
   // credit bucket → range (never a quote) → book.
   const { data: bs } = await supabase
     .from('booking_settings')
-    .select('discovery_script, consult_price_range_text')
+    .select('discovery_script, consult_price_range_text, timezone')
     .eq('organization_id', context.organization_id)
     .maybeSingle()
+
+  // Ground the agent in today's real date (practice timezone) so it stops
+  // guessing days and never offers a date that already passed.
+  const dateBlock = buildCurrentDateBlock(bs?.timezone as string | null | undefined)
 
   const discoveryBlock = buildDiscoveryPromptBlock({
     script: bs?.discovery_script as string | null | undefined,
@@ -391,7 +396,7 @@ export async function setterAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, discoveryBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({
