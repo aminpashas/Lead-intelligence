@@ -13,6 +13,7 @@ export type TriggerEvent =
   | 'stage_changed'
   | 'appointment_no_show'
   | 'appointment_scheduled'
+  | 'consult_completed'
   | 'lead_went_cold'
   | 'lead_qualified'
   | 'lead_disqualified'
@@ -94,8 +95,12 @@ export async function processTriggerCampaigns(
     if (channel === 'sms' && !lead.phone_formatted) continue
     if (channel === 'email' && !lead.email) continue
 
-    // Enroll
-    const firstStepDelay = campaign.steps?.[0]?.delay_minutes ?? 0
+    // Enroll. Embedded steps come back in unspecified order, so pick step 1's
+    // delay explicitly rather than trusting steps[0].
+    const firstStep = ((campaign.steps as Array<{ step_number: number; delay_minutes: number }> | null) || [])
+      .slice()
+      .sort((a, b) => a.step_number - b.step_number)[0]
+    const firstStepDelay = firstStep?.delay_minutes ?? 0
     const nextStepAt = new Date(Date.now() + firstStepDelay * 60 * 1000).toISOString()
 
     if (existing) {

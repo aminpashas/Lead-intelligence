@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
+import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 
@@ -22,7 +23,8 @@ export async function GET(
     .eq('organization_id', orgId)
     .single()
 
-  if (!settings || !settings.is_enabled) {
+  // Public widget requires BOTH the master switch and the public opt-in.
+  if (!settings || !settings.is_enabled || !settings.public_booking_enabled) {
     return NextResponse.json({ error: 'Booking is not available' }, { status: 404 })
   }
 
@@ -60,9 +62,10 @@ export async function GET(
     max_bookings_per_slot: settings.max_bookings_per_slot || 1,
   }
 
+  const ehrBusy = await fetchEhrBusyAsAppointments(supabase, orgId, settings.advance_days)
   const slots = generateAvailableSlots(
     config,
-    (appointments || []) as ExistingAppointment[]
+    [...((appointments || []) as ExistingAppointment[]), ...ehrBusy]
   )
 
   return NextResponse.json({

@@ -112,7 +112,7 @@ export default async function AgencyHomePage() {
   ]
 
   const platformStatus = [
-    { label: 'AI Model', value: aiModel?.model ?? 'claude-3-5-sonnet-20241022', ok: true },
+    { label: 'AI Model', value: aiModel?.model ?? 'claude-sonnet-4-6', ok: true },
     { label: 'Agent Persona', value: personaName, ok: true },
     { label: 'Anthropic API', value: process.env.ANTHROPIC_API_KEY ? 'Connected' : 'Not configured', ok: !!process.env.ANTHROPIC_API_KEY },
     { label: 'Twilio SMS', value: process.env.TWILIO_ACCOUNT_SID ? 'Connected' : 'Not configured', ok: !!process.env.TWILIO_ACCOUNT_SID },

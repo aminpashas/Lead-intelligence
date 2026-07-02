@@ -20,6 +20,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// Proven CareStack hosts (sibling MDRCM client v1.0.54): all {domain}.carestack.com
+// subdomains route to the global PMS backend, so pmsglobal is the safe default.
+export const DEFAULT_CARESTACK_BASE_URL = 'https://pmsglobal.carestack.com'
+export const DEFAULT_CARESTACK_IDENTITY_URL = 'https://id.carestack.com'
+
 export type CareStackConfig = {
   account_id: string
   client_id: string
@@ -73,8 +78,8 @@ export async function getCareStackConfig(
     username: creds.username,
     password: creds.password,
     webhook_secret: creds.webhook_secret,
-    base_url: assertCareStackHost((settings.base_url || 'https://api.carestack.com').replace(/\/$/, '')),
-    identity_url: assertCareStackHost((settings.identity_url || 'https://id.carestack.com').replace(/\/$/, '')),
+    base_url: assertCareStackHost((settings.base_url || DEFAULT_CARESTACK_BASE_URL).replace(/\/$/, '')),
+    identity_url: assertCareStackHost((settings.identity_url || DEFAULT_CARESTACK_IDENTITY_URL).replace(/\/$/, '')),
   }
 }
 

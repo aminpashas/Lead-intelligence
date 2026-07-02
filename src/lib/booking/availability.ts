@@ -7,7 +7,14 @@
  * - Existing appointments (blocked)
  * - Blocked dates (holidays, closures)
  * - Minimum notice period
+ *
+ * All wall-clock reasoning (which day, which hour is open) happens in the
+ * PRACTICE timezone via `config.timezone`, while conflict/notice checks use
+ * absolute UTC instants. This is independent of the server timezone (UTC on
+ * Vercel) — see src/lib/booking/timezone.ts.
  */
+
+import { zonedTimeToUtc, getZonedParts } from './timezone'
 
 export type WeeklySchedule = Record<string, { start: string; end: string }>
 
@@ -44,12 +51,13 @@ export function generateAvailableSlots(
   startDate?: Date
 ): AvailableDay[] {
   const now = startDate || new Date()
+  const tz = config.timezone
   const result: AvailableDay[] = []
 
-  // Calculate minimum booking time (now + min_notice_hours)
-  const minBookingTime = new Date(now.getTime() + config.min_notice_hours * 60 * 60 * 1000)
+  // Minimum booking time as an absolute instant (now + min_notice_hours).
+  const minBookingTimeMs = now.getTime() + config.min_notice_hours * 60 * 60 * 1000
 
-  // Build a map of blocked time ranges from existing appointments
+  // Blocked ranges are absolute UTC instants — timezone-independent.
   const blockedRanges = existingAppointments
     .filter((a) => a.status !== 'canceled')
     .map((a) => {
@@ -58,11 +66,15 @@ export function generateAvailableSlots(
       return { start, end }
     })
 
+  // Walk calendar days in the PRACTICE timezone. Anchoring at noon UTC of each
+  // offset keeps the derived local date stable (no midnight/DST drift for the
+  // US timezones this serves).
+  const today = getZonedParts(now, tz)
   for (let dayOffset = 0; dayOffset < config.advance_days; dayOffset++) {
-    const date = new Date(now)
-    date.setDate(date.getDate() + dayOffset)
-    const dateStr = formatDateLocal(date)
-    const dayOfWeek = date.getDay()
+    const anchor = new Date(Date.UTC(today.year, today.month - 1, today.day + dayOffset, 12, 0, 0))
+    const parts = getZonedParts(anchor, tz)
+    const dateStr = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
+    const dayOfWeek = parts.weekday
 
     // Skip blocked dates
     if (config.blocked_dates.includes(dateStr)) continue
@@ -72,13 +84,14 @@ export function generateAvailableSlots(
     if (!daySchedule) continue // Day not in schedule (closed)
 
     const times = generateTimeSlotsForDay(
-      date,
+      dateStr,
+      tz,
       daySchedule.start,
       daySchedule.end,
       config.slot_duration_minutes,
       config.buffer_minutes,
       blockedRanges,
-      minBookingTime,
+      minBookingTimeMs,
       config.max_bookings_per_slot
     )
 
@@ -86,7 +99,7 @@ export function generateAvailableSlots(
       result.push({
         date: dateStr,
         dayOfWeek,
-        dayLabel: formatDayLabel(date),
+        dayLabel: formatDayLabel(dateStr, tz),
         times,
       })
     }
@@ -96,39 +109,34 @@ export function generateAvailableSlots(
 }
 
 function generateTimeSlotsForDay(
-  date: Date,
+  dateStr: string,
+  tz: string,
   startTime: string,
   endTime: string,
   slotDuration: number,
   buffer: number,
   blockedRanges: Array<{ start: number; end: number }>,
-  minBookingTime: Date,
+  minBookingTimeMs: number,
   maxPerSlot: number
 ): string[] {
   const slots: string[] = []
   const [startH, startM] = startTime.split(':').map(Number)
   const [endH, endM] = endTime.split(':').map(Number)
 
-  const dayStart = new Date(date)
-  dayStart.setHours(startH, startM, 0, 0)
-
-  const dayEnd = new Date(date)
-  dayEnd.setHours(endH, endM, 0, 0)
-
+  const startMinutes = startH * 60 + startM
+  const endMinutes = endH * 60 + endM
+  const stepMinutes = slotDuration + buffer
   const slotMs = slotDuration * 60 * 1000
-  const stepMs = (slotDuration + buffer) * 60 * 1000
 
-  let current = dayStart.getTime()
-
-  while (current + slotMs <= dayEnd.getTime()) {
-    const slotStart = current
-    const slotEnd = current + slotMs
+  // Iterate wall-clock minutes in the practice day; resolve each to a real UTC
+  // instant so notice/conflict checks are exact.
+  for (let mins = startMinutes; mins + slotDuration <= endMinutes; mins += stepMinutes) {
+    const timeStr = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+    const slotStart = zonedTimeToUtc(dateStr, timeStr, tz).getTime()
+    const slotEnd = slotStart + slotMs
 
     // Skip if before minimum notice time
-    if (new Date(slotStart) < minBookingTime) {
-      current += stepMs
-      continue
-    }
+    if (slotStart < minBookingTimeMs) continue
 
     // Check if slot conflicts with any existing appointment
     const conflicts = blockedRanges.filter(
@@ -136,29 +144,22 @@ function generateTimeSlotsForDay(
     )
 
     if (conflicts.length < maxPerSlot) {
-      const slotDate = new Date(slotStart)
-      const timeStr = `${String(slotDate.getHours()).padStart(2, '0')}:${String(slotDate.getMinutes()).padStart(2, '0')}`
       slots.push(timeStr)
     }
-
-    current += stepMs
   }
 
   return slots
 }
 
-function formatDateLocal(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-function formatDayLabel(date: Date): string {
-  return date.toLocaleDateString('en-US', {
+function formatDayLabel(dateStr: string, tz: string): string {
+  // Noon-UTC anchor renders the intended calendar day in the practice tz.
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const anchor = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
+  return anchor.toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
+    timeZone: tz,
   })
 }
 

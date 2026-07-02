@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
+import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { decryptField } from '@/lib/encryption'
+import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
+import { seedPostConsultNurture } from '@/lib/campaigns/post-consult-nurture'
 import { z } from 'zod'
+
+// Pre-close statuses a consult attendee advances FROM. Leads already past this
+// (treatment_presented / financing / converted / lost) are left as-is.
+const PRE_CONSULT_STATUSES = [
+  'new', 'contacted', 'qualified', 'consultation_scheduled', 'no_show', 'unresponsive', 'dormant',
+]
 
 const createAppointmentSchema = z.object({
   lead_id: z.string().uuid(),
@@ -236,11 +245,19 @@ export async function PATCH(request: NextRequest) {
     .update(updateData)
     .eq('id', appointment_id)
     .eq('organization_id', orgId)
-    .select('*, lead:leads(id, first_name, last_name, no_show_count)')
+    .select('*, lead:leads(id, first_name, last_name, no_show_count, status)')
     .single()
 
   if (error || !appointment) {
     return NextResponse.json({ error: error?.message || 'Not found' }, { status: error ? 500 : 404 })
+  }
+
+  // EHR sync: propagate staff cancels / no-shows to the Dion Clinical bus (fire-and-forget).
+  if (status === 'canceled' || status === 'no_show') {
+    void syncAppointmentToEhr(supabase, appointment_id, {
+      action: 'cancel',
+      reasonCode: status === 'no_show' ? 'no-show' : 'patient-cancel',
+    })
   }
 
   // If marking as no-show, increment the lead's no_show_count
@@ -253,6 +270,44 @@ export async function PATCH(request: NextRequest) {
         status: 'no_show',
       })
       .eq('id', lead.id)
+  }
+
+  // Consult ATTENDED but not yet closed: advance the lead to consultation_completed,
+  // stamp when the close window opened, and enroll them in the objection-aware
+  // funding nurture (self-pay budgeting, co-signer financing, alternative lenders).
+  // Only advances pre-close leads — anyone already presented/financing/converted is
+  // left untouched. All non-fatal: a failure here never blocks the status update.
+  if (status === 'completed' && (appointment as any).type === 'consultation' && appointment.lead) {
+    const lead = appointment.lead as any
+    if (PRE_CONSULT_STATUSES.includes(lead.status)) {
+      try {
+        await supabase
+          .from('leads')
+          .update({ status: 'consultation_completed', consult_completed_at: new Date().toISOString() })
+          .eq('id', lead.id)
+          .eq('organization_id', orgId)
+
+        // Ensure the nurture campaign exists for this org (idempotent), then fire
+        // the trigger that enrolls this lead.
+        await seedPostConsultNurture(supabase, orgId)
+        await processTriggerCampaigns(supabase, {
+          event: 'consult_completed',
+          lead_id: lead.id,
+          organization_id: orgId,
+        })
+
+        await supabase.from('lead_activities').insert({
+          organization_id: orgId,
+          lead_id: lead.id,
+          user_id: profile.id,
+          activity_type: 'consult_completed',
+          title: 'Consultation completed — enrolled in funding nurture',
+          metadata: { appointment_id, from_status: lead.status },
+        })
+      } catch (err) {
+        console.error('[appointments] consult_completed nurture enrollment failed:', err instanceof Error ? err.message : err)
+      }
+    }
   }
 
   // Log activity

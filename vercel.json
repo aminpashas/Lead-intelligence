@@ -37,6 +37,10 @@
       "schedule": "30 4 * * *"
     },
     {
+      "path": "/api/cron/ehr-appointment-sync",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/ghl-sync",
       "schedule": "*/15 * * * *"
     },
