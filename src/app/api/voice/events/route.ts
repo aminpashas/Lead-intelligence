@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processEncounter, extractFromTranscript } from '@/lib/ai/encounter-processor'
 import { verifyRetellWebhook } from '@/lib/voice/retell-client'
+import { decryptField, searchHash } from '@/lib/encryption'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY || ''
@@ -124,7 +125,6 @@ export async function POST(req: NextRequest) {
         // leads.phone/phone_formatted are encrypted at rest (enc::…), so
         // plaintext equality can never match. phone_hash is the deterministic
         // HMAC computed at write time exactly for this lookup.
-        const { searchHash } = await import('@/lib/encryption')
         const hashes = [...new Set(phoneVariants.map(p => searchHash(p)).filter(Boolean))] as string[]
         const { data: hashLead } = await supabase
           .from('leads').select('id')
@@ -360,7 +360,8 @@ async function sendPostCallFollowUps(
 
   // Send SMS if requested and consent exists
   if (wantsText && lead.sms_consent && !lead.sms_opt_out) {
-    const phone = lead.phone_formatted || lead.phone
+    // Stored values are encrypted — Twilio needs the plaintext E.164.
+    const phone = decryptField(lead.phone_formatted) || decryptField(lead.phone)
     if (phone) {
       try {
         const twilio = await import('twilio')
