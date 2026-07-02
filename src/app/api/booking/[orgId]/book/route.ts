@@ -6,6 +6,7 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment, formatTimeDisplay } from '@/lib/booking/availability'
+import { zonedTimeToUtc } from '@/lib/booking/timezone'
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { escapeHtml } from '@/lib/utils'
@@ -52,7 +53,8 @@ export async function POST(
     .eq('organization_id', orgId)
     .single()
 
-  if (!settings || !settings.is_enabled) {
+  // Public widget requires BOTH the master switch and the public opt-in.
+  if (!settings || !settings.is_enabled || !settings.public_booking_enabled) {
     return NextResponse.json({ error: 'Booking is not available' }, { status: 404 })
   }
 
@@ -111,8 +113,9 @@ export async function POST(
     }, { status: 200 })
   }
 
-  // Verify the slot is still available (atomic check)
-  const scheduledAt = `${slot_date}T${slot_time}:00`
+  // Verify the slot is still available (atomic check). Store the absolute UTC
+  // instant for the practice-local (date, time) — the column is timestamptz.
+  const scheduledAt = zonedTimeToUtc(slot_date, slot_time, settings.timezone).toISOString()
   const now = new Date()
   const futureDate = new Date(now.getTime() + settings.advance_days * 24 * 60 * 60 * 1000)
 
@@ -245,13 +248,13 @@ export async function POST(
     organization_id: orgId,
     lead_id: leadId,
     activity_type: 'appointment_scheduled',
-    title: `Self-booked consultation for ${new Date(scheduledAt).toLocaleDateString()}`,
+    title: `Self-booked consultation for ${new Date(scheduledAt).toLocaleDateString('en-US', { timeZone: settings.timezone })}`,
     metadata: { appointment_id: appointment.id, source: 'booking_page' },
   })
 
   // Send confirmation SMS
   const timeDisplay = formatTimeDisplay(slot_time)
-  const dateDisplay = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  const dateDisplay = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: settings.timezone })
 
   try {
     await sendSMS(phone, `Hi ${first_name}! Your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}. We look forward to seeing you! Reply STOP to opt out.`)

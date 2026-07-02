@@ -19,6 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
+import { zonedTimeToUtc } from '@/lib/booking/timezone'
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
@@ -717,7 +718,9 @@ async function executeCreateBooking(
     }
   }
 
-  const scheduledAt = `${date}T${time}:00`
+  // Store the absolute UTC instant for the practice-local (date, time). The
+  // column is timestamptz, so a naive string would be misread as UTC.
+  const scheduledAt = zonedTimeToUtc(date, time, settings.timezone).toISOString()
 
   // Verify slot is still available
   const now = new Date()
@@ -830,7 +833,7 @@ async function executeCreateBooking(
       .single()
 
     const orgName = org?.name || 'our practice'
-    const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: settings.timezone })
     const displayTime = formatTimeDisplay(time)
 
     if (phone && typeof phone === 'string') {
@@ -889,7 +892,7 @@ async function executeCreateBooking(
     }
   }
 
-  const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: settings.timezone })
 
   return {
     success: true,

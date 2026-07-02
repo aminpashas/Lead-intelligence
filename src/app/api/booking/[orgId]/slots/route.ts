@@ -23,7 +23,8 @@ export async function GET(
     .eq('organization_id', orgId)
     .single()
 
-  if (!settings || !settings.is_enabled) {
+  // Public widget requires BOTH the master switch and the public opt-in.
+  if (!settings || !settings.is_enabled || !settings.public_booking_enabled) {
     return NextResponse.json({ error: 'Booking is not available' }, { status: 404 })
   }
 
