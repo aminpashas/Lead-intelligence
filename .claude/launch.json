@@ -8,6 +8,12 @@
       "port": 3002
     },
     {
+      "name": "case-closing-worktree",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "export PATH=/usr/local/bin:$PATH && cd /Users/aminsamadian/Lead\\ Intelligence/.claude/worktrees/case-closing && exec /usr/local/bin/node node_modules/.bin/next dev -p 3007"],
+      "port": 3007
+    },
+    {
       "name": "lead-crm-aurea",
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": ["-c", "export PATH=/usr/local/bin:$PATH && cd /Users/aminsamadian/Lead\\ Intelligence && exec /usr/local/bin/node node_modules/.bin/next dev -p 3005"],

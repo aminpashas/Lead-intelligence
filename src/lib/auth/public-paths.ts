@@ -19,6 +19,8 @@ export const PUBLIC_PREFIXES = [
   '/book',
   '/all-on-4',
   '/contract/',
+  '/case/',   // patient treatment-plan portal (share-token gated in the API)
+  '/preop/',  // patient pre-op instructions portal (share-token gated)
   '/api/contracts/patient',
   '/api/consent',
   '/api/booking',
