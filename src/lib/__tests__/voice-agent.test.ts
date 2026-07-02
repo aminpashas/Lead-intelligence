@@ -41,7 +41,7 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }))
 
-import { processVoiceTranscript, isVoiceCallEnding, VOICE_CHANNEL_INSTRUCTIONS, type VoiceAgentContext } from '@/lib/voice/voice-agent'
+import { processVoiceTranscript, isVoiceCallEnding, isUserEndingCall, VOICE_CHANNEL_INSTRUCTIONS, type VoiceAgentContext } from '@/lib/voice/voice-agent'
 import { buildCurrentDateBlock } from '@/lib/ai/datetime-context'
 import { routeToAgent } from '@/lib/ai/agent-handoff'
 import { detectStopWord } from '@/lib/autopilot/config'
@@ -388,7 +388,7 @@ describe('VOICE_CHANNEL_INSTRUCTIONS', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════
-// isVoiceCallEnding — hang-up detection
+// isVoiceCallEnding — agent-side hang-up detection
 // ═══════════════════════════════════════════════════════════════
 
 describe('isVoiceCallEnding', () => {
@@ -404,7 +404,6 @@ describe('isVoiceCallEnding', () => {
 
   it('does NOT end when the message still asks a question', () => {
     expect(isVoiceCallEnding('Thanks for calling — how can I help you today?', 'greeted')).toBe(false)
-    // Even a farewell phrase followed by a question keeps the line open.
     expect(isVoiceCallEnding('Take care of that tooth! Does Tuesday work for you?', 'attempted_scheduling')).toBe(false)
   })
 
@@ -415,6 +414,27 @@ describe('isVoiceCallEnding', () => {
 
   it('never ends when escalating to a human (transfer, not hang-up)', () => {
     expect(isVoiceCallEnding('Let me connect you with someone. Take care.', 'escalated_to_human')).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
+// isUserEndingCall — caller-side hang-up (fixes the "hi after bye" loop)
+// ═══════════════════════════════════════════════════════════════
+
+describe('isUserEndingCall', () => {
+  it('ends when the caller clearly signs off', () => {
+    expect(isUserEndingCall('ok thanks, bye')).toBe(true)
+    expect(isUserEndingCall('Goodbye')).toBe(true)
+    expect(isUserEndingCall("that's all I needed, thank you so much")).toBe(true)
+    expect(isUserEndingCall('gotta go')).toBe(true)
+    expect(isUserEndingCall("no thanks, I'm all set")).toBe(true)
+  })
+
+  it('does NOT end when the caller is still engaged', () => {
+    expect(isUserEndingCall('what times do you have on Tuesday?')).toBe(false)
+    expect(isUserEndingCall('maybe next week could work')).toBe(false) // "maybe" must not trip "bye"
+    expect(isUserEndingCall('thanks for explaining, that makes sense — can you tell me about the cost?')).toBe(false)
+    expect(isUserEndingCall('')).toBe(false)
   })
 })
 

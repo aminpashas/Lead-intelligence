@@ -377,6 +377,10 @@ export async function setterAgentRespond(
     .eq('organization_id', context.organization_id)
     .maybeSingle()
 
+  // Ground the agent in today's real date (practice timezone) so it stops
+  // guessing days and never offers a date that already passed.
+  const dateBlock = buildCurrentDateBlock(bs?.timezone as string | null | undefined)
+
   const discoveryBlock = buildDiscoveryPromptBlock({
     script: bs?.discovery_script as string | null | undefined,
     priceRange: bs?.consult_price_range_text as string | null | undefined,
@@ -393,8 +397,6 @@ export async function setterAgentRespond(
     discoveryComplete: isDiscoveryComplete(qualStatus),
     hasRealFinancingData,
   })
-
-  const dateBlock = buildCurrentDateBlock(bs?.timezone as string | null | undefined)
 
   const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 

@@ -614,6 +614,10 @@ export async function closerAgentRespond(
     buildAgencyRulesBlock(supabase),
   ])
 
+  // Ground the closer in today's real date (practice timezone) — it books
+  // follow-ups and talks timelines constantly, and must not guess the day.
+  const dateBlock = buildCurrentDateBlock(bookingSettings.data?.timezone as string | null | undefined)
+
   // Pricing integrity: the closer is post-consult (discovery IS complete), but it
   // must still never invent figures. It may cite real financing numbers when this
   // lead has them, else fall back to the practice's configured range.
@@ -625,8 +629,6 @@ export async function closerAgentRespond(
     discoveryComplete: true,
     hasRealFinancingData,
   })
-
-  const dateBlock = buildCurrentDateBlock(bookingSettings.data?.timezone as string | null | undefined)
 
   const systemPrompt = [composedPrompt, dateBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 

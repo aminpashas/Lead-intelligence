@@ -374,7 +374,7 @@ export function isUserEndingCall(userMessage: string): boolean {
   ]
   if (hardSignoffs.some((p) => text.includes(p))) return true
 
-  // "bye" / "byebye" as a standalone word (not inside "maybe", "goodbye" handled above).
+  // "bye" / "byebye" as a standalone word (not inside "maybe"; "goodbye" handled above).
   if (/\b(bye|byebye)\b/.test(text)) return true
 
   // Short, clearly-terminal acknowledgements: "ok thanks", "no thanks", "that's it",
