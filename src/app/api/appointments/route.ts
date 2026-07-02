@@ -4,7 +4,7 @@ import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
-import { decryptField } from '@/lib/encryption'
+import { decryptField, decryptLeadPII } from '@/lib/encryption'
 import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
 import { seedPostConsultNurture } from '@/lib/campaigns/post-consult-nurture'
 import { z } from 'zod'
@@ -65,7 +65,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ appointments: data })
+  // Lead PII is stored encrypted (enc::…) — decrypt before it reaches the UI.
+  const appointments = (data || []).map((apt) => ({
+    ...apt,
+    lead: apt.lead ? decryptLeadPII(apt.lead as Record<string, unknown>) : apt.lead,
+  }))
+
+  return NextResponse.json({ appointments })
 }
 
 // POST /api/appointments
