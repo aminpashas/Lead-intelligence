@@ -51,12 +51,28 @@ const SUGGESTIONS = [
   'Email leads interested in All-on-4 about our open slots',
 ]
 
-export function CommandCenter({ userName }: { userName: string }) {
+export function CommandCenter({
+  userName,
+  initialMessage,
+}: {
+  userName: string
+  /** When set, sent as the first user message on mount (the dashboard ask bar hands off here). */
+  initialMessage?: string
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const sentInitial = useRef(false)
+
+  useEffect(() => {
+    if (initialMessage && !sentInitial.current) {
+      sentInitial.current = true
+      send(initialMessage)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
