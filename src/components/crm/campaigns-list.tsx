@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Megaphone, Plus, Mail, MessageSquare, Play, Pause, Zap, Loader2,
-  BarChart3, ListFilter, TrendingUp, ArrowRight,
+  BarChart3, ListFilter, TrendingUp, ArrowRight, LayoutGrid, List,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignBuilder } from './campaign-builder'
@@ -36,7 +36,20 @@ export function CampaignsList({ campaigns: initial, initialSmartListId }: { camp
   const [toggling, setToggling] = useState<string | null>(null)
   const [viewingAnalytics, setViewingAnalytics] = useState<string | null>(null)
   const [viewingPerformance, setViewingPerformance] = useState(false)
+  const [templateView, setTemplateView] = useState<'card' | 'list'>('card')
   const router = useRouter()
+
+  // Read after mount — the server render can't know the saved preference,
+  // and reading localStorage in the initializer would mismatch hydration.
+  useEffect(() => {
+    const saved = localStorage.getItem('campaigns:template-view')
+    if (saved === 'list') setTemplateView('list')
+  }, [])
+
+  function switchTemplateView(view: 'card' | 'list') {
+    setTemplateView(view)
+    localStorage.setItem('campaigns:template-view', view)
+  }
 
   async function deployTemplate(templateId: string) {
     const template = CAMPAIGN_TEMPLATES.find((t) => t.id === templateId)
@@ -139,11 +152,89 @@ export function CampaignsList({ campaigns: initial, initialSmartListId }: { camp
             <p className="aurea-eyebrow mb-2">Playbooks</p>
             <h2 className="aurea-display text-[22px] text-aurea-ink">One-click templates</h2>
           </div>
-          <p className="hidden text-[12px] text-aurea-ink-3 sm:block">
-            {CAMPAIGN_TEMPLATES.length} proven sequences · customize after deploy
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="hidden text-[12px] text-aurea-ink-3 sm:block">
+              {CAMPAIGN_TEMPLATES.length} proven sequences · customize after deploy
+            </p>
+            <div className="flex items-center rounded-md ring-1 ring-inset ring-aurea-border">
+              <button
+                onClick={() => switchTemplateView('card')}
+                aria-label="Card view"
+                aria-pressed={templateView === 'card'}
+                className={`flex h-8 w-8 items-center justify-center rounded-l-md transition-colors ${
+                  templateView === 'card'
+                    ? 'bg-aurea-surface-2 text-aurea-ink'
+                    : 'text-aurea-ink-3 hover:text-aurea-ink'
+                }`}
+              >
+                <LayoutGrid className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+              <button
+                onClick={() => switchTemplateView('list')}
+                aria-label="List view"
+                aria-pressed={templateView === 'list'}
+                className={`flex h-8 w-8 items-center justify-center rounded-r-md border-l border-aurea-border transition-colors ${
+                  templateView === 'list'
+                    ? 'bg-aurea-surface-2 text-aurea-ink'
+                    : 'text-aurea-ink-3 hover:text-aurea-ink'
+                }`}
+              >
+                <List className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+            </div>
+          </div>
         </div>
 
+        {templateView === 'list' ? (
+          <div className="aurea-card mt-5 overflow-hidden">
+            {CAMPAIGN_TEMPLATES.map((template, i) => {
+              const { Icon, label } = channelMeta(template.channel)
+              const isDeploying = deploying === template.id
+              return (
+                <div
+                  key={template.id}
+                  className="group flex items-center justify-between gap-4 border-b border-aurea-border px-5 py-4 last:border-0"
+                >
+                  <div className="flex min-w-0 items-center gap-3.5">
+                    <span className="hidden w-8 shrink-0 font-mono text-[11px] tabular-nums text-aurea-ink-3 sm:block">
+                      /{String(i + 1).padStart(2, '0')}
+                    </span>
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 ring-1 ring-aurea-border">
+                      <Icon className="h-4 w-4 text-aurea-ink-2" strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2.5">
+                        <p className="truncate text-[14px] font-medium text-aurea-ink">{template.name}</p>
+                        <span className="hidden shrink-0 text-[10.5px] uppercase tracking-[0.14em] text-aurea-ink-3 md:inline">
+                          {label}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 truncate text-[12px] text-aurea-ink-3">{template.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-4">
+                    <p className="hidden font-mono text-[12.5px] tabular-nums text-aurea-ink sm:block">
+                      {template.steps.length} <span className="text-aurea-ink-3">steps</span>
+                    </p>
+                    <button
+                      onClick={() => deployTemplate(template.id)}
+                      disabled={isDeploying}
+                      className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink disabled:opacity-60"
+                    >
+                      {isDeploying ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+                      )}
+                      {isDeploying ? 'Deploying…' : 'Deploy'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {CAMPAIGN_TEMPLATES.map((template, i) => {
             const { Icon, label } = channelMeta(template.channel)
@@ -193,6 +284,7 @@ export function CampaignsList({ campaigns: initial, initialSmartListId }: { camp
             )
           })}
         </div>
+        )}
       </section>
 
       {/* ── Existing campaigns ─────────────────────────────── */}
