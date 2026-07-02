@@ -88,7 +88,9 @@ export async function ensureCareStackPatient(
   //    stubbed one (staff completes it at the visit); gender 4 is a real CareStack value.
   let isNew = false
   if (!patientId) {
-    const dob = (lead.dob as string | undefined) || '1900-01-01'
+    // DOB is captured at intake (leads.date_of_birth). Stub only as a last resort
+    // for legacy leads with no DOB — staff completes it at the visit.
+    const dob = (lead.date_of_birth as string | undefined) || '1900-01-01'
     const created = await createCsPatient(config, {
       firstName,
       lastName,
