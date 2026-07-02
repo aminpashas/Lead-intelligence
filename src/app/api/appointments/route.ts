@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
+import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { decryptField } from '@/lib/encryption'
 import { z } from 'zod'
@@ -241,6 +242,14 @@ export async function PATCH(request: NextRequest) {
 
   if (error || !appointment) {
     return NextResponse.json({ error: error?.message || 'Not found' }, { status: error ? 500 : 404 })
+  }
+
+  // EHR sync: propagate staff cancels / no-shows to the Dion Clinical bus (fire-and-forget).
+  if (status === 'canceled' || status === 'no_show') {
+    void syncAppointmentToEhr(supabase, appointment_id, {
+      action: 'cancel',
+      reasonCode: status === 'no_show' ? 'no-show' : 'patient-cancel',
+    })
   }
 
   // If marking as no-show, increment the lead's no_show_count
