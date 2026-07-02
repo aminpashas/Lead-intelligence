@@ -94,8 +94,14 @@ export async function processTriggerCampaigns(
     if (channel === 'sms' && !lead.phone_formatted) continue
     if (channel === 'email' && !lead.email) continue
 
-    // Enroll
-    const firstStepDelay = campaign.steps?.[0]?.delay_minutes ?? 0
+    // Enroll — PostgREST doesn't guarantee nested-array order, so find the real
+    // first step; steps?.[0] could otherwise schedule step 3's delay for step 1.
+    const firstStep = (campaign.steps || []).reduce(
+      (min: { step_number: number; delay_minutes: number } | null, s: { step_number: number; delay_minutes: number }) =>
+        !min || s.step_number < min.step_number ? s : min,
+      null
+    )
+    const firstStepDelay = firstStep?.delay_minutes ?? 0
     const nextStepAt = new Date(Date.now() + firstStepDelay * 60 * 1000).toISOString()
 
     if (existing) {
