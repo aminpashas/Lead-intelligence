@@ -30,6 +30,7 @@ import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
 import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
 import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/treatment/treatment-closing'
+import { escapeHtml } from '@/lib/utils'
 import { executeStageTransition } from '@/lib/funnel/executor'
 import { ensureContractDraftForCase } from '@/lib/contracts/orchestrator'
 import type { LeadStatus } from '@/types/database'
@@ -807,12 +808,17 @@ async function executeCreateBooking(
     'AI agent created appointment booking during conversation',
   )
 
-  // Send confirmation SMS if patient has phone
+  // Send confirmation SMS + email. Both are transactional confirmations of an
+  // appointment the patient just agreed to: SMS consent is enforced inside
+  // sendSMSToLead; email is sent unless the patient has opted out.
   const phone = context.lead.phone_formatted
     ? (decryptField(context.lead.phone_formatted as string) || context.lead.phone_formatted)
     : null
+  const email = context.lead.email
+    ? (decryptField(context.lead.email as string) || context.lead.email as string)
+    : null
 
-  if (phone && typeof phone === 'string') {
+  if ((phone && typeof phone === 'string') || (email && typeof email === 'string')) {
     const { data: org } = await supabase
       .from('organizations')
       .select('name')
@@ -823,22 +829,58 @@ async function executeCreateBooking(
     const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
     const displayTime = formatTimeDisplay(time)
 
-    sendSMSToLead({
-      supabase,
-      leadId: context.lead_id,
-      to: phone,
-      body: `✅ Confirmed! Your consultation at ${orgName} is booked for ${displayDate} at ${displayTime}. We look forward to seeing you!`,
-      caller: 'autopilot.book_appointment',
-    }).catch(() => { /* Non-critical; consent denial is handled inside the gate */ })
-
-    // No-show fee: text a card-on-file link (charged only on a no-show).
-    if (settings.no_show_fee_enabled) {
-      await sendCardCaptureLink(supabase, context.organization_id, {
-        appointmentId: appointment!.id,
+    if (phone && typeof phone === 'string') {
+      sendSMSToLead({
+        supabase,
         leadId: context.lead_id,
-        feeCents: settings.no_show_fee_cents ?? 5000,
-        phone,
-        orgName,
+        to: phone,
+        body: `✅ Confirmed! Your consultation at ${orgName} is booked for ${displayDate} at ${displayTime}. We look forward to seeing you!`,
+        caller: 'autopilot.book_appointment',
+      }).catch(() => { /* Non-critical; consent denial is handled inside the gate */ })
+
+      // No-show fee: text a card-on-file link (charged only on a no-show).
+      if (settings.no_show_fee_enabled) {
+        await sendCardCaptureLink(supabase, context.organization_id, {
+          appointmentId: appointment!.id,
+          leadId: context.lead_id,
+          feeCents: settings.no_show_fee_cents ?? 5000,
+          phone,
+          orgName,
+        })
+      }
+    }
+
+    if (email && typeof email === 'string' && !context.lead.email_opt_out) {
+      const firstName = (context.lead.first_name as string) || 'there'
+      sendEmail({
+        to: email,
+        subject: `Consultation Confirmed — ${escapeHtml(orgName)}`,
+        html: `
+          <div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+            <h2 style="color: #111;">Your Consultation is Confirmed!</h2>
+            <p>Hi ${escapeHtml(firstName)},</p>
+            <p>You're all set for your consultation at <strong>${escapeHtml(orgName)}</strong>.</p>
+            <div style="background: #f9f9f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 4px 0;"><strong>Date:</strong> ${escapeHtml(displayDate)}</p>
+              <p style="margin: 4px 0;"><strong>Time:</strong> ${escapeHtml(displayTime)}</p>
+              <p style="margin: 4px 0;"><strong>Duration:</strong> ${settings.slot_duration_minutes} minutes</p>
+              ${settings.location ? `<p style="margin: 4px 0;"><strong>Location:</strong> ${escapeHtml(settings.location)}</p>` : ''}
+            </div>
+            <p>${escapeHtml(settings.booking_message || 'We look forward to seeing you!')}</p>
+            <p style="color: #666; font-size: 12px; margin-top: 24px;">
+              Need to reschedule? Reply to this email or call us.
+            </p>
+          </div>
+        `,
+        text: `Hi ${firstName}, your consultation at ${orgName} is confirmed for ${displayDate} at ${displayTime}. ${settings.location ? `Location: ${settings.location}. ` : ''}We look forward to seeing you!`,
+      }).catch(async (err) => {
+        await supabase.from('lead_activities').insert({
+          organization_id: context.organization_id,
+          lead_id: context.lead_id,
+          activity_type: 'notification_failed',
+          title: 'Booking confirmation email failed',
+          metadata: { error: err instanceof Error ? err.message : 'unknown', channel: 'email', appointment_id: appointment!.id },
+        })
       })
     }
   }
