@@ -52,6 +52,10 @@ const ENV_VARS: EnvVar[] = [
 
   // Connectors — Slack
   { key: 'SLACK_WEBHOOK_URL', required: false, description: 'Slack Incoming Webhook URL' },
+
+  // Sibling bridge — Dion Clinical (EMR event bus)
+  { key: 'DION_CLINICAL_URL', required: false, description: 'Dion Clinical base URL for appointment.* bus events' },
+  { key: 'DION_BUS_SECRET', required: false, description: 'Shared x-forward-secret; must equal Dion Clinical DION_BUS_SECRET' },
 ]
 
 export type EnvValidationResult = {
