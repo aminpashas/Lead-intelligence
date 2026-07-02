@@ -57,6 +57,7 @@ export async function ensureCareStackPatient(
   config: CareStackConfig,
   orgId: string,
   lead: LeadRow,
+  defaultLocationId: string | number,
 ): Promise<{ patientId: string; isNew: boolean }> {
   // 1. Existing mapping for this lead?
   const { data: mapped } = await supabase
@@ -71,27 +72,33 @@ export async function ensureCareStackPatient(
 
   const { firstName, lastName, email, phone } = leadPii(lead)
 
-  // 2. Search CareStack by email.
+  // 2. Search CareStack by email (verified: { email } returns 200 + filters).
   let patientId: string | null = null
   if (email) {
     try {
-      const results = await searchCsPatients(config, { email, limit: 5 })
-      if (Array.isArray(results) && results.length > 0) patientId = String(results[0].id)
+      const results = await searchCsPatients(config, { email })
+      if (Array.isArray(results) && results.length > 0) patientId = String(results[0].id ?? results[0].patientId)
     } catch {
       // fall through to create
     }
   }
 
-  // 3. Create if still unresolved.
+  // 3. Create if still unresolved. Field names verified live (dob / gender:4=Not Set
+  //    / defaultLocationId / mobile). LI leads rarely carry a DOB — send a clearly-
+  //    stubbed one (staff completes it at the visit); gender 4 is a real CareStack value.
   let isNew = false
   if (!patientId) {
+    const dob = (lead.dob as string | undefined) || '1900-01-01'
     const created = await createCsPatient(config, {
       firstName,
       lastName,
-      email: email ?? undefined,
-      mobileNumber: phone ?? undefined,
+      dob,
+      gender: 4,
+      defaultLocationId,
+      ...(email ? { email } : {}),
+      ...(phone ? { mobile: phone } : {}),
     })
-    patientId = String(created.id)
+    patientId = String(created.id ?? created.patientId)
     isNew = true
   }
 
@@ -135,11 +142,12 @@ export async function pushAppointmentToCareStack(
   args: { appointment: AppointmentRow; lead: LeadRow; settings: CareStackBookingDefaults },
 ): Promise<string> {
   const { appointment, lead, settings } = args
-  const { patientId, isNew } = await ensureCareStackPatient(supabase, config, appointment.organization_id, lead)
+  // Resolve the location first — patient-create needs it as defaultLocationId.
   const [locationId, providerId] = await Promise.all([
     resolveLocationId(config, settings),
     resolveProviderId(config, settings),
   ])
+  const { patientId, isNew } = await ensureCareStackPatient(supabase, config, appointment.organization_id, lead, locationId)
 
   const start = new Date(appointment.scheduled_at)
   const duration = appointment.duration_minutes ?? 60
