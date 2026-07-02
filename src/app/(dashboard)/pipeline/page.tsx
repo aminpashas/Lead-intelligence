@@ -29,7 +29,7 @@ export default async function PipelinePage() {
     .order('ai_score', { ascending: false })
 
   // Per-lead close probability + suggested stage moves (pure, in-process).
-  // Decrypt PII before it reaches the client board (cards render phone/email).
+  // PII is encrypted at rest — decrypt server-side before rendering.
   const allLeads = decryptLeadsPII(leads || [])
   const allStages = stages || []
   const nowMs = Date.now()

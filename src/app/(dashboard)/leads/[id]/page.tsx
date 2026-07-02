@@ -14,7 +14,7 @@ export default async function LeadDetailPage({
   const supabase = await createClient()
 
   // Fetch lead with relations
-  const { data: lead } = await supabase
+  const { data: leadRow } = await supabase
     .from('leads')
     .select(`
       *,
@@ -25,12 +25,10 @@ export default async function LeadDetailPage({
     .eq('id', id)
     .single()
 
-  if (!lead) notFound()
+  if (!leadRow) notFound()
 
-  // PII columns are AES-encrypted at rest (`enc::…`); decrypt server-side so
-  // the UI never renders ciphertext. API routes already do this — server
-  // components that query Supabase directly must too.
-  const decryptedLead = decryptLeadPII(lead)
+  // PII is encrypted at rest — decrypt server-side before rendering.
+  const lead = decryptLeadPII(leadRow)
 
   // Fetch activities
   const { data: activities } = await supabase
@@ -102,7 +100,7 @@ export default async function LeadDetailPage({
 
   return (
     <LeadDetail
-      lead={decryptedLead}
+      lead={lead}
       activities={activities || []}
       conversations={conversations || []}
       timeline={timeline}
