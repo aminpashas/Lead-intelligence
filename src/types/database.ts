@@ -779,6 +779,91 @@ export type AgencyAiRule = {
   source: string
   created_by: string | null
   created_at: string
+  // Review lifecycle for auto-learned rules (null for human-authored rules,
+  // which are implicitly approved).
+  review_status: 'pending' | 'approved' | 'rejected' | 'retire_flagged' | 'retired' | null
+  evidence: AgencyRuleEvidence | null
+  approved_by: string | null
+  approved_at: string | null
+  enabled_at: string | null
+  retired_at: string | null
+  retirement_reason: string | null
+  performance: AgencyRulePerformance | null
+}
+
+/** Why an auto-learned candidate rule exists: the code-computed finding plus
+ *  real (scrubbed) example exchanges from winning journeys. */
+export type AgencyRuleEvidence = {
+  finding_key: string
+  headline: string
+  detail: string
+  stats: Record<string, number>
+  examples: string[]
+}
+
+/** Before/after cohort comparison for a live auto-learned rule. */
+export type AgencyRulePerformance = {
+  before: { n: number; rate: number }
+  after: { n: number; rate: number }
+  z: number
+  computed_at: string
+}
+
+// ── Outcome-Driven Learning Loop ────────────────────────────────
+
+export type LearningOutcome = 'booked' | 'showed' | 'no_show' | 'contract_signed' | 'lost'
+
+/** One step of a lead's communication journey (body truncated + scrubbed). */
+export type LearningJourneyEntry = {
+  at: string
+  role: 'patient' | 'staff' | 'ai'
+  channel: string
+  body: string
+  rule_set_version?: string
+}
+
+/** Code-computed features of a journey, used for cohort contrasts. */
+export type LearningJourneyStats = {
+  inbound_count: number
+  outbound_count: number
+  ai_outbound_count: number
+  ai_share: number
+  first_response_minutes: number | null
+  median_response_minutes: number | null
+  days_span: number
+  techniques_used: string[]
+  rule_set_versions: string[]
+  engagement_first: number | null
+  engagement_last: number | null
+}
+
+/** A labeled full-journey record: everything that was said to a lead, plus the
+ *  real outcome. The training corpus for the weekly distillation pass. */
+export type LearningEpisode = {
+  id: string
+  organization_id: string
+  lead_id: string
+  outcome: LearningOutcome
+  outcome_at: string
+  outcome_ref: string
+  journey: LearningJourneyEntry[]
+  journey_stats: LearningJourneyStats
+  message_count: number
+  created_at: string
+}
+
+/** Audit row for one distillation pass. */
+export type LearningRun = {
+  id: string
+  kind: string
+  episode_count: number
+  technique_rows: number
+  findings: unknown[]
+  candidates_created: number
+  rules_flagged: number
+  error: string | null
+  duration_ms: number | null
+  created_at: string
 }
 
 export type SmsTrainingMode = 'roleplay' | 'dry_run'
