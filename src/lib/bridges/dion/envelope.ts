@@ -57,10 +57,12 @@ export function dionEvent<TType extends string, TData extends z.ZodTypeAny>(
 export function newEnvelopeMeta(
   source: DionProduct,
   dionPracticeId: string | null,
-  extras?: { idempotencyKey?: string; traceId?: string },
+  extras?: { id?: string; idempotencyKey?: string; traceId?: string },
 ): DionEnvelope {
   return {
-    id: crypto.randomUUID(),
+    // A stable, caller-supplied id makes retries idempotent (the receiver dedupes
+    // on envelope id); fall back to a random uuid for one-shot events.
+    id: extras?.id ?? crypto.randomUUID(),
     envelopeVersion: 1,
     source,
     occurredAt: new Date().toISOString(),

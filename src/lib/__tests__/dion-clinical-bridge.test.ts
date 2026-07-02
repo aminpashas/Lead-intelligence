@@ -110,6 +110,18 @@ describe('Dion Clinical bridge', () => {
     expect(mock).not.toHaveBeenCalled()
   })
 
+  it('uses a deterministic envelope id per (appointmentId, type) so retries dedupe', async () => {
+    configureBridge()
+    const { calls } = installFetchMock(200)
+    await emitAppointmentBooked({ appointmentId: 'a1', startsAt: '2026-07-10T15:00:00Z' })
+    await emitAppointmentBooked({ appointmentId: 'a1', startsAt: '2026-07-10T15:00:00Z' })
+    await emitAppointmentBooked({ appointmentId: 'a2', startsAt: '2026-07-10T15:00:00Z' })
+    const [id1, id2, id3] = calls.map((c) => bodyOf(c).id)
+    expect(id1).toBe(id2) // same appointment + type → same id
+    expect(id1).not.toBe(id3) // different appointment → different id
+    expect(id1).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  })
+
   it('vendored schema rejects a malformed event', () => {
     const bad = { type: 'appointment.booked', source: 'lead-intelligence', envelopeVersion: 1, id: 'x', occurredAt: 'x', dionPracticeId: null, data: { dionPatientId: null } }
     expect(dionAppointmentSchema.safeParse(bad).success).toBe(false)

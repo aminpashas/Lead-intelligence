@@ -9,6 +9,7 @@ import { generateAvailableSlots, type BookingConfig, type ExistingAppointment, f
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { escapeHtml } from '@/lib/utils'
+import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 
 const bookingSchema = z.object({
   slot_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -233,6 +234,9 @@ export async function POST(
   if (!appointment) {
     return NextResponse.json({ error: 'Failed to create appointment' }, { status: 500 })
   }
+
+  // Fire-and-forget: push to CareStack + Dion Clinical + Slack. Never blocks the booking.
+  void syncAppointmentToEhr(supabase, appointment.id, { action: 'book' })
 
   // Log activity
   await supabase.from('lead_activities').insert({

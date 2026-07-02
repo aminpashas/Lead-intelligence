@@ -15,10 +15,22 @@
  *   DION_CLINICAL_URL — e.g. https://dion-clinical-xxxx.vercel.app
  *   DION_BUS_SECRET   — shared secret; MUST equal Dion Clinical's DION_BUS_SECRET
  */
+import { createHash } from 'node:crypto'
 import { newEnvelopeMeta } from './dion/envelope'
 import { dionAppointmentSchema, type DionAppointmentEvent } from './dion/appointment'
 
 const SOURCE = 'lead-intelligence' as const
+
+/**
+ * Deterministic UUID (v5-style over SHA-1) from a seed. Using this as the envelope
+ * id means a retry of the same logical event carries the same id, so Dion Clinical
+ * (which dedupes on envelope id) records it once instead of duplicating the chart entry.
+ */
+function stableUuid(seed: string): string {
+  const h = createHash('sha1').update(seed).digest('hex')
+  const variant = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16)
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`
+}
 
 export type DionEmitResult = {
   ok: boolean
@@ -84,6 +96,7 @@ export function emitAppointmentRequested(p: {
 }): Promise<DionEmitResult> {
   return emit({
     ...newEnvelopeMeta(SOURCE, p.dionPracticeId ?? null, {
+      id: stableUuid(`${p.appointmentId}:appointment.requested`),
       idempotencyKey: `${p.appointmentId}:appointment.requested`,
     }),
     type: 'appointment.requested',
@@ -103,6 +116,7 @@ export function emitAppointmentBooked(p: {
   }
   return emit({
     ...newEnvelopeMeta(SOURCE, p.dionPracticeId ?? null, {
+      id: stableUuid(`${p.appointmentId}:appointment.booked`),
       idempotencyKey: `${p.appointmentId}:appointment.booked`,
     }),
     type: 'appointment.booked',
@@ -117,6 +131,7 @@ export function emitAppointmentCancelled(p: {
 }): Promise<DionEmitResult> {
   return emit({
     ...newEnvelopeMeta(SOURCE, p.dionPracticeId ?? null, {
+      id: stableUuid(`${p.appointmentId}:appointment.cancelled`),
       idempotencyKey: `${p.appointmentId}:appointment.cancelled`,
     }),
     type: 'appointment.cancelled',

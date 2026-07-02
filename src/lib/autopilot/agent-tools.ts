@@ -19,6 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
+import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { encryptLeadPII } from '@/lib/encryption'
@@ -772,6 +773,9 @@ async function executeCreateBooking(
     }
     return { success: false, data: {}, message: 'Failed to create the booking. Please try again or have the patient call to schedule.' }
   }
+
+  // Fire-and-forget: push to CareStack + Dion Clinical + Slack. Never blocks the AI turn.
+  void syncAppointmentToEhr(supabase, appointment!.id, { action: 'book' })
 
   // Update lead status
   await supabase
