@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  isPreConsultStatus,
   mapEhrEventToStageEvent,
   resolveStageForEvent,
   type AppointmentStageEvent,
@@ -95,5 +96,34 @@ describe('mapEhrEventToStageEvent', () => {
   it('returns null when neither trigger nor status classifies the event', () => {
     expect(mapEhrEventToStageEvent('Status', undefined)).toBeNull()
     expect(mapEhrEventToStageEvent('Updated', 'SomethingElse')).toBeNull()
+  })
+})
+
+describe('isPreConsultStatus', () => {
+  it('pre-consult statuses are true', () => {
+    for (const s of ['new', 'contacted', 'qualified', 'no_show', 'unresponsive', 'dormant']) {
+      expect(isPreConsultStatus(s), s).toBe(true)
+    }
+  })
+
+  it("consultation_scheduled is pre-consult (the consult hasn't happened yet — scheduled → no_show is legal)", () => {
+    expect(isPreConsultStatus('consultation_scheduled')).toBe(true)
+  })
+
+  it('statuses at or past a completed consult are false — webhook automation must never regress them', () => {
+    for (const s of [
+      'consultation_completed',
+      'treatment_presented',
+      'financing',
+      'contract_sent',
+      'contract_signed',
+      'scheduled',
+      'in_treatment',
+      'completed',
+      'lost',
+      'disqualified',
+    ]) {
+      expect(isPreConsultStatus(s), s).toBe(false)
+    }
   })
 })

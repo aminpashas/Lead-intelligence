@@ -25,7 +25,8 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { upsertCareStackPatient } from '@/lib/ehr/carestack/match'
-import { mapEhrEventToStageEvent, moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
+import { isPreConsultStatus, mapEhrEventToStageEvent, moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
+import { exitAllCampaigns } from '@/lib/campaigns/enrollments'
 import { logger } from '@/lib/logger'
 
 type CareStackEvent = {
@@ -221,6 +222,63 @@ async function handleAppointmentEvent(
     const stageEvent = mapEhrEventToStageEvent(trigger, typeof rawStatus === 'string' ? rawStatus : null)
     if (stageEvent) {
       void moveLeadStageForAppointmentEvent(supabase, { orgId: organizationId, leadId, event: stageEvent })
+
+      // Mirror the LI-side booking/no-show status effects so EHR-originated events
+      // don't leave leads.status / no_show_count stale (recovery-campaign exit
+      // conditions and the risk engine's priorNoShows both read them). Guard
+      // rationale (matches the Cal.com webhook): never regress a lead already
+      // past consult — an EHR appointment event says nothing about pipeline
+      // progress after the consult happened. All best-effort, never throws.
+      if (stageEvent === 'booked') {
+        const { data: lead } = await supabase
+          .from('leads')
+          .select('id, status')
+          .eq('id', leadId)
+          .eq('organization_id', organizationId)
+          .maybeSingle()
+        if (lead && lead.status !== 'consultation_scheduled' && isPreConsultStatus(lead.status as string)) {
+          await supabase
+            .from('leads')
+            .update({
+              status: 'consultation_scheduled',
+              ...(typeof newApt.DateTime === 'string' ? { consultation_date: newApt.DateTime } : {}),
+            })
+            .eq('id', leadId)
+        }
+        // Booking is the desired outcome — end active nurture/recovery enrollments
+        // (e.g. No-Show Recovery) immediately instead of waiting for the campaign
+        // executor's send-time status check. Same helper the Cal.com webhook uses.
+        await exitAllCampaigns(supabase, leadId, 'Booked consultation via CareStack').catch(() => {})
+      } else if (stageEvent === 'no_show' && existing) {
+        // Idempotency against replays/duplicate Status pushes: only transition an
+        // appointment that is still open.
+        if (existing.status !== 'no_show' && existing.status !== 'completed' && existing.status !== 'canceled') {
+          await supabase.from('appointments').update({ status: 'no_show' }).eq('id', existing.id)
+          // Risk history: EHR-recorded no-shows must feed priorNoShows + analytics.
+          const { data: lead } = await supabase
+            .from('leads')
+            .select('id, status, no_show_count')
+            .eq('id', leadId)
+            .eq('organization_id', organizationId)
+            .maybeSingle()
+          if (lead) {
+            await supabase
+              .from('leads')
+              .update({
+                no_show_count: ((lead.no_show_count as number | null) ?? 0) + 1,
+                // Same guard: only pre-consult leads get status regressed to no_show.
+                ...(isPreConsultStatus(lead.status as string) ? { status: 'no_show' } : {}),
+              })
+              .eq('id', leadId)
+          }
+          // NOTE: recovery-campaign enrollment on the webhook path is deliberately
+          // deferred (per plan) — the LI-side no-show flows own enrollment today.
+        }
+      } else if (stageEvent === 'canceled' && existing) {
+        if (existing.status === 'scheduled' || existing.status === 'confirmed') {
+          await supabase.from('appointments').update({ status: 'canceled' }).eq('id', existing.id)
+        }
+      }
     } else if (trigger === 'Status') {
       // Undocumented webhook contract: if Status arrives as a numeric ID (like the
       // Sync API) instead of text, mapping silently yields null — make that visible.

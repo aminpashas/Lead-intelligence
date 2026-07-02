@@ -43,6 +43,35 @@ export function resolveStageForEvent(
 }
 
 /**
+ * Lead statuses AT or PAST a completed consult. Webhook automations must never
+ * regress a lead that has already progressed beyond consultation — an EHR event
+ * (rebook, no-show record) says nothing about the sales pipeline after that point.
+ */
+const AT_OR_PAST_CONSULT_STATUSES: ReadonlySet<string> = new Set([
+  'consultation_completed',
+  'treatment_presented',
+  'financing',
+  'contract_sent',
+  'contract_signed',
+  'scheduled',
+  'in_treatment',
+  'completed',
+  'lost',
+  'disqualified',
+])
+
+/**
+ * True while the lead hasn't completed a consult yet (new/contacted/qualified/
+ * consultation_scheduled/no_show/unresponsive/dormant). Note: 'consultation_scheduled'
+ * counts as pre-consult — the consult hasn't happened, so scheduled → no_show is a
+ * legal transition. Callers guarding a move TO consultation_scheduled should
+ * additionally skip when the status is already 'consultation_scheduled'.
+ */
+export function isPreConsultStatus(status: string): boolean {
+  return !AT_OR_PAST_CONSULT_STATUSES.has(status)
+}
+
+/**
  * Map an EHR appointment event to a stage event. Prefers the appointment's own
  * status text (CareStack sends cancellations as 'Status' events whose trigger
  * name says nothing); falls back to the trigger name for create/reschedule.
