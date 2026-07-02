@@ -231,7 +231,7 @@ ${phiFindings.length > 0 ? JSON.stringify(phiFindings) : 'None detected by autom
 }`
 
   const response = await getAnthropic().messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: CONVERSATION_ANALYST_PROMPT,
     messages: [{ role: 'user', content: prompt }],
@@ -258,7 +258,7 @@ ${phiFindings.length > 0 ? JSON.stringify(phiFindings) : 'None detected by autom
     message_count: config.messages.length,
     avg_response_time_seconds: avgResponseTime,
     longest_message_by: longestMessageBy,
-    model_used: 'claude-sonnet-4-20250514',
+    model_used: 'claude-sonnet-4-6',
     analyzed_at: new Date().toISOString(),
   }, {
     onConflict: 'conversation_id',
@@ -276,7 +276,7 @@ ${phiFindings.length > 0 ? JSON.stringify(phiFindings) : 'None detected by autom
       message_count: config.messages.length,
       avg_response_time_seconds: avgResponseTime,
       longest_message_by: longestMessageBy,
-      model_used: 'claude-sonnet-4-20250514',
+      model_used: 'claude-sonnet-4-6',
       analyzed_at: new Date().toISOString(),
     })
   }
@@ -308,7 +308,7 @@ ${phiFindings.length > 0 ? JSON.stringify(phiFindings) : 'None detected by autom
     organization_id: config.organization_id,
     lead_id: config.lead_id,
     interaction_type: 'classification',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     prompt_tokens: response.usage?.input_tokens || 0,
     completion_tokens: response.usage?.output_tokens || 0,
     total_tokens: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),

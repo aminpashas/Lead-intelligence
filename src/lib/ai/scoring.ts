@@ -239,7 +239,7 @@ export async function scoreLead(
   }
 
   const response = await getAnthropic().messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     messages: [
       {
@@ -379,7 +379,7 @@ Guidelines:
 - HIPAA: Never ask patients to share sensitive information via text/email`
 
   const response = await getAnthropic().messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: context.channel === 'sms' ? 256 : 1024,
     system: systemPrompt,
     messages: safeHistory,

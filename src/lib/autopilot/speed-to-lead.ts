@@ -242,7 +242,7 @@ export async function triggerSpeedToLead(
       external_id: externalId || null,
       ai_generated: true,
       ai_confidence: agentResponse.confidence,
-      ai_model: 'claude-sonnet-4-20250514',
+      ai_model: 'claude-sonnet-4-6',
       metadata: {
         agent: agentResponse.agent,
         action_taken: agentResponse.action_taken,

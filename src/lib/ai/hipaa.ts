@@ -436,7 +436,7 @@ export async function hipaaCompliantAICall(
   // Step 4: Check response compliance
   const compliance = runComplianceCheck(config.input_text, response, {
     channel: config.channel,
-    aiModel: 'claude-sonnet-4-20250514',
+    aiModel: 'claude-sonnet-4-6',
   })
 
   // Step 5: Log compliance result

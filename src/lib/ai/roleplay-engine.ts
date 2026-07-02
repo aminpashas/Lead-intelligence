@@ -307,7 +307,7 @@ export async function generateRolePlayResponse(
   }))
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     system: systemPrompt,
     messages,
@@ -386,7 +386,7 @@ Important: Respond ONLY with the new message. No explanations or meta-commentary
     }))
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     system: systemPrompt,
     messages,
@@ -458,7 +458,7 @@ export async function extractTrainingExamples(
       .join('\n\n')
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 2048,
       system: `You are a dental sales training analyst. Analyze this role-play conversation between a patient and treatment coordinator. Extract the 3-5 best exchanges that demonstrate excellent communication, objection handling, or rapport building. These will be used as training examples.
 
@@ -492,7 +492,7 @@ Respond with ONLY a JSON array:
     .join('\n\n')
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: `You are a dental sales training analyst. For each marked exchange, create a structured training example. Keep the patient message and TC response exactly as-is — just add categorization and context.
 
@@ -538,7 +538,7 @@ export async function generateSessionSummary(
   const badRatings = session.messages.filter(m => m.rating === 'bad').length
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     system: `You are a dental sales training coach. Summarize this role-play training session. Be constructive and specific.
 
