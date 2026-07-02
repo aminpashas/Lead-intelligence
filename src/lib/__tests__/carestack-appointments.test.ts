@@ -82,6 +82,12 @@ describe('CareStack appointment adapter', () => {
     )
   })
 
+  it('reuses the existing id when create 409s with a duplicate (search missed it)', async () => {
+    vi.mocked(createCsPatient).mockRejectedValueOnce(new Error('CareStack 409 /patients: Duplicate Ids 555'))
+    const res = await ensureCareStackPatient(supa(null), CONFIG, 'org1', LEAD, 1)
+    expect(res).toEqual({ patientId: '555', isNew: false })
+  })
+
   it('pushAppointmentToCareStack builds the CsAppointment body and returns the id', async () => {
     const appointment = { id: 'ap1', organization_id: 'org1', lead_id: 'lead1', scheduled_at: '2026-07-10T15:00:00Z', duration_minutes: 60 }
     const id = await pushAppointmentToCareStack(supa(null), CONFIG, { appointment, lead: LEAD, settings: {} })

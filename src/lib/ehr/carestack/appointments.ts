@@ -91,17 +91,25 @@ export async function ensureCareStackPatient(
     // DOB is captured at intake (leads.date_of_birth). Stub only as a last resort
     // for legacy leads with no DOB — staff completes it at the visit.
     const dob = (lead.date_of_birth as string | undefined) || '1900-01-01'
-    const created = await createCsPatient(config, {
-      firstName,
-      lastName,
-      dob,
-      gender: 4,
-      defaultLocationId,
-      ...(email ? { email } : {}),
-      ...(phone ? { mobile: phone } : {}),
-    })
-    patientId = String(created.id ?? created.patientId)
-    isNew = true
+    try {
+      const created = await createCsPatient(config, {
+        firstName,
+        lastName,
+        dob,
+        gender: 4,
+        defaultLocationId,
+        ...(email ? { email } : {}),
+        ...(phone ? { mobile: phone } : {}),
+      })
+      patientId = String(created.id ?? created.patientId)
+      isNew = true
+    } catch (err) {
+      // The email search can miss an existing patient (different email on file);
+      // create then returns 409 "Duplicate Ids <id>". Reuse that id rather than fail.
+      const dup = (err instanceof Error ? err.message : '').match(/Duplicate Ids?\s+(\d+)/i)
+      if (!dup) throw err
+      patientId = dup[1]
+    }
   }
 
   // 4. Record the LI-side mapping (best-effort; links the lead by hash).
