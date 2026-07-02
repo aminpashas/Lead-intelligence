@@ -38,6 +38,7 @@ const EVENT_NAME_MAP: Record<ConnectorEventType, string> = {
   'treatment.completed': 'Purchase',
   'lead.lost': '',
   'appointment.booked': 'Schedule',
+  'appointment.at_risk': '', // internal ops alert — never forwarded to Meta
   'payment.received': 'Purchase',
 }
 

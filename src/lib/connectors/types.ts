@@ -22,6 +22,7 @@ export type ConnectorEventType =
   | 'treatment.completed'
   | 'lead.lost'
   | 'appointment.booked'
+  | 'appointment.at_risk'
   | 'payment.received'
 
 export type ConnectorEvent = {

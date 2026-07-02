@@ -120,6 +120,29 @@ export async function POST(request: NextRequest) {
   // Detect YES/CONFIRM/Y and auto-confirm the next upcoming unconfirmed appointment
   const confirmKeywords = /^\s*(yes|confirm|y|confirmed|yep|yeah)\s*$/i
   if (confirmKeywords.test(body)) {
+    // Tier-1 check-in reply: stamp the pending check-in and refresh risk.
+    // No early return — a YES can legitimately both answer the check-in AND
+    // confirm an unconfirmed appointment below.
+    const { data: checkinApt } = await supabase
+      .from('appointments')
+      .select('id')
+      .eq('lead_id', lead.id)
+      .not('checkin_sent_at', 'is', null)
+      .is('checkin_replied_at', null)
+      .gte('scheduled_at', new Date().toISOString())
+      .order('scheduled_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+
+    if (checkinApt) {
+      await supabase
+        .from('appointments')
+        .update({ checkin_replied_at: new Date().toISOString() })
+        .eq('id', checkinApt.id)
+      const { calculateNoShowRisk } = await import('@/lib/campaigns/reminders')
+      await calculateNoShowRisk(supabase, checkinApt.id)
+    }
+
     // Check for an upcoming unconfirmed appointment
     const { data: pendingApt } = await supabase
       .from('appointments')

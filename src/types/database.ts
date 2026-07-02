@@ -475,7 +475,7 @@ export type Appointment = {
 }
 
 export type ReminderChannel = 'sms' | 'email' | 'voice_confirmation'
-export type ReminderType = '72h' | '24h' | '2h' | '1h' | 'confirmation_call' | 'manual'
+export type ReminderType = '72h' | '24h' | '2h' | '1h' | 'confirmation_call' | 'checkin_4h' | 'manual'
 export type ReminderStatus = 'pending' | 'sent' | 'delivered' | 'failed' | 'skipped'
 export type ReminderConfirmationStatus = 'pending' | 'confirmed' | 'declined' | 'rescheduled' | 'no_response'
 

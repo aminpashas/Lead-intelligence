@@ -30,6 +30,7 @@ const EVENT_DISPLAY: Record<ConnectorEventType, { emoji: string; title: string; 
   'treatment.completed': { emoji: '🏆', title: 'Treatment Completed', color: '#22c55e' },
   'lead.lost': { emoji: '❌', title: 'Lead Lost', color: '#ef4444' },
   'appointment.booked': { emoji: '📅', title: 'Appointment Booked', color: '#3b82f6' },
+  'appointment.at_risk': { emoji: '🚨', title: 'No-Show Risk — Call This Patient', color: '#ef4444' },
   'payment.received': { emoji: '💰', title: 'Payment Received', color: '#22c55e' },
 }
 

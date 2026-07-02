@@ -29,7 +29,8 @@ import {
   getConfirmationUrl,
   getRescheduleUrl,
 } from './reminder-templates'
-import { computeNoShowRisk, isCheckinExpired } from './attendance-risk'
+import { computeNoShowRisk, isCheckinExpired, CHECKIN_REPLY_WINDOW_MS } from './attendance-risk'
+import { runAttendanceEscalation } from './attendance-escalation'
 import { renderEmail } from '@/emails/render'
 import { BookingReminder } from '@/emails/BookingReminder'
 import { logger } from '@/lib/logger'
@@ -40,8 +41,8 @@ import { logger } from '@/lib/logger'
 
 export type ReminderResult = {
   appointment_id: string
-  type: '72h' | '24h' | '2h' | '1h'
-  channel: 'sms' | 'email' | 'voice_confirmation'
+  type: '72h' | '24h' | '2h' | '1h' | 'checkin_4h' | 'escalation'
+  channel: 'sms' | 'email' | 'voice_confirmation' | 'slack'
   status: 'sent' | 'skipped' | 'error'
   detail?: string
 }
@@ -117,6 +118,10 @@ export async function sendAppointmentReminders(
   for (const a of upcoming || []) {
     await calculateNoShowRisk(supabase, a.id)
   }
+
+  // ─── ESCALATION LADDER (risk-based, day-of) ────────────────
+  const esc = await runAttendanceEscalation(supabase, orgId, practiceName, now)
+  results.push(...esc)
 
   // ─── 72-HOUR REMINDERS (Email) ──────────────────────────────
   const r72h = await send72hReminders(supabase, orgId, practiceName, now)
@@ -391,10 +396,14 @@ async function send2hConfirmationCalls(
     .from('appointments')
     .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out)')
     .eq('organization_id', orgId)
-    .in('status', ['scheduled']) // Only call unconfirmed appointments
+    .in('status', ['scheduled', 'confirmed'])
     .eq('reminder_sent_2h', false)
     .eq('confirmation_call_made', false)
-    .eq('confirmation_received', false) // Skip already confirmed
+    // Unconfirmed appointments — OR confirmed ones whose morning-of check-in
+    // expired unanswered (2h of silence makes the old confirmation stale).
+    .or(
+      `confirmation_received.eq.false,and(checkin_sent_at.lt.${new Date(now.getTime() - CHECKIN_REPLY_WINDOW_MS).toISOString()},checkin_replied_at.is.null)`
+    )
     .gte('scheduled_at', from.toISOString())
     .lte('scheduled_at', to.toISOString())
 

@@ -39,6 +39,7 @@ const DEFAULT_CONVERSION_MAP: Record<ConnectorEventType, string> = {
   'treatment.completed': 'Treatment Completed',
   'lead.lost': '',
   'appointment.booked': 'Appointment Booked',
+  'appointment.at_risk': '', // internal ops alert — never forwarded to Google Ads
   'payment.received': 'Revenue',
 }
 

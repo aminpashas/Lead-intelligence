@@ -33,6 +33,7 @@ const GA4_EVENT_MAP: Record<ConnectorEventType, string> = {
   'treatment.completed': 'purchase',
   'lead.lost': 'lead_lost',
   'appointment.booked': 'book_appointment',
+  'appointment.at_risk': '', // internal ops alert — never forwarded to GA4
   'payment.received': 'payment_received',
 }
 
