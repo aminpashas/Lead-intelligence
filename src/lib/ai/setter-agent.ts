@@ -24,6 +24,7 @@ import {
   isDiscoveryComplete,
 } from './agent-types'
 import { buildPricingIntegrityBlock } from './pricing-integrity'
+import { buildCurrentDateBlock } from './datetime-context'
 import { captureQualificationFromResponse } from './qualification-capture'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
@@ -215,7 +216,9 @@ ${context.channel === 'voice' ? `- VOICE CALL: You are speaking on a LIVE phone 
 - End with ONE clear question to keep the conversation flowing.
 - Never use bullet points, numbered lists, or formatted text — you're SPEAKING.
 - Reference what the patient just said before responding.
-- If the patient needs a human, say "Let me connect you with someone who can help."` :
+- If the patient needs a human, say "Let me connect you with someone who can help."
+- MID-CALL: the call is already in progress — never restart with "Hi"/"Hello" or re-introduce yourself. Just continue the conversation.
+- WRAP UP CLEANLY: once everything is handled (booked, questions answered, or they want to go), give ONE warm sign-off ("Thanks so much, [Name] — take care!") and STOP. Do not add another question or keep the call going after saying goodbye.` :
 context.channel === 'sms' ? `- SMS: Keep messages under 300 characters. Be conversational, not formal.
 - Use line breaks for readability. No walls of text.
 - One question or one idea per message.` : `- Email: Professional but warm tone.
@@ -370,9 +373,13 @@ export async function setterAgentRespond(
   // credit bucket → range (never a quote) → book.
   const { data: bs } = await supabase
     .from('booking_settings')
-    .select('discovery_script, consult_price_range_text')
+    .select('discovery_script, consult_price_range_text, timezone')
     .eq('organization_id', context.organization_id)
     .maybeSingle()
+
+  // Ground the agent in today's real date (practice timezone) so it stops
+  // guessing days and never offers a date that already passed.
+  const dateBlock = buildCurrentDateBlock(bs?.timezone as string | null | undefined)
 
   const discoveryBlock = buildDiscoveryPromptBlock({
     script: bs?.discovery_script as string | null | undefined,
@@ -391,7 +398,7 @@ export async function setterAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, discoveryBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

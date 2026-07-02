@@ -25,7 +25,9 @@ import {
   ChevronRight,
   Filter,
   Loader2,
+  CalendarDays,
 } from 'lucide-react'
+import { AppointmentsCalendar } from '@/components/crm/appointments-calendar'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -79,7 +81,7 @@ type ReminderData = {
   created_at: string
 }
 
-type TabKey = 'upcoming' | 'today' | 'reminders' | 'analytics'
+type TabKey = 'calendar' | 'upcoming' | 'today' | 'reminders' | 'analytics'
 
 // ═══════════════════════════════════════════════════════════════
 // COMPONENT
@@ -279,6 +281,7 @@ export default function AppointmentsPage() {
       {/* ── Tabs ── */}
       <div className="flex items-center gap-1 border-b pb-0">
         {([
+          { key: 'calendar', label: 'Calendar', icon: CalendarDays, count: appointments.length },
           { key: 'upcoming', label: 'Upcoming', icon: Calendar, count: upcomingApts.length },
           { key: 'today', label: 'Today', icon: Clock, count: todayApts.length },
           { key: 'reminders', label: 'Reminder Log', icon: Send, count: reminders.length },
@@ -330,7 +333,12 @@ export default function AppointmentsPage() {
       )}
 
       {/* ── Content ── */}
-      {activeTab === 'upcoming' || activeTab === 'today' ? (
+      {activeTab === 'calendar' ? (
+        <AppointmentsCalendar
+          appointments={appointments}
+          defaultView="month"
+        />
+      ) : activeTab === 'upcoming' || activeTab === 'today' ? (
         <div className="space-y-3">
           {displayApts.length === 0 ? (
             <Card>
