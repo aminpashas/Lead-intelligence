@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { RISK_TIER1 } from '@/lib/campaigns/attendance-risk'
+import { RISK_TIER1, RISK_TIER2 } from '@/lib/campaigns/attendance-risk'
 import {
   Calendar,
   CheckCircle2,
@@ -867,10 +867,10 @@ function RiskBadge({ score }: { score: number }) {
 
   let color = 'bg-aurea-surface-2 text-aurea-ink-3'
   let label = 'Low Risk'
-  if (score >= 70) {
+  if (score >= RISK_TIER2) {
     color = 'bg-aurea-rose/10 text-aurea-rose'
     label = 'High Risk'
-  } else if (score >= 40) {
+  } else if (score >= RISK_TIER1) {
     color = 'bg-aurea-amber/10 text-aurea-amber'
     label = 'Med Risk'
   } else if (score > 10) {
