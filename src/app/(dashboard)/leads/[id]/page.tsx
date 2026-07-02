@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { LeadDetail } from '@/components/crm/lead-detail'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
+import { decryptLeadPII } from '@/lib/encryption'
 
 export default async function LeadDetailPage({
   params,
@@ -25,6 +26,11 @@ export default async function LeadDetailPage({
     .single()
 
   if (!lead) notFound()
+
+  // PII columns are AES-encrypted at rest (`enc::…`); decrypt server-side so
+  // the UI never renders ciphertext. API routes already do this — server
+  // components that query Supabase directly must too.
+  const decryptedLead = decryptLeadPII(lead)
 
   // Fetch activities
   const { data: activities } = await supabase
@@ -96,7 +102,7 @@ export default async function LeadDetailPage({
 
   return (
     <LeadDetail
-      lead={lead}
+      lead={decryptedLead}
       activities={activities || []}
       conversations={conversations || []}
       timeline={timeline}

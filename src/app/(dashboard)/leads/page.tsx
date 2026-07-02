@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { LeadsTable } from '@/components/crm/leads-table'
+import { decryptLeadsPII } from '@/lib/encryption'
 import { LeadCSVImport } from '@/components/crm/lead-csv-import'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import type { Tag } from '@/types/database'
@@ -137,7 +138,7 @@ export default async function LeadsPage({
       </header>
 
       <LeadsTable
-        leads={leads || []}
+        leads={decryptLeadsPII(leads || [])}
         stages={stages || []}
         total={count || 0}
         page={page}
