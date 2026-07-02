@@ -9,10 +9,22 @@ vi.mock('@/lib/connectors', () => ({
   dispatchConnectorEvent: vi.fn(() => Promise.resolve([])),
   buildConnectorLeadData: vi.fn((lead: Record<string, unknown>) => ({ id: lead.id, firstName: lead.first_name })),
 }))
+vi.mock('@/lib/ehr/carestack/client', () => ({
+  getCareStackConfig: vi.fn(async () => null),
+}))
+vi.mock('@/lib/ehr/carestack/appointments', () => ({
+  pushAppointmentToCareStack: vi.fn(async () => 'cs-9001'),
+  cancelAppointmentInCareStack: vi.fn(async () => undefined),
+}))
 
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { emitAppointmentBooked, emitAppointmentCancelled } from '@/lib/bridges/dion-clinical'
 import { dispatchConnectorEvent } from '@/lib/connectors'
+import { getCareStackConfig } from '@/lib/ehr/carestack/client'
+import { pushAppointmentToCareStack, cancelAppointmentInCareStack } from '@/lib/ehr/carestack/appointments'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CS_CONFIG: any = { base_url: 'https://pmsglobal.carestack.com' }
 
 type Seed = { appointment?: unknown; organization?: unknown; lead?: unknown }
 
@@ -57,6 +69,9 @@ describe('syncAppointmentToEhr', () => {
     vi.clearAllMocks()
     vi.mocked(emitAppointmentBooked).mockResolvedValue({ ok: true, status: 200 })
     vi.mocked(emitAppointmentCancelled).mockResolvedValue({ ok: true, status: 200 })
+    vi.mocked(getCareStackConfig).mockResolvedValue(null) // CareStack off by default
+    vi.mocked(pushAppointmentToCareStack).mockResolvedValue('cs-9001')
+    vi.mocked(cancelAppointmentInCareStack).mockResolvedValue(undefined)
   })
 
   it('book: emits appointment.booked, marks synced, and notifies Slack', async () => {
@@ -105,5 +120,43 @@ describe('syncAppointmentToEhr', () => {
     const { client } = makeSupabase({})
     await syncAppointmentToEhr(client, 'missing', { action: 'book' })
     expect(emitAppointmentBooked).not.toHaveBeenCalled()
+  })
+
+  it('book with CareStack configured creates the CS appointment and stores its id', async () => {
+    vi.mocked(getCareStackConfig).mockResolvedValueOnce(CS_CONFIG)
+    const { client, updates } = makeSupabase({ appointment: APPT, organization: ORG, lead: LEAD })
+    await syncAppointmentToEhr(client, 'ap1', { action: 'book' })
+
+    expect(pushAppointmentToCareStack).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(pushAppointmentToCareStack).mock.calls[0][2].appointment.id).toBe('ap1')
+    expect(updates.find((u) => u.table === 'appointments')?.vals).toMatchObject({
+      carestack_sync_status: 'synced',
+      carestack_appointment_id: 'cs-9001',
+    })
+  })
+
+  it('cancel with CareStack configured cancels the CS appointment', async () => {
+    vi.mocked(getCareStackConfig).mockResolvedValueOnce(CS_CONFIG)
+    const appt = { ...APPT, carestack_appointment_id: 'cs-777' }
+    const { client, updates } = makeSupabase({ appointment: appt, organization: ORG, lead: LEAD })
+    await syncAppointmentToEhr(client, 'ap1', { action: 'cancel', reasonCode: 'no-show' })
+
+    expect(cancelAppointmentInCareStack).toHaveBeenCalledWith(CS_CONFIG, 'cs-777')
+    expect(updates.find((u) => u.table === 'appointments')?.vals).toMatchObject({ carestack_sync_status: 'synced' })
+  })
+
+  it('records a CareStack failure (status failed + activity) without throwing', async () => {
+    vi.mocked(getCareStackConfig).mockResolvedValueOnce(CS_CONFIG)
+    vi.mocked(pushAppointmentToCareStack).mockRejectedValueOnce(new Error('cs boom'))
+    const { client, updates, inserts } = makeSupabase({ appointment: APPT, organization: ORG, lead: LEAD })
+    await syncAppointmentToEhr(client, 'ap1', { action: 'book' })
+
+    const vals = updates.find((u) => u.table === 'appointments')?.vals
+    expect(vals).toMatchObject({ carestack_sync_status: 'failed' })
+    expect(String(vals?.ehr_sync_error)).toContain('cs boom')
+    expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      inserts.some((i) => i.table === 'lead_activities' && (i.vals as any).metadata?.leg === 'carestack'),
+    ).toBe(true)
   })
 })

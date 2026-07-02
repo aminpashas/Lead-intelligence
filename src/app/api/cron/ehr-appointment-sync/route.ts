@@ -1,13 +1,11 @@
 /**
  * EHR appointment sync retry cron.
  *
- * Re-drives appointments whose Dion Clinical leg is still 'pending' or 'failed'
- * (up to MAX_ATTEMPTS). The seam (syncAppointmentToEhr) is idempotent — the Dion
- * envelope id is deterministic per (appointmentId, type), so a replay dedupes on
- * the receiver instead of duplicating the chart entry.
- *
- * (The CareStack write leg is added in Phase 4; this cron will then also re-drive
- * carestack_sync_status.)
+ * Re-drives appointments whose Dion Clinical OR CareStack leg is still 'pending'
+ * or 'failed' (up to MAX_ATTEMPTS). The seam (syncAppointmentToEhr) is idempotent
+ * — the Dion envelope id is deterministic per (appointmentId, type) so a replay
+ * dedupes on the receiver, and CareStack is only created once (carestack_appointment_id
+ * short-circuits re-creation via the lead→patient mapping).
  *
  * Schedule: every 5 minutes (vercel.json). Guarded by CRON_SECRET via withCron.
  */
@@ -23,7 +21,8 @@ export const POST = withCron('ehr-appointment-sync', async ({ supabase }) => {
   const { data: rows } = await supabase
     .from('appointments')
     .select('id, status, ehr_sync_attempts')
-    .in('dion_sync_status', ['pending', 'failed'])
+    // Re-drive rows where EITHER leg still needs work.
+    .or('dion_sync_status.in.(pending,failed),carestack_sync_status.in.(pending,failed)')
     .lt('ehr_sync_attempts', MAX_ATTEMPTS)
     .limit(BATCH_SIZE)
 
