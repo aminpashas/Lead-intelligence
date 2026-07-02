@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
+import { moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
 import { decryptField } from '@/lib/encryption'
 import { z } from 'zod'
 
@@ -154,6 +155,13 @@ export async function POST(request: NextRequest) {
     })
     .eq('id', parsed.data.lead_id)
 
+  // Kanban: hard-move the card to the consult stage (non-blocking).
+  void moveLeadStageForAppointmentEvent(supabase, {
+    orgId,
+    leadId: parsed.data.lead_id,
+    event: 'booked',
+  })
+
   // Log activity
   await supabase.from('lead_activities').insert({
     organization_id: orgId,
@@ -253,6 +261,15 @@ export async function PATCH(request: NextRequest) {
         status: 'no_show',
       })
       .eq('id', lead.id)
+  }
+
+  // Kanban: hard-move the card on cancel/no-show (non-blocking).
+  if ((status === 'canceled' || status === 'no_show') && appointment.lead) {
+    void moveLeadStageForAppointmentEvent(supabase, {
+      orgId,
+      leadId: (appointment.lead as { id: string }).id,
+      event: status === 'no_show' ? 'no_show' : 'canceled',
+    })
   }
 
   // Log activity

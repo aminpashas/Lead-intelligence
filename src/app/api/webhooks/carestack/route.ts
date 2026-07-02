@@ -25,6 +25,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { upsertCareStackPatient } from '@/lib/ehr/carestack/match'
+import { moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
 import { logger } from '@/lib/logger'
 
 type CareStackEvent = {
@@ -210,6 +211,19 @@ async function handleAppointmentEvent(
         metadata: { source: 'carestack', trigger, raw: data },
       })
       .eq('id', existing.id)
+  }
+
+  // Kanban stage automation from EHR-originated appointment events.
+  if (leadId) {
+    const t = trigger.toLowerCase()
+    const stageEvent =
+      /cancel|delet/.test(t) ? ('canceled' as const)
+      : /no.?show|missed/.test(t) ? ('no_show' as const)
+      : /creat|schedul|book|resched|confirm/.test(t) ? ('booked' as const)
+      : null
+    if (stageEvent) {
+      void moveLeadStageForAppointmentEvent(supabase, { orgId: organizationId, leadId, event: stageEvent })
+    }
   }
 
   await emitInternalEvent(supabase, organizationId, leadId, `carestack.appointment.${trigger.toLowerCase()}`, {

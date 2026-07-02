@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { generateAvailableSlots, formatTimeDisplay, type BookingConfig, type ExistingAppointment } from '@/lib/booking/availability'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
+import { moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
@@ -781,6 +782,13 @@ async function executeCreateBooking(
       consultation_date: scheduledAt,
     }))
     .eq('id', context.lead_id)
+
+  // Kanban: hard-move the card to the consult stage (non-blocking).
+  void moveLeadStageForAppointmentEvent(supabase, {
+    orgId: context.organization_id,
+    leadId: context.lead_id,
+    event: 'booked',
+  })
 
   // Log activity
   await supabase.from('lead_activities').insert({

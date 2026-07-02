@@ -30,6 +30,7 @@ import { decryptField } from '@/lib/encryption'
 import { renderEmail } from '@/emails/render'
 import { BookingConfirmation } from '@/emails/BookingConfirmation'
 import { getUnsubscribeHeaders } from '@/lib/messaging/email-footer'
+import { moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
 
 type CalBookingTrigger =
   | 'BOOKING_CREATED'
@@ -151,6 +152,13 @@ export async function POST(request: NextRequest) {
           .eq('id', leadId)
       }
 
+      // Kanban: hard-move the card to the consult stage (non-blocking).
+      void moveLeadStageForAppointmentEvent(supabase, {
+        orgId: lead.organization_id,
+        leadId,
+        event: 'booked',
+      })
+
       // Exit all active nurture campaigns — booking is the desired outcome.
       await exitAllCampaigns(supabase, leadId, 'Booked consultation via Cal.com').catch(() => {})
 
@@ -257,6 +265,13 @@ export async function POST(request: NextRequest) {
         .update({ consultation_date: startTime })
         .eq('id', leadId)
 
+      // Kanban: hard-move the card to the consult stage (non-blocking).
+      void moveLeadStageForAppointmentEvent(supabase, {
+        orgId: lead.organization_id,
+        leadId,
+        event: 'booked',
+      })
+
       await insertEvent(supabase, lead.organization_id, leadId, 'lead.booking.rescheduled', {
         cal_uid: calUid,
         previous_cal_uid: oldUid,
@@ -277,6 +292,13 @@ export async function POST(request: NextRequest) {
           .eq('lead_id', leadId)
           .filter('metadata->>cal_uid', 'eq', calUid)
       }
+
+      // Kanban: hard-move the card to the re-engage stage (non-blocking).
+      void moveLeadStageForAppointmentEvent(supabase, {
+        orgId: lead.organization_id,
+        leadId,
+        event: 'canceled',
+      })
 
       // Don't auto-revert status — leave it to staff to decide whether to re-nurture.
       await insertEvent(supabase, lead.organization_id, leadId, 'lead.booking.cancelled', {

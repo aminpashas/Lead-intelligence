@@ -8,6 +8,7 @@ import { sendEmail } from '@/lib/messaging/resend'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment, formatTimeDisplay } from '@/lib/booking/availability'
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
+import { moveLeadStageForAppointmentEvent } from '@/lib/pipeline/stage-mover'
 import { escapeHtml } from '@/lib/utils'
 
 const bookingSchema = z.object({
@@ -242,6 +243,9 @@ export async function POST(
     title: `Self-booked consultation for ${new Date(scheduledAt).toLocaleDateString()}`,
     metadata: { appointment_id: appointment.id, source: 'booking_page' },
   })
+
+  // Kanban: hard-move the card to the consult stage (non-blocking).
+  void moveLeadStageForAppointmentEvent(supabase, { orgId, leadId, event: 'booked' })
 
   // Send confirmation SMS
   const timeDisplay = formatTimeDisplay(slot_time)
