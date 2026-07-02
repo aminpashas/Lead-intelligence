@@ -97,11 +97,15 @@ export async function runDisqualificationRules(organizationId: string) {
             .eq('id', lead.id)
         }
 
-        // Log activity
+        // Log which rule fired. The canonical 'disqualified' activity (counted
+        // by agent_performance_daily and technique-feedback) is now written by
+        // trg_leads_log_disqualified on the status transition itself — logging
+        // it here too would double-count, and mark_unresponsive/mark_cold
+        // never belonged under that type in the first place.
         await supabase.from('lead_activities').insert({
           organization_id: organizationId,
           lead_id: lead.id,
-          activity_type: 'disqualified',
+          activity_type: 'automation_rule_applied',
           title: `Auto: ${rule.name}`,
           description: rule.reason,
           metadata: { rule_name: rule.name, action: rule.action },
