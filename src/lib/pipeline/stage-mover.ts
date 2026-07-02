@@ -74,7 +74,10 @@ export async function moveLeadStageForAppointmentEvent(
       .update({ stage_id: resolution.stage.id })
       .eq('id', leadId)
       .eq('organization_id', orgId)
-    if (error) return { moved: false, reason: error.message }
+    if (error) {
+      logger.error('stage-mover update failed', { leadId, event, error: error.message })
+      return { moved: false, reason: error.message }
+    }
 
     // 'stage_changed' (not a bespoke type) — lead_activities.activity_type has a
     // CHECK whitelist (migration 002); the automation is recorded in metadata.
