@@ -110,6 +110,7 @@ export async function runAttendanceEscalation(
         .eq('id', apt.id)
       results.push({ appointment_id: apt.id, type: 'checkin_4h', channel: 'sms', status: 'sent' })
     } catch (err) {
+      logger.error('tier-1 check-in failed', { appointment_id: apt.id, error: err instanceof Error ? err.message : String(err) })
       results.push({ appointment_id: apt.id, type: 'checkin_4h', channel: 'sms', status: 'error', detail: err instanceof Error ? err.message : 'unknown' })
     }
   }
