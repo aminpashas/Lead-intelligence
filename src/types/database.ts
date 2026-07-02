@@ -444,6 +444,12 @@ export type Appointment = {
   // Risk assessment
   no_show_risk_score: number
 
+  // Attendance escalation ladder
+  escalation_tier: number | null
+  escalated_at: string | null
+  checkin_sent_at: string | null
+  checkin_replied_at: string | null
+
   // Phone-first protocol: which path booked this + soft-gate override audit
   booked_via: 'ai' | 'staff' | 'public' | null
   call_gate_overridden: boolean
