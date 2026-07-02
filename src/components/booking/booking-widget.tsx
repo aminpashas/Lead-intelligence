@@ -42,6 +42,7 @@ export function BookingWidget({ orgId }: { orgId: string }) {
   const [lastName, setLastName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
+  const [dob, setDob] = useState('')
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -92,6 +93,7 @@ export function BookingWidget({ orgId }: { orgId: string }) {
           last_name: lastName.trim(),
           phone: phone.trim(),
           email: email.trim(),
+          date_of_birth: dob || undefined,
           notes: notes.trim() || undefined,
         }),
       })
@@ -304,6 +306,10 @@ export function BookingWidget({ orgId }: { orgId: string }) {
                 <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
               </div>
               <div>
+                <Label htmlFor="dob">Date of Birth</Label>
+                <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} max={new Date().toISOString().slice(0, 10)} required />
+              </div>
+              <div>
                 <Label htmlFor="notes">Anything you'd like us to know? (optional)</Label>
                 <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
               </div>
@@ -312,7 +318,7 @@ export function BookingWidget({ orgId }: { orgId: string }) {
                 By booking, you consent to receive appointment confirmations and reminders via SMS and email.
               </p>
 
-              <Button type="submit" className="w-full h-12 text-[15px] bg-aurea-primary text-white hover:bg-aurea-primary/90" disabled={submitting || !firstName || !lastName || !phone || !email}>
+              <Button type="submit" className="w-full h-12 text-[15px] bg-aurea-primary text-white hover:bg-aurea-primary/90" disabled={submitting || !firstName || !lastName || !phone || !email || !dob}>
                 {submitting ? <Loader2 className="h-5 w-5 animate-spin mr-2" strokeWidth={1.75} /> : <CheckCircle className="h-5 w-5 mr-2" strokeWidth={1.75} />}
                 {submitting ? 'Booking...' : 'Confirm Booking'}
               </Button>

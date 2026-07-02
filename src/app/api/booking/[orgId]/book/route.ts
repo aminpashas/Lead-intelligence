@@ -19,6 +19,7 @@ const bookingSchema = z.object({
   last_name: z.string().min(1).max(100),
   phone: z.string().min(10).max(20),
   email: z.string().email(),
+  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   notes: z.string().max(500).optional(),
   // Explicit marketing opt-in checkbox. Absent/false → no marketing consent is
   // granted (the booking confirmation itself is transactional and still sends).
@@ -42,7 +43,7 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { slot_date, slot_time, first_name, last_name, phone, email, notes, marketing_consent } = parsed.data
+  const { slot_date, slot_time, first_name, last_name, phone, email, date_of_birth, notes, marketing_consent } = parsed.data
   const grantConsent = marketing_consent === true
 
   // Get booking settings
@@ -82,6 +83,7 @@ export async function POST(
         .from('leads')
         .insert(encryptLeadPII({
           organization_id: orgId, first_name, last_name, phone, email,
+          date_of_birth: date_of_birth ?? null,
           source_type: 'booking_page', status: 'new', ...newLeadConsent,
         }))
         .select('id').single()
@@ -194,6 +196,7 @@ export async function POST(
         last_name,
         phone,
         email,
+        date_of_birth: date_of_birth ?? null,
         source_type: 'booking_page',
         status: 'consultation_scheduled',
         consultation_date: scheduledAt,

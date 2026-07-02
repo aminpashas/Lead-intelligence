@@ -28,7 +28,7 @@ import {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const CONFIG: any = { base_url: 'https://pmsglobal.carestack.com', identity_url: 'https://id.carestack.com' }
-const LEAD = { id: 'lead1', first_name: 'Sam', last_name: 'Lee', email: 'sam@x.com', phone_formatted: '+13105551234' }
+const LEAD = { id: 'lead1', first_name: 'Sam', last_name: 'Lee', email: 'sam@x.com', phone_formatted: '+13105551234', date_of_birth: '1985-06-15' }
 
 // Supabase stub whose patients.maybeSingle() returns `mapped`.
 function supa(mapped: unknown) {
@@ -78,7 +78,7 @@ describe('CareStack appointment adapter', () => {
     expect(res).toEqual({ patientId: '500', isNew: true })
     expect(createCsPatient).toHaveBeenCalledWith(
       CONFIG,
-      expect.objectContaining({ firstName: 'Sam', dob: '1900-01-01', gender: 4, defaultLocationId: 1, email: 'sam@x.com', mobile: '+13105551234' }),
+      expect.objectContaining({ firstName: 'Sam', dob: '1985-06-15', gender: 4, defaultLocationId: 1, email: 'sam@x.com', mobile: '+13105551234' }),
     )
   })
 
