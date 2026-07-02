@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { logContractEvent } from '@/lib/contracts/orchestrator'
 import { executeSignedContract } from '@/lib/contracts/pdf-execute'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
+import { advanceStepByCase } from '@/lib/treatment/treatment-closing'
 import type { ContractTemplateSection } from '@/types/database'
 
 export const runtime = 'nodejs'
@@ -54,7 +55,8 @@ export async function POST(
   const { data: contract } = await supabase
     .from('patient_contracts')
     .select(`
-      id, organization_id, status, template_snapshot, share_token_expires_at
+      id, organization_id, status, template_snapshot, share_token_expires_at,
+      clinical_case_id, contract_amount, deposit_amount
     `)
     .eq('share_token', shareToken)
     .maybeSingle()
@@ -139,6 +141,20 @@ export async function POST(
     description: 'Patient signed contract via portal',
     metadata: { ip: signerIp, user_agent: userAgent, consent_count: consentsAgreed.length },
   })
+
+  // Advance the treatment closing (case → 'closing' stage). Best-effort: the
+  // signature is already recorded; a closing-sync failure must not fail the sign.
+  if (contract.clinical_case_id) {
+    try {
+      await advanceStepByCase(supabase, contract.clinical_case_id, 'contract_signed', {
+        contract_amount: contract.contract_amount ?? undefined,
+        deposit_amount: contract.deposit_amount ?? undefined,
+        non_refundable_acknowledged: true,
+      })
+    } catch (err) {
+      console.error('[contracts/sign] closing advance failed', err)
+    }
+  }
 
   // Kick off PDF execution asynchronously — patient gets a "thanks" screen immediately
   void Promise.resolve().then(async () => {

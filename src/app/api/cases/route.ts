@@ -36,7 +36,13 @@ export async function GET(request: NextRequest) {
       *,
       case_files (id, file_name, file_type, file_url, ai_analyzed_at),
       creator:user_profiles!clinical_cases_created_by_fkey (id, full_name, role, avatar_url),
-      assigned_doctor:user_profiles!clinical_cases_assigned_doctor_id_fkey (id, full_name, role, avatar_url, specialty)
+      assigned_doctor:user_profiles!clinical_cases_assigned_doctor_id_fkey (id, full_name, role, avatar_url, specialty),
+      treatment_closings!treatment_closings_clinical_case_id_fkey (
+        id, current_step, steps_completed, contract_signed_at, contract_amount,
+        financing_type, financing_funded_at, consent_signed_at,
+        preop_instructions_sent_at, surgery_date, surgery_time,
+        records_checklist, records_confirmed_at
+      )
     `)
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
@@ -47,7 +53,14 @@ export async function GET(request: NextRequest) {
   const { data: cases, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ cases })
+  // The case↔closing link is 1:1 (unique partial index), but PostgREST embeds it
+  // as an array — flatten to a single `closing` object for the client.
+  const normalized = (cases || []).map((c) => {
+    const { treatment_closings, ...rest } = c as typeof c & { treatment_closings?: unknown[] }
+    return { ...rest, closing: Array.isArray(treatment_closings) ? treatment_closings[0] ?? null : treatment_closings ?? null }
+  })
+
+  return NextResponse.json({ cases: normalized })
 }
 
 export async function POST(request: NextRequest) {

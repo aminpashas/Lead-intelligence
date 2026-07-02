@@ -1369,6 +1369,12 @@ export type ClinicalCase = {
   treatment_plan?: CaseTreatmentPlan | null
   creator?: Pick<UserProfile, 'id' | 'full_name' | 'role' | 'avatar_url'>
   assigned_doctor?: Pick<UserProfile, 'id' | 'full_name' | 'role' | 'avatar_url' | 'specialty'> | null
+  closing?: Pick<TreatmentClosing,
+    'id' | 'current_step' | 'steps_completed' | 'contract_signed_at' | 'contract_amount'
+    | 'financing_type' | 'financing_funded_at' | 'consent_signed_at'
+    | 'preop_instructions_sent_at' | 'surgery_date' | 'surgery_time'
+    | 'records_checklist' | 'records_confirmed_at'
+  > | null
 }
 
 export type CaseFile = {

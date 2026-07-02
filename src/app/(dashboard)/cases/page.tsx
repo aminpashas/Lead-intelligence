@@ -26,9 +26,14 @@ import {
   Clock,
   AlertTriangle,
   ChevronRight,
+  FileSignature,
+  Banknote,
+  CalendarCheck,
+  ShieldCheck,
+  FlaskConical,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ClinicalCase, CaseStatus } from '@/types/database'
+import type { ClinicalCase, CaseStatus, RecordsChecklist } from '@/types/database'
 
 const STATUS_CONFIG: Record<CaseStatus, {
   label: string; icon: React.ElementType; color: string; bg: string
@@ -38,6 +43,10 @@ const STATUS_CONFIG: Record<CaseStatus, {
   diagnosis:         { label: 'Needs Diagnosis',    icon: Stethoscope,   color: 'text-aurea-ink-2',  bg: 'bg-aurea-surface-2' },
   treatment_planning:{ label: 'Treatment Planning', icon: ClipboardList, color: 'text-aurea-amber',  bg: 'bg-aurea-amber/10' },
   patient_review:    { label: 'Patient Review',     icon: UserCheck,     color: 'text-aurea-primary', bg: 'bg-aurea-primary/10' },
+  accepted:          { label: 'Accepted',           icon: FileSignature, color: 'text-aurea-primary', bg: 'bg-aurea-primary/10' },
+  closing:           { label: 'Contract & Funding', icon: Banknote,      color: 'text-aurea-amber',  bg: 'bg-aurea-amber/10' },
+  surgery_scheduled: { label: 'Surgery Scheduled',  icon: CalendarCheck, color: 'text-aurea-primary', bg: 'bg-aurea-primary/10' },
+  ready_for_surgery: { label: 'Ready for Surgery',  icon: ShieldCheck,   color: 'text-aurea-primary', bg: 'bg-aurea-primary/10' },
   completed:         { label: 'Completed',          icon: CheckCircle2,  color: 'text-aurea-primary', bg: 'bg-aurea-primary/10' },
   archived:          { label: 'Archived',           icon: CheckCircle2,  color: 'text-aurea-ink-3',  bg: 'bg-aurea-surface-2' },
 }
@@ -49,7 +58,11 @@ const PRIORITY_COLORS: Record<string, string> = {
   urgent: 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/20',
 }
 
-const KANBAN_STATUSES: CaseStatus[] = ['intake', 'diagnosis', 'treatment_planning', 'patient_review', 'completed']
+// Board columns in two visual groups: clinical workflow, then closing → surgery
+const STAGE_GROUPS: Array<{ title: string; statuses: CaseStatus[] }> = [
+  { title: 'Clinical', statuses: ['intake', 'diagnosis', 'treatment_planning', 'patient_review'] },
+  { title: 'Closing → Surgery', statuses: ['accepted', 'closing', 'surgery_scheduled', 'ready_for_surgery', 'completed'] },
+]
 
 export default function CasesPage() {
   return (
@@ -152,36 +165,49 @@ function CasesContent() {
 
 function KanbanBoard({ cases, onCaseClick }: { cases: ClinicalCase[]; onCaseClick: (id: string) => void }) {
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
-      {KANBAN_STATUSES.map((status) => {
-        const config = STATUS_CONFIG[status]
-        const StatusIcon = config.icon
-        const columnCases = cases.filter((c) => c.status === status)
+    <div className="flex gap-6 overflow-x-auto pb-4">
+      {STAGE_GROUPS.map((group, groupIdx) => (
+        <div
+          key={group.title}
+          className={cn(
+            'flex-shrink-0',
+            groupIdx > 0 && 'border-l border-aurea-border pl-6'
+          )}
+        >
+          <p className="aurea-eyebrow mb-4 px-1">{group.title}</p>
+          <div className="flex gap-4">
+            {group.statuses.map((status) => {
+              const config = STATUS_CONFIG[status]
+              const StatusIcon = config.icon
+              const columnCases = cases.filter((c) => c.status === status)
 
-        return (
-          <div key={status} className="flex-shrink-0 w-[300px]">
-            <div className="flex items-center gap-2 mb-3 px-1">
-              <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg', config.bg)}>
-                <StatusIcon className={cn('h-3.5 w-3.5', config.color)} strokeWidth={1.75} />
-              </div>
-              <span className="text-[13px] font-medium text-aurea-ink">{config.label}</span>
-              <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3">
-                {columnCases.length}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {columnCases.map((c) => (
-                <CaseCard key={c.id} caseData={c} onClick={() => onCaseClick(c.id)} />
-              ))}
-              {columnCases.length === 0 && (
-                <div className="rounded-lg border border-dashed border-aurea-border p-4 text-center text-[12px] text-aurea-ink-3">
-                  No cases
+              return (
+                <div key={status} className="flex-shrink-0 w-[300px]">
+                  <div className="flex items-center gap-2 mb-3 px-1">
+                    <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg', config.bg)}>
+                      <StatusIcon className={cn('h-3.5 w-3.5', config.color)} strokeWidth={1.75} />
+                    </div>
+                    <span className="text-[13px] font-medium text-aurea-ink">{config.label}</span>
+                    <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                      {columnCases.length}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {columnCases.map((c) => (
+                      <CaseCard key={c.id} caseData={c} onClick={() => onCaseClick(c.id)} />
+                    ))}
+                    {columnCases.length === 0 && (
+                      <div className="rounded-lg border border-dashed border-aurea-border p-4 text-center text-[12px] text-aurea-ink-3">
+                        No cases
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-            </div>
+              )
+            })}
           </div>
-        )
-      })}
+        </div>
+      ))}
     </div>
   )
 }
@@ -232,6 +258,8 @@ function CaseCard({ caseData, onClick }: { caseData: ClinicalCase; onClick: () =
         </span>
       </div>
 
+      {caseData.closing && <ClosingChips closing={caseData.closing} />}
+
       {caseData.assigned_doctor && (
         <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-aurea-border">
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-aurea-surface-2 text-[8px] font-semibold text-aurea-ink-3 ring-1 ring-aurea-border">
@@ -242,6 +270,46 @@ function CaseCard({ caseData, onClick }: { caseData: ClinicalCase; onClick: () =
           </span>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Closing Progress Chips ─────────────────────────────────────
+
+function countRecords(checklist: RecordsChecklist | null | undefined): { done: number; total: number } {
+  if (!checklist) return { done: 0, total: 8 }
+  const values = Object.values(checklist)
+  return { done: values.filter(Boolean).length, total: values.length }
+}
+
+function ClosingChips({ closing }: { closing: NonNullable<ClinicalCase['closing']> }) {
+  const records = countRecords(closing.records_checklist)
+  const chip = (active: boolean, Icon: React.ElementType, label: string) => (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium',
+        active
+          ? 'border-aurea-primary/20 bg-aurea-primary/10 text-aurea-primary'
+          : 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-3'
+      )}
+    >
+      <Icon className="h-2.5 w-2.5" strokeWidth={1.75} />
+      {label}
+    </span>
+  )
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1 border-t border-aurea-border pt-2">
+      {chip(!!closing.contract_signed_at, FileSignature, 'Signed')}
+      {chip(!!closing.financing_funded_at, Banknote, 'Funded')}
+      {chip(
+        !!closing.surgery_date,
+        CalendarCheck,
+        closing.surgery_date
+          ? new Date(`${closing.surgery_date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+          : 'Surgery'
+      )}
+      {chip(records.done === records.total, FlaskConical, `Records ${records.done}/${records.total}`)}
     </div>
   )
 }
