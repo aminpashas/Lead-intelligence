@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { enrichLead } from '@/lib/enrichment'
 
 // POST /api/leads/[id]/enrich - Enrich a single lead on demand
@@ -14,10 +14,7 @@ export async function POST(
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auth + org scoping
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -76,10 +73,7 @@ export async function GET(
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Auth + org scoping
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

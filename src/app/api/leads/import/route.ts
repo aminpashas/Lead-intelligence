@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { bulkImportRequestSchema, bulkImportLeadSchema } from '@/lib/validators/lead'
 import { encryptLeadPII } from '@/lib/encryption'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
@@ -47,10 +47,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

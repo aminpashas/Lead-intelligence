@@ -5,7 +5,7 @@ import { encryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
 import { auditPHIRead, auditPHIWrite } from '@/lib/hipaa-audit'
 import { safeParseBody } from '@/lib/body-size'
 import { formatToE164 } from '@/lib/leads/phone'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 
 // Allowlisted sort columns to prevent column enumeration via sort_by parameter
 const ALLOWED_SORT_COLUMNS = new Set([
@@ -32,10 +32,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
 
   // Auth + org scoping: fetch profile FIRST so we can scope the query
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

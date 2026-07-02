@@ -25,16 +25,61 @@ export type ActiveOrg = {
 }
 
 /**
+ * The caller's own `user_profiles` row (or `{ data: null }` when there is no
+ * authenticated user / profile).
+ *
+ * `user_profiles`' SELECT policy is org-scoped ("Users can view profiles in
+ * their organization"), NOT self-scoped — so a bare `.single()` matches every
+ * staff profile in the org and fails with PGRST116 (surfacing as
+ * `data: null`) as soon as the org has a second member, which reads as
+ * "unauthenticated" and blanks pages / 401s routes. Fetching one's own
+ * profile must always filter by the auth user's id; use this helper.
+ */
+export async function getOwnProfile(
+  supabase: SupabaseClient,
+  columns: string
+  // Callers pick columns dynamically, so rows come back untyped.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ data: any }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { data: null }
+  }
+
+  const { data } = await supabase
+    .from('user_profiles')
+    .select(columns)
+    .eq('id', user.id)
+    .maybeSingle()
+
+  return { data }
+}
+
+/**
  * Resolve the effective organization for the authenticated session.
  * Returns nulls when there is no authenticated user / profile.
  */
 export async function resolveActiveOrg(
   supabase: SupabaseClient
 ): Promise<ActiveOrg> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { orgId: null, role: null, actingAsClient: false, homeOrgId: null }
+  }
+
+  // Must filter by the caller's id — see getOwnProfile. (Not routed through
+  // it only to reuse the getUser() result for the agency lookup below.)
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('organization_id, role')
-    .single()
+    .eq('id', user.id)
+    .maybeSingle()
 
   if (!profile) {
     return { orgId: null, role: null, actingAsClient: false, homeOrgId: null }
@@ -47,7 +92,8 @@ export async function resolveActiveOrg(
     const { data: active } = await supabase
       .from('agency_active_org')
       .select('active_org_id')
-      .single()
+      .eq('user_id', user.id)
+      .maybeSingle()
 
     if (active?.active_org_id) {
       return {

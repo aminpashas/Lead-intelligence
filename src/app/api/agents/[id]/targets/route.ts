@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { isAdminRole } from '@/lib/auth/permissions'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 
 type TargetUpdate = {
   kpi_name: string
@@ -24,10 +24,7 @@ export async function GET(
   const { id: agentId } = await params
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { orgId } = await resolveActiveOrg(supabase)
@@ -54,10 +51,7 @@ export async function PATCH(
   const { id: agentId } = await params
   const supabase = await createClient()
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id, role')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id, role')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { orgId } = await resolveActiveOrg(supabase)
