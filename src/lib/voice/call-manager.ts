@@ -254,10 +254,19 @@ export async function initiateOutboundCall(
       lead_id,
       conversation_id: conversationId,
     },
+    // Variable names MUST match the Retell hosted-LLM prompt ({{caller_*}}).
+    // On an outbound call we already know who we're dialing, so populate the
+    // name fields — otherwise the prompt falls back to its "new caller, ask for
+    // the name" branch and greets as if the patient called us.
     retell_llm_dynamic_variables: {
-      patient_name: (lead.first_name as string) || '',
-      practice_name: org.name || 'our practice',
       call_direction: 'outbound',
+      practice_name: org.name || 'our practice',
+      caller_first_name: (lead.first_name as string) || '',
+      caller_full_name:
+        `${(lead.first_name as string) || ''} ${(lead.last_name as string) || ''}`.trim() || '',
+      // We initiated the call to an existing lead → they're a known/returning contact.
+      is_new_lead: 'false',
+      is_returning: 'true',
     },
   }
 

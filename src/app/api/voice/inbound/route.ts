@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
   // ── 1. Attempt DB lookups (non-blocking — wrapped in try/catch) ──
   let practiceName = 'our practice'
   let dynamicVariables: Record<string, string> = {
+    call_direction: 'inbound',
     caller_phone: from,
     caller_full_name: 'the caller',
     caller_first_name: '',
@@ -178,6 +179,7 @@ export async function POST(req: NextRequest) {
           leadId = lead.id
           const personality = lead.personality_profile as Record<string, unknown> | null
           dynamicVariables = {
+            call_direction: 'inbound',
             caller_phone: from,
             caller_first_name: lead.first_name || '',
             caller_last_name: lead.last_name || '',
