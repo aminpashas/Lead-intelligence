@@ -24,6 +24,7 @@ export type AiUsageFeature =
   | 'review_response_draft'
   | 'contract_draft'
   | 'command_chat'
+  | 'onboarding_interview'
 
 export type RecordAiUsageParams = {
   supabase: SupabaseClient
