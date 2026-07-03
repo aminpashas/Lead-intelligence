@@ -25,6 +25,7 @@ import {
   Filter,
   Loader2,
   CalendarDays,
+  type LucideIcon,
 } from 'lucide-react'
 import { AppointmentsCalendar } from '@/components/crm/appointments-calendar'
 
@@ -307,21 +308,22 @@ export default function AppointmentsPage() {
       {(activeTab === 'upcoming' || activeTab === 'today') && (
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
-          {[
-            { key: 'all', label: 'All' },
-            { key: 'confirmed', label: '✅ Confirmed' },
-            { key: 'pending', label: '⏳ Pending' },
-            { key: 'at_risk', label: '🔴 At Risk' },
-          ].map((f) => (
+          {([
+            { key: 'all', label: 'All', icon: null },
+            { key: 'confirmed', label: 'Confirmed', icon: CheckCircle2 },
+            { key: 'pending', label: 'Pending', icon: Clock },
+            { key: 'at_risk', label: 'At Risk', icon: AlertTriangle },
+          ] as const).map((f) => (
             <button
               key={f.key}
               onClick={() => setStatusFilter(f.key)}
-              className={`text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+              className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
                 statusFilter === f.key
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-secondary text-secondary-foreground hover:bg-accent'
               }`}
             >
+              {f.icon && <f.icon className="h-3.5 w-3.5" />}
               {f.label}
             </button>
           ))}
@@ -430,18 +432,20 @@ function AppointmentCard({
               <div className="flex items-center gap-2">
                 <StatusBadge status={apt.status} />
                 {apt.confirmation_received && (
-                  <Badge variant="outline" className="bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20 text-xs">
-                    ✅ Confirmed
+                  <Badge variant="outline" className="inline-flex items-center gap-1 bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20 text-xs">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Confirmed
                     {apt.confirmed_via && (
-                      <span className="ml-1 opacity-70">
+                      <span className="ml-0.5 opacity-70">
                         via {apt.confirmed_via.replace('_', ' ')}
                       </span>
                     )}
                   </Badge>
                 )}
                 {apt.reschedule_requested && (
-                  <Badge variant="outline" className="bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20 text-xs">
-                    📅 Reschedule Requested
+                  <Badge variant="outline" className="inline-flex items-center gap-1 bg-aurea-amber/10 text-aurea-amber border-aurea-amber/20 text-xs">
+                    <RefreshCw className="h-3 w-3" />
+                    Reschedule Requested
                   </Badge>
                 )}
                 <RiskBadge score={apt.no_show_risk_score} />
@@ -669,8 +673,9 @@ function ReminderLogTab({
                       {r.sent_at ? formatRelative(r.sent_at) : 'Pending'}
                     </span>
                     {r.error_message && (
-                      <span className="text-xs text-aurea-rose max-w-[200px] truncate" title={r.error_message}>
-                        ⚠️ {r.error_message}
+                      <span className="inline-flex items-center gap-1 text-xs text-aurea-rose max-w-[200px] truncate" title={r.error_message}>
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{r.error_message}</span>
                       </span>
                     )}
                   </div>
@@ -755,19 +760,22 @@ function NoShowAnalyticsTab({
         <CardContent>
           <div className="space-y-4">
             <ChannelEffectivenessBar
-              label="📱 SMS Reminders"
+              label="SMS Reminders"
+              icon={MessageSquare}
               total={smsReminders.length}
               confirmed={smsConfirmed}
               color="bg-aurea-ink-2"
             />
             <ChannelEffectivenessBar
-              label="📧 Email Reminders"
+              label="Email Reminders"
+              icon={Mail}
               total={emailReminders.length}
               confirmed={emailConfirmed}
               color="bg-aurea-ink-3"
             />
             <ChannelEffectivenessBar
-              label="📞 AI Voice Calls"
+              label="AI Voice Calls"
+              icon={PhoneCall}
               total={voiceReminders.length}
               confirmed={voiceConfirmed}
               color="bg-aurea-primary"
@@ -783,8 +791,9 @@ function NoShowAnalyticsTab({
         </CardHeader>
         <CardContent>
           {noShows.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              🎉 No no-shows! Great job with your reminder system.
+            <p className="inline-flex items-center gap-1.5 w-full justify-center text-sm text-muted-foreground py-4 text-center">
+              <CheckCircle2 className="h-4 w-4 text-aurea-primary" />
+              No no-shows! Great job with your reminder system.
             </p>
           ) : (
             <div className="space-y-2">
@@ -819,13 +828,16 @@ function NoShowAnalyticsTab({
 // SUB-COMPONENTS
 // ═══════════════════════════════════════════════════════════════
 
-function ChannelEffectivenessBar({ label, total, confirmed, color }: { label: string; total: number; confirmed: number; color: string }) {
+function ChannelEffectivenessBar({ label, icon: Icon, total, confirmed, color }: { label: string; icon: LucideIcon; total: number; confirmed: number; color: string }) {
   const pct = total > 0 ? Math.round((confirmed / total) * 100) : 0
 
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-sm font-medium">{label}</span>
+        <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          {label}
+        </span>
         <span className="text-xs text-muted-foreground">
           {confirmed}/{total} confirmed ({pct}%)
         </span>

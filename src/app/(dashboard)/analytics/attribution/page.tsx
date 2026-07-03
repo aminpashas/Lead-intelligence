@@ -19,6 +19,7 @@ import {
   Loader2,
   Zap,
   Clock,
+  Gauge,
   Calculator,
   AlertTriangle,
 } from 'lucide-react'
@@ -417,9 +418,15 @@ export default function AttributionPage() {
                           <td className="py-2 text-right">
                             <Badge
                               variant={row.avgDays <= 7 ? 'default' : row.avgDays <= 30 ? 'secondary' : 'outline'}
-                              className="text-xs"
+                              className="inline-flex items-center gap-1 text-xs"
                             >
-                              {row.avgDays <= 7 ? '⚡ Fast' : row.avgDays <= 30 ? '🔄 Medium' : '🐢 Slow'}
+                              {row.avgDays <= 7 ? (
+                                <><Zap className="h-3 w-3" /> Fast</>
+                              ) : row.avgDays <= 30 ? (
+                                <><Gauge className="h-3 w-3" /> Medium</>
+                              ) : (
+                                <><Clock className="h-3 w-3" /> Slow</>
+                              )}
                             </Badge>
                           </td>
                         </tr>

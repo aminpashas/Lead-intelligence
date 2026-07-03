@@ -22,6 +22,8 @@ import {
   Clock, Users, Calendar, TrendingUp,
   Mic, FileText, AlertCircle, CheckCircle,
   VolumeX, BarChart3, Voicemail, Search,
+  RefreshCw, Sparkles, XCircle, Ban, ArrowUpRight,
+  type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -101,17 +103,17 @@ const callStatusConfig: Record<string, { label: string; color: string; icon: Rea
   canceled: { label: 'Canceled', color: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border', icon: PhoneOff },
 }
 
-const outcomeConfig: Record<string, { label: string; color: string }> = {
-  appointment_booked: { label: '📅 Booked', color: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },
-  callback_requested: { label: '🔄 Callback', color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
-  interested: { label: '✨ Interested', color: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },
-  not_interested: { label: '❌ Not Interested', color: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border' },
-  wrong_number: { label: '⚠️ Wrong #', color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
-  do_not_call: { label: '🚫 DNC', color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
-  voicemail_left: { label: '📞 VM Left', color: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border' },
-  no_answer: { label: '📵 No Answer', color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
-  technical_failure: { label: '⚠️ Error', color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
-  transferred: { label: '↗️ Transferred', color: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },
+const outcomeConfig: Record<string, { label: string; color: string; icon: LucideIcon }> = {
+  appointment_booked: { label: 'Booked', icon: Calendar, color: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },
+  callback_requested: { label: 'Callback', icon: RefreshCw, color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
+  interested: { label: 'Interested', icon: Sparkles, color: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },
+  not_interested: { label: 'Not Interested', icon: XCircle, color: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border' },
+  wrong_number: { label: 'Wrong #', icon: AlertCircle, color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
+  do_not_call: { label: 'DNC', icon: Ban, color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
+  voicemail_left: { label: 'VM Left', icon: Voicemail, color: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border' },
+  no_answer: { label: 'No Answer', icon: PhoneMissed, color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
+  technical_failure: { label: 'Error', icon: AlertCircle, color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
+  transferred: { label: 'Transferred', icon: ArrowUpRight, color: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },
 }
 
 const campaignStatusColors: Record<string, string> = {
@@ -289,7 +291,8 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
                             {statusCfg.label}
                           </Badge>
                           {outcomeCfg && (
-                            <Badge className={outcomeCfg.color + ' text-[11px] px-1.5 py-0'}>
+                            <Badge className={outcomeCfg.color + ' inline-flex items-center gap-1 text-[11px] px-1.5 py-0'}>
+                              <outcomeCfg.icon className="h-3 w-3" />
                               {outcomeCfg.label}
                             </Badge>
                           )}
@@ -550,7 +553,12 @@ function CallDetailModal({ call, onClose }: { call: VoiceCallRow; onClose: () =>
           {/* Status & Outcome */}
           <div className="flex items-center gap-2 flex-wrap">
             <Badge className={statusCfg.color}>{statusCfg.label}</Badge>
-            {outcomeCfg && <Badge className={outcomeCfg.color}>{outcomeCfg.label}</Badge>}
+            {outcomeCfg && (
+              <Badge className={outcomeCfg.color + ' inline-flex items-center gap-1'}>
+                <outcomeCfg.icon className="h-3.5 w-3.5" />
+                {outcomeCfg.label}
+              </Badge>
+            )}
             {call.agent_type && (
               <Badge variant="outline" className="capitalize text-aurea-ink-2">{call.agent_type} Agent</Badge>
             )}
