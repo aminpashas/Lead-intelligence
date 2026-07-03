@@ -3,6 +3,7 @@ import { DashboardHome } from '@/components/crm/dashboard-home'
 import { OrgGoalsCard } from '@/components/crm/org-goals-card'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { decryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
+import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -50,12 +51,14 @@ export default async function DashboardPage() {
       .in('status', ['scheduled', 'confirmed'])
       .order('scheduled_at', { ascending: true }),
 
-    // Newest leads (last 48h)
+    // Newest leads (last 48h) — only genuine Meta/Google ad leads count as
+    // "new leads"; imported nurturing-DB / organic / direct rows are excluded.
     supabase
       .from('leads')
       .select('id, first_name, last_name, ai_score, ai_qualification, source_type, status, created_at')
       .eq('organization_id', orgId)
       .gte('created_at', new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString())
+      .or(PAID_AD_CHANNEL_OR_FILTER)
       .order('created_at', { ascending: false })
       .limit(8),
 
@@ -89,12 +92,14 @@ export default async function DashboardPage() {
       .select('id, status, ai_qualification, treatment_value, created_at', { count: 'exact' })
       .eq('organization_id', orgId),
 
-    // Leads this week (for trend)
+    // New ad leads this week (for trend) — counts only DGS-attributed Meta /
+    // Google paid campaign leads, not imported nurturing-DB / organic / direct.
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
-      .gte('created_at', sevenDaysAgo),
+      .gte('created_at', sevenDaysAgo)
+      .or(PAID_AD_CHANNEL_OR_FILTER),
   ])
 
   // PII is encrypted at rest — decrypt server-side before rendering.
