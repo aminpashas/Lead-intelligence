@@ -19,6 +19,8 @@ export default async function DashboardPage() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
   const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString()
+  const sevenDaysAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
   // Run all queries in parallel
   const [
@@ -28,8 +30,14 @@ export default async function DashboardPage() {
     unreadConvosResult,
     activeCampaignsResult,
     recentActivitiesResult,
-    kpiResult,
+    totalLeadsResult,
     weekLeadsResult,
+    prevWeekLeadsResult,
+    awaitingContactResult,
+    engagedResult,
+    upcomingApptsResult,
+    unreadThreadsResult,
+    pipelineResult,
   ] = await Promise.all([
     // Hot leads needing attention (no response in 24h+)
     supabase
@@ -86,20 +94,70 @@ export default async function DashboardPage() {
       .order('created_at', { ascending: false })
       .limit(12),
 
-    // KPIs
+    // KPIs — all head-only counts aggregated by Postgres. Fetching rows and
+    // counting in JS silently truncates at PostgREST's 1000-row cap, which is
+    // how "Total Leads" once froze at exactly 1000.
     supabase
       .from('leads')
-      .select('id, status, ai_qualification, treatment_value, created_at', { count: 'exact' })
+      .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId),
 
-    // New ad leads this week (for trend) — counts only DGS-attributed Meta /
-    // Google paid campaign leads, not imported nurturing-DB / organic / direct.
+    // New ad leads this week — counts only DGS-attributed Meta / Google paid
+    // campaign leads, not imported nurturing-DB / organic / direct.
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
       .gte('created_at', sevenDaysAgo)
       .or(PAID_AD_CHANNEL_OR_FILTER),
+
+    // Same count for the week before, so the card can show a real trend.
+    supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gte('created_at', fourteenDaysAgo)
+      .lt('created_at', sevenDaysAgo)
+      .or(PAID_AD_CHANNEL_OR_FILTER),
+
+    // Speed-to-lead gap: this week's ad leads nobody has reached out to yet.
+    supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gte('created_at', sevenDaysAgo)
+      .is('last_contacted_at', null)
+      .or(PAID_AD_CHANNEL_OR_FILTER),
+
+    // Leads that replied to us in the last 7 days (any channel).
+    supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gte('last_responded_at', sevenDaysAgo),
+
+    // Appointments on the books for the coming week (today included).
+    supabase
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gte('scheduled_at', todayStart)
+      .lt('scheduled_at', sevenDaysAhead)
+      .in('status', ['scheduled', 'confirmed']),
+
+    // Conversation threads with unread messages (the list above only fetches 5).
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gt('unread_count', 0),
+
+    // Pipeline value — only rows that actually carry a value, summed here.
+    supabase
+      .from('leads')
+      .select('treatment_value')
+      .eq('organization_id', orgId)
+      .gt('treatment_value', 0),
   ])
 
   // PII is encrypted at rest — decrypt server-side before rendering.
@@ -109,14 +167,10 @@ export default async function DashboardPage() {
     lead: appt.lead ? decryptLeadPII(appt.lead as Record<string, unknown>) : appt.lead,
   }))
 
-  const allLeads = kpiResult.data || []
-  const totalLeads = allLeads.length
-  const hotCount = allLeads.filter((l) => l.ai_qualification === 'hot').length
-  const convertedCount = allLeads.filter((l) =>
-    ['contract_signed', 'scheduled', 'in_treatment', 'completed'].includes(l.status)
-  ).length
-  const pipelineValue = allLeads.reduce((s, l) => s + (l.treatment_value || 0), 0)
-  const weekLeads = weekLeadsResult.count || 0
+  const pipelineValue = (pipelineResult.data || []).reduce(
+    (s, l) => s + (l.treatment_value || 0),
+    0
+  )
 
   return (
     <div className="animate-in fade-in-0 duration-500 space-y-4">
@@ -130,13 +184,14 @@ export default async function DashboardPage() {
       activeCampaigns={activeCampaignsResult.data || []}
       recentActivities={recentActivitiesResult.data || []}
       kpis={{
-        totalLeads,
-        hotLeads: hotCount,
-        converted: convertedCount,
+        totalLeads: totalLeadsResult.count ?? 0,
+        weekLeads: weekLeadsResult.count ?? 0,
+        prevWeekLeads: prevWeekLeadsResult.count ?? 0,
+        awaitingContact: awaitingContactResult.count ?? 0,
+        engaged: engagedResult.count ?? 0,
         pipelineValue,
-        weekLeads,
-        todayAppointments: todayApptsResult.data?.length || 0,
-        unreadMessages: (unreadConvosResult.data || []).reduce((s, c) => s + c.unread_count, 0),
+        upcomingAppointments: upcomingApptsResult.count ?? 0,
+        unreadThreads: unreadThreadsResult.count ?? 0,
       }}
       />
     </div>

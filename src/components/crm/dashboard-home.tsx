@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CommandCenter } from './command-center'
 import {
-  Users, Flame, TrendingUp, DollarSign, Calendar, MessageSquare,
+  Users, TrendingUp, DollarSign, Calendar, MessageSquare,
   ArrowRight, Clock, Phone, Mail, Zap, Brain, Bell,
   CheckCircle2, AlertCircle, UserPlus, Megaphone, type LucideIcon,
 } from 'lucide-react'
@@ -40,6 +40,21 @@ function formatCurrency(n: number) {
   return `$${n}`
 }
 
+// Large lead counts read better abbreviated (45,148 → 45.1k).
+function formatCount(n: number) {
+  if (n >= 10_000) return `${(n / 1_000).toFixed(1)}k`
+  return n.toLocaleString()
+}
+
+// Week-over-week context line for the new-leads card. Prior-week volume can be
+// tiny (or zero), so show the raw baseline rather than a misleading percentage.
+function weekTrend(current: number, previous: number) {
+  if (previous === 0) return current > 0 ? 'none prior week' : 'past 7 days'
+  const pct = Math.round(((current - previous) / previous) * 100)
+  const arrow = pct >= 0 ? '↑' : '↓'
+  return `${arrow} ${Math.abs(pct)}% vs ${previous} prior wk`
+}
+
 type DashboardProps = {
   userName: string
   hotLeads: any[]
@@ -50,12 +65,13 @@ type DashboardProps = {
   recentActivities: any[]
   kpis: {
     totalLeads: number
-    hotLeads: number
-    converted: number
-    pipelineValue: number
     weekLeads: number
-    todayAppointments: number
-    unreadMessages: number
+    prevWeekLeads: number
+    awaitingContact: number
+    engaged: number
+    pipelineValue: number
+    upcomingAppointments: number
+    unreadThreads: number
   }
 }
 
@@ -86,15 +102,66 @@ export function DashboardHome({
         </p>
       </header>
 
-      {/* ── KPI Row ────────────────────────────────────────── */}
+      {/* ── KPI Row ──────────────────────────────────────────
+          Every card is a real Postgres aggregate (no sampled rows) and links
+          to the screen where you act on it. Metrics that are structurally
+          frozen for this book of business (Converted, Hot) don't get a slot. */}
       <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
-        <MiniKPI icon={Users} label="Total Leads" value={kpis.totalLeads} />
-        <MiniKPI icon={Flame} label="Hot Leads" value={kpis.hotLeads} accent="rose" />
-        <MiniKPI icon={TrendingUp} label="This Week" value={`+${kpis.weekLeads}`} accent="emerald" />
-        <MiniKPI icon={CheckCircle2} label="Converted" value={kpis.converted} />
-        <MiniKPI icon={DollarSign} label="Pipeline" value={formatCurrency(kpis.pipelineValue)} accent="emerald" />
-        <MiniKPI icon={Calendar} label="Today Appts" value={kpis.todayAppointments} accent="amber" />
-        <MiniKPI icon={Bell} label="Unread" value={kpis.unreadMessages} accent={kpis.unreadMessages > 0 ? 'rose' : undefined} />
+        <MiniKPI
+          icon={TrendingUp}
+          label="New Ad Leads"
+          value={`+${kpis.weekLeads}`}
+          sub={weekTrend(kpis.weekLeads, kpis.prevWeekLeads)}
+          accent="emerald"
+          href="/leads?sort=created_at&dir=desc"
+        />
+        <MiniKPI
+          icon={AlertCircle}
+          label="Not Contacted"
+          value={kpis.awaitingContact}
+          sub="new this week"
+          accent={kpis.awaitingContact > 0 ? 'rose' : undefined}
+          href="/leads?status=new&sort=created_at&dir=desc"
+        />
+        <MiniKPI
+          icon={MessageSquare}
+          label="Replied · 7d"
+          value={kpis.engaged}
+          sub="leads engaged"
+          accent={kpis.engaged > 0 ? 'emerald' : undefined}
+          href="/conversations"
+        />
+        <MiniKPI
+          icon={Calendar}
+          label="Appts · 7d"
+          value={kpis.upcomingAppointments}
+          sub="on the books"
+          accent="amber"
+          href="/appointments"
+        />
+        <MiniKPI
+          icon={DollarSign}
+          label="Pipeline"
+          value={formatCurrency(kpis.pipelineValue)}
+          sub="est. treatment value"
+          accent="emerald"
+          href="/pipeline"
+        />
+        <MiniKPI
+          icon={Bell}
+          label="Unread"
+          value={kpis.unreadThreads}
+          sub="conversations"
+          accent={kpis.unreadThreads > 0 ? 'rose' : undefined}
+          href="/conversations"
+        />
+        <MiniKPI
+          icon={Users}
+          label="Database"
+          value={formatCount(kpis.totalLeads)}
+          sub="total leads"
+          href="/leads"
+        />
       </div>
 
       {/* ── Command center (hero) + priority rail ──────────── */}
@@ -113,7 +180,7 @@ export function DashboardHome({
                   Unread Messages
                 </h2>
                 <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
-                  ({kpis.unreadMessages})
+                  ({kpis.unreadThreads})
                 </span>
               </div>
               <div className="px-5">
@@ -424,25 +491,40 @@ function MiniKPI({
   icon: Icon,
   label,
   value,
+  sub,
   accent,
+  href,
 }: {
   icon: LucideIcon
   label: string
   value: string | number
+  sub?: string
   accent?: 'emerald' | 'amber' | 'rose'
+  href?: string
 }) {
   const valueColor =
     accent === 'emerald' ? 'text-aurea-primary'
     : accent === 'amber' ? 'text-aurea-amber'
     : accent === 'rose' ? 'text-aurea-rose'
     : 'text-aurea-ink'
-  return (
-    <div className="aurea-card p-4">
+  const body = (
+    <>
       <div className="flex items-center justify-between">
         <p className="aurea-eyebrow">{label}</p>
         <Icon className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
       </div>
       <p className={`mt-3 aurea-display text-[26px] tabular-nums ${valueColor}`}>{value}</p>
-    </div>
+      {sub && (
+        <p className="mt-1 truncate text-[11px] leading-tight text-aurea-ink-3">{sub}</p>
+      )}
+    </>
   )
+  if (href) {
+    return (
+      <Link href={href} className="aurea-card block p-4 transition-colors hover:bg-aurea-surface-2">
+        {body}
+      </Link>
+    )
+  }
+  return <div className="aurea-card p-4">{body}</div>
 }
