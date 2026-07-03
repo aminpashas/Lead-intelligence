@@ -36,6 +36,69 @@ const DEFAULT_CONTRACT_SETTINGS: OrgContractSettings = {
   auto_draft_on_ehr_accept: true,
 }
 
+/**
+ * Practice-level people/logistics used by the FMR packet. These are not clinical
+ * rows — they live under organizations.settings.practice, alongside settings.legal
+ * and settings.contracts. All fields fall back to '' so a missing block renders an
+ * empty merge rather than a broken {{token}} (and shows up in missing_variables).
+ */
+type OrgPracticeSettings = {
+  doctor_name: string
+  coordinator_name: string
+  coordinator_phone: string
+  coordinator_email: string
+  emergency_phone: string
+  default_location: string
+  fmr_version: string
+}
+
+const DEFAULT_PRACTICE: OrgPracticeSettings = {
+  doctor_name: '',
+  coordinator_name: '',
+  coordinator_phone: '',
+  coordinator_email: '',
+  emergency_phone: '',
+  default_location: '',
+  fmr_version: 'v9-2026',
+}
+
+function parsePractice(raw: unknown): OrgPracticeSettings {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_PRACTICE }
+  const r = raw as Record<string, unknown>
+  const str = (v: unknown, fallback = ''): string => (typeof v === 'string' && v.trim() ? v : fallback)
+  return {
+    doctor_name: str(r.doctor_name),
+    coordinator_name: str(r.coordinator_name),
+    coordinator_phone: str(r.coordinator_phone),
+    coordinator_email: str(r.coordinator_email),
+    emergency_phone: str(r.emergency_phone),
+    default_location: str(r.default_location),
+    fmr_version: str(r.fmr_version, DEFAULT_PRACTICE.fmr_version),
+  }
+}
+
+function formatDate(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+function paymentMethodLabel(t: FinancialSummary['financing_type']): string {
+  switch (t) {
+    case 'loan':
+      return 'Third-party financing'
+    case 'in_house':
+      return 'In-house payment plan'
+    case 'insurance':
+      return 'Insurance + patient balance'
+    case 'cash':
+      return 'Paid in full'
+    default:
+      return ''
+  }
+}
+
 function formatAddressOneLine(addr: OrgLegalSettings['principal_address']): string | null {
   if (!addr) return null
   const { street, city, state, zip } = addr
@@ -168,11 +231,12 @@ export async function buildContractContext(
     deposit_amount: number | null
     financing_type: FinancialSummary['financing_type']
     financing_monthly_payment: number | null
+    surgery_date: string | null
   } | null = null
   if (caseRow.lead_id) {
     const { data: tc } = await supabase
       .from('treatment_closings')
-      .select('id, contract_amount, deposit_amount, financing_type, financing_monthly_payment')
+      .select('id, contract_amount, deposit_amount, financing_type, financing_monthly_payment, surgery_date')
       .eq('lead_id', caseRow.lead_id)
       .maybeSingle()
     closingRow = tc ?? null
@@ -187,11 +251,12 @@ export async function buildContractContext(
     zip_code: string | null
     financing_approved: boolean | null
     financing_amount: number | null
+    date_of_birth: string | null
   } | null = null
   if (caseRow.lead_id) {
     const { data: l } = await supabase
       .from('leads')
-      .select('first_name, last_name, city, state, zip_code, financing_approved, financing_amount')
+      .select('first_name, last_name, city, state, zip_code, financing_approved, financing_amount, date_of_birth')
       .eq('id', caseRow.lead_id)
       .maybeSingle()
     leadRow = l ?? null
@@ -206,6 +271,7 @@ export async function buildContractContext(
   const settings = (orgRow?.settings ?? {}) as Record<string, unknown>
   const legal = parseLegal(settings.legal)
   const contractSettings = parseContractSettings(settings.contracts)
+  const practice = parsePractice(settings.practice)
 
   // Validate required legal settings
   const missingLegal: string[] = []
@@ -233,6 +299,31 @@ export async function buildContractContext(
     total_patient_estimate: planRow?.total_estimated_cost ?? null,
     total_insurance_estimate: null,
   }
+
+  const balanceDue = Math.max(0, financial.contract_amount - financial.deposit_amount)
+
+  // FMR pre-surgical intake bag. Best-effort: the `intake` column may not be migrated
+  // yet (see 20260702160000_fmr_treatment_closings_intake.sql). A missing column just
+  // yields an empty bag — the fields resolve blank rather than failing generation.
+  let intakeBag: Record<string, unknown> = {}
+  if (closingRow?.id) {
+    const { data: ib } = await supabase
+      .from('treatment_closings')
+      .select('intake')
+      .eq('id', closingRow.id)
+      .maybeSingle()
+    const raw = (ib as { intake?: unknown } | null)?.intake
+    if (raw && typeof raw === 'object') intakeBag = raw as Record<string, unknown>
+  }
+  const intakeStr = (k: string): string => {
+    const v = intakeBag[k]
+    return typeof v === 'string' || typeof v === 'number' ? String(v) : ''
+  }
+  const discountAmount = Number(intakeBag.discount_amount ?? 0) || 0
+  const totalBeforeDiscount = financial.contract_amount + discountAmount
+  const emergencyContact = [intakeStr('emergency_contact_name'), intakeStr('emergency_contact_phone')]
+    .filter(Boolean)
+    .join(' · ')
 
   const fullName = caseRow.patient_name
   const firstName = leadRow?.first_name ?? (fullName ? fullName.split(' ')[0] : 'Patient')
@@ -265,6 +356,46 @@ export async function buildContractContext(
     'financial.deposit_amount': financial.deposit_amount,
     'financial.deposit_amount_formatted': formatCurrency(financial.deposit_amount),
     'financial.financing_monthly_payment_formatted': formatCurrency(financial.financing_monthly_payment),
+
+    // ── FMR packet additions ──────────────────────────────────────────────
+    // Patient identity / logistics
+    'patient.dob': formatDate(leadRow?.date_of_birth ?? null),
+    'treatment.description': planRow?.plan_summary ?? '',
+    'effective_date': today,
+    'contract.version': practice.fmr_version,
+
+    // Practice people (from organizations.settings.practice)
+    'doctor.name': practice.doctor_name,
+    'coordinator.name': practice.coordinator_name,
+    'coordinator.phone': practice.coordinator_phone,
+    'coordinator.email': practice.coordinator_email,
+    'practice.emergency_phone': practice.emergency_phone,
+    'surgery.location': practice.default_location,
+    'postop.location': practice.default_location,
+
+    // Dates (surgery from closing; pre-op from the intake bag)
+    'surgery.date': formatDate(closingRow?.surgery_date ?? null),
+    'preop.date': formatDate(intakeStr('preop_date') || null),
+
+    // Financial breakdown. Discount comes from the intake bag when present, so
+    // total-before-discount = contracted amount + discount (contracted = patient total).
+    'financial.total_before_discount': totalBeforeDiscount,
+    'financial.total_before_discount_formatted': formatCurrency(totalBeforeDiscount),
+    'financial.discount_amount': discountAmount,
+    'financial.discount_amount_formatted': formatCurrency(discountAmount),
+    'financial.total_to_patient': financial.contract_amount,
+    'financial.total_to_patient_formatted': formatCurrency(financial.contract_amount),
+    'financial.balance_due': balanceDue,
+    'financial.balance_due_formatted': formatCurrency(balanceDue),
+    'financial.payment_method': paymentMethodLabel(financial.financing_type),
+
+    // Intake-sourced fields (from treatment_closings.intake — see FMR intake spec).
+    'intake.preferred_pharmacy': intakeStr('preferred_pharmacy'),
+    'intake.pcp_name': intakeStr('pcp_name'),
+    'intake.driver_name': intakeStr('driver_name'),
+    'intake.emergency_contact': emergencyContact,
+    // Drives the conditional smoker consent in the orchestrator.
+    'intake.uses_tobacco': intakeBag.uses_tobacco_vape_marijuana ? 'true' : '',
   }
 
   const context: ContractContext = {
