@@ -19,6 +19,13 @@ import {
   isGoogleTestLead,
 } from '@/lib/connectors/google-ads/lead-forms'
 
+// Campaign vertical is carried in the webhook URL (?vertical=tmj) because
+// Google's payload has only opaque campaign/form ids. Non-implant verticals
+// are tagged for vertical-aware scoring and never arm speed-to-lead — the
+// setter playbook is implant-specific.
+const TREATMENT_VERTICALS = ['implant', 'tmj', 'sleep_apnea'] as const
+type Vertical = (typeof TREATMENT_VERTICALS)[number]
+
 // POST /api/webhooks/google-ads — Google Ads Lead Form Extensions webhook
 export async function POST(request: NextRequest) {
   const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.webhook, 'wh-google-ads')
@@ -27,9 +34,15 @@ export async function POST(request: NextRequest) {
   const { rawBody, parsed } = await getRawBodyAndParsed(request)
   const body = parsed as Record<string, unknown>
 
-  const orgResult = await validateOrgId(new URL(request.url).searchParams.get('org'))
+  const url = new URL(request.url)
+  const orgResult = await validateOrgId(url.searchParams.get('org'))
   if (orgResult instanceof NextResponse) return orgResult
   const { orgId } = orgResult
+
+  const verticalParam = url.searchParams.get('vertical')
+  const vertical: Vertical = (TREATMENT_VERTICALS as readonly string[]).includes(verticalParam ?? '')
+    ? (verticalParam as Vertical)
+    : 'implant'
 
   const supabase = createServiceClient()
   const cfg = await getGoogleLeadFormConfig(supabase, orgId)
@@ -68,13 +81,13 @@ export async function POST(request: NextRequest) {
         phoneRaw: parsedLead.phone,
         source: 'Google Lead Forms',
         sourceType: 'google_ads',
-        tags: ['google'],
+        tags: vertical === 'implant' ? ['google'] : ['google', vertical],
         // Google lead forms carry no standard consent signal → leave UNKNOWN
         // (the shared path never fabricates a false); earned via re-permission.
         utm_source: 'google',
         gclid: (body.gclid as string) || (body.gcl_id as string) || null,
       },
-      { caller: 'google-lead-forms', armSpeedToLead: true },
+      { caller: 'google-lead-forms', armSpeedToLead: vertical === 'implant' },
     )
   } catch (err) {
     return NextResponse.json(
@@ -96,6 +109,7 @@ export async function POST(request: NextRequest) {
       city: parsedLead.city,
       zip_code: parsedLead.zip,
       custom_fields: {
+        treatment_interest: vertical,
         google_lead_id: body.lead_id ?? body.google_key,
         campaign_id: body.campaign_id,
         ad_group_id: body.adgroup_id ?? body.ad_group_id,

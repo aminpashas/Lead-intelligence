@@ -116,6 +116,39 @@ Respond ONLY with valid JSON matching this structure:
   "confidence": <0.0-1.0>
 }`
 
+export type TreatmentVertical = 'implant' | 'tmj' | 'sleep_apnea'
+
+/**
+ * Campaign-vertical detection: ad webhooks tag non-implant leads (TMJ, sleep
+ * apnea) at ingestion so scoring/outreach don't treat them as implant leads.
+ */
+export function getTreatmentVertical(lead: Partial<Lead>): TreatmentVertical {
+  const fromCustom = lead.custom_fields?.treatment_interest
+  if (fromCustom === 'tmj' || fromCustom === 'sleep_apnea') return fromCustom
+  if (Array.isArray(lead.tags)) {
+    if (lead.tags.includes('tmj')) return 'tmj'
+    if (lead.tags.includes('sleep_apnea')) return 'sleep_apnea'
+  }
+  return 'implant'
+}
+
+const VERTICAL_ADDENDA: Record<Exclude<TreatmentVertical, 'implant'>, string> = {
+  tmj: `
+
+## Treatment Vertical Override — TMJ
+This lead came from a TMJ (temporomandibular joint disorder) treatment campaign, NOT an implant campaign. Do not evaluate them as an implant candidate.
+- Reinterpret dimension 1 (keep the JSON name "dental_condition") as TMJ condition severity: chronic jaw pain / locking / clicking with daily-life impact = 80-100; frequent jaw-attributed headaches or migraines = 60-80; intermittent clicking or discomfort = 40-60; vague or unknown symptoms = 20-40.
+- Reinterpret financial_readiness against a TMJ treatment price point (a fraction of full-arch implant cost; medical insurance sometimes contributes). Do NOT penalize the lead for lacking implant-level budget.
+- All other dimensions, weights, JSON dimension names, and the output format are unchanged.`,
+  sleep_apnea: `
+
+## Treatment Vertical Override — Sleep Apnea
+This lead came from a sleep apnea treatment campaign, NOT an implant campaign. Do not evaluate them as an implant candidate.
+- Reinterpret dimension 1 (keep the JSON name "dental_condition") as sleep apnea severity/readiness: diagnosed OSA with CPAP intolerance seeking an oral appliance = 80-100; sleep study completed but untreated = 60-80; loud snoring / partner complaints without a diagnosis = 40-60; vague or unknown symptoms = 20-40.
+- Reinterpret financial_readiness against oral appliance therapy pricing (medical insurance frequently covers part of it). Do NOT penalize the lead for lacking implant-level budget.
+- All other dimensions, weights, JSON dimension names, and the output format are unchanged.`,
+}
+
 function buildLeadContext(lead: Partial<Lead>): string {
   const parts: string[] = []
 
@@ -238,16 +271,22 @@ export async function scoreLead(
     })
   }
 
+  const vertical = getTreatmentVertical(lead)
+  const verticalLabel =
+    vertical === 'tmj' ? 'TMJ treatment' : vertical === 'sleep_apnea' ? 'sleep apnea treatment' : 'dental implant'
+  const systemPrompt =
+    vertical === 'implant' ? SCORING_PROMPT : SCORING_PROMPT + VERTICAL_ADDENDA[vertical]
+
   const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     messages: [
       {
         role: 'user',
-        content: `Score this dental implant lead:\n\n${leadContext}`,
+        content: `Score this ${verticalLabel} lead:\n\n${leadContext}`,
       },
     ],
-    system: SCORING_PROMPT,
+    system: systemPrompt,
   })
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
