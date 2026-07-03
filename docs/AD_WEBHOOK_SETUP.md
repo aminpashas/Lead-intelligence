@@ -85,7 +85,15 @@ curl -s "https://<LI_PROD_DOMAIN>/api/webhooks/meta?org=<ORG_UUID>&hub.mode=subs
 
 ## Google Ads Lead Form
 
-Webhook URL: `https://<LI_PROD_DOMAIN>/api/webhooks/google-ads?org=<ORG_UUID>`
+Webhook URL: `https://<LI_PROD_DOMAIN>/api/webhooks/google-ads?org=<ORG_UUID>&vertical=<VERTICAL>`
+
+`vertical` identifies the campaign's treatment line — Google's payload only
+carries opaque campaign/form ids, so the URL is where classification happens.
+Accepted values: `implant` (default if omitted), `tmj`, `sleep_apnea`. Give
+each lead form asset the URL matching its campaign. Non-implant verticals are
+tagged on the lead (`tags` + `custom_fields.treatment_interest`), scored with
+a vertical-aware prompt instead of implant criteria, and never arm
+speed-to-lead (the setter playbook is implant-specific).
 
 1. In Google Ads → Assets → Lead forms → open each lead form asset (or create
    one on the campaign).
