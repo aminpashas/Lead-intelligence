@@ -152,6 +152,11 @@ export function applySmartListCriteria(
     query = query.eq('email_consent', true).eq('email_opt_out', false)
   }
 
+  // EHR reconciliation: exclude (false) or isolate (true) existing patients.
+  if (typeof criteria.is_existing_patient === 'boolean') {
+    query = query.eq('is_existing_patient', criteria.is_existing_patient)
+  }
+
   return query
 }
 

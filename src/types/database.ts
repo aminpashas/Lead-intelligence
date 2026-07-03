@@ -323,6 +323,12 @@ export type Lead = {
   // AI Override
   ai_autopilot_override: LeadAIOverride
 
+  // EHR reconciliation — set when this contact already exists as a synced
+  // patient (patients table). Existing patients are excluded from new-lead
+  // pools and never auto-outreached by speed-to-lead.
+  is_existing_patient: boolean
+  matched_patient_id: string | null
+
   // Joined relations (optional)
   pipeline_stage?: PipelineStage
   source?: LeadSource
@@ -995,6 +1001,9 @@ export type SmartListCriteria = {
   has_email?: boolean
   sms_consent?: boolean
   email_consent?: boolean
+  /** Filter by EHR reconciliation: false = exclude existing patients (new-lead
+   *  pools), true = only existing patients. Omit for no filter. */
+  is_existing_patient?: boolean
   keywords?: {
     terms: string[]
     match: 'any' | 'all'
@@ -1134,6 +1143,11 @@ export type VoiceCall = {
   consent_verified: boolean
   recording_disclosure_given: boolean
   tcpa_compliant: boolean
+
+  // Browser softphone (Phase 1): who placed it, how, and the one-time dial token.
+  staff_user_id: string | null
+  call_mode: 'ai' | 'browser' | 'bridge' | null
+  dial_token: string | null
 
   metadata: Record<string, unknown>
   created_at: string

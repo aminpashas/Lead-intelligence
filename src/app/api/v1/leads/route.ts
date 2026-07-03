@@ -30,6 +30,7 @@ import { formatToE164 } from '@/lib/leads/phone'
 import { safeParseBody } from '@/lib/body-size'
 import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
 import { deriveConsentFields } from '@/lib/consent/ingest'
+import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -451,6 +452,20 @@ export async function POST(request: NextRequest) {
       } catch {
         // Non-fatal: financial qualification must never affect ingestion.
       }
+    }
+
+    // Existing-patient reconciliation: an inbound contact that already exists
+    // as a synced EHR patient is NOT a net-new sales lead (e.g. an existing
+    // patient calling a WhatConverts tracked number). Flag it — this drops the
+    // lead out of the new-lead smart lists and short-circuits speed-to-lead
+    // below. Runs before triggerSpeedToLead so the flag is set first.
+    try {
+      const match = await findExistingPatientByHash(supabase, customerId, { emailHash, phoneHash })
+      if (match) {
+        await markLeadAsExistingPatient(supabase, String(lead.id), customerId, match.patientId)
+      }
+    } catch {
+      // Non-fatal: reconciliation must never affect ingestion.
     }
 
     try {
