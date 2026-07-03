@@ -97,6 +97,46 @@ export function consentRevokeFields(
   return fields
 }
 
+/**
+ * Staff-facing DND channels. Distinct from ConsentCaptureChannel only in naming:
+ * the UI says "call" where the consent model says "voice", so the mapping is
+ * explicit here rather than leaking 'voice' into button labels.
+ */
+export type DndChannel = 'sms' | 'email' | 'call'
+
+export const DND_CHANNELS: readonly DndChannel[] = ['sms', 'email', 'call'] as const
+
+const DND_CHANNEL_COLUMN: Record<DndChannel, { flag: string; at: string }> = {
+  sms: { flag: 'sms_opt_out', at: 'sms_opt_out_at' },
+  email: { flag: 'email_opt_out', at: 'email_opt_out_at' },
+  // "Calls" DND = the per-lead voice opt-out. The national-registry `do_not_call`
+  // flag is a separate, non-toggleable signal and is intentionally left alone.
+  call: { flag: 'voice_opt_out', at: 'voice_opt_out_at' },
+}
+
+/**
+ * Staff DND toggle → the `leads` opt-out columns. `enabled: true` sets the hard
+ * opt-out (+ timestamp), identical to a lead's own STOP, so every send path
+ * already blocks on it. `enabled: false` clears it — a staff member lifting a
+ * suppression. Consent booleans are deliberately NOT touched: lifting DND only
+ * removes the block, it never manufactures consent. The sync_consent_status /
+ * log_consent_change triggers keep tri-state status + consent_log in sync either
+ * way. Per-channel by construction — passing ['sms'] leaves email/voice untouched.
+ */
+export function dndFields(
+  channels: DndChannel[],
+  enabled: boolean,
+  now: string = new Date().toISOString()
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {}
+  for (const ch of channels) {
+    const col = DND_CHANNEL_COLUMN[ch]
+    fields[col.flag] = enabled
+    fields[col.at] = enabled ? now : null
+  }
+  return fields
+}
+
 const CHANNEL_REACH_VERB: Record<ConsentCaptureChannel, string> = {
   sms: 'text',
   email: 'email',

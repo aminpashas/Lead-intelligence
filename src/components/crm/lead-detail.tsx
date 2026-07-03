@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { LeadMessaging } from './lead-messaging'
+import { LeadActions } from './lead-actions'
 import { LeadTimeline } from './lead-timeline'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
 import { ScheduleAppointment } from './schedule-appointment'
@@ -215,7 +215,7 @@ export function LeadDetail({
             <p className="aurea-eyebrow capitalize">{lead.ai_qualification}</p>
           </div>
 
-          <LeadMessaging lead={lead} />
+          <LeadActions lead={lead} variant="bar" />
           <ScheduleAppointment lead={lead} />
 
           <Button onClick={scoreLead} disabled={scoring} variant="outline" size="sm" className="gap-1.5">

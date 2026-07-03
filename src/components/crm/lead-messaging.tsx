@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -29,18 +29,41 @@ import {
   Send,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import type { ReactNode } from 'react'
 import type { Lead } from '@/types/database'
 
-export function LeadMessaging({ lead }: { lead: Lead }) {
-  const [open, setOpen] = useState(false)
+export function LeadMessaging({
+  lead,
+  defaultChannel,
+  trigger,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  lead: Lead
+  /** Which tab the dialog opens on. Falls back to SMS when the lead has a phone. */
+  defaultChannel?: 'sms' | 'email'
+  /** Custom trigger node. When omitted, renders the default "Send Message" chip. */
+  trigger?: ReactNode
+  /** Optional controlled open state (lets a parent bar open the dialog directly). */
+  open?: boolean
+  onOpenChange?: (v: boolean) => void
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = controlledOpen ?? uncontrolledOpen
+  const setOpen = onOpenChange ?? setUncontrolledOpen
   const [sending, setSending] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [tab, setTab] = useState<string>(lead.phone ? 'sms' : 'email')
+  const [tab, setTab] = useState<string>(defaultChannel ?? (lead.phone ? 'sms' : 'email'))
   const [smsBody, setSmsBody] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [emailBody, setEmailBody] = useState('')
   const [aiMode, setAiMode] = useState('education')
   const router = useRouter()
+
+  // When a parent opens the dialog to a specific channel, follow it.
+  useEffect(() => {
+    if (open && defaultChannel) setTab(defaultChannel)
+  }, [open, defaultChannel])
 
   async function generateAI() {
     setGenerating(true)
@@ -114,12 +137,18 @@ export function LeadMessaging({ lead }: { lead: Lead }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        <span className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-aurea-border px-3 py-2 text-sm font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2">
-          <MessageSquare className="h-4 w-4" strokeWidth={1.75} />
-          Send Message
-        </span>
-      </DialogTrigger>
+      {/* A parent bar can drive the dialog via `open`/`onOpenChange` and pass no
+          trigger; otherwise render the given trigger or the default chip. */}
+      {controlledOpen === undefined && (
+        <DialogTrigger>
+          {trigger ?? (
+            <span className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-aurea-border px-3 py-2 text-sm font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2">
+              <MessageSquare className="h-4 w-4" strokeWidth={1.75} />
+              Send Message
+            </span>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="aurea-display text-[22px] text-aurea-ink">

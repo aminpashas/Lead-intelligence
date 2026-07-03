@@ -23,6 +23,7 @@ import { Brain, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { TagBadgeList } from './tag-badge'
 import { formatCampaignAttribution } from '@/lib/attribution'
 import type { Lead, PipelineStage, Tag } from '@/types/database'
+import { LeadActions } from './lead-actions'
 import { useState } from 'react'
 
 // Lead qualification chips — monochrome editorial palette
@@ -164,6 +165,7 @@ export function LeadsTable({
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Activity</TableHead>
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Value</TableHead>
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Created</TableHead>
+              <TableHead className="aurea-eyebrow text-aurea-ink-3 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -256,6 +258,11 @@ export function LeadsTable({
                     <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
                       {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
                     </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end">
+                      <LeadActions lead={lead} variant="compact" />
+                    </div>
                   </TableCell>
                 </TableRow>
               )

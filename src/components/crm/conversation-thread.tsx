@@ -32,6 +32,7 @@ import { toast } from 'sonner'
 import type { Conversation, Message, Lead, AgentType } from '@/types/database'
 import { AgentIndicator, AgentMessageLabel } from './agent-indicator'
 import { AIModeToggle } from './ai-mode-toggle'
+import { LeadActions } from './lead-actions'
 
 // ── Thread shaping ──────────────────────────────────────────
 // Consecutive messages from the same sender within this window render as one
@@ -298,6 +299,7 @@ export function ConversationThread({
           </div>
         </div>
         <div className="flex items-center gap-2.5">
+          <LeadActions lead={lead} variant="compact" />
           <AgentIndicator
             activeAgent={activeAgent}
             conversationId={conversation.id}
