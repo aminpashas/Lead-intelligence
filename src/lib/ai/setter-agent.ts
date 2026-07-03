@@ -35,6 +35,7 @@ import { SETTER_TOOLS } from '@/lib/autopilot/agent-tools'
 import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
+import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -361,10 +362,11 @@ export async function setterAgentRespond(
   // "train your AI" actually governs real patient conversations (not just the
   // playground). Keyed on the latest inbound message for knowledge relevance.
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, rulesBlock] = await Promise.all([
+  const [knowledgeBlock, personaBlock, rulesBlock, profileBlock] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     buildAgencyRulesBlock(supabase),
+    buildPracticeProfileBlock(supabase, context.organization_id),
   ])
 
   // Discovery-first guide + pricing integrity — on EVERY channel now (was
@@ -398,7 +400,7 @@ export async function setterAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({

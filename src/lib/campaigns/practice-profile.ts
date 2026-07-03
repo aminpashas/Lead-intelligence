@@ -207,3 +207,20 @@ export function practiceProfileSummary(row: PracticeProfileRow | null): string {
   if (blocks.length === 0) return ''
   return `PRACTICE FACTS (from the practice's own onboarding answers — treat as ground truth, never contradict or improvise beyond them):\n\n${blocks.join('\n\n')}`
 }
+
+/**
+ * Read-only prompt block for the LIVE agents (setter/closer): the practice's
+ * own onboarding answers, so the AI stops improvising hours, technology, and
+ * cost framing. '' when the org has no profile yet — never creates a row.
+ */
+export async function buildPracticeProfileBlock(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<string> {
+  const { data } = await supabase
+    .from('practice_profiles')
+    .select(PROFILE_SELECT)
+    .eq('organization_id', orgId)
+    .maybeSingle<PracticeProfileRow>()
+  return practiceProfileSummary(data)
+}
