@@ -9,6 +9,8 @@ import { generateAvailableSlots, type BookingConfig, type ExistingAppointment, f
 import { encryptLeadPII } from '@/lib/encryption'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { escapeHtml } from '@/lib/utils'
+import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
+import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 
 const bookingSchema = z.object({
   slot_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -17,6 +19,7 @@ const bookingSchema = z.object({
   last_name: z.string().min(1).max(100),
   phone: z.string().min(10).max(20),
   email: z.string().email(),
+  date_of_birth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   notes: z.string().max(500).optional(),
   // Explicit marketing opt-in checkbox. Absent/false → no marketing consent is
   // granted (the booking confirmation itself is transactional and still sends).
@@ -40,7 +43,7 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { slot_date, slot_time, first_name, last_name, phone, email, notes, marketing_consent } = parsed.data
+  const { slot_date, slot_time, first_name, last_name, phone, email, date_of_birth, notes, marketing_consent } = parsed.data
   const grantConsent = marketing_consent === true
 
   // Get booking settings
@@ -80,6 +83,7 @@ export async function POST(
         .from('leads')
         .insert(encryptLeadPII({
           organization_id: orgId, first_name, last_name, phone, email,
+          date_of_birth: date_of_birth ?? null,
           source_type: 'booking_page', status: 'new', ...newLeadConsent,
         }))
         .select('id').single()
@@ -133,7 +137,8 @@ export async function POST(
     max_bookings_per_slot: settings.max_bookings_per_slot || 1,
   }
 
-  const availableSlots = generateAvailableSlots(config, (existingAppts || []) as ExistingAppointment[])
+  const ehrBusy = await fetchEhrBusyAsAppointments(supabase, orgId, settings.advance_days)
+  const availableSlots = generateAvailableSlots(config, [...((existingAppts || []) as ExistingAppointment[]), ...ehrBusy])
   const daySlots = availableSlots.find((d) => d.date === slot_date)
   if (!daySlots || !daySlots.times.includes(slot_time)) {
     return NextResponse.json({ error: 'This time slot is no longer available. Please select another time.' }, { status: 409 })
@@ -191,6 +196,7 @@ export async function POST(
         last_name,
         phone,
         email,
+        date_of_birth: date_of_birth ?? null,
         source_type: 'booking_page',
         status: 'consultation_scheduled',
         consultation_date: scheduledAt,
@@ -233,6 +239,9 @@ export async function POST(
   if (!appointment) {
     return NextResponse.json({ error: 'Failed to create appointment' }, { status: 500 })
   }
+
+  // Fire-and-forget: push to CareStack + Dion Clinical + Slack. Never blocks the booking.
+  void syncAppointmentToEhr(supabase, appointment.id, { action: 'book' })
 
   // Log activity
   await supabase.from('lead_activities').insert({
