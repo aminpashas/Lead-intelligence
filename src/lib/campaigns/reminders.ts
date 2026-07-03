@@ -32,6 +32,7 @@ import {
 import { renderEmail } from '@/emails/render'
 import { BookingReminder } from '@/emails/BookingReminder'
 import { logger } from '@/lib/logger'
+import { decryptLeadPII } from '@/lib/encryption'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -149,7 +150,8 @@ async function send72hReminders(
     .lte('scheduled_at', to.toISOString())
 
   for (const apt of (appointments || []) as AppointmentWithLead[]) {
-    const lead = apt.lead
+    // Decrypt PII (email/phone) before use — raw enc:: values are invalid recipients.
+    const lead = apt.lead ? decryptLeadPII(apt.lead) : apt.lead
     if (!lead?.email || lead.email_opt_out) {
       results.push({ appointment_id: apt.id, type: '72h', channel: 'email', status: 'skipped', detail: 'no_email_or_opted_out' })
       continue
@@ -241,7 +243,8 @@ async function send24hReminders(
     .lte('scheduled_at', to.toISOString())
 
   for (const apt of (appointments || []) as AppointmentWithLead[]) {
-    const lead = apt.lead
+    // Decrypt PII (email/phone) before use — raw enc:: values are invalid recipients.
+    const lead = apt.lead ? decryptLeadPII(apt.lead) : apt.lead
     if (!lead) continue
 
     const dateTime = formatAppointmentDateTime(apt.scheduled_at)
@@ -460,7 +463,8 @@ async function send1hReminders(
     .lte('scheduled_at', to.toISOString())
 
   for (const apt of (appointments || []) as unknown as AppointmentWithLead[]) {
-    const lead = apt.lead
+    // Decrypt PII (email/phone) before use — raw enc:: values are invalid recipients.
+    const lead = apt.lead ? decryptLeadPII(apt.lead) : apt.lead
     if (!lead?.phone || lead.sms_opt_out) {
       results.push({ appointment_id: apt.id, type: '1h', channel: 'sms', status: 'skipped', detail: 'no_phone_or_opted_out' })
       continue
@@ -562,12 +566,17 @@ export async function confirmAppointment(
     })
     .eq('id', appointmentId)
 
-  // Get lead for sending confirmation email
-  const { data: lead } = await supabase
+  // Get lead for sending confirmation. PII columns (email, phone) are stored
+  // AES-encrypted at rest (enc::…) — they MUST be decrypted before handing to
+  // Resend/Twilio or the send fails on an invalid recipient. decryptLeadPII
+  // passes plaintext through untouched, so it's safe for legacy rows too.
+  const { data: leadRaw } = await supabase
     .from('leads')
-    .select('id, first_name, email')
+    .select('id, first_name, email, phone')
     .eq('id', apt.lead_id)
     .single()
+
+  const lead = leadRaw ? decryptLeadPII(leadRaw) : null
 
   // Get org name
   const { data: org } = await supabase
@@ -577,10 +586,13 @@ export async function confirmAppointment(
     .single()
 
   const orgName = org?.name || 'our office'
+  const dateTime = formatAppointmentDateTime(apt.scheduled_at)
 
-  // Send confirmation thank you email if they have an email
+  // Notify the patient on every consented channel (text + email) regardless of
+  // how the confirmation arrived. Consent/opt-out/quiet-hours are enforced inside
+  // sendSMSToLead; the thank-you email is transactional. Send failures are logged
+  // (not silently swallowed) but never fail the confirmation itself.
   if (lead?.email) {
-    const dateTime = formatAppointmentDateTime(apt.scheduled_at)
     const template = generateConfirmationThankYouEmail({
       firstName: lead.first_name || 'there',
       appointmentType: apt.type,
@@ -595,32 +607,31 @@ export async function confirmAppointment(
         html: template.html,
         text: template.text,
       })
-    } catch {
-      // Non-critical — don't fail the confirmation
+    } catch (err) {
+      logger.warn('Confirmation thank-you email failed', {
+        appointmentId,
+        error: err instanceof Error ? err.message : 'unknown',
+      })
     }
   }
 
-  // Send SMS confirmation reply if confirmed via SMS
-  if (method === 'sms_reply' && lead) {
-    const { data: leadWithPhone } = await supabase
-      .from('leads')
-      .select('phone')
-      .eq('id', lead.id)
-      .single()
+  if (lead?.phone) {
+    const confirmSms = generateConfirmationSmsReply({
+      firstName: lead.first_name || 'there',
+      dateTime,
+      practiceName: orgName,
+    })
 
-    if (leadWithPhone?.phone) {
-      const dateTime = formatAppointmentDateTime(apt.scheduled_at)
-      const confirmSms = generateConfirmationSmsReply({
-        firstName: lead.first_name || 'there',
-        dateTime,
-        practiceName: orgName,
-      })
-
-      try {
-        await sendSMSToLead({ supabase, leadId: lead.id, to: leadWithPhone.phone, body: confirmSms, caller: 'reminders.confirmation' })
-      } catch {
-        // Non-critical; consent denial handled inside the gate
+    try {
+      const res = await sendSMSToLead({ supabase, leadId: lead.id, to: lead.phone, body: confirmSms, caller: 'reminders.confirmation' })
+      if (!res.sent) {
+        logger.info('Confirmation SMS not sent', { appointmentId, reason: res.reason })
       }
+    } catch (err) {
+      logger.warn('Confirmation SMS failed', {
+        appointmentId,
+        error: err instanceof Error ? err.message : 'unknown',
+      })
     }
   }
 
