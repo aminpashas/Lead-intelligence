@@ -29,6 +29,7 @@ import { CLOSER_TOOLS } from '@/lib/autopilot/agent-tools'
 import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
+import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -603,7 +604,7 @@ export async function closerAgentRespond(
   // Inject the org's trained memories + knowledge base into the LIVE closer, so
   // trained guidance governs real conversations (not just the playground).
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, bookingSettings, rulesBlock] = await Promise.all([
+  const [knowledgeBlock, personaBlock, bookingSettings, rulesBlock, profileBlock] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     supabase
@@ -612,6 +613,7 @@ export async function closerAgentRespond(
       .eq('organization_id', context.organization_id)
       .maybeSingle(),
     buildAgencyRulesBlock(supabase),
+    buildPracticeProfileBlock(supabase, context.organization_id),
   ])
 
   // Ground the closer in today's real date (practice timezone) — it books
@@ -630,7 +632,7 @@ export async function closerAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, dateBlock, pricingBlock, personaBlock, rulesBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, dateBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history
   const safeHistory = context.conversation_history.map((msg) => ({
