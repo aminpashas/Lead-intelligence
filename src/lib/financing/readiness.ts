@@ -11,7 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead, FinancialSignals } from '@/types/database'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { escapeHtml } from '@/lib/utils'
 import { logger } from '@/lib/logger'
@@ -326,12 +326,16 @@ async function sendFinancingLink(
     try {
       const email = decryptField(lead.email) || ''
       if (email) {
-        await sendEmail({
+        // CAN-SPAM consent gate — symmetric with the SMS branch above.
+        const res = await sendEmailToLead({
+          supabase,
+          leadId: lead.id,
           to: email,
           subject: `${firstName}, your personalized financing options are ready`,
           html: buildFinancingEmailHTML(firstName, practiceName, financeUrl, monthly),
+          caller: 'financing.readiness',
         })
-        return true
+        if (res.sent) return true
       }
     } catch (err) {
       logger.warn('Financing link email also failed', { leadId: lead.id, error: err instanceof Error ? err.message : err })

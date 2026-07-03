@@ -15,6 +15,8 @@ import {
   X,
   Crosshair,
   Activity,
+  DollarSign,
+  FlaskConical,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -24,6 +26,7 @@ const agencyNavigation = [
     items: [
       { name: 'Agency Home', href: '/agency', icon: LayoutDashboard, exact: true },
       { name: 'Practices', href: '/agency/practices', icon: Building2 },
+      { name: 'Spend & Margin', href: '/agency/spend', icon: DollarSign },
     ],
   },
   {
@@ -31,6 +34,7 @@ const agencyNavigation = [
     items: [
       { name: 'AI Configuration', href: '/agency/ai-config', icon: Brain },
       { name: 'AI Training', href: '/agency/ai-training', icon: GraduationCap },
+      { name: 'AI Learning', href: '/agency/ai-learning', icon: FlaskConical },
       { name: 'AI Engine', href: '/ai-engine', icon: Zap },
       { name: 'Sales Intelligence', href: '/ai-engine/sales-intelligence', icon: Crosshair },
       { name: 'AI Audit', href: '/agency/ai-audit', icon: Shield },

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { buildFinancingBreakdown } from '@/lib/financing/calculator'
@@ -202,12 +202,15 @@ export async function POST(request: NextRequest) {
         { supabase, organizationId: lead.organization_id, actorType: 'user' },
         'lead', lead_id, 'resend_email', ['email']
       )
-      await sendEmail({
-        to: email,
-        subject: emailSubject,
-        html: emailBody,
-      })
-      sentVia.push('email')
+      const sendRes = await sendEmailToLead({ supabase, leadId: lead_id, to: email, subject: emailSubject, html: emailBody, caller: 'financing.send-link' })
+      if (!sendRes.sent) {
+        if (channel === 'email') {
+          return NextResponse.json({ error: 'Message blocked — no email consent or unsubscribed', reason: sendRes.reason }, { status: 403 })
+        }
+        // 'both' → email skipped (consent), SMS may already have sent
+      } else {
+        sentVia.push('email')
+      }
     } catch {
       if (channel === 'email') {
         return NextResponse.json({ error: 'Failed to send email' }, { status: 500 })

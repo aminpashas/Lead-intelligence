@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { getOwnProfile } from '@/lib/auth/active-org'
 
 // GET /api/agents/[id]/reviews/current
 //
@@ -19,10 +20,7 @@ export async function GET(
   const supabase = await createClient()
 
   // Auth
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

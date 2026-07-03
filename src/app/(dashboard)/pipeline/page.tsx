@@ -1,9 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { PipelineBoard } from '@/components/crm/pipeline-board'
+import { decryptLeadsPII } from '@/lib/encryption'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
-import { decryptLeadsPII } from '@/lib/encryption'
 
 export default async function PipelinePage() {
   const supabase = await createClient()

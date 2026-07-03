@@ -16,8 +16,10 @@
  *   DION_BUS_SECRET   — shared secret; MUST equal Dion Clinical's DION_BUS_SECRET
  */
 import { createHash } from 'node:crypto'
+import type { z } from 'zod'
 import { newEnvelopeMeta } from './dion/envelope'
 import { dionAppointmentSchema, type DionAppointmentEvent } from './dion/appointment'
+import { dionCaseSchema, type DionCaseEvent } from './dion/case'
 
 const SOURCE = 'lead-intelligence' as const
 
@@ -56,13 +58,13 @@ function getConfig(): { base: string; secret: string } | null {
   return { base, secret }
 }
 
-async function emit(event: DionAppointmentEvent): Promise<DionEmitResult> {
+async function emitWith(event: unknown, schema: z.ZodTypeAny): Promise<DionEmitResult> {
   const config = getConfig()
   if (!config) return { ok: true, skipped: true }
 
   // Validate locally before sending. The receiver is authoritative, but catching
   // a malformed event here avoids a pointless round-trip + dead-letter.
-  const parsed = dionAppointmentSchema.safeParse(event)
+  const parsed = schema.safeParse(event)
   if (!parsed.success) {
     return {
       ok: false,
@@ -87,6 +89,10 @@ async function emit(event: DionAppointmentEvent): Promise<DionEmitResult> {
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'fetch failed' }
   }
+}
+
+function emit(event: DionAppointmentEvent): Promise<DionEmitResult> {
+  return emitWith(event, dionAppointmentSchema)
 }
 
 export function emitAppointmentRequested(p: {
@@ -122,6 +128,41 @@ export function emitAppointmentBooked(p: {
     type: 'appointment.booked',
     data: { appointmentId: p.appointmentId, dionPatientId: p.dionPatientId ?? null, startsAt: ts.toISOString() },
   })
+}
+
+/**
+ * Emit case.treatment_agreed — the patient agreed to the treatment plan (case
+ * closed in the CRM). Dion Clinical opens a surgery-scheduling work item.
+ */
+export function emitCaseTreatmentAgreed(p: {
+  caseId: string
+  treatmentPlanId?: string | null
+  agreementConfirmedAt: string
+  estimatedSurgeryDate?: string | null
+  proceduresCdt?: string[]
+  dionPatientId?: string | null
+  dionPracticeId?: string | null
+}): Promise<DionEmitResult> {
+  const confirmedAt = new Date(p.agreementConfirmedAt)
+  if (Number.isNaN(confirmedAt.getTime())) {
+    return Promise.resolve({ ok: false, error: `invalid agreementConfirmedAt: ${p.agreementConfirmedAt}` })
+  }
+  const event: DionCaseEvent = {
+    ...newEnvelopeMeta(SOURCE, p.dionPracticeId ?? null, {
+      id: stableUuid(`${p.caseId}:case.treatment_agreed`),
+      idempotencyKey: `${p.caseId}:case.treatment_agreed`,
+    }),
+    type: 'case.treatment_agreed',
+    data: {
+      caseId: p.caseId,
+      dionPatientId: p.dionPatientId ?? null,
+      treatmentPlanId: p.treatmentPlanId ?? null,
+      agreementConfirmedAt: confirmedAt.toISOString(),
+      estimatedSurgeryDate: p.estimatedSurgeryDate ?? null,
+      proceduresCdt: p.proceduresCdt ?? [],
+    },
+  }
+  return emitWith(event, dionCaseSchema)
 }
 
 export function emitAppointmentCancelled(p: {

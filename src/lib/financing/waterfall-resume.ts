@@ -98,6 +98,17 @@ export async function resumeWaterfall(
       })
       .eq('id', application.lead_id)
 
+    // Advance the treatment closing if this lead is in the closing pipeline
+    // (non-blocking — an approval must be recorded even if the closing sync fails)
+    try {
+      const { advanceStep } = await import('@/lib/treatment/treatment-closing')
+      await advanceStep(supabase, application.lead_id, 'financing_funded', {
+        financing_type: 'loan',
+        financing_monthly_payment:
+          (lenderResponse.terms as { monthly_payment?: number } | undefined)?.monthly_payment,
+      })
+    } catch { /* Non-blocking */ }
+
     // Log activity (non-blocking)
     try {
       await supabase

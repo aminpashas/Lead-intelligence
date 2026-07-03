@@ -229,7 +229,10 @@ export async function createOutboundCall(
     to: config.to_number.replace(/\d(?=\d{4})/g, '*'), // mask number in logs
   })
 
-  return retellFetch<RetellCallResponse>('/create-phone-call', {
+  // Retell retired the un-versioned /create-phone-call (now returns 404).
+  // Outbound dialing lives at /v2/create-phone-call. Read/agent endpoints
+  // (list-*, get-*, create-agent) remain un-versioned.
+  return retellFetch<RetellCallResponse>('/v2/create-phone-call', {
     method: 'POST',
     body: JSON.stringify({
       agent_id: agentId,

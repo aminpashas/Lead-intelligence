@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -10,7 +10,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   const supabase = await createClient()
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data, error } = await supabase
@@ -33,7 +33,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const supabase = await createClient()
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
@@ -72,7 +72,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   const supabase = await createClient()
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('user_profiles').select('organization_id').single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { error } = await supabase

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { CaseClosingPanel } from '@/components/crm/case-closing-panel'
 import type { ClinicalCase, CaseTreatmentItem } from '@/types/database'
 
 const STATUS_LABELS: Record<string, { label: string; dot: string; text: string }> = {
@@ -42,8 +43,14 @@ const STATUS_LABELS: Record<string, { label: string; dot: string; text: string }
   diagnosis:          { label: 'Needs Diagnosis',     dot: 'bg-aurea-ink-2',  text: 'text-aurea-ink-2' },
   treatment_planning: { label: 'Treatment Planning',  dot: 'bg-aurea-amber',  text: 'text-aurea-amber' },
   patient_review:     { label: 'Patient Review',      dot: 'bg-aurea-primary', text: 'text-aurea-primary' },
+  accepted:           { label: 'Accepted',            dot: 'bg-aurea-primary', text: 'text-aurea-primary' },
+  closing:            { label: 'Contract & Funding',  dot: 'bg-aurea-amber',  text: 'text-aurea-amber' },
+  surgery_scheduled:  { label: 'Surgery Scheduled',   dot: 'bg-aurea-primary', text: 'text-aurea-primary' },
+  ready_for_surgery:  { label: 'Ready for Surgery',   dot: 'bg-aurea-primary', text: 'text-aurea-primary' },
   completed:          { label: 'Completed',           dot: 'bg-aurea-primary', text: 'text-aurea-primary' },
 }
+
+const CLOSING_STATUSES = ['accepted', 'closing', 'surgery_scheduled', 'ready_for_surgery']
 
 export default function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -284,8 +291,14 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         />
       )}
 
-      {/* Complete Case */}
-      {caseData.status === 'patient_review' && canDiagnose && (
+      {/* Closing → Surgery workflow: shows once the patient accepts (portal or
+          verbal) — the panel itself offers "Start Closing" at patient_review */}
+      {(CLOSING_STATUSES.includes(caseData.status) || caseData.status === 'patient_review' || caseData.patient_accepted_at) && (
+        <CaseClosingPanel caseId={id} onChanged={fetchCase} />
+      )}
+
+      {/* Surgery done → complete the case */}
+      {caseData.status === 'ready_for_surgery' && canDiagnose && (
         <div className="flex justify-end">
           <Button
             variant="outline"
@@ -300,7 +313,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
               fetchCase()
             }}
           >
-            <CheckCircle2 className="h-4 w-4" strokeWidth={1.75} /> Mark Completed
+            <CheckCircle2 className="h-4 w-4" strokeWidth={1.75} /> Surgery Done — Complete Case
           </Button>
         </div>
       )}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { rescoreAndPersistLead } from '@/lib/ai/scoring'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 
 // POST /api/leads/[id]/score - Score a lead with AI
 export async function POST(
@@ -12,10 +12,7 @@ export async function POST(
   const supabase = await createClient()
 
   // Auth + org scoping
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

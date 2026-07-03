@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { decryptLeadPII } from '@/lib/encryption'
 
 /**
  * GET /api/appointments/reminders?appointment_id=xxx
@@ -14,10 +15,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const appointmentId = searchParams.get('appointment_id')
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -59,10 +57,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'appointment_id is required' }, { status: 400 })
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -80,7 +75,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
   }
 
-  const lead = apt.lead as any
+  // phone/email are encrypted at rest — sendSMSToLead/sendEmail need plaintext.
+  const lead = apt.lead ? (decryptLeadPII(apt.lead as Record<string, unknown>) as any) : null
   if (!lead) {
     return NextResponse.json({ error: 'Lead not found for appointment' }, { status: 404 })
   }

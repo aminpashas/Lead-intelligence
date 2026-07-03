@@ -1,30 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
-
-const smartListCriteriaSchema = z.object({
-  tags: z.object({
-    ids: z.array(z.string().uuid()),
-    operator: z.enum(['and', 'or']),
-  }).optional(),
-  statuses: z.array(z.string()).optional(),
-  ai_qualifications: z.array(z.string()).optional(),
-  score_min: z.number().min(0).max(100).optional(),
-  score_max: z.number().min(0).max(100).optional(),
-  stages: z.array(z.string().uuid()).optional(),
-  source_types: z.array(z.string()).optional(),
-  engagement_min: z.number().optional(),
-  engagement_max: z.number().optional(),
-  states: z.array(z.string()).optional(),
-  created_after: z.string().optional(),
-  created_before: z.string().optional(),
-  has_phone: z.boolean().optional(),
-  has_email: z.boolean().optional(),
-  sms_consent: z.boolean().optional(),
-  email_consent: z.boolean().optional(),
-})
+import { smartListCriteriaSchema } from '@/lib/validators/smart-list'
 
 const createSmartListSchema = z.object({
   name: z.string().min(1).max(100),
@@ -41,10 +20,7 @@ export async function GET() {
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -79,10 +55,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

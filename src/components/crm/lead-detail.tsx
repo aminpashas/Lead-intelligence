@@ -22,6 +22,7 @@ import { ScheduleAppointment } from './schedule-appointment'
 import { PatientSummaryCard } from './patient-summary-card'
 import { LeadAIOverrideToggle } from './ai-mode-toggle'
 import { TagBadge } from './tag-badge'
+import { channelLabel } from '@/lib/attribution'
 import { TagSelector } from './tag-selector'
 import { PersonalityProfileCard } from './personality-profile-card'
 import {
@@ -536,8 +537,20 @@ export function LeadDetail({
             <div className="px-5">
               {[
                 { label: 'Type', value: lead.source_type?.replace(/_/g, ' ') || '—', capitalize: true },
+                ...(channelLabel(lead.campaign_attribution?.channel)
+                  ? [{ label: 'Channel', value: channelLabel(lead.campaign_attribution?.channel)!, capitalize: false }]
+                  : []),
+                // Exact campaign resolved by DGS wins over the raw UTM value.
+                ...(lead.campaign_attribution?.campaign_name || lead.utm_campaign
+                  ? [{ label: 'Campaign', value: lead.campaign_attribution?.campaign_name || lead.utm_campaign!, capitalize: false }]
+                  : []),
+                ...(lead.campaign_attribution?.ad_group_name
+                  ? [{ label: 'Ad Group', value: lead.campaign_attribution.ad_group_name, capitalize: false }]
+                  : []),
+                ...(lead.campaign_attribution?.keyword_text
+                  ? [{ label: 'Keyword', value: lead.campaign_attribution.keyword_text, capitalize: false }]
+                  : []),
                 ...(lead.utm_source ? [{ label: 'UTM Source', value: lead.utm_source, capitalize: false }] : []),
-                ...(lead.utm_campaign ? [{ label: 'Campaign', value: lead.utm_campaign, capitalize: false }] : []),
                 { label: 'Created', value: format(new Date(lead.created_at), 'MMM d, yyyy'), capitalize: false },
               ].map((item) => (
                 <div key={item.label} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">

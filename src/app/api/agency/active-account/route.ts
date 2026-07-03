@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
+import { getOwnProfile } from '@/lib/auth/active-org'
 
 export async function POST(request: NextRequest) {
   const rlError = applyRateLimit(request, RATE_LIMITS.api)
@@ -28,10 +29,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'role')
 
   if (!profile || profile.role !== 'agency_admin') {
     return NextResponse.json({ error: 'Forbidden — agency access required' }, { status: 403 })

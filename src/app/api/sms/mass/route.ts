@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { z } from 'zod'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
@@ -11,6 +11,8 @@ import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
 import { personalize, PERSONALIZABLE_LEAD_SELECT, type PersonalizableLead } from '@/lib/campaigns/personalization'
 import { claimIdempotencyKey, recordIdempotencyResponse, countTodaysOutbound, DAILY_SMS_CAP } from '@/lib/messaging/send-guards'
 import { assertActiveSubscription } from '@/lib/auth/entitlement'
+import { getOrgFlags } from '@/lib/org/flags'
+import { isUsSmsBlocked, A2P_PENDING_MESSAGE } from '@/lib/messaging/a2p-gate'
 
 const massSMSSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
@@ -26,6 +28,15 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // A2P 10DLC hard-block: refuse US SMS broadcasts until this org's 10DLC campaign
+  // is verified (us_sms_enabled flag). Authoritative server gate; the composer also
+  // surfaces this pre-emptively. Fail-closed via isUsSmsBlocked.
+  const orgFlags = await getOrgFlags(supabase, orgId)
+  if (isUsSmsBlocked(orgFlags)) {
+    return NextResponse.json({ error: A2P_PENDING_MESSAGE, a2p_pending: true }, { status: 403 })
+  }
+
   const body = await request.json()
   const parsed = massSMSSchema.safeParse(body)
 
@@ -39,10 +50,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Provide either smart_list_id or lead_ids' }, { status: 400 })
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id, full_name')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id, full_name')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

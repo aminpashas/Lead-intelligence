@@ -134,6 +134,24 @@ export type FinancingContext = {
   }
 }
 
+// Campaign-level attribution resolved by Dion Growth Studio and synced over
+// the /api/v1/leads bridge (leads.campaign_attribution jsonb). All keys
+// optional — the resolver degrades from exact campaign match (confidence 1.0)
+// down to channel-only guesses (0.3).
+export type CampaignAttribution = {
+  channel?: string
+  campaign_id?: string
+  campaign_name?: string
+  ad_group_id?: string
+  ad_group_name?: string
+  keyword_text?: string
+  click_id_type?: string
+  attribution_model?: string
+  attribution_confidence?: number
+  resolved_at?: string
+  source_system?: string
+}
+
 export type Lead = {
   id: string
   organization_id: string
@@ -194,6 +212,7 @@ export type Lead = {
   referrer_url: string | null
   gclid: string | null
   fbclid: string | null
+  campaign_attribution: CampaignAttribution | null
 
   // AI scoring
   ai_score: number
@@ -779,6 +798,91 @@ export type AgencyAiRule = {
   source: string
   created_by: string | null
   created_at: string
+  // Review lifecycle for auto-learned rules (null for human-authored rules,
+  // which are implicitly approved).
+  review_status: 'pending' | 'approved' | 'rejected' | 'retire_flagged' | 'retired' | null
+  evidence: AgencyRuleEvidence | null
+  approved_by: string | null
+  approved_at: string | null
+  enabled_at: string | null
+  retired_at: string | null
+  retirement_reason: string | null
+  performance: AgencyRulePerformance | null
+}
+
+/** Why an auto-learned candidate rule exists: the code-computed finding plus
+ *  real (scrubbed) example exchanges from winning journeys. */
+export type AgencyRuleEvidence = {
+  finding_key: string
+  headline: string
+  detail: string
+  stats: Record<string, number>
+  examples: string[]
+}
+
+/** Before/after cohort comparison for a live auto-learned rule. */
+export type AgencyRulePerformance = {
+  before: { n: number; rate: number }
+  after: { n: number; rate: number }
+  z: number
+  computed_at: string
+}
+
+// ── Outcome-Driven Learning Loop ────────────────────────────────
+
+export type LearningOutcome = 'booked' | 'showed' | 'no_show' | 'contract_signed' | 'lost'
+
+/** One step of a lead's communication journey (body truncated + scrubbed). */
+export type LearningJourneyEntry = {
+  at: string
+  role: 'patient' | 'staff' | 'ai'
+  channel: string
+  body: string
+  rule_set_version?: string
+}
+
+/** Code-computed features of a journey, used for cohort contrasts. */
+export type LearningJourneyStats = {
+  inbound_count: number
+  outbound_count: number
+  ai_outbound_count: number
+  ai_share: number
+  first_response_minutes: number | null
+  median_response_minutes: number | null
+  days_span: number
+  techniques_used: string[]
+  rule_set_versions: string[]
+  engagement_first: number | null
+  engagement_last: number | null
+}
+
+/** A labeled full-journey record: everything that was said to a lead, plus the
+ *  real outcome. The training corpus for the weekly distillation pass. */
+export type LearningEpisode = {
+  id: string
+  organization_id: string
+  lead_id: string
+  outcome: LearningOutcome
+  outcome_at: string
+  outcome_ref: string
+  journey: LearningJourneyEntry[]
+  journey_stats: LearningJourneyStats
+  message_count: number
+  created_at: string
+}
+
+/** Audit row for one distillation pass. */
+export type LearningRun = {
+  id: string
+  kind: string
+  episode_count: number
+  technique_rows: number
+  findings: unknown[]
+  candidates_created: number
+  rules_flagged: number
+  error: string | null
+  duration_ms: number | null
+  created_at: string
 }
 
 export type SmsTrainingMode = 'roleplay' | 'dry_run'
@@ -889,6 +993,11 @@ export type SmartListCriteria = {
   has_email?: boolean
   sms_consent?: boolean
   email_consent?: boolean
+  keywords?: {
+    terms: string[]
+    match: 'any' | 'all'
+    scopes: ('conversation' | 'lead_fields' | 'inbound_sms' | 'tags')[]
+  }
 }
 
 export type SmartList = {
@@ -1172,10 +1281,29 @@ export type RecordsChecklist = {
   surgeon_availability: boolean
 }
 
+/**
+ * FMR pre-surgical intake bag stored on treatment_closings.intake. Patient-entered
+ * fields that feed the Full Mouth Reconstruction contract's merge variables and the
+ * conditional smoker consent. See docs/fmr-contract/FMR-Intake-Field-Spec.md.
+ */
+export type FmrIntake = {
+  preferred_pharmacy?: string
+  pcp_name?: string
+  pcp_phone?: string
+  driver_name?: string
+  driver_phone?: string
+  emergency_contact_name?: string
+  emergency_contact_phone?: string
+  uses_tobacco_vape_marijuana?: boolean
+  preop_date?: string
+  discount_amount?: number
+}
+
 export type TreatmentClosing = {
   id: string
-  lead_id: string
+  lead_id: string | null
   organization_id: string
+  clinical_case_id: string | null
 
   // Step tracking
   current_step: TreatmentClosingStep
@@ -1212,6 +1340,9 @@ export type TreatmentClosing = {
   records_confirmed_at: string | null
   records_checklist: RecordsChecklist
 
+  // FMR pre-surgical intake (feeds the contract's merge variables)
+  intake: FmrIntake
+
   // Metadata
   notes: string | null
   created_at: string
@@ -1220,7 +1351,11 @@ export type TreatmentClosing = {
 
 // ── Clinical Cases ────────────────────────────────────────────
 
-export type CaseStatus = 'intake' | 'analysis' | 'diagnosis' | 'treatment_planning' | 'patient_review' | 'completed' | 'archived'
+export type CaseStatus =
+  | 'intake' | 'analysis' | 'diagnosis' | 'treatment_planning' | 'patient_review'
+  // Post-close (closing → surgery) stages
+  | 'accepted' | 'closing' | 'surgery_scheduled' | 'ready_for_surgery'
+  | 'completed' | 'archived'
 export type CasePriority = 'low' | 'normal' | 'high' | 'urgent'
 export type CaseFileType = 'photo' | 'xray' | 'panoramic' | 'periapical' | 'cephalometric' | 'cbct' | 'ct_scan' | 'stl' | 'intraoral' | 'extraoral' | 'other'
 
@@ -1255,6 +1390,12 @@ export type ClinicalCase = {
   treatment_plan?: CaseTreatmentPlan | null
   creator?: Pick<UserProfile, 'id' | 'full_name' | 'role' | 'avatar_url'>
   assigned_doctor?: Pick<UserProfile, 'id' | 'full_name' | 'role' | 'avatar_url' | 'specialty'> | null
+  closing?: Pick<TreatmentClosing,
+    'id' | 'current_step' | 'steps_completed' | 'contract_signed_at' | 'contract_amount'
+    | 'financing_type' | 'financing_funded_at' | 'consent_signed_at'
+    | 'preop_instructions_sent_at' | 'surgery_date' | 'surgery_time'
+    | 'records_checklist' | 'records_confirmed_at'
+  > | null
 }
 
 export type CaseFile = {
@@ -1321,6 +1462,57 @@ export type CaseTreatmentPlan = {
   }>
   planned_by: string
   approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Lab Orders (records → external lab) ──────────────────────
+
+export type LabOrderStatus =
+  | 'draft' | 'submitted' | 'accepted' | 'declined' | 'design_review'
+  | 'manufacturing' | 'shipped' | 'delivered' | 'completed' | 'cancelled' | 'error'
+
+export type LabOrder = {
+  id: string
+  organization_id: string
+  clinical_case_id: string
+  treatment_closing_id: string | null
+  lab_provider: 'smile_design_lab' | 'manual' | 'other'
+  external_case_id: string | null
+  external_case_number: string | null
+  status: LabOrderStatus
+  items: Array<{ kind: string; description?: string }>
+  files_sent: Array<{ case_file_id: string; file_name: string; file_type: string; sent_at: string }>
+  tracking: { carrier?: string; tracking_number?: string; eta?: string }
+  status_history: Array<{ from: string | null; to: string; at: string }>
+  error: string | null
+  submitted_at: string | null
+  submitted_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Pre-Op Instruction Forms ──────────────────────────────────
+
+export type PreopFormStatus = 'draft' | 'sent' | 'viewed' | 'acknowledged' | 'voided'
+
+export type PreopForm = {
+  id: string
+  organization_id: string
+  clinical_case_id: string
+  treatment_closing_id: string | null
+  title: string
+  rendered_html: string
+  content: Record<string, unknown>
+  status: PreopFormStatus
+  share_token: string
+  share_token_expires_at: string | null
+  sent_via: 'sms' | 'email' | 'both' | null
+  sent_at: string | null
+  first_viewed_at: string | null
+  acknowledged_at: string | null
+  acknowledged_name: string | null
+  created_by: string | null
   created_at: string
   updated_at: string
 }
@@ -1412,12 +1604,52 @@ export type AiUsageRow = {
   model: string
   tokens_in: number
   tokens_out: number
+  cache_read_tokens: number
+  cache_write_tokens: number
   cost_cents: number
+  billable_cents: number
   duration_ms: number | null
   succeeded: boolean
   error_message: string | null
   metadata: Record<string, unknown>
   occurred_at: string
+}
+
+// ── Spend tracking + client re-billing (migration 20260701120000) ──
+
+export type CostEventService = 'sms' | 'voice' | 'email'
+export type CostEventStatus = 'estimated' | 'final'
+
+/**
+ * Billable ledger for SMS/voice/email. cost_cents = what we pay the provider; billable_cents =
+ * what we re-bill the practice (cost × (1 + markup)). AI usage lives in ai_usage, not here.
+ */
+export type CostEvent = {
+  id: string
+  organization_id: string
+  service: CostEventService
+  status: CostEventStatus
+  event_at: string
+  source_table: string | null
+  source_id: string | null
+  external_id: string | null
+  quantity: number | null
+  unit: string | null
+  cost_cents: number
+  billable_cents: number
+  markup_pct: number | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/** Per-practice re-billing config. Empty `markups` → platform defaults (src/lib/billing/markup.ts). */
+export type BillingSettings = {
+  organization_id: string
+  markups: Record<string, number>
+  platform_fee_cents: number
+  notes: string | null
+  updated_at: string
 }
 
 // ── Phase 3 EHR Integration (migration 026) ─────────────────

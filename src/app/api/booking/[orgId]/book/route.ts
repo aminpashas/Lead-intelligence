@@ -7,7 +7,7 @@ import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment, formatTimeDisplay } from '@/lib/booking/availability'
 import { zonedTimeToUtc } from '@/lib/booking/timezone'
-import { encryptLeadPII } from '@/lib/encryption'
+import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { escapeHtml } from '@/lib/utils'
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
@@ -68,8 +68,9 @@ export async function POST(
 
     // Never overwrite an existing lead's identity or consent from this
     // unauthenticated route (same safety rule as the booking path below).
+    // leads.email is encrypted at rest — match on the deterministic hash.
     const { data: existing } = await supabase
-      .from('leads').select('id').eq('organization_id', orgId).eq('email', email).limit(1).single()
+      .from('leads').select('id').eq('organization_id', orgId).eq('email_hash', searchHash(email)!).limit(1).single()
 
     let requestLeadId: string
     if (existing) {
@@ -157,11 +158,12 @@ export async function POST(
 
   // Find or create lead
   let leadId: string
+  // leads.email is encrypted at rest — match on the deterministic hash.
   const { data: existingLead } = await supabase
     .from('leads')
     .select('id')
     .eq('organization_id', orgId)
-    .eq('email', email)
+    .eq('email_hash', searchHash(email)!)
     .limit(1)
     .single()
 

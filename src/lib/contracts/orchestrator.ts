@@ -136,7 +136,13 @@ export async function ensureContractDraftForCase(
     }
   }
 
-  const templateSections = template.sections as ContractTemplateSection[]
+  // Conditional consent: the smoker section is authored required:false so it never
+  // gates by default. Drop it entirely unless intake flags tobacco/vape/marijuana; when
+  // it does apply, keep it AND make it gating for this contract so signing requires it.
+  const usesTobacco = String(context.variables['intake.uses_tobacco'] ?? '') === 'true'
+  const templateSections = (template.sections as ContractTemplateSection[])
+    .filter((s) => s.consent_key !== 'smoker_consent' || usesTobacco)
+    .map((s) => (s.consent_key === 'smoker_consent' ? { ...s, required: true } : s))
 
   // AI generate — catch all errors so we always land in a reviewable state
   let aiResult: AiGenerateResult | null = null

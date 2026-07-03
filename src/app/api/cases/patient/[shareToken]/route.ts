@@ -33,7 +33,7 @@ export async function GET(
       assigned_doctor:user_profiles!clinical_cases_assigned_doctor_id_fkey (full_name, specialty)
     `)
     .eq('share_token', shareToken)
-    .in('status', ['patient_review', 'completed'])
+    .in('status', ['patient_review', 'accepted', 'closing', 'surgery_scheduled', 'ready_for_surgery', 'completed'])
     .single()
 
   if (error || !caseData) {

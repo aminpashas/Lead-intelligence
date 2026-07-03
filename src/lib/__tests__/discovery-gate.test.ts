@@ -75,4 +75,16 @@ describe('buildPricingIntegrityBlock', () => {
     const withoutData = buildPricingIntegrityBlock({ discoveryComplete: true, hasRealFinancingData: false })
     expect(withoutData).toMatch(/NOT available for this patient/i)
   })
+
+  it('forbids proactively naming third-party lenders on every path', () => {
+    for (const discoveryComplete of [false, true]) {
+      const block = buildPricingIntegrityBlock({ configuredRange: '$250–350/mo', discoveryComplete })
+      expect(block).toMatch(/FINANCING DISCLOSURE DISCIPLINE/i)
+      expect(block).toMatch(/Do NOT proactively name specific third-party lenders/i)
+      expect(block).toContain('CareCredit')
+      expect(block).toContain('Proceed Finance')
+      // Never volunteer credit-tier framing about the patient.
+      expect(block).toMatch(/NEVER volunteer credit-tier framing/i)
+    }
+  })
 })

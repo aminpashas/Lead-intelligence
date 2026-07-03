@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { isAdminRole } from '@/lib/auth/permissions'
 
@@ -23,10 +23,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, organization_id, role')
-    .single()
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id, role')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

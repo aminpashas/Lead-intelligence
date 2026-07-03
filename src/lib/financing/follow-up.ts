@@ -7,7 +7,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 
 type FollowUpContext = {
@@ -64,8 +64,18 @@ async function sendFollowUp(
   }
   if (contact.email) {
     try {
-      await sendEmail({ to: contact.email, subject: emailSubject, html: emailHtml })
-      return { channel: 'email' }
+      // CAN-SPAM consent gate — symmetric with the SMS branch above. If the lead
+      // hasn't granted email consent (or unsubscribed), sendEmailToLead refuses.
+      const res = await sendEmailToLead({
+        supabase: ctx.supabase,
+        leadId: ctx.leadId,
+        to: contact.email,
+        subject: emailSubject,
+        html: emailHtml,
+        caller: 'financing.follow-up',
+      })
+      if (res.sent) return { channel: 'email' }
+      /* consent denied */
     } catch { /* both failed */ }
   }
   return { channel: null }

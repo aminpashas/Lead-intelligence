@@ -3,8 +3,10 @@ import {
   emitAppointmentRequested,
   emitAppointmentBooked,
   emitAppointmentCancelled,
+  emitCaseTreatmentAgreed,
 } from '@/lib/bridges/dion-clinical'
 import { dionAppointmentSchema } from '@/lib/bridges/dion/appointment'
+import { dionCaseSchema } from '@/lib/bridges/dion/case'
 
 function installFetchMock(status = 200) {
   const calls: Array<{ url: string; init?: RequestInit }> = []
@@ -120,6 +122,56 @@ describe('Dion Clinical bridge', () => {
     expect(id1).toBe(id2) // same appointment + type → same id
     expect(id1).not.toBe(id3) // different appointment → different id
     expect(id1).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  })
+
+  it('emitCaseTreatmentAgreed POSTs a valid case.treatment_agreed envelope', async () => {
+    configureBridge()
+    const { calls } = installFetchMock(200)
+    const res = await emitCaseTreatmentAgreed({
+      caseId: 'case-1',
+      treatmentPlanId: 'plan-1',
+      agreementConfirmedAt: '2026-07-02T18:00:00Z',
+      estimatedSurgeryDate: '2026-08-15',
+      proceduresCdt: ['D6010', 'D6056'],
+      dionPracticeId: 'prac1',
+    })
+
+    expect(res.ok).toBe(true)
+    const body = bodyOf(calls[0])
+    expect(body).toMatchObject({
+      type: 'case.treatment_agreed',
+      source: 'lead-intelligence',
+      dionPracticeId: 'prac1',
+      idempotencyKey: 'case-1:case.treatment_agreed',
+      data: {
+        caseId: 'case-1',
+        dionPatientId: null,
+        treatmentPlanId: 'plan-1',
+        agreementConfirmedAt: '2026-07-02T18:00:00.000Z',
+        estimatedSurgeryDate: '2026-08-15',
+        proceduresCdt: ['D6010', 'D6056'],
+      },
+    })
+    // The emitted event must pass the vendored contract (== the receiver's).
+    expect(dionCaseSchema.safeParse(body).success).toBe(true)
+  })
+
+  it('emitCaseTreatmentAgreed retries carry the same deterministic envelope id', async () => {
+    configureBridge()
+    const { calls } = installFetchMock(200)
+    const p = { caseId: 'case-2', agreementConfirmedAt: '2026-07-02T18:00:00Z' }
+    await emitCaseTreatmentAgreed(p)
+    await emitCaseTreatmentAgreed(p)
+    const [id1, id2] = calls.map((c) => bodyOf(c).id)
+    expect(id1).toBe(id2)
+  })
+
+  it('emitCaseTreatmentAgreed rejects an invalid agreementConfirmedAt without fetching', async () => {
+    configureBridge()
+    const { mock } = installFetchMock(200)
+    const res = await emitCaseTreatmentAgreed({ caseId: 'case-3', agreementConfirmedAt: 'not-a-date' })
+    expect(res.ok).toBe(false)
+    expect(mock).not.toHaveBeenCalled()
   })
 
   it('vendored schema rejects a malformed event', () => {

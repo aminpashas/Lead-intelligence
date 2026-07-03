@@ -102,6 +102,12 @@ export function SmartListBuilder({
   const [hasPhone, setHasPhone] = useState(initialValues?.criteria.has_phone ?? false)
   const [hasEmail, setHasEmail] = useState(initialValues?.criteria.has_email ?? false)
   const [smsConsent, setSmsConsent] = useState(initialValues?.criteria.sms_consent ?? false)
+  const [keywordTerms, setKeywordTerms] = useState<string[]>(initialValues?.criteria.keywords?.terms || [])
+  const [keywordInput, setKeywordInput] = useState('')
+  const [keywordMatch, setKeywordMatch] = useState<'any' | 'all'>(initialValues?.criteria.keywords?.match || 'any')
+  const [keywordScopes, setKeywordScopes] = useState<string[]>(
+    initialValues?.criteria.keywords?.scopes || ['conversation', 'lead_fields']
+  )
 
   function buildCriteria(): SmartListCriteria {
     const criteria: SmartListCriteria = {}
@@ -115,6 +121,13 @@ export function SmartListBuilder({
     if (hasPhone) criteria.has_phone = true
     if (hasEmail) criteria.has_email = true
     if (smsConsent) criteria.sms_consent = true
+    if (keywordTerms.length > 0 && keywordScopes.length > 0) {
+      criteria.keywords = {
+        terms: keywordTerms,
+        match: keywordMatch,
+        scopes: keywordScopes as ('conversation' | 'lead_fields' | 'inbound_sms' | 'tags')[],
+      }
+    }
     return criteria
   }
 
@@ -144,7 +157,7 @@ export function SmartListBuilder({
     } finally {
       setPreviewLoading(false)
     }
-  }, [tagIds, statuses, qualifications, scoreRange, stageIds, sourceTypes, hasPhone, hasEmail, smsConsent, tagOperator, color])
+  }, [tagIds, statuses, qualifications, scoreRange, stageIds, sourceTypes, hasPhone, hasEmail, smsConsent, tagOperator, color, keywordTerms, keywordMatch, keywordScopes])
 
   function toggleArrayValue(arr: string[], val: string, setter: (v: string[]) => void) {
     if (arr.includes(val)) {
@@ -197,7 +210,7 @@ export function SmartListBuilder({
 
   const hasCriteria = tagIds.length > 0 || statuses.length > 0 || qualifications.length > 0 ||
     scoreRange[0] > 0 || scoreRange[1] < 100 || stageIds.length > 0 ||
-    sourceTypes.length > 0 || hasPhone || hasEmail || smsConsent
+    sourceTypes.length > 0 || hasPhone || hasEmail || smsConsent || keywordTerms.length > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -281,6 +294,76 @@ export function SmartListBuilder({
                   </Select>
                 )}
               </div>
+            </div>
+
+            {/* Keyword Filter */}
+            <div className="space-y-2">
+              <Label className="text-[13px]">Keywords</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={keywordInput}
+                  onChange={(e) => setKeywordInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && keywordInput.trim()) {
+                      e.preventDefault()
+                      const t = keywordInput.trim()
+                      if (!keywordTerms.includes(t)) setKeywordTerms([...keywordTerms, t])
+                      setKeywordInput('')
+                    }
+                  }}
+                  placeholder="Type a term, press Enter (e.g. financing)"
+                  className="flex-1"
+                />
+                {keywordTerms.length > 1 && (
+                  <Select value={keywordMatch} onValueChange={(v) => setKeywordMatch(v as 'any' | 'all')}>
+                    <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Any</SelectItem>
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              {keywordTerms.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {keywordTerms.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setKeywordTerms(keywordTerms.filter((x) => x !== t))}
+                      className="inline-flex items-center gap-1 rounded-full border border-aurea-primary/30 bg-aurea-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-aurea-primary"
+                    >
+                      {t} <span aria-hidden>×</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {[
+                  { key: 'conversation', label: 'Conversations' },
+                  { key: 'lead_fields', label: 'Lead details' },
+                  { key: 'inbound_sms', label: 'Inbound replies' },
+                  { key: 'tags', label: 'Tags' },
+                ].map((s) => {
+                  const active = keywordScopes.includes(s.key)
+                  return (
+                    <button
+                      key={s.key}
+                      onClick={() => toggleArrayValue(keywordScopes, s.key, setKeywordScopes)}
+                      className={cn(
+                        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+                        active
+                          ? 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30'
+                          : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                      )}
+                    >
+                      {s.label}
+                    </button>
+                  )
+                })}
+              </div>
+              {keywordTerms.length > 0 && keywordScopes.length === 0 && (
+                <p className="text-[11px] text-aurea-rose">Pick at least one place to search.</p>
+              )}
             </div>
 
             {/* AI Qualification */}

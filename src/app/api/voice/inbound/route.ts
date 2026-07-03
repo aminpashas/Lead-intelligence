@@ -129,27 +129,48 @@ export async function POST(req: NextRequest) {
           `(${normalizedPhone.slice(0,3)}) ${normalizedPhone.slice(3,6)}-${normalizedPhone.slice(6)}`,
         ]
 
-        const { data: existingLead } = await supabase
+        // leads.phone/phone_formatted are encrypted at rest (enc::…) —
+        // plaintext equality never matches and every caller would be
+        // auto-created as a duplicate. Match on the deterministic phone_hash.
+        const { searchHash } = await import('@/lib/encryption')
+        const phoneHashes = [...new Set(phoneVariants.map(p => searchHash(p)).filter(Boolean))] as string[]
+
+        let { data: existingLead } = await supabase
           .from('leads')
           .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile')
           .eq('organization_id', orgId)
-          .or([
-            ...phoneVariants.map(p => `phone.eq.${p}`),
-            ...phoneVariants.map(p => `phone_formatted.eq.${p}`),
-          ].join(','))
+          .in('phone_hash', phoneHashes)
           .limit(1)
-          .single()
+          .maybeSingle()
+
+        if (!existingLead) {
+          // Legacy fallback: pre-encryption rows may still hold plaintext.
+          const { data: plainLead } = await supabase
+            .from('leads')
+            .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile')
+            .eq('organization_id', orgId)
+            .or([
+              ...phoneVariants.map(p => `phone.eq.${p}`),
+              ...phoneVariants.map(p => `phone_formatted.eq.${p}`),
+            ].join(','))
+            .limit(1)
+            .maybeSingle()
+          existingLead = plainLead
+        }
 
         let lead = existingLead
         let isNewLead = false
 
         if (!lead) {
-          // Auto-create lead
+          // Auto-create lead — encrypt PII the same way the CRUD routes do so
+          // the row is consistent with encryption-at-rest (and future hash
+          // lookups can find it).
+          const { encryptLeadPII } = await import('@/lib/encryption')
           const displayName = callerName || `Caller ${normalizedPhone.slice(-4)}`
           const nameParts = displayName.split(' ')
           const { data: newLead } = await supabase
             .from('leads')
-            .insert({
+            .insert(encryptLeadPII({
               organization_id: orgId,
               first_name: nameParts[0] || 'Unknown',
               last_name: nameParts.slice(1).join(' ') || 'Caller',
@@ -162,7 +183,7 @@ export async function POST(req: NextRequest) {
               voice_consent: true,
               voice_consent_at: new Date().toISOString(),
               voice_consent_source: 'inbound_call',
-            })
+            }))
             .select()
             .single()
 
