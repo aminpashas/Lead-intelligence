@@ -221,6 +221,13 @@ export type Lead = {
   ai_score_updated_at: string | null
   ai_summary: string | null
 
+  // Conversation analysis (compact sweep — see /api/cron/analyze-conversations)
+  conversation_intent: ConversationIntent | null
+  conversation_sentiment: ConversationSentiment | null
+  primary_objection: PrimaryObjection | null
+  conversation_red_flag: boolean
+  conversation_analyzed_at: string | null
+
   // Engagement
   total_messages_sent: number
   total_messages_received: number
@@ -984,10 +991,21 @@ export type LeadTag = {
   tag?: Tag
 }
 
+export type ConversationIntent =
+  | 'ready_to_book' | 'considering' | 'exploring' | 'resistant' | 'disengaged'
+export type ConversationSentiment = 'positive' | 'neutral' | 'mixed' | 'negative'
+export type PrimaryObjection =
+  | 'cost' | 'financing' | 'fear_anxiety' | 'timing' | 'trust'
+  | 'medical' | 'logistics' | 'spouse_approval' | 'none' | 'other'
+
 export type SmartListCriteria = {
   tags?: { ids: string[]; operator: 'and' | 'or' }
   statuses?: string[]
   ai_qualifications?: string[]
+  conversation_intents?: ConversationIntent[]
+  conversation_sentiments?: ConversationSentiment[]
+  primary_objections?: PrimaryObjection[]
+  conversation_red_flag?: boolean
   score_min?: number
   score_max?: number
   stages?: string[]

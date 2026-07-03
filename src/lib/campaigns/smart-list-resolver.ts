@@ -97,6 +97,20 @@ export function applySmartListCriteria(
     query = query.in('ai_qualification', criteria.ai_qualifications)
   }
 
+  // Conversation analysis filters (written by the analyze-conversations sweep)
+  if (criteria.conversation_intents && criteria.conversation_intents.length > 0) {
+    query = query.in('conversation_intent', criteria.conversation_intents)
+  }
+  if (criteria.conversation_sentiments && criteria.conversation_sentiments.length > 0) {
+    query = query.in('conversation_sentiment', criteria.conversation_sentiments)
+  }
+  if (criteria.primary_objections && criteria.primary_objections.length > 0) {
+    query = query.in('primary_objection', criteria.primary_objections)
+  }
+  if (criteria.conversation_red_flag === true) {
+    query = query.eq('conversation_red_flag', true)
+  }
+
   // Score range
   if (typeof criteria.score_min === 'number') {
     query = query.gte('ai_score', criteria.score_min)

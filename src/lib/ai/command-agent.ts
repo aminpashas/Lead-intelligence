@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SmartListCriteria } from '@/types/database'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
+import { CONVERSATION_INTENTS, CONVERSATION_SENTIMENTS, PRIMARY_OBJECTIONS } from '@/lib/validators/smart-list'
 import { sanitizeTerm } from '@/lib/campaigns/keyword-match'
 import { TEMPLATE_VARIABLES } from '@/lib/campaigns/personalization'
 import { decryptField } from '@/lib/encryption'
@@ -92,6 +93,19 @@ export function sanitizeCriteria(raw: Record<string, unknown>): SmartListCriteri
   const c: SmartListCriteria = {}
   if (Array.isArray(raw.statuses)) c.statuses = raw.statuses.map(String)
   if (Array.isArray(raw.ai_qualifications)) c.ai_qualifications = raw.ai_qualifications.map(String)
+  if (Array.isArray(raw.conversation_intents)) {
+    c.conversation_intents = raw.conversation_intents.map(String).filter((v) =>
+      (CONVERSATION_INTENTS as readonly string[]).includes(v)) as SmartListCriteria['conversation_intents']
+  }
+  if (Array.isArray(raw.conversation_sentiments)) {
+    c.conversation_sentiments = raw.conversation_sentiments.map(String).filter((v) =>
+      (CONVERSATION_SENTIMENTS as readonly string[]).includes(v)) as SmartListCriteria['conversation_sentiments']
+  }
+  if (Array.isArray(raw.primary_objections)) {
+    c.primary_objections = raw.primary_objections.map(String).filter((v) =>
+      (PRIMARY_OBJECTIONS as readonly string[]).includes(v)) as SmartListCriteria['primary_objections']
+  }
+  if (raw.conversation_red_flag === true) c.conversation_red_flag = true
   if (typeof raw.score_min === 'number') c.score_min = raw.score_min
   if (typeof raw.score_max === 'number') c.score_max = raw.score_max
   if (Array.isArray(raw.source_types)) c.source_types = raw.source_types.map(String)
@@ -260,6 +274,27 @@ const CRITERIA_PROPERTY = {
     ai_qualifications: {
       type: 'array',
       items: { type: 'string', enum: ['hot', 'warm', 'cold', 'unqualified', 'unscored'] },
+    },
+    conversation_intents: {
+      type: 'array',
+      items: { type: 'string', enum: [...CONVERSATION_INTENTS] },
+      description:
+        'AI-derived intent from the lead\'s latest conversation (written by the hourly analysis sweep). ready_to_book = asking to schedule; considering = engaged, weighing it; exploring = early curiosity; resistant = pushing back; disengaged = stopped responding.',
+    },
+    conversation_sentiments: {
+      type: 'array',
+      items: { type: 'string', enum: [...CONVERSATION_SENTIMENTS] },
+      description: 'AI-derived sentiment of the patient in their latest conversation.',
+    },
+    primary_objections: {
+      type: 'array',
+      items: { type: 'string', enum: [...PRIMARY_OBJECTIONS] },
+      description:
+        'Biggest obstacle the patient expressed (e.g. cost, financing, fear_anxiety, timing). Useful for objection-targeted outreach.',
+    },
+    conversation_red_flag: {
+      type: 'boolean',
+      description: 'true = only leads whose latest conversation was AI-flagged (complaint, legal/review threat, felt misled). Handle these manually — avoid mass outreach.',
     },
     score_min: { type: 'number', description: 'Minimum AI score (0-100)' },
     score_max: { type: 'number', description: 'Maximum AI score (0-100)' },
