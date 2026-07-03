@@ -20,13 +20,22 @@
       "port": 3005
     },
     {
-      "name": "agent-chat-worktree",
+      "name": "case-closing-worktree",
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
         "-c",
-        "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/agent-chat' && exec /usr/local/bin/node node_modules/.bin/next dev -p 3007"
+        "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/case-closing' && exec /usr/local/bin/node node_modules/.bin/next dev -p 3007"
       ],
       "port": 3007
+    },
+    {
+      "name": "dashboard-redesign-worktree",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/ai-first-dashboard' && exec /usr/local/bin/node '/Users/aminsamadian/Lead Intelligence/node_modules/.bin/next' dev -p 3100"
+      ],
+      "port": 3100
     }
   ]
 }
