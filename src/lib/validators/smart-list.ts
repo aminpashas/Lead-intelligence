@@ -2,6 +2,21 @@ import { z } from 'zod'
 
 export const KEYWORD_SCOPES = ['conversation', 'lead_fields', 'inbound_sms', 'tags'] as const
 
+// Canonical enums for the compact conversation-analysis fields on leads.
+// The sweep cron writes these values; smart lists filter on them. Keep in sync
+// with the ConversationIntent/ConversationSentiment/PrimaryObjection types in
+// src/types/database.ts and the prompt in src/lib/ai/conversation-sweep.ts.
+export const CONVERSATION_INTENTS = [
+  'ready_to_book', 'considering', 'exploring', 'resistant', 'disengaged',
+] as const
+
+export const CONVERSATION_SENTIMENTS = ['positive', 'neutral', 'mixed', 'negative'] as const
+
+export const PRIMARY_OBJECTIONS = [
+  'cost', 'financing', 'fear_anxiety', 'timing', 'trust',
+  'medical', 'logistics', 'spouse_approval', 'none', 'other',
+] as const
+
 export const smartListCriteriaSchema = z.object({
   tags: z.object({
     ids: z.array(z.string().uuid()),
@@ -9,6 +24,10 @@ export const smartListCriteriaSchema = z.object({
   }).optional(),
   statuses: z.array(z.string()).optional(),
   ai_qualifications: z.array(z.string()).optional(),
+  conversation_intents: z.array(z.enum(CONVERSATION_INTENTS)).optional(),
+  conversation_sentiments: z.array(z.enum(CONVERSATION_SENTIMENTS)).optional(),
+  primary_objections: z.array(z.enum(PRIMARY_OBJECTIONS)).optional(),
+  conversation_red_flag: z.boolean().optional(),
   score_min: z.number().min(0).max(100).optional(),
   score_max: z.number().min(0).max(100).optional(),
   stages: z.array(z.string().uuid()).optional(),

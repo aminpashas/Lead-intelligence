@@ -25,7 +25,11 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import type { SmartListCriteria, PipelineStage, Tag } from '@/types/database'
+import { CONVERSATION_INTENTS, CONVERSATION_SENTIMENTS, PRIMARY_OBJECTIONS } from '@/lib/validators/smart-list'
+import type {
+  SmartListCriteria, PipelineStage, Tag,
+  ConversationIntent, ConversationSentiment, PrimaryObjection,
+} from '@/types/database'
 
 interface SmartListBuilderProps {
   open: boolean
@@ -108,6 +112,10 @@ export function SmartListBuilder({
   const [keywordScopes, setKeywordScopes] = useState<string[]>(
     initialValues?.criteria.keywords?.scopes || ['conversation', 'lead_fields']
   )
+  const [intents, setIntents] = useState<string[]>(initialValues?.criteria.conversation_intents || [])
+  const [sentiments, setSentiments] = useState<string[]>(initialValues?.criteria.conversation_sentiments || [])
+  const [objections, setObjections] = useState<string[]>(initialValues?.criteria.primary_objections || [])
+  const [redFlagOnly, setRedFlagOnly] = useState(initialValues?.criteria.conversation_red_flag ?? false)
 
   function buildCriteria(): SmartListCriteria {
     const criteria: SmartListCriteria = {}
@@ -128,6 +136,10 @@ export function SmartListBuilder({
         scopes: keywordScopes as ('conversation' | 'lead_fields' | 'inbound_sms' | 'tags')[],
       }
     }
+    if (intents.length > 0) criteria.conversation_intents = intents as ConversationIntent[]
+    if (sentiments.length > 0) criteria.conversation_sentiments = sentiments as ConversationSentiment[]
+    if (objections.length > 0) criteria.primary_objections = objections as PrimaryObjection[]
+    if (redFlagOnly) criteria.conversation_red_flag = true
     return criteria
   }
 
@@ -157,7 +169,7 @@ export function SmartListBuilder({
     } finally {
       setPreviewLoading(false)
     }
-  }, [tagIds, statuses, qualifications, scoreRange, stageIds, sourceTypes, hasPhone, hasEmail, smsConsent, tagOperator, color, keywordTerms, keywordMatch, keywordScopes])
+  }, [tagIds, statuses, qualifications, scoreRange, stageIds, sourceTypes, hasPhone, hasEmail, smsConsent, tagOperator, color, keywordTerms, keywordMatch, keywordScopes, intents, sentiments, objections, redFlagOnly])
 
   function toggleArrayValue(arr: string[], val: string, setter: (v: string[]) => void) {
     if (arr.includes(val)) {
@@ -210,7 +222,8 @@ export function SmartListBuilder({
 
   const hasCriteria = tagIds.length > 0 || statuses.length > 0 || qualifications.length > 0 ||
     scoreRange[0] > 0 || scoreRange[1] < 100 || stageIds.length > 0 ||
-    sourceTypes.length > 0 || hasPhone || hasEmail || smsConsent || keywordTerms.length > 0
+    sourceTypes.length > 0 || hasPhone || hasEmail || smsConsent || keywordTerms.length > 0 ||
+    intents.length > 0 || sentiments.length > 0 || objections.length > 0 || redFlagOnly
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -387,6 +400,87 @@ export function SmartListBuilder({
                     </button>
                   )
                 })}
+              </div>
+            </div>
+
+            {/* Conversation AI (written by the hourly analysis sweep) */}
+            <div className="space-y-3 rounded-lg border border-aurea-border bg-aurea-surface p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-aurea-ink-3">
+                Conversation AI — from the latest conversation analysis
+              </p>
+
+              <div className="space-y-2">
+                <Label className="text-[13px]">Intent</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {CONVERSATION_INTENTS.map((v) => {
+                    const active = intents.includes(v)
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => toggleArrayValue(intents, v, setIntents)}
+                        className={cn(
+                          'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize transition-colors',
+                          active
+                            ? 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30'
+                            : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                        )}
+                      >
+                        {v.replace(/_/g, ' ')}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[13px]">Sentiment</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {CONVERSATION_SENTIMENTS.map((v) => {
+                    const active = sentiments.includes(v)
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => toggleArrayValue(sentiments, v, setSentiments)}
+                        className={cn(
+                          'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize transition-colors',
+                          active
+                            ? 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30'
+                            : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                        )}
+                      >
+                        {v}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[13px]">Primary Objection</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRIMARY_OBJECTIONS.map((v) => {
+                    const active = objections.includes(v)
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => toggleArrayValue(objections, v, setObjections)}
+                        className={cn(
+                          'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize transition-colors',
+                          active
+                            ? 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30'
+                            : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                        )}
+                      >
+                        {v.replace(/_/g, ' ')}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Switch checked={redFlagOnly} onCheckedChange={setRedFlagOnly} />
+                <Label className="text-[13px]">Red-flagged conversations only</Label>
               </div>
             </div>
 

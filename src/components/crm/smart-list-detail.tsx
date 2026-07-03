@@ -21,7 +21,8 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TagBadgeList } from './tag-badge'
-import type { Lead, SmartList, Tag } from '@/types/database'
+import { SmartListBulkActions } from './smart-list-bulk-actions'
+import type { Lead, SmartList, Tag, PipelineStage } from '@/types/database'
 
 // Lead qualification chips — Aurea semantic colors, no blue
 const qualificationColors: Record<string, string> = {
@@ -34,11 +35,13 @@ const qualificationColors: Record<string, string> = {
 
 interface SmartListDetailProps {
   smartList: SmartList
+  stages?: PipelineStage[]
+  tags?: Tag[]
   onEdit: () => void
   onBack: () => void
 }
 
-export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailProps) {
+export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onBack }: SmartListDetailProps) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -83,6 +86,10 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
   if (c.tags?.ids?.length) criteriaLabels.push(`${c.tags.ids.length} tag${c.tags.ids.length > 1 ? 's' : ''} (${c.tags.operator?.toUpperCase()})`)
   if (c.statuses?.length) criteriaLabels.push(`${c.statuses.length} statuses`)
   if (c.ai_qualifications?.length) criteriaLabels.push(c.ai_qualifications.join(', '))
+  if (c.conversation_intents?.length) criteriaLabels.push(`Intent: ${c.conversation_intents.join(', ').replace(/_/g, ' ')}`)
+  if (c.conversation_sentiments?.length) criteriaLabels.push(`Sentiment: ${c.conversation_sentiments.join(', ')}`)
+  if (c.primary_objections?.length) criteriaLabels.push(`Objection: ${c.primary_objections.join(', ').replace(/_/g, ' ')}`)
+  if (c.conversation_red_flag) criteriaLabels.push('Red-flagged')
   if (c.score_min || c.score_max) criteriaLabels.push(`Score: ${c.score_min || 0}–${c.score_max || 100}`)
   if (c.source_types?.length) criteriaLabels.push(`${c.source_types.length} sources`)
   if (c.has_phone) criteriaLabels.push('Has phone')
@@ -118,6 +125,13 @@ export function SmartListDetail({ smartList, onEdit, onBack }: SmartListDetailPr
             <Pencil className="h-[15px] w-[15px]" strokeWidth={1.75} />
             Edit
           </Button>
+          <SmartListBulkActions
+            smartList={smartList}
+            total={total}
+            stages={stages}
+            tags={tags}
+            onDone={handleRefresh}
+          />
           <Button
             size="sm"
             variant="outline"

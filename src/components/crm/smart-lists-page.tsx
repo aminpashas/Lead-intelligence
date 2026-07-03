@@ -66,6 +66,8 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
     return (
       <SmartListDetail
         smartList={viewingList}
+        stages={stages}
+        tags={tags}
         onEdit={() => handleEdit(viewingList)}
         onBack={() => {
           setViewingList(null)
