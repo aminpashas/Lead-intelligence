@@ -42,11 +42,14 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string }
 export function CampaignSetup({
   isAdmin,
   isAgencyAdmin,
+  initialStatus,
 }: {
   isAdmin: boolean
   isAgencyAdmin: boolean
+  /** Pre-resolved status (tests/previews) — skips the initial fetch. */
+  initialStatus?: ProfileStatus
 }) {
-  const [status, setStatus] = useState<ProfileStatus | null>(null)
+  const [status, setStatus] = useState<ProfileStatus | null>(initialStatus ?? null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -71,8 +74,8 @@ export function CampaignSetup({
   }, [])
 
   useEffect(() => {
-    refreshStatus()
-  }, [refreshStatus])
+    if (!initialStatus) refreshStatus()
+  }, [refreshStatus, initialStatus])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
