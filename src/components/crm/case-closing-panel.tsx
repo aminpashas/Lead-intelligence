@@ -32,6 +32,7 @@ import {
   CalendarCheck,
   FlaskConical,
   ClipboardCheck,
+  ClipboardList,
   ExternalLink,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -300,6 +301,13 @@ export function CaseClosingPanel({ caseId, onChanged }: { caseId: string; onChan
             onToggleOrdered={(v) => patchChecklist('lab_work_ordered', v)}
             onSubmitted={() => { void refresh(); onChanged?.() }}
           />
+          <div className="lg:col-span-2">
+            <IntakeCard
+              caseId={caseId}
+              closing={closing}
+              onSaved={() => { void refresh(); onChanged?.() }}
+            />
+          </div>
           <div className="lg:col-span-2">
             <RecordsCard
               checklist={closing.records_checklist}
@@ -681,6 +689,117 @@ function LabCard({ caseId, orders, checklist, busy, onToggleOrdered, onSubmitted
             {checklist.lab_work_ordered ? 'Unmark ordered' : 'Mark ordered manually'}
           </Button>
         </div>
+      </div>
+    </CardShell>
+  )
+}
+
+function IntakeField({ label, value, onChange, placeholder, className }: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  className?: string
+}) {
+  return (
+    <div className={cn('space-y-1', className)}>
+      <Label className="text-[11px]">{label}</Label>
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="h-8" />
+    </div>
+  )
+}
+
+function IntakeCard({ caseId, closing, onSaved }: {
+  caseId: string
+  closing: TreatmentClosing
+  onSaved: () => void
+}) {
+  const i = closing.intake ?? {}
+  const [pharmacy, setPharmacy] = useState(i.preferred_pharmacy ?? '')
+  const [pcpName, setPcpName] = useState(i.pcp_name ?? '')
+  const [pcpPhone, setPcpPhone] = useState(i.pcp_phone ?? '')
+  const [driverName, setDriverName] = useState(i.driver_name ?? '')
+  const [driverPhone, setDriverPhone] = useState(i.driver_phone ?? '')
+  const [ecName, setEcName] = useState(i.emergency_contact_name ?? '')
+  const [ecPhone, setEcPhone] = useState(i.emergency_contact_phone ?? '')
+  const [preopDate, setPreopDate] = useState(i.preop_date ?? '')
+  const [discount, setDiscount] = useState(i.discount_amount != null ? String(i.discount_amount) : '')
+  const [smoker, setSmoker] = useState(!!i.uses_tobacco_vape_marijuana)
+  const [saving, setSaving] = useState(false)
+
+  // "Done" once the two sedation-critical fields are captured.
+  const done = !!(driverName && ecName)
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const payload: Record<string, unknown> = {
+        preferred_pharmacy: pharmacy.trim(),
+        pcp_name: pcpName.trim(),
+        pcp_phone: pcpPhone.trim(),
+        driver_name: driverName.trim(),
+        driver_phone: driverPhone.trim(),
+        emergency_contact_name: ecName.trim(),
+        emergency_contact_phone: ecPhone.trim(),
+        preop_date: preopDate,
+        uses_tobacco_vape_marijuana: smoker,
+      }
+      const d = parseFloat(discount)
+      if (discount.trim() && Number.isFinite(d)) payload.discount_amount = d
+      const res = await fetch(`/api/cases/${caseId}/intake`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error ?? 'Failed to save intake')
+      }
+      toast.success('Pre-surgical intake saved')
+      onSaved()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <CardShell icon={ClipboardList} title="Pre-Surgical Intake" done={done}>
+      <div className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <IntakeField label="Driver / escort name" value={driverName} onChange={setDriverName} placeholder="Required for sedation" />
+          <IntakeField label="Driver / escort phone" value={driverPhone} onChange={setDriverPhone} />
+          <IntakeField label="Emergency contact name" value={ecName} onChange={setEcName} />
+          <IntakeField label="Emergency contact phone" value={ecPhone} onChange={setEcPhone} />
+          <IntakeField label="Primary care physician" value={pcpName} onChange={setPcpName} />
+          <IntakeField label="PCP phone" value={pcpPhone} onChange={setPcpPhone} />
+          <IntakeField label="Preferred pharmacy" value={pharmacy} onChange={setPharmacy} className="sm:col-span-2" />
+          <div className="space-y-1">
+            <Label className="text-[11px]">Pre-op appointment date</Label>
+            <Input type="date" value={preopDate} onChange={(e) => setPreopDate(e.target.value)} className="h-8" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px]">Discount amount ($)</Label>
+            <Input type="number" min={0} step={100} value={discount} onChange={(e) => setDiscount(e.target.value)} className="h-8" placeholder="0" />
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-[12px] text-aurea-ink-2">
+          <input
+            type="checkbox"
+            checked={smoker}
+            onChange={(e) => setSmoker(e.target.checked)}
+            className="h-4 w-4 rounded border-aurea-border"
+          />
+          Patient uses tobacco, vape, or marijuana (adds the smoker consent to the contract)
+        </label>
+        <Button size="sm" disabled={saving} onClick={save} className="gap-2">
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardList className="h-3.5 w-3.5" strokeWidth={1.75} />}
+          Save intake
+        </Button>
+        <p className="text-[11px] text-aurea-ink-3">
+          Feeds the FMR contract (driver, pharmacy, PCP, emergency contact) and gates the smoker consent.
+        </p>
       </div>
     </CardShell>
   )

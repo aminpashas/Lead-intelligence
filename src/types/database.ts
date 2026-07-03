@@ -1281,6 +1281,24 @@ export type RecordsChecklist = {
   surgeon_availability: boolean
 }
 
+/**
+ * FMR pre-surgical intake bag stored on treatment_closings.intake. Patient-entered
+ * fields that feed the Full Mouth Reconstruction contract's merge variables and the
+ * conditional smoker consent. See docs/fmr-contract/FMR-Intake-Field-Spec.md.
+ */
+export type FmrIntake = {
+  preferred_pharmacy?: string
+  pcp_name?: string
+  pcp_phone?: string
+  driver_name?: string
+  driver_phone?: string
+  emergency_contact_name?: string
+  emergency_contact_phone?: string
+  uses_tobacco_vape_marijuana?: boolean
+  preop_date?: string
+  discount_amount?: number
+}
+
 export type TreatmentClosing = {
   id: string
   lead_id: string | null
@@ -1321,6 +1339,9 @@ export type TreatmentClosing = {
   // Records & Office Confirmation
   records_confirmed_at: string | null
   records_checklist: RecordsChecklist
+
+  // FMR pre-surgical intake (feeds the contract's merge variables)
+  intake: FmrIntake
 
   // Metadata
   notes: string | null
