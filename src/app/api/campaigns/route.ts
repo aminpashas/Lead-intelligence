@@ -9,6 +9,9 @@ const createCampaignSchema = z.object({
   type: z.enum(['drip', 'broadcast', 'trigger']),
   channel: z.enum(['sms', 'email', 'multi']),
   smart_list_id: z.string().uuid().optional(),
+  // Re-permission override (email only): may email consent-unknown leads.
+  // Never overrides email_opt_out or declined — see emailCampaignGate.
+  allow_unconsented_email: z.boolean().optional().default(false),
   target_criteria: z.record(z.string(), z.unknown()).optional(),
   send_window: z.object({
     start_hour: z.number().min(0).max(23).optional(),

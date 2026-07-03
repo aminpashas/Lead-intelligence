@@ -174,3 +174,66 @@ export function isEligibleForConsentCapture(
       )
   }
 }
+
+// ── Campaign email gate (re-permission override) ────────────────────────
+// A campaign flagged `allow_unconsented_email` may email leads we NEVER asked
+// (status 'unknown') — the CAN-SPAM-lawful re-permission path. It is EMAIL
+// ONLY and never overrides a hard "no": email_opt_out and status 'declined'
+// always refuse. SMS/voice stay on assertConsent with no override.
+
+type EmailCampaignGateLead = {
+  email_consent?: boolean | null
+  email_opt_out?: boolean | null
+  email_consent_status?: ConsentStatusValue | null
+}
+
+export type EmailCampaignGateResult =
+  | { allowed: true; usedOverride: boolean }
+  | { allowed: false; reason: 'opted_out' | 'declined' | 'no_consent' }
+
+/**
+ * Decide whether a campaign email may go to this lead. With
+ * `allowUnconsented`, consent-unknown leads pass (usedOverride: true) so the
+ * caller can audit-log the send; opted-out and declined leads never pass.
+ */
+export function emailCampaignGate(
+  lead: EmailCampaignGateLead,
+  opts: { allowUnconsented: boolean }
+): EmailCampaignGateResult {
+  if (lead.email_opt_out === true) return { allowed: false, reason: 'opted_out' }
+  if (lead.email_consent === true) return { allowed: true, usedOverride: false }
+  if (lead.email_consent_status === 'declined') return { allowed: false, reason: 'declined' }
+  if (!opts.allowUnconsented) return { allowed: false, reason: 'no_consent' }
+  return { allowed: true, usedOverride: true }
+}
+
+/**
+ * Audit row for every email sent under the re-permission override, so
+ * compliance can enumerate exactly which sends bypassed the consent boolean.
+ * Best-effort like logConsentViolation.
+ */
+export async function logUnconsentedEmailSend(
+  supabase: SupabaseClient,
+  params: {
+    organizationId: string
+    leadId: string
+    campaignId: string | null
+    caller: string // e.g. 'campaign.executor', 'email.mass'
+  }
+): Promise<void> {
+  try {
+    await supabase.from('events').insert({
+      organization_id: params.organizationId,
+      lead_id: params.leadId,
+      event_type: 'email_sent_unconsented_repermission',
+      payload: {
+        campaign_id: params.campaignId,
+        caller: params.caller,
+      },
+      capi_status: 'na',
+      gads_status: 'na',
+    })
+  } catch {
+    // Logging is best-effort; the send outcome is already recorded in messages.
+  }
+}

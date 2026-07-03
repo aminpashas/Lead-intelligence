@@ -409,6 +409,8 @@ export type Campaign = {
   total_completed: number
   total_converted: number
   total_unsubscribed: number
+  /** Re-permission override: may email consent-unknown leads. Never overrides opt-out/declined. Email only. */
+  allow_unconsented_email: boolean
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string

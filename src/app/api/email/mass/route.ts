@@ -10,6 +10,9 @@ import { decryptField } from '@/lib/encryption'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
 import { personalize, PERSONALIZABLE_LEAD_SELECT, type PersonalizableLead } from '@/lib/campaigns/personalization'
 import { claimIdempotencyKey, recordIdempotencyResponse, countTodaysOutbound, DAILY_EMAIL_CAP } from '@/lib/messaging/send-guards'
+import { emailCampaignGate, logUnconsentedEmailSend } from '@/lib/consent/gate'
+import { appendEmailFooter, getUnsubscribeHeaders } from '@/lib/messaging/email-footer'
+import { getOrgPostalAddress } from '@/lib/content/practice-assets'
 import { assertActiveSubscription } from '@/lib/auth/entitlement'
 
 const massEmailSchema = z.object({
@@ -19,6 +22,9 @@ const massEmailSchema = z.object({
   body_template: z.string().min(1),
   html_body_template: z.string().optional(),
   broadcast_name: z.string().optional(),
+  // Re-permission override (email only): include consent-unknown leads.
+  // Opted-out and declined leads are still excluded — see emailCampaignGate.
+  allow_unconsented_email: z.boolean().optional().default(false),
 })
 
 export async function POST(request: NextRequest) {
@@ -35,7 +41,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { smart_list_id, lead_ids: directLeadIds, subject_template, body_template, html_body_template, broadcast_name } = parsed.data
+  const { smart_list_id, lead_ids: directLeadIds, subject_template, body_template, html_body_template, broadcast_name, allow_unconsented_email } = parsed.data
 
   if (!smart_list_id && (!directLeadIds || directLeadIds.length === 0)) {
     return NextResponse.json({ error: 'Provide either smart_list_id or lead_ids' }, { status: 400 })
@@ -106,7 +112,7 @@ export async function POST(request: NextRequest) {
 
   const sendable = leads.filter((l) => {
     const email = decryptField(l.email) || l.email
-    return email && l.email_consent === true && !l.email_opt_out
+    return email && emailCampaignGate(l, { allowUnconsented: allow_unconsented_email }).allowed
   })
 
   if (sendable.length === 0) {
@@ -136,9 +142,20 @@ export async function POST(request: NextRequest) {
       status: 'active',
       smart_list_id: smart_list_id || null,
       total_enrolled: recipients.length,
+      allow_unconsented_email,
     })
     .select('id')
     .single()
+
+  // CAN-SPAM footer inputs (org identity + postal address + unsubscribe link).
+  // Mandatory on every marketing email, doubly so for re-permission sends.
+  const { data: orgRow } = await supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', orgId)
+    .single()
+  const orgName = orgRow?.name || 'Our Practice'
+  const orgAddress = await getOrgPostalAddress(supabase, orgId)
 
   const deliveryLog: {
     lead_id: string
@@ -170,9 +187,12 @@ export async function POST(request: NextRequest) {
     try {
       const subject = personalize(subject_template, lead)
       const bodyText = personalize(body_template, lead)
-      const htmlBody = html_body_template
-        ? personalize(html_body_template, lead)
-        : `<p>${bodyText.replace(/\n/g, '<br>')}</p>`
+      const htmlBody = appendEmailFooter(
+        html_body_template
+          ? personalize(html_body_template, lead)
+          : `<p>${bodyText.replace(/\n/g, '<br>')}</p>`,
+        { leadId: lead.id, orgId, orgName, address: orgAddress }
+      )
 
       let conversationId: string
 
@@ -216,6 +236,7 @@ export async function POST(request: NextRequest) {
           html: htmlBody,
           text: bodyText,
           replyTo: profile.email,
+          headers: getUnsubscribeHeaders(lead.id, orgId),
         }),
         RETRY_CONFIGS.resend
       )
@@ -249,6 +270,16 @@ export async function POST(request: NextRequest) {
         sent_at: new Date().toISOString(),
         subject,
       })
+
+      const gate = emailCampaignGate(lead, { allowUnconsented: allow_unconsented_email })
+      if (gate.allowed && gate.usedOverride) {
+        await logUnconsentedEmailSend(supabase, {
+          organizationId: orgId,
+          leadId: lead.id,
+          campaignId: campaign?.id || null,
+          caller: 'email.mass',
+        })
+      }
     } catch (err) {
       results.failed++
       const errorMsg = err instanceof Error ? err.message : 'Unknown error'
