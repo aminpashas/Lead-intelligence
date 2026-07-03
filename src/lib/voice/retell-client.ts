@@ -266,7 +266,9 @@ export async function registerInboundNumber(
  * Get details of a specific call.
  */
 export async function getCallDetail(callId: string): Promise<RetellCallDetail> {
-  return retellFetch<RetellCallDetail>(`/get-call/${callId}`)
+  // Retell's current get-call API is v2 (v1 `/get-call/` 404s). This mirrors the
+  // proven direct fetch in /api/voice/events, which the post-call flow relies on.
+  return retellFetch<RetellCallDetail>(`/v2/get-call/${callId}`)
 }
 
 /**
