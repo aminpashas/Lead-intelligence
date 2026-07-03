@@ -22,6 +22,7 @@ export const smartListCriteriaSchema = z.object({
   has_email: z.boolean().optional(),
   sms_consent: z.boolean().optional(),
   email_consent: z.boolean().optional(),
+  is_existing_patient: z.boolean().optional(),
   keywords: z.object({
     terms: z.array(z.string().trim().min(1).max(80)).min(1).max(10),
     match: z.enum(['any', 'all']),

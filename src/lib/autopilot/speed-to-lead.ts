@@ -17,6 +17,7 @@ import { checkAgentCapacity } from '@/lib/agents/discipline-engine'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
 import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { ConversationChannel, LeadStatus } from '@/types/database'
 import { logger } from '@/lib/logger'
@@ -94,6 +95,30 @@ export async function triggerSpeedToLead(
     .single()
 
   if (!lead) return { action: 'skipped' }
+
+  // Existing-patient gate: a contact who already exists as a synced EHR patient
+  // belongs to the front-desk / Dion Desk flow, not the sales setter — never
+  // auto-outreach them. The flag is normally set at ingestion; fall back to a
+  // live hash match for leads created via other paths (and backfill the flag).
+  let isExistingPatient = lead.is_existing_patient === true
+  if (!isExistingPatient && (lead.email_hash || lead.phone_hash)) {
+    const match = await findExistingPatientByHash(supabase, organizationId, {
+      emailHash: lead.email_hash,
+      phoneHash: lead.phone_hash,
+    })
+    if (match) {
+      isExistingPatient = true
+      try {
+        await markLeadAsExistingPatient(supabase, leadId, organizationId, match.patientId)
+      } catch {
+        // Non-fatal: the gate below still suppresses outreach.
+      }
+    }
+  }
+  if (isExistingPatient) {
+    logger.info('Speed-to-lead: skipped, existing patient', { leadId, reason: 'existing_patient' })
+    return { action: 'skipped' }
+  }
 
   // 3. Determine channel (prefer SMS if phone exists and consent given)
   const hasPhone = lead.phone_formatted && lead.sms_consent && !lead.sms_opt_out
