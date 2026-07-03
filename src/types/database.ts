@@ -1283,8 +1283,9 @@ export type RecordsChecklist = {
 
 export type TreatmentClosing = {
   id: string
-  lead_id: string
+  lead_id: string | null
   organization_id: string
+  clinical_case_id: string | null
 
   // Step tracking
   current_step: TreatmentClosingStep
@@ -1329,7 +1330,11 @@ export type TreatmentClosing = {
 
 // ── Clinical Cases ────────────────────────────────────────────
 
-export type CaseStatus = 'intake' | 'analysis' | 'diagnosis' | 'treatment_planning' | 'patient_review' | 'completed' | 'archived'
+export type CaseStatus =
+  | 'intake' | 'analysis' | 'diagnosis' | 'treatment_planning' | 'patient_review'
+  // Post-close (closing → surgery) stages
+  | 'accepted' | 'closing' | 'surgery_scheduled' | 'ready_for_surgery'
+  | 'completed' | 'archived'
 export type CasePriority = 'low' | 'normal' | 'high' | 'urgent'
 export type CaseFileType = 'photo' | 'xray' | 'panoramic' | 'periapical' | 'cephalometric' | 'cbct' | 'ct_scan' | 'stl' | 'intraoral' | 'extraoral' | 'other'
 
@@ -1364,6 +1369,12 @@ export type ClinicalCase = {
   treatment_plan?: CaseTreatmentPlan | null
   creator?: Pick<UserProfile, 'id' | 'full_name' | 'role' | 'avatar_url'>
   assigned_doctor?: Pick<UserProfile, 'id' | 'full_name' | 'role' | 'avatar_url' | 'specialty'> | null
+  closing?: Pick<TreatmentClosing,
+    'id' | 'current_step' | 'steps_completed' | 'contract_signed_at' | 'contract_amount'
+    | 'financing_type' | 'financing_funded_at' | 'consent_signed_at'
+    | 'preop_instructions_sent_at' | 'surgery_date' | 'surgery_time'
+    | 'records_checklist' | 'records_confirmed_at'
+  > | null
 }
 
 export type CaseFile = {
@@ -1430,6 +1441,57 @@ export type CaseTreatmentPlan = {
   }>
   planned_by: string
   approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Lab Orders (records → external lab) ──────────────────────
+
+export type LabOrderStatus =
+  | 'draft' | 'submitted' | 'accepted' | 'declined' | 'design_review'
+  | 'manufacturing' | 'shipped' | 'delivered' | 'completed' | 'cancelled' | 'error'
+
+export type LabOrder = {
+  id: string
+  organization_id: string
+  clinical_case_id: string
+  treatment_closing_id: string | null
+  lab_provider: 'smile_design_lab' | 'manual' | 'other'
+  external_case_id: string | null
+  external_case_number: string | null
+  status: LabOrderStatus
+  items: Array<{ kind: string; description?: string }>
+  files_sent: Array<{ case_file_id: string; file_name: string; file_type: string; sent_at: string }>
+  tracking: { carrier?: string; tracking_number?: string; eta?: string }
+  status_history: Array<{ from: string | null; to: string; at: string }>
+  error: string | null
+  submitted_at: string | null
+  submitted_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Pre-Op Instruction Forms ──────────────────────────────────
+
+export type PreopFormStatus = 'draft' | 'sent' | 'viewed' | 'acknowledged' | 'voided'
+
+export type PreopForm = {
+  id: string
+  organization_id: string
+  clinical_case_id: string
+  treatment_closing_id: string | null
+  title: string
+  rendered_html: string
+  content: Record<string, unknown>
+  status: PreopFormStatus
+  share_token: string
+  share_token_expires_at: string | null
+  sent_via: 'sms' | 'email' | 'both' | null
+  sent_at: string | null
+  first_viewed_at: string | null
+  acknowledged_at: string | null
+  acknowledged_name: string | null
+  created_by: string | null
   created_at: string
   updated_at: string
 }

@@ -40,28 +40,57 @@ const STEP_LABELS: Record<TreatmentClosingStep, string> = {
 // ════════════════════════════════════════════════════════════════
 
 /**
- * Create a new treatment closing record for a lead.
- * Called when treatment is presented post-consultation.
+ * Create a new treatment closing record for a lead and/or clinical case.
+ * Called when treatment is presented post-consultation, or when the patient
+ * accepts a treatment plan on a clinical case.
+ *
+ * At least one of leadId / clinicalCaseId must be provided. If a closing
+ * already exists for either key it is returned (and back-linked to the case
+ * if it wasn't already).
  */
 export async function createTreatmentClosing(
   supabase: SupabaseClient,
-  leadId: string,
-  organizationId: string,
-  contractAmount?: number
+  params: {
+    organizationId: string
+    leadId?: string | null
+    clinicalCaseId?: string | null
+    contractAmount?: number | null
+  }
 ): Promise<TreatmentClosing | null> {
-  // Check if one already exists
-  const { data: existing } = await supabase
-    .from('treatment_closings')
-    .select('*')
-    .eq('lead_id', leadId)
-    .single()
+  const { organizationId, leadId, clinicalCaseId, contractAmount } = params
+  if (!leadId && !clinicalCaseId) {
+    console.error('[TreatmentClosing] Create requires leadId or clinicalCaseId')
+    return null
+  }
 
-  if (existing) return existing as TreatmentClosing
+  // Check if one already exists for either key
+  let existing: TreatmentClosing | null = null
+  if (clinicalCaseId) {
+    existing = await getTreatmentClosingByCase(supabase, clinicalCaseId)
+  }
+  if (!existing && leadId) {
+    existing = await getTreatmentClosing(supabase, leadId)
+  }
+
+  if (existing) {
+    // Back-link the case if the closing predates the case linkage
+    if (clinicalCaseId && !existing.clinical_case_id) {
+      const { data: relinked } = await supabase
+        .from('treatment_closings')
+        .update({ clinical_case_id: clinicalCaseId })
+        .eq('id', existing.id)
+        .select()
+        .single()
+      if (relinked) return relinked as TreatmentClosing
+    }
+    return existing
+  }
 
   const { data, error } = await supabase
     .from('treatment_closings')
     .insert({
-      lead_id: leadId,
+      lead_id: leadId || null,
+      clinical_case_id: clinicalCaseId || null,
       organization_id: organizationId,
       current_step: 'treatment_plan_presented',
       steps_completed: ['treatment_plan_presented'],
@@ -89,6 +118,22 @@ export async function getTreatmentClosing(
     .from('treatment_closings')
     .select('*')
     .eq('lead_id', leadId)
+    .single()
+
+  return (data as TreatmentClosing) || null
+}
+
+/**
+ * Get the treatment closing record for a clinical case.
+ */
+export async function getTreatmentClosingByCase(
+  supabase: SupabaseClient,
+  clinicalCaseId: string
+): Promise<TreatmentClosing | null> {
+  const { data } = await supabase
+    .from('treatment_closings')
+    .select('*')
+    .eq('clinical_case_id', clinicalCaseId)
     .single()
 
   return (data as TreatmentClosing) || null
@@ -128,8 +173,8 @@ type StepData = {
 }
 
 /**
- * Advance the treatment closing to a specific step.
- * Validates that prior steps are completed.
+ * Advance the treatment closing to a specific step (keyed by lead).
+ * Used by the AI closer agent and autopilot tools.
  */
 export async function advanceStep(
   supabase: SupabaseClient,
@@ -141,7 +186,36 @@ export async function advanceStep(
   if (!closing) {
     return { success: false, closing: null, error: 'No treatment closing record found for this lead.' }
   }
+  return advanceClosing(supabase, closing, step, data)
+}
 
+/**
+ * Advance the treatment closing to a specific step (keyed by clinical case).
+ * Used by the Cases closing UI and webhook auto-advance hooks.
+ */
+export async function advanceStepByCase(
+  supabase: SupabaseClient,
+  clinicalCaseId: string,
+  step: TreatmentClosingStep,
+  data: StepData = {}
+): Promise<{ success: boolean; closing: TreatmentClosing | null; error?: string }> {
+  const closing = await getTreatmentClosingByCase(supabase, clinicalCaseId)
+  if (!closing) {
+    return { success: false, closing: null, error: 'No treatment closing record found for this case.' }
+  }
+  return advanceClosing(supabase, closing, step, data)
+}
+
+/**
+ * Core step-advancement: validates ordering, applies step data, and syncs
+ * the linked lead status and clinical case stage.
+ */
+async function advanceClosing(
+  supabase: SupabaseClient,
+  closing: TreatmentClosing,
+  step: TreatmentClosingStep,
+  data: StepData = {}
+): Promise<{ success: boolean; closing: TreatmentClosing | null; error?: string }> {
   const currentIndex = STEP_ORDER.indexOf(closing.current_step)
   const targetIndex = STEP_ORDER.indexOf(step)
 
@@ -226,11 +300,30 @@ export async function advanceStep(
     records_confirmed: 'in_treatment',
   }
 
-  if (statusMap[step]) {
+  if (statusMap[step] && closing.lead_id) {
     await supabase
       .from('leads')
       .update({ status: statusMap[step] })
-      .eq('id', leadId)
+      .eq('id', closing.lead_id)
+  }
+
+  // Sync the clinical case stage so the Cases board reflects closing progress
+  const caseStatusMap: Partial<Record<TreatmentClosingStep, string>> = {
+    contract_signed: 'closing',
+    financing_funded: 'closing',
+    consent_signed: 'closing',
+    preop_instructions_sent: 'closing',
+    surgery_scheduled: 'surgery_scheduled',
+    records_confirmed: 'ready_for_surgery',
+  }
+
+  if (caseStatusMap[step] && closing.clinical_case_id) {
+    await supabase
+      .from('clinical_cases')
+      .update({ status: caseStatusMap[step] })
+      .eq('id', closing.clinical_case_id)
+      // Never regress a completed/archived case
+      .in('status', ['patient_review', 'accepted', 'closing', 'surgery_scheduled'])
   }
 
   return { success: true, closing: updated as TreatmentClosing }
