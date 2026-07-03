@@ -57,6 +57,7 @@ export async function ensureCareStackPatient(
   config: CareStackConfig,
   orgId: string,
   lead: LeadRow,
+  defaultLocationId: string | number,
 ): Promise<{ patientId: string; isNew: boolean }> {
   // 1. Existing mapping for this lead?
   const { data: mapped } = await supabase
@@ -71,28 +72,44 @@ export async function ensureCareStackPatient(
 
   const { firstName, lastName, email, phone } = leadPii(lead)
 
-  // 2. Search CareStack by email.
+  // 2. Search CareStack by email (verified: { email } returns 200 + filters).
   let patientId: string | null = null
   if (email) {
     try {
-      const results = await searchCsPatients(config, { email, limit: 5 })
-      if (Array.isArray(results) && results.length > 0) patientId = String(results[0].id)
+      const results = await searchCsPatients(config, { email })
+      if (Array.isArray(results) && results.length > 0) patientId = String(results[0].id ?? results[0].patientId)
     } catch {
       // fall through to create
     }
   }
 
-  // 3. Create if still unresolved.
+  // 3. Create if still unresolved. Field names verified live (dob / gender:4=Not Set
+  //    / defaultLocationId / mobile). LI leads rarely carry a DOB — send a clearly-
+  //    stubbed one (staff completes it at the visit); gender 4 is a real CareStack value.
   let isNew = false
   if (!patientId) {
-    const created = await createCsPatient(config, {
-      firstName,
-      lastName,
-      email: email ?? undefined,
-      mobileNumber: phone ?? undefined,
-    })
-    patientId = String(created.id)
-    isNew = true
+    // DOB is captured at intake (leads.date_of_birth). Stub only as a last resort
+    // for legacy leads with no DOB — staff completes it at the visit.
+    const dob = (lead.date_of_birth as string | undefined) || '1900-01-01'
+    try {
+      const created = await createCsPatient(config, {
+        firstName,
+        lastName,
+        dob,
+        gender: 4,
+        defaultLocationId,
+        ...(email ? { email } : {}),
+        ...(phone ? { mobile: phone } : {}),
+      })
+      patientId = String(created.id ?? created.patientId)
+      isNew = true
+    } catch (err) {
+      // The email search can miss an existing patient (different email on file);
+      // create then returns 409 "Duplicate Ids <id>". Reuse that id rather than fail.
+      const dup = (err instanceof Error ? err.message : '').match(/Duplicate Ids?\s+(\d+)/i)
+      if (!dup) throw err
+      patientId = dup[1]
+    }
   }
 
   // 4. Record the LI-side mapping (best-effort; links the lead by hash).
@@ -135,30 +152,30 @@ export async function pushAppointmentToCareStack(
   args: { appointment: AppointmentRow; lead: LeadRow; settings: CareStackBookingDefaults },
 ): Promise<string> {
   const { appointment, lead, settings } = args
-  const { patientId, isNew } = await ensureCareStackPatient(supabase, config, appointment.organization_id, lead)
+  // Resolve the location first — patient-create needs it as defaultLocationId.
   const [locationId, providerId] = await Promise.all([
     resolveLocationId(config, settings),
     resolveProviderId(config, settings),
   ])
+  const { patientId, isNew } = await ensureCareStackPatient(supabase, config, appointment.organization_id, lead, locationId)
 
   const start = new Date(appointment.scheduled_at)
   const duration = appointment.duration_minutes ?? 60
-  const end = new Date(start.getTime() + duration * 60_000)
 
+  // Field names verified against the live CareStack appointment schema (v1.0.54):
+  // startDateTime + duration (no explicit end), providerIds ARRAY, productionTypeId.
   const created = await createCsAppointment(config, {
     patientId,
     locationId,
-    providerId,
-    operatoryId: settings.carestack_operatory_id ?? undefined,
-    appointmentType: settings.carestack_appointment_type ?? 'Consultation',
-    scheduledStart: start.toISOString(),
-    scheduledEnd: end.toISOString(),
+    providerIds: [providerId],
+    ...(settings.carestack_operatory_id ? { operatoryId: settings.carestack_operatory_id } : {}),
+    startDateTime: start.toISOString(),
     duration,
-    status: 'scheduled',
-    isNewPatient: isNew,
+    ...(settings.carestack_appointment_type ? { productionTypeId: settings.carestack_appointment_type } : {}),
+    notes: isNew ? 'Online booking (new patient)' : 'Online booking',
   })
 
-  return String(created.appointmentId)
+  return String(created.id ?? '')
 }
 
 export async function cancelAppointmentInCareStack(
