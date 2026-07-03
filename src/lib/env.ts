@@ -23,6 +23,10 @@ const ENV_VARS: EnvVar[] = [
   { key: 'TWILIO_ACCOUNT_SID', required: false, description: 'Twilio Account SID' },
   { key: 'TWILIO_AUTH_TOKEN', required: false, description: 'Twilio Auth Token' },
   { key: 'TWILIO_PHONE_NUMBER', required: false, description: 'Twilio phone number for SMS' },
+  // Browser softphone (Twilio Voice WebRTC). Created by scripts/provision-twilio-voice.ts.
+  { key: 'TWILIO_API_KEY', required: false, description: 'Twilio API Key SID (SK…) — mints browser Voice access tokens' },
+  { key: 'TWILIO_API_SECRET', required: false, description: 'Twilio API Key secret — mints browser Voice access tokens' },
+  { key: 'TWILIO_TWIML_APP_SID', required: false, description: 'Twilio TwiML App SID (AP…) — routes softphone calls to /api/voice/twiml/outbound' },
   { key: 'RESEND_API_KEY', required: false, description: 'Resend API key for email' },
   { key: 'RESEND_FROM_EMAIL', required: false, description: 'Resend sender email address' },
 
@@ -90,6 +94,9 @@ export function validateEnv(): EnvValidationResult {
   }
   if (!process.env.RETELL_API_KEY) {
     warnings.push('RETELL_API_KEY not set — AI voice calling will be unavailable')
+  }
+  if (!process.env.TWILIO_API_KEY || !process.env.TWILIO_API_SECRET || !process.env.TWILIO_TWIML_APP_SID) {
+    warnings.push('TWILIO_API_KEY/SECRET/TWIML_APP_SID not all set — the browser softphone dialer will be unavailable (run scripts/provision-twilio-voice.ts)')
   }
   if (!process.env.RESEND_API_KEY) {
     warnings.push('RESEND_API_KEY not set — email sending will fail')

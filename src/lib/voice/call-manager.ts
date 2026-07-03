@@ -11,6 +11,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { randomUUID } from 'crypto'
 import {
   createOutboundCall,
   getCallDetail,
@@ -138,6 +139,86 @@ export async function preCallCheck(
   }
 
   return { allowed: true, phone }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STAFF (HUMAN) CALL INTENT — browser softphone + ring-my-phone bridge
+// ═══════════════════════════════════════════════════════════════
+
+export type StaffCallIntent = {
+  dialToken: string
+  callId: string
+  phone: string // decrypted lead number to dial
+  fromNumber: string // org caller ID the lead sees
+  recording: boolean
+}
+
+/**
+ * Shared setup for a human-placed outbound call (browser or bridge). Runs the
+ * compliance gate, resolves the org caller ID, and inserts a voice_calls row with
+ * a one-time `dial_token`. Both /api/voice/prepare (browser) and /api/voice/bridge
+ * (ring-my-phone) build on this so the gate and row shape never drift.
+ *
+ * Returns `{ error, status }` for a caller to surface as an HTTP response.
+ */
+export async function prepareStaffCallIntent(
+  supabase: SupabaseClient,
+  params: {
+    organizationId: string
+    leadId: string
+    staffUserId: string
+    callMode: 'browser' | 'bridge'
+  }
+): Promise<StaffCallIntent | { error: string; status: number }> {
+  const check = await preCallCheck(supabase, params.leadId, params.organizationId)
+  if (!check.allowed) {
+    return { error: `Cannot call this lead: ${check.reason}`, status: 422 }
+  }
+
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('voice_outbound_caller_id, voice_recording_enabled')
+    .eq('id', params.organizationId)
+    .single()
+
+  const fromNumber = org?.voice_outbound_caller_id || process.env.TWILIO_PHONE_NUMBER
+  if (!fromNumber) {
+    return { error: 'No outbound caller ID configured', status: 422 }
+  }
+
+  const dialToken = randomUUID()
+  const { data: callRecord, error } = await supabase
+    .from('voice_calls')
+    .insert({
+      organization_id: params.organizationId,
+      lead_id: params.leadId,
+      direction: 'outbound',
+      status: 'initiated',
+      call_mode: params.callMode,
+      agent_type: 'none',
+      staff_user_id: params.staffUserId,
+      from_number: fromNumber,
+      to_number: check.phone!,
+      dial_token: dialToken,
+      consent_verified: true,
+      tcpa_compliant: true,
+      recording_disclosure_given: !!org?.voice_recording_enabled,
+    })
+    .select('id')
+    .single()
+
+  if (error || !callRecord) {
+    logger.error('Failed to create staff call record', { lead_id: params.leadId }, error ? new Error(error.message) : undefined)
+    return { error: 'Failed to prepare call', status: 500 }
+  }
+
+  return {
+    dialToken,
+    callId: callRecord.id,
+    phone: check.phone!,
+    fromNumber,
+    recording: !!org?.voice_recording_enabled,
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
