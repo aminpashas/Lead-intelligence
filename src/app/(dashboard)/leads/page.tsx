@@ -6,6 +6,27 @@ import type { Tag } from '@/types/database'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
 
+// Service-line filter: new ad leads carry custom_fields.treatment_interest +
+// a tags entry, but the historical book (45k GHL/WhatConverts imports) is only
+// classifiable via campaign/UTM keywords — so each service matches both.
+// Single-word keywords only: multi-word values break PostgREST .or() parsing.
+const SERVICE_KEYWORDS: Record<string, string[]> = {
+  implants: ['implant', 'ao4', 'aox', 'arch'],
+  cosmetic: ['veneer', 'cosmetic', 'makeover'],
+  tmj: ['tmj'],
+  sleep_apnea: ['sleep'],
+  lanap: ['lanap'],
+}
+
+// URL sort key → leads column, whitelisted so the param can't order by
+// arbitrary (e.g. encrypted) columns.
+const SORT_COLUMNS: Record<string, string> = {
+  name: 'first_name',
+  score: 'ai_score',
+  value: 'treatment_value',
+  created: 'created_at',
+}
+
 export default async function LeadsPage({
   searchParams,
 }: {
@@ -21,18 +42,44 @@ export default async function LeadsPage({
   const { orgId } = await resolveActiveOrg(supabase)
   if (!orgId) return null
 
-  // Fetch leads
+  // Fetch leads — sort column/direction come from the URL (whitelisted above).
+  const sortCol = SORT_COLUMNS[params.sort] || 'created_at'
+  const ascending = params.dir === 'asc'
+
   let query = supabase
     .from('leads')
     .select('*, pipeline_stage:pipeline_stages(*), source:lead_sources(*)', { count: 'exact' })
     .eq('organization_id', orgId)
-    .order('created_at', { ascending: false })
+    .order(sortCol, { ascending, nullsFirst: false })
 
   if (params.status) {
     query = query.in('status', params.status.split(','))
   }
   if (params.qualification) {
     query = query.eq('ai_qualification', params.qualification)
+  }
+  if (params.source) {
+    query = query.eq('source_type', params.source)
+  }
+  if (params.campaign) {
+    // Campaign names contain commas/brackets — PostgREST needs them quoted
+    // inside .or(); strip quote/backslash so the value can't break out.
+    const v = params.campaign.replace(/["\\]/g, '')
+    query = query.or(`campaign_attribution->>campaign_name.eq."${v}",utm_campaign.eq."${v}"`)
+  }
+  if (params.service && SERVICE_KEYWORDS[params.service]) {
+    const conds: string[] = []
+    if (params.service === 'implants') conds.push('custom_fields->>treatment_interest.eq.implant')
+    if (params.service === 'tmj' || params.service === 'sleep_apnea') {
+      conds.push(`custom_fields->>treatment_interest.eq.${params.service}`)
+      conds.push(`tags.cs.{${params.service}}`)
+    }
+    for (const kw of SERVICE_KEYWORDS[params.service]) {
+      for (const field of ['utm_campaign', 'utm_source', 'campaign_attribution->>campaign_name']) {
+        conds.push(`${field}.ilike.%${kw}%`)
+      }
+    }
+    query = query.or(conds.join(','))
   }
   if (params.search) {
     // email/phone are encrypted at rest — ilike can't match ciphertext, so
@@ -102,6 +149,12 @@ export default async function LeadsPage({
     .eq('organization_id', orgId)
     .order('position')
 
+  // Distinct source/campaign values (with counts) for the filter dropdowns —
+  // aggregated in the DB (RPC runs under the caller's RLS).
+  const { data: facets } = await supabase.rpc('leads_filter_facets', { p_org: orgId })
+  const sourceFacets = (facets?.source_types ?? []) as { value: string; count: number }[]
+  const campaignFacets = (facets?.campaigns ?? []) as { value: string; count: number }[]
+
   // Fetch all tags for the filter dropdown
   const { data: allTags } = await supabase
     .from('tags')
@@ -152,6 +205,8 @@ export default async function LeadsPage({
         perPage={perPage}
         allTags={allTags || []}
         leadTagsMap={leadTagsMap}
+        sourceFacets={sourceFacets}
+        campaignFacets={campaignFacets}
       />
     </div>
   )

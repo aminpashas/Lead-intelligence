@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { Brain, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import { ArrowDown, ArrowUp, Brain, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { TagBadgeList } from './tag-badge'
 import { formatCampaignAttribution } from '@/lib/attribution'
 import type { Lead, PipelineStage, Tag } from '@/types/database'
@@ -35,6 +35,18 @@ const qualificationColors: Record<string, string> = {
   unscored: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
+// Practice service lines — matched server-side against treatment_interest,
+// ingestion tags, and campaign/UTM keywords (see leads/page.tsx).
+const SERVICE_OPTIONS = [
+  { value: 'implants', label: 'Implants / All-on-4' },
+  { value: 'cosmetic', label: 'Cosmetic / Veneers' },
+  { value: 'tmj', label: 'TMJ' },
+  { value: 'sleep_apnea', label: 'Sleep Apnea' },
+  { value: 'lanap', label: 'LANAP' },
+]
+
+type Facet = { value: string; count: number }
+
 export function LeadsTable({
   leads,
   stages,
@@ -43,6 +55,8 @@ export function LeadsTable({
   perPage,
   allTags,
   leadTagsMap,
+  sourceFacets,
+  campaignFacets,
 }: {
   leads: Lead[]
   stages: PipelineStage[]
@@ -51,6 +65,8 @@ export function LeadsTable({
   perPage: number
   allTags?: Tag[]
   leadTagsMap?: Record<string, Tag[]>
+  sourceFacets?: Facet[]
+  campaignFacets?: Facet[]
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -69,6 +85,43 @@ export function LeadsTable({
 
   function handleSearch() {
     updateFilters('search', search)
+  }
+
+  // Column-header sorting: first click sorts desc (asc for name), second
+  // click flips direction. State lives in the URL like every other filter.
+  const activeSort = searchParams.get('sort') || 'created'
+  const activeDir = searchParams.get('dir') || 'desc'
+
+  function toggleSort(key: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (activeSort === key) {
+      params.set('dir', activeDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      params.set('sort', key)
+      params.set('dir', key === 'name' ? 'asc' : 'desc')
+    }
+    params.set('page', '1')
+    router.push(`/leads?${params.toString()}`)
+  }
+
+  function SortableHead({ label, sortKey, className }: { label: string; sortKey: string; className?: string }) {
+    const isActive = activeSort === sortKey
+    return (
+      <TableHead
+        className={`aurea-eyebrow cursor-pointer select-none text-aurea-ink-3 transition-colors hover:text-aurea-ink ${className || ''}`}
+        onClick={() => toggleSort(sortKey)}
+      >
+        <span className="inline-flex items-center gap-1">
+          {label}
+          {isActive &&
+            (activeDir === 'asc' ? (
+              <ArrowUp className="h-3 w-3" strokeWidth={1.75} />
+            ) : (
+              <ArrowDown className="h-3 w-3" strokeWidth={1.75} />
+            ))}
+        </span>
+      </TableHead>
+    )
   }
 
   const totalPages = Math.ceil(total / perPage)
@@ -123,6 +176,68 @@ export function LeadsTable({
           </SelectContent>
         </Select>
 
+        {/* Service line */}
+        <Select
+          value={searchParams.get('service') || 'all'}
+          onValueChange={(v) => updateFilters('service', v)}
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="Service" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Services</SelectItem>
+            {SERVICE_OPTIONS.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Lead source */}
+        {sourceFacets && sourceFacets.length > 0 && (
+          <Select
+            value={searchParams.get('source') || 'all'}
+            onValueChange={(v) => updateFilters('source', v)}
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sources</SelectItem>
+              {sourceFacets.map((f) => (
+                <SelectItem key={f.value} value={f.value}>
+                  <span className="capitalize">{f.value.replace(/_/g, ' ')}</span>
+                  <span className="ml-1 text-aurea-ink-3">({f.count.toLocaleString()})</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Campaign */}
+        {campaignFacets && campaignFacets.length > 0 && (
+          <Select
+            value={searchParams.get('campaign') || 'all'}
+            onValueChange={(v) => updateFilters('campaign', v)}
+          >
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Campaign" />
+            </SelectTrigger>
+            <SelectContent className="max-w-[380px]">
+              <SelectItem value="all">All Campaigns</SelectItem>
+              {campaignFacets.map((f) => (
+                <SelectItem key={f.value} value={f.value}>
+                  <span className="block max-w-[300px] truncate" title={f.value}>
+                    {f.value}
+                  </span>
+                  <span className="ml-1 text-aurea-ink-3">({f.count.toLocaleString()})</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
         {/* Tag Filter */}
         {allTags && allTags.length > 0 && (
           <Select
@@ -156,15 +271,15 @@ export function LeadsTable({
         <Table>
           <TableHeader>
             <TableRow className="border-b border-aurea-border hover:bg-transparent">
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Lead</TableHead>
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Engagement</TableHead>
+              <SortableHead label="Lead" sortKey="name" />
+              <SortableHead label="Engagement" sortKey="score" />
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Stage</TableHead>
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Tags</TableHead>
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Condition</TableHead>
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Source</TableHead>
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Activity</TableHead>
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Value</TableHead>
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Created</TableHead>
+              <SortableHead label="Value" sortKey="value" />
+              <SortableHead label="Created" sortKey="created" />
               <TableHead className="aurea-eyebrow text-aurea-ink-3 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
