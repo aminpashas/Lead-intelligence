@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Megaphone, Plus, Mail, MessageSquare, Play, Pause, Zap, Loader2,
-  BarChart3, ListFilter, TrendingUp, ArrowRight, LayoutGrid, List,
+  BarChart3, ListFilter, TrendingUp, ArrowRight, LayoutGrid, List, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignBuilder } from './campaign-builder'
@@ -134,6 +134,13 @@ export function CampaignsList({ campaigns: initial, initialSmartListId }: { camp
         </div>
 
         <div className="flex shrink-0 items-center gap-2.5">
+          <a
+            href="/campaigns/setup"
+            className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
+          >
+            <Sparkles className="h-4 w-4" strokeWidth={1.75} />
+            Campaign setup
+          </a>
           <button
             onClick={() => setViewingPerformance(true)}
             className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
