@@ -41,9 +41,10 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient()
 
   // ── SMS TRAINING CONSOLE ──
-  // Allowlisted trainer numbers are owned entirely by the training module and
-  // never reach the lead pipeline. This also means a trainer number can't double
-  // as a normal test-lead — training always wins (by design).
+  // Training is opt-in per message: the module only owns an inbound SMS when the
+  // trainer has an active session OR sends an explicit command (TRAIN/ROLEPLAY/
+  // RULE/HELP/STATUS). Otherwise handled=false and a trainer number falls through
+  // to the normal lead pipeline, so it can still text in as a real patient.
   const { handleTrainerSms } = await import('@/lib/autopilot/sms-training')
   const training = await handleTrainerSms(supabase, { from, body })
   if (training.handled) {

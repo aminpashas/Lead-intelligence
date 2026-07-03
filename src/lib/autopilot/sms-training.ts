@@ -1,8 +1,11 @@
 /**
  * SMS Training Console
  *
- * Owns every inbound SMS from an allowlisted trainer number and routes it into a
- * two-mode training state machine:
+ * Intercepts inbound SMS from an allowlisted trainer number ONLY when a training
+ * session is active or the message is an explicit command (TRAIN/ROLEPLAY/RULE/
+ * HELP/STATUS). Anything else falls through to the normal lead pipeline, so a
+ * trainer number can still text in as a real patient. Training is opt-in per
+ * message. It routes owned messages into a two-mode training state machine:
  *  - ROLEPLAY: AI plays the patient, the trainer practices as coordinator.
  *  - TRAIN (dry-run): trainer texts as a patient, the AI answers as the
  *    coordinator, and the trainer critiques/corrects it.
@@ -231,9 +234,11 @@ export const HELP_TEXT =
 const AI_TAG = '🤖 '
 
 /**
- * Owns every inbound SMS from an allowlisted trainer number. Returns
- * { handled:false } when `from` is not a trainer (webhook falls through to the
- * normal lead pipeline). When handled, `reply` is the text to send back.
+ * Handles inbound SMS from an allowlisted trainer number. Returns
+ * { handled:false } (webhook falls through to the normal lead pipeline) when
+ * `from` is not a trainer, OR when it is a trainer but there's no active session
+ * and the message isn't an explicit command — so a trainer number can still text
+ * in as a real patient. When handled, `reply` is the text to send back.
  */
 export async function handleTrainerSms(
   supabase: SupabaseClient,
@@ -283,7 +288,10 @@ export async function handleTrainerSms(
       return { handled: true, reply: '✓ Saved. Live for all practices on the next message.' }
     }
 
-    return { handled: true, reply: `Not in a training session. ${HELP_TEXT}` }
+    // Opt-in training: with no active session and no explicit command
+    // (TRAIN/ROLEPLAY/RULE/HELP/STATUS handled above), fall through to the normal
+    // lead pipeline so a trainer number can still get real coordinator replies.
+    return { handled: false, reply: null }
   }
 
   // ── Active session ──

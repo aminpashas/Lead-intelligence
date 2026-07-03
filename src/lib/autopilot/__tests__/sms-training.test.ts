@@ -86,4 +86,12 @@ describe('handleTrainerSms', () => {
     const r = await handleTrainerSms(stubSupabase(), { from: '+14156767420', body: 'HELP' })
     expect(r.reply).toContain('TRAIN <pin>')
   })
+  it('a trainer number with no session + non-command text falls through to the lead pipeline', async () => {
+    const r = await handleTrainerSms(stubSupabase(), {
+      from: '+14156767420',
+      body: 'Yes can you send me the application',
+    })
+    expect(r.handled).toBe(false)
+    expect(r.reply).toBeNull()
+  })
 })
