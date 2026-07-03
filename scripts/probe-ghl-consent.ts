@@ -11,7 +11,7 @@ import { config as loadEnv } from 'dotenv'
 loadEnv({ path: '.env.local' })
 
 import { createClient } from '@supabase/supabase-js'
-import { getGhlConfig, searchOpportunities, ghlFetch } from '../src/lib/ghl/client'
+import { getGhlConfig, searchOpportunities, fetchPipelines, ghlFetch } from '../src/lib/ghl/client'
 
 function req(n: string): string {
   const v = process.env[n]
@@ -63,7 +63,8 @@ async function main() {
   }
 
   // Sample a handful of opportunities to get real contact ids.
-  const opps = await searchOpportunities(config, { page: 1 })
+  const pipelines = await fetchPipelines(config)
+  const opps = await searchOpportunities(config, { pipelineId: pipelines[0]?.id ?? '', page: 1 })
   console.log(`\nfetched ${opps.length} opportunities (page 1)`)
   if (opps.length) {
     console.log('opportunity top-level keys:', Object.keys(opps[0] as Record<string, unknown>).sort().join(', '))

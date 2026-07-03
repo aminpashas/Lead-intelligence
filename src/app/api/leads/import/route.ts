@@ -18,6 +18,7 @@ import { encryptLeadPII } from '@/lib/encryption'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
 import { safeParseBody, BULK_IMPORT_MAX_BODY_SIZE } from '@/lib/body-size'
 import { formatToE164 } from '@/lib/leads/phone'
+import { resolveImportConsent } from '@/lib/leads/import-consent'
 import { findExistingLeads } from '@/lib/leads/dedupe'
 import { scoreLead } from '@/lib/ai/scoring'
 import { logger } from '@/lib/logger'
@@ -108,28 +109,21 @@ export async function POST(request: NextRequest) {
 
     const email = row.email && row.email !== '' ? row.email : null
 
-    // Stamp consent from attestation, with per-row override
-    const smsConsent = row.sms_consent ?? consent.sms
-    const emailConsent = row.email_consent ?? consent.email
-    const voiceConsent = row.voice_consent ?? consent.voice
+    // Stamp consent from attestation, with per-row override. Opt-out is
+    // safety-dominant: a DND/opt-out forces the channel's consent off and sets
+    // the *_opt_out columns the send-gates check. `do_not_contact` is not a
+    // leads column — strip it before the spread.
+    const { do_not_contact: _dnc, ...rowCols } = row
+    const consentFields = resolveImportConsent(row, consent)
 
     const insert: Record<string, unknown> = {
-      ...row,
+      ...rowCols,
       organization_id: orgId,
       stage_id: defaultStage?.id ?? null,
       email,
       phone_formatted: phoneFormatted,
-      // Consent state
-      sms_consent: smsConsent,
-      email_consent: emailConsent,
-      voice_consent: voiceConsent,
-      sms_consent_at: smsConsent ? (row.sms_consent_at || consent.attested_at) : null,
-      email_consent_at: emailConsent ? (row.email_consent_at || consent.attested_at) : null,
-      voice_consent_at: voiceConsent ? (row.voice_consent_at || consent.attested_at) : null,
-      sms_consent_source: smsConsent ? (row.sms_consent_source || consent.source) : null,
-      email_consent_source: emailConsent ? (row.email_consent_source || consent.source) : null,
-      voice_consent_source: voiceConsent ? (row.voice_consent_source || consent.source) : null,
-      do_not_call: row.do_not_call ?? false,
+      // Consent + suppression state (opt-out already applied)
+      ...consentFields,
       // Source / assignment / tags from import-wide defaults
       source_type: row.source_type || defaults.source_type || null,
       source_id: row.source_id || defaults.source_id || null,

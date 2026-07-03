@@ -115,6 +115,13 @@ export const bulkImportLeadSchema = createLeadSchema.extend({
   voice_consent_at: z.string().optional(),
   voice_consent_source: z.string().optional(),
   do_not_call: z.boolean().optional(),
+  // Suppression (e.g. imported from a GHL DND export). Opt-out is safety-dominant:
+  // when set, it forces the matching channel's consent OFF regardless of any
+  // consent value in the same row, so a DND lead can never be messaged.
+  sms_opt_out: z.boolean().optional(),
+  email_opt_out: z.boolean().optional(),
+  /** All-channel do-not-contact (GHL `dnd`) — suppresses sms + email + voice. */
+  do_not_contact: z.boolean().optional(),
 })
 
 const consentBlockSchema = z.object({
