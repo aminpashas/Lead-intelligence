@@ -7,6 +7,8 @@ import { useOrgStore } from '@/lib/store/use-org'
 import type { Organization, UserProfile } from '@/types/database'
 import { Toaster } from '@/components/ui/sonner'
 import { useRealtimeNotifications } from '@/lib/hooks/use-realtime-notifications'
+import { SoftphoneProvider } from '@/components/voice/softphone-provider'
+import { Softphone } from '@/components/voice/softphone'
 
 export function DashboardShell({
   children,
@@ -34,16 +36,19 @@ export function DashboardShell({
   useRealtimeNotifications()
 
   return (
-    <div className={`aurea flex h-screen overflow-hidden bg-aurea-canvas ${fontClassName ?? ''}`}>
-      <Sidebar />
-      <MobileSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="aurea-floor flex-1 overflow-y-auto p-4 lg:p-6">
-          {children}
-        </main>
+    <SoftphoneProvider>
+      <div className={`aurea flex h-screen overflow-hidden bg-aurea-canvas ${fontClassName ?? ''}`}>
+        <Sidebar />
+        <MobileSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <Topbar onMenuClick={() => setSidebarOpen(true)} />
+          <main className="aurea-floor flex-1 overflow-y-auto p-4 lg:p-6">
+            {children}
+          </main>
+        </div>
+        <Softphone />
+        <Toaster />
       </div>
-      <Toaster />
-    </div>
+    </SoftphoneProvider>
   )
 }

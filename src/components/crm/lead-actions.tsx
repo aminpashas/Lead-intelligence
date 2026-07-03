@@ -27,12 +27,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Phone, MessageSquare, Mail, BellOff, Loader2, Check } from 'lucide-react'
+import { Phone, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
 import type { Lead } from '@/types/database'
 import { LeadMessaging } from './lead-messaging'
+import { useSoftphone } from '@/components/voice/softphone-provider'
 import { DND_CHANNELS, type DndChannel } from '@/lib/consent/capture'
 
 type Variant = 'bar' | 'compact'
@@ -56,6 +57,7 @@ export function LeadActions({
   variant?: Variant
 }) {
   const router = useRouter()
+  const { startCall } = useSoftphone()
   const [dnd, setDnd] = useState<Record<DndChannel, boolean>>(() => dndOf(lead))
   const [pending, setPending] = useState<DndChannel | 'all' | null>(null)
   const [calling, setCalling] = useState(false)
@@ -105,7 +107,35 @@ export function LeadActions({
     }
   }
 
-  async function call() {
+  // Human call: open the browser softphone and dial. The floating widget owns all
+  // subsequent call state (ringing, mute, hang up, disposition).
+  function call() {
+    if (callBlock) return
+    void startCall(lead)
+  }
+
+  // Bridge call: Twilio rings the staffer's own phone, then connects the lead.
+  async function bridgeCall() {
+    if (callBlock) return
+    setCalling(true)
+    try {
+      const res = await fetch('/api/voice/bridge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: lead.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Bridge call failed')
+      toast.success(`Ringing your phone — answer to connect to ${lead.first_name || 'the lead'}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not place call')
+    } finally {
+      setCalling(false)
+    }
+  }
+
+  // AI call: hand the lead to the Retell voice agent (server-initiated).
+  async function aiCall() {
     if (callBlock) return
     setCalling(true)
     try {
@@ -116,7 +146,7 @@ export function LeadActions({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || 'Call failed')
-      toast.success(`Calling ${lead.first_name || 'lead'}…`)
+      toast.success(`AI is calling ${lead.first_name || 'lead'}…`)
       router.refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not place call')
@@ -160,7 +190,47 @@ export function LeadActions({
       // On a table row, keep clicks from bubbling up to the row's navigate handler.
       onClick={(e) => e.stopPropagation()}
     >
-      {action({ label: 'Call', icon: <Phone className={iconSize} strokeWidth={1.75} />, block: callBlock, onClick: call, busy: calling })}
+      {/* Call is a split control: primary = you talk (softphone); caret = AI call. */}
+      <div className="flex items-stretch">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={call}
+          disabled={!!callBlock}
+          title={callBlock ?? 'Call — you talk'}
+          className={cn(compact ? 'h-8 gap-1.5 px-2.5' : 'gap-1.5', 'rounded-r-none border-r-0')}
+        >
+          <Phone className={iconSize} strokeWidth={1.75} />
+          {!compact && <span>Call</span>}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            disabled={!!callBlock || calling}
+            title="Call options"
+            className={cn(
+              'inline-flex cursor-pointer items-center justify-center rounded-lg rounded-l-none border border-aurea-border px-1.5 text-aurea-ink transition-colors hover:bg-aurea-surface-2 disabled:pointer-events-none disabled:opacity-50',
+              compact && 'h-8'
+            )}
+          >
+            {calling ? (
+              <Loader2 className={`${iconSize} animate-spin`} strokeWidth={1.75} />
+            ) : (
+              <ChevronDown className={iconSize} strokeWidth={1.75} />
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-44">
+            <DropdownMenuItem onClick={call} closeOnClick>
+              <Phone className="mr-2 h-4 w-4" strokeWidth={1.75} /> Call — you talk
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={bridgeCall} closeOnClick>
+              <Smartphone className="mr-2 h-4 w-4" strokeWidth={1.75} /> Call my phone
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={aiCall} closeOnClick>
+              <Bot className="mr-2 h-4 w-4" strokeWidth={1.75} /> AI call
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       {action({ label: 'SMS', icon: <MessageSquare className={iconSize} strokeWidth={1.75} />, block: smsBlock, onClick: () => openMessage('sms') })}
       {action({ label: 'Email', icon: <Mail className={iconSize} strokeWidth={1.75} />, block: emailBlock, onClick: () => openMessage('email') })}
 

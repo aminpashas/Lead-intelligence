@@ -268,6 +268,7 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/leads/lists': 'smart_lists:read',
   '/conversations': 'conversations:read',
   '/call-center': 'call_center:read',
+  '/dialer': 'call_center:read',
   '/appointments': 'schedule:read',
   // Campaigns + Funnel Playbook
   '/campaigns': 'campaigns:read',
