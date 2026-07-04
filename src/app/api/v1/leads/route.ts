@@ -31,6 +31,7 @@ import { safeParseBody } from '@/lib/body-size'
 import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
 import { deriveConsentFields } from '@/lib/consent/ingest'
 import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
+import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -255,7 +256,26 @@ export async function POST(request: NextRequest) {
   const referrer_url = asStr(b?.referrer_url) ?? asStr(b?.referrer)
   // Exact campaign-level attribution resolved by DGS (channel + campaign_id/
   // campaign_name + ad group + keyword + confidence). Stored as jsonb.
-  const campaignAttribution = sanitizeCampaignAttribution(b?.campaign_attribution)
+  let campaignAttribution = sanitizeCampaignAttribution(b?.campaign_attribution)
+  // Fallback channel resolution. DGS is authoritative, but its resolver has
+  // blind spots — some WhatConverts source labels ("SEO - SF", "GMBlisting",
+  // a gclid lead it missed) arrive with NO channel and drop into a `null`
+  // bucket, invisible to every channel-segmented view. When no channel came
+  // through, derive a LOW-confidence one from the flat utm fields so the lead
+  // still lands in the right channel. A later DGS re-sync (0.85–1.0) overrides
+  // it via mergeAttributionOnDedup, and the low confidence never inflates the
+  // paid-ad KPI off a weak signal (see classify-channel.ts).
+  if (!campaignAttribution?.channel) {
+    const fb = classifyChannelFromUtm({ utm_source, utm_medium, utm_campaign, gclid, fbclid })
+    if (fb) {
+      campaignAttribution = {
+        ...(campaignAttribution ?? {}),
+        channel: fb.channel,
+        attribution_confidence: campaignAttribution?.attribution_confidence ?? fb.confidence,
+        source_system: (campaignAttribution?.source_system as string) ?? 'li_utm_fallback',
+      }
+    }
+  }
   const incomingAttribution: IncomingAttribution = {
     campaign_attribution: campaignAttribution,
     utm_source, utm_medium, utm_campaign, utm_term, utm_content,
