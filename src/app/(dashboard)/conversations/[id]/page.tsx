@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
-import { ConversationThread } from '@/components/crm/conversation-thread'
+import { ConversationView } from '@/components/crm/conversation-view'
 import { notFound } from 'next/navigation'
 import { decryptLeadPII } from '@/lib/encryption'
+import { buildTimeline } from '@/lib/timeline/build-timeline'
 
 export default async function ConversationDetailPage({
   params,
@@ -35,18 +36,34 @@ export default async function ConversationDetailPage({
     .not('ended_at', 'is', null)
     .order('created_at', { ascending: true })
 
+  // Notes + stage changes for this lead enrich the condensed Timeline view.
+  const leadId = (conversation.lead as { id?: string } | null)?.id ?? conversation.lead_id
+  const { data: activities } = await supabase
+    .from('lead_activities')
+    .select('id, created_at, activity_type, title, description')
+    .eq('lead_id', leadId)
+    .in('activity_type', ['note_added', 'stage_changed'])
+    .order('created_at', { ascending: true })
+
   // Mark as read
   await supabase
     .from('conversations')
     .update({ unread_count: 0 })
     .eq('id', id)
 
+  const timeline = buildTimeline({
+    messages: messages || [],
+    calls: calls || [],
+    activities: activities || [],
+  })
+
   return (
-    <ConversationThread
+    <ConversationView
       lead={decryptLeadPII(conversation.lead as Record<string, unknown>) as any}
       conversation={conversation}
       messages={messages || []}
       calls={calls || []}
+      timeline={timeline}
     />
   )
 }
