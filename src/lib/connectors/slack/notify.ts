@@ -14,6 +14,7 @@ import type {
   SlackConfig,
   ConnectorEventType,
 } from '../types'
+import { assertSafeWebhookUrl } from '../url-guard'
 
 // Emoji + title for each event type
 const EVENT_DISPLAY: Record<ConnectorEventType, { emoji: string; title: string; color: string }> = {
@@ -50,6 +51,25 @@ export async function sendSlackNotification(
 
   const { lead, metadata } = event.data
   const display = EVENT_DISPLAY[event.type] || { emoji: '📌', title: event.type, color: '#6b7280' }
+
+  // SSRF guard: an org-configured webhookUrl is attacker-controllable. Validate it
+  // is a public destination AND pin it to Slack's incoming-webhook host so this
+  // connector can't be repurposed to hit internal services or the cloud metadata
+  // endpoint. (The sibling outbound_webhook connector already guards via
+  // assertSafeWebhookUrl; the Slack path previously did not.)
+  let safeUrl: URL
+  try {
+    safeUrl = await assertSafeWebhookUrl(config.webhookUrl)
+    if (safeUrl.hostname !== 'hooks.slack.com') {
+      throw new Error('Slack webhook must be on hooks.slack.com')
+    }
+  } catch (err) {
+    return {
+      connector: 'slack',
+      success: false,
+      error: err instanceof Error ? err.message : 'Unsafe Slack webhook URL',
+    }
+  }
 
   try {
     // Build Slack Block Kit message
@@ -138,20 +158,24 @@ export async function sendSlackNotification(
       payload.channel = config.channel
     }
 
-    const response = await fetch(config.webhookUrl, {
+    const response = await fetch(safeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      // Do not follow redirects — a redirect could bounce us to an internal host
+      // after the pre-flight safety check.
+      redirect: 'manual',
       signal: AbortSignal.timeout(5000),
     })
 
     if (!response.ok) {
-      const errorBody = await response.text().catch(() => '')
+      // Do NOT echo the response body back to the caller. If the target were ever
+      // an internal endpoint, its body would be exfiltrated in the error string.
       return {
         connector: 'slack',
         success: false,
         statusCode: response.status,
-        error: `Slack API error: ${errorBody}`,
+        error: `Slack webhook returned ${response.status}`,
       }
     }
 

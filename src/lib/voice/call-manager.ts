@@ -76,6 +76,15 @@ export async function preCallCheck(
     return { allowed: false, reason: 'voice_opt_out' }
   }
 
+  // Cross-channel revocation: a prior SMS opt-out ("STOP") is a revocation of
+  // automated contact and also blocks autodialed voice. This is defense-in-depth
+  // alongside the STOP handler now setting voice_opt_out, and — critically — it
+  // protects leads who opted out via SMS BEFORE that handler change (they still
+  // have sms_opt_out=true / voice_opt_out=false and would otherwise be dialable).
+  if (lead.sms_opt_out) {
+    return { allowed: false, reason: 'sms_opt_out' }
+  }
+
   // Consent check. TCPA requires prior express consent for autodialed calls, and
   // SMS consent is NOT a substitute for VOICE-autodial consent. Strict by default
   // (Phase 1.4): require explicit voice_consent. The legacy SMS fallback is only

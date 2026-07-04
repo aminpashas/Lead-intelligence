@@ -111,16 +111,21 @@ export async function POST(request: NextRequest) {
   // Optional shared secret: if the connector has a `webhookToken` configured,
   // require it (via ?token= or X-Webhook-Token) so the company_id alone can't be
   // spoofed. Configure the token into the CallRail webhook URL when setting it up.
+  // Fail closed: the body-supplied company_id is not a secret, so a matching
+  // webhookToken is REQUIRED to authenticate the sender. Without it, anyone who
+  // knows/guesses a company_id could POST forged call_completed events to
+  // fabricate leads or overwrite attribution. Configure the token into the
+  // CallRail webhook URL (?token=…) when setting up the connector.
   const matchedCreds = decryptCredentials(matchedConfig.credentials as Record<string, unknown>) as { webhookToken?: string }
-  if (matchedCreds.webhookToken) {
-    const provided = new URL(request.url).searchParams.get('token')
-      || request.headers.get('x-webhook-token')
-      || ''
-    if (!provided || !safeEqual(provided, matchedCreds.webhookToken)) {
-      return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401 })
-    }
-  } else {
-    console.warn(`[webhook/callrail] org ${matchedConfig.organization_id} has no webhookToken configured — relying on company_id match only`)
+  if (!matchedCreds.webhookToken) {
+    console.error(`[webhook/callrail] org ${matchedConfig.organization_id} has no webhookToken configured — rejecting (set a token on the CallRail connector to enable)`)
+    return NextResponse.json({ error: 'Webhook authentication not configured' }, { status: 401 })
+  }
+  const provided = new URL(request.url).searchParams.get('token')
+    || request.headers.get('x-webhook-token')
+    || ''
+  if (!provided || !safeEqual(provided, matchedCreds.webhookToken)) {
+    return NextResponse.json({ error: 'Invalid webhook token' }, { status: 401 })
   }
 
   const orgId = matchedConfig.organization_id

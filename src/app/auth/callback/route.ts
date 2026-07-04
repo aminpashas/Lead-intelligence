@@ -18,8 +18,13 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error) {
-      // If an explicit `next` param was provided, honour it
-      if (next) {
+      // If an explicit `next` param was provided, honour it — but ONLY if it is a
+      // local path. Without this, `next=//evil.com` or `next=/\evil.com` produces
+      // an open redirect off-site after a successful login (a phishing / token-relay
+      // vector). Must start with a single "/" and not "//" or "/\". A hostile value
+      // is ignored and we fall through to the safe role-based redirect below.
+      const isLocalPath = typeof next === 'string' && /^\/(?![/\\])/.test(next)
+      if (isLocalPath) {
         return NextResponse.redirect(`${origin}${next}`)
       }
 

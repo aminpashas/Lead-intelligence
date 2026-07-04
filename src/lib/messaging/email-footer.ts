@@ -29,9 +29,16 @@ export function generateUnsubscribeToken(leadId: string, orgId: string): string 
  * if the token is a legacy unsigned token (no '.'), for backward compatibility.
  */
 export function verifyUnsubscribeToken(token: string): boolean {
-  const dot = token.indexOf('.')
-  if (dot < 0) return true // legacy unsigned token — accepted (grandfathered)
   const secret = unsubSecret()
+  const dot = token.indexOf('.')
+  if (dot < 0) {
+    // Unsigned token. Only acceptable when NO secret is configured (dev). When a
+    // secret exists, an unsigned token is a forgery attempt (anyone could craft
+    // base64(leadId:orgId) to unsubscribe an arbitrary lead and wreck a
+    // competitor's deliverability) — reject it. Since WEBHOOK_SECRET is required
+    // in production, real unsubscribe links have been HMAC-signed all along.
+    return !secret
+  }
   if (!secret) return true
   const payload = token.slice(0, dot)
   const sig = token.slice(dot + 1)

@@ -36,15 +36,31 @@ export async function POST(request: NextRequest) {
   const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.publicForm, 'qualify')
   if (rlError) return rlError
 
-  // This is a public, browser-submitted form (no client secret possible), so the
-  // primary abuse control is the rate limiter above. As optional defense-in-depth,
-  // when QUALIFY_ALLOWED_ORIGINS is configured we reject requests from other
-  // origins. Unset → allow all (default, non-breaking).
+  // This is a public, browser-submitted form (no client secret possible), so a
+  // shared HMAC like /api/webhooks/form is not an option — the token would sit in
+  // the page source. The abuse controls that DO apply here:
+  //   1. the per-IP rate limiter above,
+  //   2. an optional Origin/Referer allowlist (QUALIFY_ALLOWED_ORIGINS) that
+  //      blocks cross-site browser submits,
+  //   3. a per-org 24h insertion cap (below) that bounds a distributed / IP-
+  //      rotating flood, and
+  //   4. the invariant that THIS ROUTE SETS NO CONSENT FLAGS — an injected lead
+  //      cannot trigger SMS/email/voice (all downstream sends are consent-gated).
+  //      Do not add sms_consent/email_consent writes here without adding a real
+  //      anti-automation control (e.g. Cloudflare Turnstile).
   const allowedOrigins = process.env.QUALIFY_ALLOWED_ORIGINS
   if (allowedOrigins) {
-    const origin = request.headers.get('origin')
     const allow = allowedOrigins.split(',').map((o) => o.trim()).filter(Boolean)
+    // Prefer Origin; fall back to the Referer's origin (some embed contexts strip
+    // Origin on same-site navigations but still send Referer).
+    const origin = request.headers.get('origin')
+      || (() => { try { return new URL(request.headers.get('referer') || '').origin } catch { return null } })()
     if (origin && !allow.includes(origin)) {
+      return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
+    }
+    // A browser that sends neither Origin nor Referer while an allowlist is
+    // configured is treated as disallowed (fail-closed once the operator opts in).
+    if (!origin) {
       return NextResponse.json({ error: 'Origin not allowed' }, { status: 403 })
     }
   }
@@ -54,6 +70,29 @@ export async function POST(request: NextRequest) {
   // Validate organization exists (UUID format + DB lookup)
   const orgResult = await validateOrgId(new URL(request.url).searchParams.get('org'))
   if (orgResult instanceof NextResponse) return orgResult
+
+  // Per-org 24h insertion cap — bounds a distributed flood that slips past the
+  // per-IP limiter. Generous by default so real landing-page traffic is never
+  // blocked; tune via QUALIFY_ORG_DAILY_CAP. Fail-open on count error (never drop
+  // a real lead because the guard query hiccuped).
+  const dailyCap = Number(process.env.QUALIFY_ORG_DAILY_CAP ?? 1000)
+  if (Number.isFinite(dailyCap) && dailyCap > 0) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const guard = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+    const { count } = await guard
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgResult.orgId)
+      .eq('source_type', 'landing_page')
+      .gte('created_at', since)
+    if (typeof count === 'number' && count >= dailyCap) {
+      console.warn('[qualify] org daily cap reached', { org: orgResult.orgId, count, dailyCap })
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    }
+  }
 
   const parsed = qualifySchema.safeParse(body)
   if (!parsed.success) {
