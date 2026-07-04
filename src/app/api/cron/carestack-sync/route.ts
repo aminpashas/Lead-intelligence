@@ -20,6 +20,8 @@ import { withCron } from '@/lib/cron/with-cron'
 import { getCareStackConfig } from '@/lib/ehr/carestack/client'
 import { syncPatients, syncTreatmentProcedures, syncInvoices } from '@/lib/ehr/carestack/sync'
 import { syncCareStackBusySlots } from '@/lib/ehr/carestack/busy-sync'
+import { rollupLeadOutcomes } from '@/lib/ehr/carestack/rollup'
+import { rematchUnlinkedPatients } from '@/lib/ehr/carestack/rematch'
 
 export const POST = withCron('carestack-sync', async ({ supabase }) => {
   // All orgs with a CareStack connector configured AND enabled.
@@ -69,6 +71,32 @@ export const POST = withCron('carestack-sync', async ({ supabase }) => {
 
     // 4) Busy slots — mirror PMS occupancy so booking availability stays accurate.
     runs.push(await syncCareStackBusySlots(supabase, org.organization_id, config))
+
+    // 5) Re-match sweep — link already-synced patients back to leads (most
+    //    synced before their lead was hashed, so lead_id sits null). Must run
+    //    before the rollup so newly-linked patients get their $ rolled up.
+    const rematch = await rematchUnlinkedPatients(supabase, org.organization_id)
+    runs.push({
+      resource: rematch.resource,
+      fetched: rematch.patients_scanned,
+      upserted: rematch.newly_matched,
+      events_emitted: 0,
+      status: rematch.status,
+      error: rematch.error,
+    })
+
+    // 6) Roll accepted/completed procedure $ up onto the matched leads so
+    //    dashboards (goals/actuals) and Google/Meta offline conversions read a
+    //    real treatment_value / actual_revenue instead of null.
+    const rollup = await rollupLeadOutcomes(supabase, org.organization_id)
+    runs.push({
+      resource: rollup.resource,
+      fetched: rollup.leads_examined,
+      upserted: rollup.leads_updated,
+      events_emitted: 0,
+      status: rollup.status,
+      error: rollup.error,
+    })
 
     results.push({ organization_id: org.organization_id, runs })
   }
