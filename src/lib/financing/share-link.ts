@@ -67,7 +67,10 @@ export async function getOrCreateFinancingShareLink(
       status: 'pending',
       requested_amount: params.requestedAmount ?? null,
       share_token: shareToken,
-      consent_given_at: null, // applicant hasn't consented yet — just link creation
+      // NOTE: `consent_given_at` is NOT NULL with a DB default of now(). Do NOT
+      // pass it here — an explicit null overrides the default and fails the
+      // insert, silently dropping the co-signer link. Real consent is recorded
+      // (overwriting this) when the applicant submits in POST /api/financing/apply.
       expires_at: new Date(Date.now() + (params.expiresInMs ?? DEFAULT_EXPIRY_MS)).toISOString(),
       waterfall_config: { lenders: [] },
       applicant_data_encrypted: null,

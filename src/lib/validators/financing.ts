@@ -47,10 +47,31 @@ export const financingApplicationSchema = z.object({
 export type FinancingApplicationInput = z.infer<typeof financingApplicationSchema>
 
 // ── Public Form Schema (via share token — no lead_id required) ──
+//
+// The public form supports a "substitute applicant": a family member or friend
+// applying on the patient's behalf. When applicant_type is 'on_behalf', the
+// applicant fields above describe the substitute (the borrower being credit
+// checked) and applicant_relationship is required.
 
-export const publicFinancingApplicationSchema = financingApplicationSchema.omit({
-  lead_id: true,
-})
+export const applicantRelationshipEnum = z.enum([
+  'spouse',
+  'parent',
+  'adult_child',
+  'other_family',
+  'friend',
+  'other',
+])
+
+export const publicFinancingApplicationSchema = financingApplicationSchema
+  .omit({ lead_id: true })
+  .extend({
+    applicant_type: z.enum(['self', 'on_behalf']).default('self'),
+    applicant_relationship: applicantRelationshipEnum.optional(),
+  })
+  .refine(
+    (d) => d.applicant_type !== 'on_behalf' || !!d.applicant_relationship,
+    { message: 'Relationship to the patient is required when applying on their behalf', path: ['applicant_relationship'] }
+  )
 
 export type PublicFinancingApplicationInput = z.infer<typeof publicFinancingApplicationSchema>
 
