@@ -39,10 +39,17 @@ function arg(flag: string): string | undefined {
 
 async function main() {
   const orgId = arg('--org') || DEFAULT_ORG
-  const maxChunks = Number(arg('--max-chunks') || '1')
   const chunk = Number(arg('--chunk') || '150')
   const reset = process.argv.includes('--reset')
   const dryRun = process.argv.includes('--dry-run')
+  // --recent <N>: newest-first priority pass, stop after N conversations
+  // (hydrates active leads first). Omit for the oldest-first full sweep.
+  const recentTotal = arg('--recent') ? Number(arg('--recent')) : undefined
+  const order: 'asc' | 'desc' = recentTotal != null ? 'desc' : 'asc'
+  const stateKey = order === 'desc' ? 'conversation_backfill_recent' : 'conversation_backfill'
+  // Default enough chunks to reach the --recent cap; the cap stops the loop early.
+  const defaultChunks = recentTotal != null ? Math.ceil(recentTotal / chunk) + 1 : 1
+  const maxChunks = Number(arg('--max-chunks') || String(defaultChunks))
 
   const supabase = createClient(
     req('NEXT_PUBLIC_SUPABASE_URL'),
@@ -64,7 +71,7 @@ async function main() {
       .eq('connector_type', 'ghl')
       .maybeSingle()
     const settings = (data?.settings || {}) as Record<string, unknown>
-    delete settings.conversation_backfill
+    delete settings[stateKey]
     await supabase
       .from('connector_configs')
       .update({ settings })
@@ -79,9 +86,16 @@ async function main() {
   let totalLeads = 0
 
   if (dryRun) console.log('DRY RUN — reading live GHL, writing nothing.')
+  if (recentTotal != null) console.log(`RECENT-FIRST pass — newest ${recentTotal} conversations (active leads first).`)
   for (let i = 0; i < maxChunks; i++) {
     console.log(`\n▶ chunk ${i + 1}/${maxChunks}`)
-    const r = await backfillGhlConversations(supabase, orgId, config, { maxConversations: chunk, log, dryRun })
+    const r = await backfillGhlConversations(supabase, orgId, config, {
+      maxConversations: chunk,
+      log,
+      dryRun,
+      order,
+      maxTotal: recentTotal,
+    })
     totalInserted += r.messagesInserted
     totalCalls += r.callsLogged
     totalLeads += r.leadsAffected

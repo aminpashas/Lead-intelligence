@@ -31,7 +31,15 @@ import {
 } from './conversations'
 import { persistGhlMessage, type IngestLead } from './ingest-message'
 
-const SETTINGS_KEY = 'conversation_backfill'
+/**
+ * Two independent passes keep their own checkpoint so they never collide:
+ *   • full  (asc, oldest-first)  — the cron's complete historical sweep
+ *   • recent (desc, newest-first) — a bounded priority pass that hydrates active
+ *     leads first. Idempotency (external_id dedup) means the two overlapping is
+ *     harmless — whichever reaches a message first wins, the other skips it.
+ */
+const SETTINGS_KEY_FULL = 'conversation_backfill'
+const SETTINGS_KEY_RECENT = 'conversation_backfill_recent'
 /** Hard guards against runaway paging. */
 const MAX_MESSAGE_PAGES = 200
 const MAX_CONVERSATION_PAGES = 500
@@ -55,7 +63,11 @@ export type BackfillChunkResult = {
   moreRemain: boolean
 }
 
-async function readState(supabase: SupabaseClient, organizationId: string): Promise<BackfillState> {
+async function readState(
+  supabase: SupabaseClient,
+  organizationId: string,
+  stateKey: string,
+): Promise<BackfillState> {
   const { data } = await supabase
     .from('connector_configs')
     .select('settings')
@@ -63,12 +75,13 @@ async function readState(supabase: SupabaseClient, organizationId: string): Prom
     .eq('connector_type', 'ghl')
     .maybeSingle()
   const settings = (data?.settings || {}) as Record<string, unknown>
-  return (settings[SETTINGS_KEY] as BackfillState) || {}
+  return (settings[stateKey] as BackfillState) || {}
 }
 
 async function writeState(
   supabase: SupabaseClient,
   organizationId: string,
+  stateKey: string,
   state: BackfillState,
 ): Promise<void> {
   const { data } = await supabase
@@ -80,7 +93,7 @@ async function writeState(
   const settings = (data?.settings || {}) as Record<string, unknown>
   await supabase
     .from('connector_configs')
-    .update({ settings: { ...settings, [SETTINGS_KEY]: state } })
+    .update({ settings: { ...settings, [stateKey]: state } })
     .eq('organization_id', organizationId)
     .eq('connector_type', 'ghl')
 }
@@ -103,16 +116,26 @@ export async function backfillGhlConversations(
   supabase: SupabaseClient,
   organizationId: string,
   config: GhlConfig,
-  opts: { maxConversations?: number; log?: (msg: string) => void; dryRun?: boolean } = {},
+  opts: {
+    maxConversations?: number
+    log?: (msg: string) => void
+    dryRun?: boolean
+    /** 'asc' = oldest-first full sweep (default); 'desc' = newest-first priority pass. */
+    order?: 'asc' | 'desc'
+    /** For the desc pass: stop (mark done) once this many conversations are processed. */
+    maxTotal?: number
+  } = {},
 ): Promise<BackfillChunkResult> {
   const maxConversations = opts.maxConversations ?? 200
   const log = opts.log ?? (() => {})
   const dryRun = opts.dryRun ?? false
+  const order = opts.order ?? 'asc'
+  const stateKey = order === 'desc' ? SETTINGS_KEY_RECENT : SETTINGS_KEY_FULL
 
   // A dry run reads live GHL and reports what WOULD be imported without writing
   // anything (no messages, no consent changes, no cursor) — the safe way to
   // verify the live API shapes before committing patient data to prod.
-  const state = dryRun ? {} : await readState(supabase, organizationId)
+  const state = dryRun ? {} : await readState(supabase, organizationId, stateKey)
   if (state.done) {
     return {
       status: 'skipped',
@@ -139,7 +162,8 @@ export async function backfillGhlConversations(
   let moreRemain = false
 
   outer: for (let cp = 0; cp < MAX_CONVERSATION_PAGES; cp++) {
-    const page = await searchConversations(config, { startAfterDate: cursor, limit: 100 })
+    const pageStart = cursor
+    const page = await searchConversations(config, { startAfterDate: cursor, limit: 100, sort: order })
     if (page.conversations.length === 0) {
       cursor = undefined // exhausted
       break
@@ -182,25 +206,26 @@ export async function backfillGhlConversations(
       }
 
       processed += 1
-      const nextCursor = conv.lastMessageDate != null ? String(conv.lastMessageDate) : cursor
-      // No-progress guard: identical cursor on a full page would loop forever.
-      if (nextCursor === cursor && page.conversations.length >= 100) {
-        log('cursor did not advance; stopping to avoid a loop')
-        moreRemain = true
-        break outer
-      }
-      cursor = nextCursor
-
+      // Per-conversation cursor so a mid-page maxConversations stop resumes exactly.
+      if (conv.lastMessageDate != null) cursor = String(conv.lastMessageDate)
       if (processed >= maxConversations) {
         moreRemain = true
         break outer
       }
     }
 
+    // Page-level no-progress guard. Adjacent conversations sharing a
+    // lastMessageDate is normal (second-resolution timestamps) and must NOT stop
+    // paging — only a FULL page that fails to advance the cursor past the date we
+    // requested would loop forever.
     if (!page.nextStartAfterDate) {
-      cursor = undefined // last page consumed
+      cursor = undefined // short page = last page consumed
       break
     }
+    if (page.nextStartAfterDate === pageStart) {
+      throw new Error(`GHL conversation cursor stuck at ${pageStart} — pagination not advancing`)
+    }
+    cursor = page.nextStartAfterDate
   }
 
   if (dryRun) {
@@ -235,7 +260,12 @@ export async function backfillGhlConversations(
   totals.messages += inserted
   totals.calls += calls
   totals.skipped += skipped
-  await writeState(supabase, organizationId, {
+
+  // The recent (desc) priority pass stops once it has hydrated enough of the
+  // newest conversations — the full (asc) sweep owns completeness.
+  const reachedCap = order === 'desc' && opts.maxTotal != null && totals.conversations >= opts.maxTotal
+  if (reachedCap) moreRemain = false
+  await writeState(supabase, organizationId, stateKey, {
     cursor,
     done: !moreRemain,
     totals,
@@ -243,7 +273,7 @@ export async function backfillGhlConversations(
 
   log(
     `chunk done: ${processed} conversations, ${inserted} messages, ${calls} calls, ` +
-      `${affectedLeads.size} leads (moreRemain=${moreRemain})`,
+      `${affectedLeads.size} leads (moreRemain=${moreRemain}${reachedCap ? ', hit maxTotal' : ''})`,
   )
 
   return {
