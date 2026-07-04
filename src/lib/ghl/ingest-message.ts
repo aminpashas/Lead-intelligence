@@ -49,6 +49,35 @@ function isConversational(n: NormalizedGhlMessage): boolean {
   return n.channel === 'sms' || n.channel === 'email' || n.channel === 'web_chat' || n.channel === 'whatsapp'
 }
 
+/** Seconds → "m:ss" (e.g. 8 → "0:08", 252 → "4:12"). */
+function formatDuration(sec: number): string {
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const CALL_STATE_LABEL: Record<string, string> = {
+  answered: 'answered',
+  voicemail: 'voicemail',
+  no_answer: 'no answer',
+  busy: 'busy',
+  failed: 'failed',
+}
+
+/**
+ * Human, outcome-aware call title for the activity feed / pre-call timeline —
+ * e.g. "Outbound call · voicemail · 0:08 (GoHighLevel)". State/duration are
+ * omitted when GHL didn't provide them, so it degrades to the old label. Pure.
+ */
+export function formatCallTitle(n: NormalizedGhlMessage): string {
+  const dir = n.direction === 'outbound' ? 'Outbound' : 'Inbound'
+  const parts = [`${dir} call`]
+  const label = n.call ? CALL_STATE_LABEL[n.call.state] : undefined
+  if (label) parts.push(label)
+  if (n.call?.durationSec) parts.push(formatDuration(n.call.durationSec))
+  return `${parts.join(' · ')} (GoHighLevel)`
+}
+
 /** Find-or-create the active conversation for a lead on a channel. */
 async function resolveConversation(
   supabase: SupabaseClient,
@@ -163,10 +192,20 @@ export async function persistGhlMessage(
       organization_id: organizationId,
       lead_id: lead.id,
       activity_type: 'call_logged',
-      title: `${n.direction === 'outbound' ? 'Outbound' : 'Inbound'} call (GoHighLevel)`,
+      title: formatCallTitle(n),
       description: n.body || null,
       created_at: n.createdAt,
-      metadata: { source: 'ghl', ghl_message_id: ghlId, direction: n.direction },
+      metadata: {
+        source: 'ghl',
+        ghl_message_id: ghlId,
+        direction: n.direction,
+        // Enriched call detail (null when GHL omitted it) — powers the pre-call
+        // timeline and gates Tier-2 summary generation (answered + long only).
+        call_state: n.call?.state ?? 'unknown',
+        duration_seconds: n.call?.durationSec ?? null,
+        recording_url: n.call?.recordingUrl ?? null,
+        raw_call: n.call?.raw ?? null,
+      },
     })
     return { status: 'call_logged' }
   }

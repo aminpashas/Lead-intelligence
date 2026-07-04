@@ -5,8 +5,11 @@ import {
   isOptOutMessage,
   isOptInMessage,
   normalizeGhlMessage,
+  extractGhlCall,
   type GhlMessage,
 } from '@/lib/ghl/conversations'
+import { formatCallTitle } from '@/lib/ghl/ingest-message'
+import { parseCallSummary } from '@/lib/voice/call-summary'
 
 describe('mapGhlChannel', () => {
   it('maps SMS/Email across webhook + API spellings', () => {
@@ -88,5 +91,65 @@ describe('normalizeGhlMessage', () => {
     expect(normalizeGhlMessage({ id: 'e1', messageType: 'TYPE_SMS', body: '   ' })).toBeNull()
     expect(normalizeGhlMessage({ id: 'f1', messageType: 'TYPE_FACEBOOK', body: 'hey' })).toBeNull()
     expect(normalizeGhlMessage({ id: '', messageType: 'TYPE_SMS', body: 'x' })).toBeNull()
+  })
+})
+
+describe('extractGhlCall', () => {
+  it('reads duration + state + recording from meta.call', () => {
+    const c = extractGhlCall({
+      id: 'c1',
+      messageType: 'TYPE_CALL',
+      meta: { call: { duration: 252, status: 'completed', recordingUrl: 'https://x/r.mp3' } },
+    } as GhlMessage)
+    expect(c.durationSec).toBe(252)
+    expect(c.state).toBe('answered')
+    expect(c.recordingUrl).toBe('https://x/r.mp3')
+  })
+
+  it('classifies voicemail / no-answer / busy defensively across key spellings', () => {
+    expect(extractGhlCall({ id: 'a', meta: { callStatus: 'voicemail', callDuration: 8 } } as GhlMessage).state).toBe('voicemail')
+    expect(extractGhlCall({ id: 'b', status: 'no-answer' } as GhlMessage).state).toBe('no_answer')
+    expect(extractGhlCall({ id: 'c', meta: { call: { status: 'busy' } } } as GhlMessage).state).toBe('busy')
+  })
+
+  it('finds a recording in attachments and defaults unknown state / null duration', () => {
+    const c = extractGhlCall({ id: 'd', attachments: ['https://cdn/rec.wav?sig=1'] } as unknown as GhlMessage)
+    expect(c.recordingUrl).toBe('https://cdn/rec.wav?sig=1')
+    expect(c.state).toBe('unknown')
+    expect(c.durationSec).toBeNull()
+  })
+
+  it('is attached to normalized call records only', () => {
+    const call = normalizeGhlMessage({ id: 'k', messageType: 'TYPE_CALL', meta: { call: { duration: 30, status: 'completed' } } } as GhlMessage)
+    expect(call?.call?.durationSec).toBe(30)
+    const sms = normalizeGhlMessage({ id: 's', messageType: 'TYPE_SMS', body: 'hi' })
+    expect(sms?.call).toBeUndefined()
+  })
+})
+
+describe('formatCallTitle', () => {
+  it('renders outcome + duration when present', () => {
+    const n = normalizeGhlMessage({ id: 'v', messageType: 'TYPE_CALL', direction: 'outbound', meta: { call: { duration: 8, status: 'voicemail' } } } as GhlMessage)!
+    expect(formatCallTitle(n)).toBe('Outbound call · voicemail · 0:08 (GoHighLevel)')
+  })
+
+  it('degrades gracefully when GHL gave no call detail', () => {
+    const n = normalizeGhlMessage({ id: 'w', messageType: 'TYPE_CALL', direction: 'inbound' } as GhlMessage)!
+    expect(formatCallTitle(n)).toBe('Inbound call (GoHighLevel)')
+  })
+})
+
+describe('parseCallSummary', () => {
+  it('extracts a JSON object even with surrounding prose', () => {
+    const s = parseCallSummary('Here you go:\n{"headline":"Wants pricing","topics":["cost"],"next_step":"Send quote","sentiment":"positive"}')
+    expect(s?.headline).toBe('Wants pricing')
+    expect(s?.topics).toEqual(['cost'])
+    expect(s?.sentiment).toBe('positive')
+    expect(s?.objections).toEqual([])
+  })
+
+  it('returns null on unparseable / headline-less output', () => {
+    expect(parseCallSummary('no json here')).toBeNull()
+    expect(parseCallSummary('{"topics":[]}')).toBeNull()
   })
 })

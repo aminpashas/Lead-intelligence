@@ -50,6 +50,18 @@ export type GhlMessage = {
 /** LI-normalized channel for a GHL message, or a routing marker. */
 export type NormalizedChannel = 'sms' | 'email' | 'web_chat' | 'whatsapp' | 'call' | null
 
+/** Call-connection state, derived defensively from GHL's per-revision call fields. */
+export type GhlCallState = 'answered' | 'no_answer' | 'voicemail' | 'busy' | 'failed' | 'unknown'
+
+/** Enriched call detail carried on a normalized call record (null fields when GHL omits them). */
+export type NormalizedGhlCall = {
+  durationSec: number | null
+  state: GhlCallState
+  recordingUrl: string | null
+  /** Raw provider call payload, kept for audit + later re-parse once field names are confirmed. */
+  raw: Record<string, unknown> | null
+}
+
 /** The persist-ready shape both the webhook and backfill hand to the ingester. */
 export type NormalizedGhlMessage = {
   /** Namespaced idempotency key stored in messages.external_id. */
@@ -61,6 +73,8 @@ export type NormalizedGhlMessage = {
   createdAt: string
   /** True when this is a call/voicemail record (logged as an activity, not a message). */
   isCall: boolean
+  /** Populated only when isCall — duration/outcome/recording pulled from GHL's meta. */
+  call?: NormalizedGhlCall
 }
 
 /** GHL conversations need their own Version header; opportunities use another. */
@@ -178,6 +192,42 @@ export function isOptInMessage(body: string | undefined): boolean {
 }
 
 /**
+ * Derive call detail (duration / connection state / recording) from a GHL call
+ * message. GHL's `TYPE_CALL` payload shape drifts across API revisions, so every
+ * field is read defensively from several candidate keys and falls back to null —
+ * confirm the real keys with scripts/ghl-probe-call-payload.ts and tighten here.
+ * Pure + exported so it's unit-testable without a live location.
+ */
+export function extractGhlCall(msg: GhlMessage): NormalizedGhlCall {
+  const meta = (msg.meta ?? {}) as Record<string, unknown>
+  const call = ((meta.call as Record<string, unknown>) ?? meta) as Record<string, unknown>
+  const num = (v: unknown): number | null => {
+    const n = Number(v)
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+  const durationSec =
+    num(call.duration) ?? num(call.callDuration) ?? num(meta.duration) ?? num(meta.callDuration)
+  const rawState = String(call.status ?? call.callStatus ?? meta.callStatus ?? msg.status ?? '').toLowerCase()
+  const state: GhlCallState =
+    /voicemail|vm|voice[-_ ]?mail/.test(rawState) ? 'voicemail'
+    : /no[-_ ]?answer|missed|noanswer|unanswered/.test(rawState) ? 'no_answer'
+    : /busy/.test(rawState) ? 'busy'
+    : /fail|error|canceled|cancelled/.test(rawState) ? 'failed'
+    : /answer|complet|connect|in[-_ ]?progress/.test(rawState) ? 'answered'
+    : 'unknown'
+  const attachments = (msg as { attachments?: unknown }).attachments
+  const fromAttachments = Array.isArray(attachments)
+    ? (attachments.map(String).find((a) => /\.(mp3|wav|m4a|ogg)(\?|$)/i.test(a)) ?? null)
+    : null
+  const recordingUrl =
+    (typeof call.recordingUrl === 'string' && call.recordingUrl) ||
+    (typeof meta.recordingUrl === 'string' && meta.recordingUrl) ||
+    fromAttachments ||
+    null
+  return { durationSec, state, recordingUrl: recordingUrl || null, raw: (msg.meta as Record<string, unknown>) ?? null }
+}
+
+/**
  * Convert a raw GHL message into the persist-ready shape, or null when it should
  * be skipped (unsupported channel, or empty non-call body). Pure.
  */
@@ -200,5 +250,6 @@ export function normalizeGhlMessage(msg: GhlMessage): NormalizedGhlMessage | nul
     subject: msg.subject?.trim() || null,
     createdAt: msg.dateAdded || new Date().toISOString(),
     isCall,
+    ...(isCall ? { call: extractGhlCall(msg) } : {}),
   }
 }
