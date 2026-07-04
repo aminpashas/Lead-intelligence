@@ -22,10 +22,12 @@ import {
   PhoneOutgoing,
   FolderHeart,
   FileSignature,
+  ChevronsUpDown,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { AccountMenu } from './account-menu'
 
 type NavItem = {
   name: string
@@ -180,20 +182,26 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             onNavigate={onNavigate}
           />
         )}
-        <div className="flex items-center gap-2 px-1">
-          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+        <AccountMenu
+          align="start"
+          side="top"
+          onNavigate={onNavigate}
+          triggerClassName="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-secondary/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
             <Building2 className="h-4 w-4 text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium truncate">{userProfile?.full_name || 'Practice Dashboard'}</p>
+          </span>
+          <span className="flex-1 min-w-0 flex flex-col items-start">
+            <span className="text-xs font-medium truncate max-w-full">{userProfile?.full_name || 'Practice Dashboard'}</span>
             <Badge
               variant="outline"
               className={cn('text-[10px] px-1.5 py-0 h-4 font-medium', ROLE_COLORS[role])}
             >
               {ROLE_LABELS[role] || role}
             </Badge>
-          </div>
-        </div>
+          </span>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+        </AccountMenu>
       </div>
     </>
   )
