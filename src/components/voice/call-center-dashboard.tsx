@@ -19,13 +19,17 @@ import {
 import {
   Phone, PhoneCall, PhoneOff, PhoneMissed,
   Radio, Loader2, Play, Pause, Plus,
-  Clock, Users, Calendar, TrendingUp,
+  Clock, Calendar, TrendingUp,
   Mic, FileText, AlertCircle, CheckCircle,
   VolumeX, BarChart3, Voicemail, Search,
   RefreshCw, Sparkles, XCircle, Ban, ArrowUpRight,
+  ChevronDown, ChevronRight, Bot, User, ArrowRight,
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import type { Lead } from '@/types/database'
+import { LeadActions } from '@/components/crm/lead-actions'
+import { toTranscriptLines } from '@/lib/voice/transcript'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -40,17 +44,14 @@ type VoiceCallRow = {
   duration_seconds: number
   outcome: string | null
   transcript_summary: string | null
+  transcript: unknown
+  recording_url: string | null
   agent_type: string | null
   voice_campaign_id: string | null
   created_at: string
-  lead?: {
-    id: string
-    first_name: string
-    last_name: string | null
-    phone: string | null
-    ai_qualification: string | null
-    status: string
-  }
+  // Full lead so the inline action bar can gate Call/SMS/Email on phone,
+  // email and the per-channel opt-out flags.
+  lead?: Lead | null
 }
 
 type VoiceCampaignRow = {
@@ -132,7 +133,7 @@ const campaignStatusColors: Record<string, string> = {
 export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats }: Props) {
   const [calls] = useState(recentCalls)
   const [search, setSearch] = useState('')
-  const [selectedCall, setSelectedCall] = useState<VoiceCallRow | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [campaignAction, setCampaignAction] = useState<string | null>(null)
   const router = useRouter()
 
@@ -252,80 +253,14 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
             </div>
           ) : (
             <div className="aurea-card divide-y divide-aurea-border overflow-hidden">
-              {filteredCalls.map(call => {
-                const statusCfg = callStatusConfig[call.status] || callStatusConfig.completed
-                const StatusIcon = statusCfg.icon
-                const outcomeCfg = call.outcome ? outcomeConfig[call.outcome] : null
-
-                return (
-                  <div
-                    key={call.id}
-                    className="group px-5 py-3.5 flex items-center justify-between hover:bg-aurea-surface-2 transition-colors cursor-pointer"
-                    onClick={() => setSelectedCall(call)}
-                  >
-                    <div className="flex items-center gap-3">
-                      {/* Direction indicator */}
-                      <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${
-                        call.status === 'in_progress'
-                          ? 'bg-aurea-primary/10'
-                          : 'bg-aurea-surface-2'
-                      }`}>
-                        {call.status === 'in_progress' ? (
-                          <Radio className="h-[17px] w-[17px] text-aurea-primary animate-pulse" strokeWidth={1.75} />
-                        ) : call.direction === 'inbound' ? (
-                          <PhoneCall className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
-                        ) : (
-                          <Phone className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
-                        )}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-sm text-aurea-ink">
-                            {call.lead
-                              ? `${call.lead.first_name} ${call.lead.last_name || ''}`.trim()
-                              : call.direction === 'inbound' ? maskPhone(call.from_number) : maskPhone(call.to_number)}
-                          </p>
-                          <Badge className={statusCfg.color + ' text-[11px] px-1.5 py-0'}>
-                            <StatusIcon className="h-3 w-3 mr-0.5" />
-                            {statusCfg.label}
-                          </Badge>
-                          {outcomeCfg && (
-                            <Badge className={outcomeCfg.color + ' inline-flex items-center gap-1 text-[11px] px-1.5 py-0'}>
-                              <outcomeCfg.icon className="h-3 w-3" />
-                              {outcomeCfg.label}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-aurea-ink-3 mt-0.5">
-                          <span>{call.direction === 'inbound' ? '← Inbound' : '→ Outbound'}</span>
-                          <span>·</span>
-                          <span className="flex items-center gap-1 font-mono tabular-nums">
-                            <Clock className="h-3 w-3" strokeWidth={1.75} />
-                            {formatDuration(call.duration_seconds)}
-                          </span>
-                          {call.agent_type && (
-                            <>
-                              <span>·</span>
-                              <span className="capitalize">{call.agent_type} Agent</span>
-                            </>
-                          )}
-                          <span>·</span>
-                          <span>{formatDate(call.created_at)}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Transcript indicator */}
-                    {call.transcript_summary && (
-                      <div className="hidden md:flex items-center gap-1.5 text-xs text-aurea-ink-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />
-                        View Transcript
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              {filteredCalls.map(call => (
+                <CallRow
+                  key={call.id}
+                  call={call}
+                  expanded={expandedId === call.id}
+                  onToggle={() => setExpandedId(id => (id === call.id ? null : call.id))}
+                />
+              ))}
             </div>
           )}
         </TabsContent>
@@ -449,14 +384,198 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
           )}
         </TabsContent>
       </Tabs>
+    </div>
+  )
+}
 
-      {/* ── Call Detail Modal ─────────────────────────────── */}
-      {selectedCall && (
-        <CallDetailModal
-          call={selectedCall}
-          onClose={() => setSelectedCall(null)}
-        />
+// ═══════════════════════════════════════════════════════════════
+// CALL ROW — collapsed summary; expands in place to the full
+// transcript, recording and a Call / SMS / Email / DND action bar.
+// ═══════════════════════════════════════════════════════════════
+
+function CallRow({
+  call,
+  expanded,
+  onToggle,
+}: {
+  call: VoiceCallRow
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const statusCfg = callStatusConfig[call.status] || callStatusConfig.completed
+  const StatusIcon = statusCfg.icon
+  const outcomeCfg = call.outcome ? outcomeConfig[call.outcome] : null
+  const lines = toTranscriptLines(call)
+  const live = call.status === 'in_progress'
+
+  return (
+    <div className={live ? 'bg-aurea-primary/[0.03]' : undefined}>
+      {/* Summary row — click anywhere to expand/collapse */}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="group w-full px-5 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-aurea-surface-2 transition-colors"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Direction indicator */}
+          <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${
+            live ? 'bg-aurea-primary/10' : 'bg-aurea-surface-2'
+          }`}>
+            {live ? (
+              <Radio className="h-[17px] w-[17px] text-aurea-primary animate-pulse" strokeWidth={1.75} />
+            ) : call.direction === 'inbound' ? (
+              <PhoneCall className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+            ) : (
+              <Phone className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+            )}
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-medium text-sm text-aurea-ink truncate">
+                {call.lead
+                  ? `${call.lead.first_name} ${call.lead.last_name || ''}`.trim()
+                  : call.direction === 'inbound' ? maskPhone(call.from_number) : maskPhone(call.to_number)}
+              </p>
+              <Badge className={statusCfg.color + ' text-[11px] px-1.5 py-0'}>
+                <StatusIcon className="h-3 w-3 mr-0.5" />
+                {statusCfg.label}
+              </Badge>
+              {outcomeCfg && (
+                <Badge className={outcomeCfg.color + ' inline-flex items-center gap-1 text-[11px] px-1.5 py-0'}>
+                  <outcomeCfg.icon className="h-3 w-3" />
+                  {outcomeCfg.label}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-xs text-aurea-ink-3 mt-0.5">
+              <span>{call.direction === 'inbound' ? '← Inbound' : '→ Outbound'}</span>
+              <span>·</span>
+              <span className="flex items-center gap-1 font-mono tabular-nums">
+                <Clock className="h-3 w-3" strokeWidth={1.75} />
+                {formatDuration(call.duration_seconds)}
+              </span>
+              {call.agent_type && (
+                <>
+                  <span>·</span>
+                  <span className="capitalize">{call.agent_type} Agent</span>
+                </>
+              )}
+              <span>·</span>
+              <span>{formatDate(call.created_at)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 text-aurea-ink-3">
+          {(lines.length > 0 || call.transcript_summary) && (
+            <span className="hidden md:inline-flex items-center gap-1.5 text-xs">
+              <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Transcript
+            </span>
+          )}
+          {expanded
+            ? <ChevronDown className="h-4 w-4" strokeWidth={1.75} />
+            : <ChevronRight className="h-4 w-4" strokeWidth={1.75} />}
+        </div>
+      </button>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="px-5 pb-5 pt-1 space-y-4 bg-aurea-surface-2/40 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+          {/* Action bar — call / text / email the lead without leaving the log */}
+          {call.lead ? (
+            <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+              <LeadActions lead={call.lead} variant="compact" />
+              <a
+                href={`/leads?id=${call.lead.id}`}
+                className="inline-flex items-center gap-1 text-xs font-medium text-aurea-ink-3 hover:text-aurea-ink transition-colors"
+              >
+                View full lead <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </a>
+            </div>
+          ) : (
+            <p className="text-xs text-aurea-ink-3 pt-1">No linked lead — this number isn’t in your CRM yet.</p>
+          )}
+
+          {/* AI summary (TL;DR above the full transcript) */}
+          {call.transcript_summary && (
+            <div>
+              <p className="aurea-eyebrow mb-2 flex items-center gap-1">
+                <Sparkles className="h-3 w-3" strokeWidth={1.75} /> AI Summary
+              </p>
+              <p className="text-[13px] leading-relaxed text-aurea-ink-2 bg-aurea-surface rounded-lg border border-aurea-border p-3">
+                {call.transcript_summary}
+              </p>
+            </div>
+          )}
+
+          {/* Turn-by-turn transcript */}
+          <div>
+            <p className="aurea-eyebrow mb-2 flex items-center gap-1">
+              <FileText className="h-3 w-3" strokeWidth={1.75} /> Transcript
+            </p>
+            <CallTranscript lines={lines} agentType={call.agent_type} />
+          </div>
+
+          {/* Recording */}
+          {call.recording_url && (
+            <a
+              href={call.recording_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-aurea-border bg-aurea-surface px-3 py-1.5 text-xs font-medium text-aurea-ink-2 transition-colors hover:bg-aurea-surface-2"
+            >
+              <Play className="h-3 w-3" strokeWidth={1.75} /> Play recording
+            </a>
+          )}
+        </div>
       )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CALL TRANSCRIPT — chat-bubble rendering of role-tagged lines.
+// Agent turns hug the right in ink; caller turns sit left on canvas.
+// ═══════════════════════════════════════════════════════════════
+
+function CallTranscript({
+  lines,
+  agentType,
+}: {
+  lines: ReturnType<typeof toTranscriptLines>
+  agentType: string | null
+}) {
+  const agentName = agentType ? `${agentType[0].toUpperCase()}${agentType.slice(1)}` : 'AI'
+
+  if (lines.length === 0) {
+    return <p className="text-[12px] italic text-aurea-ink-3">No transcript captured for this call.</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {lines.map((l, i) => {
+        const isAgent = l.role === 'agent'
+        return (
+          <div key={i} className={`flex flex-col ${isAgent ? 'items-end' : 'items-start'}`}>
+            <div className="mb-0.5 flex items-center gap-1 px-1 text-[10px] text-aurea-ink-3">
+              {isAgent
+                ? <Bot className="h-2.5 w-2.5 text-aurea-primary" strokeWidth={1.75} />
+                : <User className="h-2.5 w-2.5" strokeWidth={1.75} />}
+              <span>{isAgent ? agentName : 'Caller'}</span>
+            </div>
+            <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-[13px] leading-[1.5] ${
+              isAgent
+                ? 'bg-aurea-ink text-aurea-canvas'
+                : 'border border-aurea-border bg-aurea-surface text-aurea-ink'
+            }`}>
+              <p className="whitespace-pre-wrap">{l.content}</p>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -507,105 +626,6 @@ function MiniStat({ label, value, highlight }: { label: string; value: number; h
       <p className={`aurea-display text-[20px] tabular-nums ${highlight ? 'text-aurea-primary' : 'text-aurea-ink'}`}>{value}</p>
       <p className="aurea-eyebrow mt-0.5" style={{ fontSize: '9px' }}>{label}</p>
     </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════
-// CALL DETAIL MODAL
-// ═══════════════════════════════════════════════════════════════
-
-function CallDetailModal({ call, onClose }: { call: VoiceCallRow; onClose: () => void }) {
-  const statusCfg = callStatusConfig[call.status] || callStatusConfig.completed
-  const outcomeCfg = call.outcome ? outcomeConfig[call.outcome] : null
-
-  return (
-    <Dialog open onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-aurea-ink">
-            <Phone className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
-            Call Details
-          </DialogTitle>
-          <DialogDescription className="text-aurea-ink-3">
-            {call.direction === 'inbound' ? 'Inbound' : 'Outbound'} call ·{' '}
-            {formatDate(call.created_at)}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          {/* Lead info */}
-          {call.lead && (
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-aurea-surface-2">
-              <div className="h-9 w-9 rounded-lg bg-aurea-primary/10 flex items-center justify-center shrink-0">
-                <Users className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
-              </div>
-              <div>
-                <p className="font-medium text-sm text-aurea-ink">
-                  {call.lead.first_name} {call.lead.last_name || ''}
-                </p>
-                <p className="text-xs text-aurea-ink-3 capitalize">
-                  {call.lead.status?.replace(/_/g, ' ')} · {call.lead.ai_qualification || 'unscored'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Status & Outcome */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge className={statusCfg.color}>{statusCfg.label}</Badge>
-            {outcomeCfg && (
-              <Badge className={outcomeCfg.color + ' inline-flex items-center gap-1'}>
-                <outcomeCfg.icon className="h-3.5 w-3.5" />
-                {outcomeCfg.label}
-              </Badge>
-            )}
-            {call.agent_type && (
-              <Badge variant="outline" className="capitalize text-aurea-ink-2">{call.agent_type} Agent</Badge>
-            )}
-          </div>
-
-          {/* Call metrics */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="text-center p-3 rounded-lg bg-aurea-surface-2">
-              <p className="aurea-eyebrow mb-1">Duration</p>
-              <p className="text-sm font-mono tabular-nums font-semibold text-aurea-ink">{formatDuration(call.duration_seconds)}</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-aurea-surface-2">
-              <p className="aurea-eyebrow mb-1">Direction</p>
-              <p className="text-sm font-semibold capitalize text-aurea-ink">{call.direction}</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-aurea-surface-2">
-              <p className="aurea-eyebrow mb-1">Number</p>
-              <p className="text-sm font-mono tabular-nums font-semibold text-aurea-ink">{call.direction === 'inbound' ? maskPhone(call.from_number) : maskPhone(call.to_number)}</p>
-            </div>
-          </div>
-
-          {/* Transcript summary */}
-          {call.transcript_summary && (
-            <div>
-              <p className="aurea-eyebrow mb-2 flex items-center gap-1">
-                <FileText className="h-3 w-3" strokeWidth={1.75} /> Call Summary
-              </p>
-              <p className="text-sm bg-aurea-surface-2 rounded-lg p-3 leading-relaxed text-aurea-ink-2">
-                {call.transcript_summary}
-              </p>
-            </div>
-          )}
-        </div>
-
-        <DialogFooter showCloseButton>
-          {call.lead && (
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
-              onClose()
-              window.location.href = `/leads?id=${call.lead!.id}`
-            }}>
-              <Users className="h-3.5 w-3.5" strokeWidth={1.75} />
-              View Lead
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 

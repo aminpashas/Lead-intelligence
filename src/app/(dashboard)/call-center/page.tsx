@@ -11,9 +11,11 @@ export default async function CallCenterPage() {
   if (!orgId) return null
 
   // Fetch recent voice calls
+  // Pull the full lead (not just name/status): the Call Center's inline action
+  // bar needs phone, email and the per-channel opt-out flags to gate Call/SMS/Email.
   const { data: recentCallRows } = await supabase
     .from('voice_calls')
-    .select('*, lead:leads(id, first_name, last_name, phone, ai_qualification, status)')
+    .select('*, lead:leads(*)')
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(50)

@@ -1,37 +1,23 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { useOrgStore } from '@/lib/store/use-org'
-import { isAdminRole, ROLE_LABELS, ROLE_COLORS, type PracticeRole } from '@/lib/auth/permissions'
+import { ROLE_LABELS, ROLE_COLORS, type PracticeRole } from '@/lib/auth/permissions'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Search, Menu, UsersRound, Building2, LogOut } from 'lucide-react'
+import { Search, Menu, Building2, LogOut } from 'lucide-react'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import { Input } from '@/components/ui/input'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { NotificationDropdown } from './notification-dropdown'
+import { AccountMenu } from './account-menu'
 import { cn } from '@/lib/utils'
 
 export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter()
-  const supabase = createClient()
   const { userProfile, organization, actingAsClient } = useOrgStore()
   const role = (userProfile?.role || 'member') as PracticeRole
-
-  async function handleSignOut() {
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
-  }
 
   async function handleExitAccount() {
     await fetch('/api/agency/active-account', { method: 'DELETE' })
@@ -98,74 +84,23 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
         <NotificationDropdown />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger>
-            <span className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-aurea-surface-2 cursor-pointer transition-colors">
-              <Avatar className="h-7 w-7 ring-1 ring-aurea-border">
-                <AvatarFallback className="text-xs bg-aurea-surface-2 text-aurea-ink font-semibold">{initials}</AvatarFallback>
-              </Avatar>
-              <span className="text-[13px] font-medium text-aurea-ink hidden md:inline">
-                {userProfile?.full_name || 'User'}
-              </span>
-              <Badge
-                variant="outline"
-                className={cn('text-[10px] px-1.5 py-0 h-4 font-medium hidden lg:inline-flex border-aurea-border', ROLE_COLORS[role])}
-              >
-                {ROLE_LABELS[role] || role}
-              </Badge>
-            </span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="w-56 bg-aurea-surface border-aurea-border text-aurea-ink-2"
+        <AccountMenu
+          align="end"
+          triggerClassName="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-aurea-surface-2 cursor-pointer transition-colors"
+        >
+          <Avatar className="h-7 w-7 ring-1 ring-aurea-border">
+            <AvatarFallback className="text-xs bg-aurea-surface-2 text-aurea-ink font-semibold">{initials}</AvatarFallback>
+          </Avatar>
+          <span className="text-[13px] font-medium text-aurea-ink hidden md:inline">
+            {userProfile?.full_name || 'User'}
+          </span>
+          <Badge
+            variant="outline"
+            className={cn('text-[10px] px-1.5 py-0 h-4 font-medium hidden lg:inline-flex border-aurea-border', ROLE_COLORS[role])}
           >
-            <div className="px-2 py-1.5">
-              <p className="text-sm font-medium text-aurea-ink">{userProfile?.full_name}</p>
-              <p className="text-xs text-aurea-ink-3">{organization?.name}</p>
-              <Badge
-                variant="outline"
-                className={cn('text-[10px] px-1.5 py-0 h-4 font-medium mt-1 border-aurea-border', ROLE_COLORS[role])}
-              >
-                {ROLE_LABELS[role] || role}
-              </Badge>
-            </div>
-            <DropdownMenuSeparator className="bg-aurea-border" />
-            {actingAsClient && (
-              <>
-                <DropdownMenuItem
-                  onClick={handleExitAccount}
-                  className="text-aurea-ink-2 focus:bg-aurea-surface-2 focus:text-aurea-ink cursor-pointer"
-                >
-                  <LogOut className="mr-2 h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
-                  Exit to Agency Console
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-aurea-border" />
-              </>
-            )}
-            {isAdminRole(role) && (
-              <DropdownMenuItem
-                onClick={() => router.push('/settings/team')}
-                className="text-aurea-ink-2 focus:bg-aurea-surface-2 focus:text-aurea-ink cursor-pointer"
-              >
-                <UsersRound className="mr-2 h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
-                Team Management
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              onClick={() => router.push('/settings')}
-              className="text-aurea-ink-2 focus:bg-aurea-surface-2 focus:text-aurea-ink cursor-pointer"
-            >
-              Settings
-            </DropdownMenuItem>
-            <DropdownMenuSeparator className="bg-aurea-border" />
-            <DropdownMenuItem
-              onClick={handleSignOut}
-              className="text-aurea-rose focus:bg-aurea-rose/10 focus:text-aurea-rose cursor-pointer"
-            >
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            {ROLE_LABELS[role] || role}
+          </Badge>
+        </AccountMenu>
       </div>
     </header>
   )
