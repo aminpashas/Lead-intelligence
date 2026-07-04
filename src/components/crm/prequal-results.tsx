@@ -43,9 +43,12 @@ function accelerate(
   return { saved: Math.max(0, Math.round(baseInterest - interest)), monthsSaved: Math.max(0, termMonths - months) }
 }
 
-export function PrequalResults({ treatmentTotal, offers }: {
+export function PrequalResults({ treatmentTotal, offers, onProceed, proceedLabel }: {
   treatmentTotal: number
   offers: LenderPrequalOffer[]
+  /** When provided, renders a "proceed" button that emits the current selection. */
+  onProceed?: (args: { treatmentTotal: number; selections: LenderSelection[] }) => void
+  proceedLabel?: string
 }) {
   const approved = useMemo(() => offers.filter(o => o.decision === 'approved' && o.terms.length > 0), [offers])
   const others = useMemo(() => offers.filter(o => o.decision !== 'approved'), [offers])
@@ -189,6 +192,17 @@ export function PrequalResults({ treatmentTotal, offers }: {
             {accel.monthsSaved > 0 && <> — done ~{accel.monthsSaved} months early</>}.
           </p>
         </div>
+      )}
+
+      {/* Proceed with the selected plan */}
+      {onProceed && selections.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onProceed({ treatmentTotal, selections })}
+          className="mt-3 w-full rounded-lg bg-aurea-primary px-3 py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90"
+        >
+          {proceedLabel ?? 'Proceed with selected plan'}
+        </button>
       )}
 
       {/* Other offers / declined */}
