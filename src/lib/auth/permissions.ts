@@ -344,6 +344,10 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   // Analytics + Agent KPI
   '/analytics': 'analytics:read',
   '/analytics/agents': 'analytics:read',
+  // Universal action timeline (staff + AI). Reuses broadcast_audit:read, the
+  // closest existing "view audit log" permission, rather than introducing a
+  // new permission for a single route.
+  '/audit': 'broadcast_audit:read',
   // Settings hub
   '/settings': 'settings:read',
   '/settings/team': 'team:manage',

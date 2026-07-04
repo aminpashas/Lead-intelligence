@@ -22,6 +22,7 @@ import {
   PhoneOutgoing,
   FolderHeart,
   FileSignature,
+  History,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -74,6 +75,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Insights',
     items: [
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+      { name: 'Audit Trail', href: '/audit', icon: History },
     ],
   },
 ]
