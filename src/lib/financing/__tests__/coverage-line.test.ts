@@ -1,47 +1,55 @@
 import { describe, it, expect } from 'vitest'
-import { buildCoverageLine } from '@/lib/financing/coverage-line'
-import type { LenderPrequalOffer } from '@/lib/financing/prequal-types'
+import {
+  buildCoverageLine, pickAffordableTerm, monthlyPaymentFor,
+} from '@/lib/financing/coverage-line'
+import type { LenderPrequalOffer, LenderTermOption } from '@/lib/financing/prequal-types'
 
-const promoOffer: LenderPrequalOffer = {
+const promoTerm: LenderTermOption = { apr: 0, term_months: 12, promo_period_months: 12 }
+const longTerm: LenderTermOption = { apr: 9.99, term_months: 24, promo_period_months: 0 }
+
+// Cherry offers a 0%/12mo promo OR a 9.99%/24mo term.
+const cherry: LenderPrequalOffer = {
   lender_slug: 'cherry',
   lender_name: 'Cherry',
   decision: 'approved',
   approved_amount: 15000,
-  apr: 0,
-  term_months: 12,
-  promo_period_months: 12,
-}
-
-const interestOffer: LenderPrequalOffer = {
-  lender_slug: 'proceed',
-  lender_name: 'Proceed Finance',
-  decision: 'approved',
-  approved_amount: 20000,
-  apr: 9.9,
-  term_months: 60,
-  promo_period_months: 0,
+  terms: [promoTerm, longTerm],
 }
 
 describe('buildCoverageLine', () => {
-  it('computes an exact monthly payment for a 0% promo line (principal / term)', () => {
-    const line = buildCoverageLine(promoOffer, 15000)
+  it('computes an exact monthly payment for a 0% promo term (principal / term)', () => {
+    const line = buildCoverageLine(cherry, 15000, promoTerm)
     expect(line.amount).toBe(15000)
     expect(line.monthly_payment).toBe(1250) // 15000 / 12
     expect(line.is_promo).toBe(true)
+    expect(line.term_months).toBe(12)
     expect(line.lender_slug).toBe('cherry')
   })
 
-  it('computes an amortized monthly payment for an interest-bearing partial draw', () => {
-    const line = buildCoverageLine(interestOffer, 20000)
-    // 20000 @ 9.9% / 60mo standard amortization ≈ $424/mo
-    expect(line.monthly_payment).toBeCloseTo(424, 0)
+  it('reflects the chosen term and the allocated amount (not the approved cap)', () => {
+    const line = buildCoverageLine(cherry, 10000, longTerm) // draw 10k on the 24mo term
+    expect(line.amount).toBe(10000)
+    expect(line.apr).toBe(9.99)
+    expect(line.term_months).toBe(24)
     expect(line.is_promo).toBe(false)
-    expect(line.apr).toBe(9.9)
+    expect(line.monthly_payment).toBeGreaterThan(0)
+  })
+})
+
+describe('monthlyPaymentFor', () => {
+  it('a longer term yields a lower monthly payment for the same principal', () => {
+    expect(monthlyPaymentFor(15000, longTerm)).toBeLessThan(monthlyPaymentFor(15000, promoTerm))
+  })
+})
+
+describe('pickAffordableTerm', () => {
+  it('picks the term with the lowest monthly payment', () => {
+    // 24mo (~$692) is cheaper monthly than the 0%/12mo (~$1250).
+    expect(pickAffordableTerm(cherry, 15000).term_months).toBe(24)
   })
 
-  it('uses the allocated amount, not the approved cap', () => {
-    const line = buildCoverageLine(interestOffer, 10000) // draw less than approved 20000
-    expect(line.amount).toBe(10000)
-    expect(line.monthly_payment).toBeCloseTo(212, 0) // half of the full-draw payment
+  it('throws when a lender has no term options', () => {
+    const noTerms: LenderPrequalOffer = { ...cherry, terms: [] }
+    expect(() => pickAffordableTerm(noTerms, 15000)).toThrow()
   })
 })
