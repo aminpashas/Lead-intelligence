@@ -220,13 +220,19 @@ often — re-confirm with each lender before wiring):**
 - A handful of **direct lenders publish real, documented APIs** (HFD, Denefits,
   PowerPay) — better integration targets than most brand-name lenders.
 
-### Integration strategy — the key decision (see Open questions)
+### Integration strategy — DECIDED: aggregator-first hybrid
 
-The existing `LenderAdapter` interface is the right seam either way. An
-**aggregator adapter** implements the same interface but fans out to many lenders
-via one integration; the stacking/coverage UX consumes offers regardless of
-source. Recommended: **aggregator as the primary rail + a few direct-API lenders
-for brands patients ask for by name + portal lenders via the reconciliation path.**
+The existing `LenderAdapter` interface is the right seam. An **aggregator adapter**
+implements the same interface but fans out to many lenders via one integration;
+the stacking/coverage UX consumes offers regardless of source.
+
+**Chosen approach:** integrate **one aggregator (Versatile Credit / ChargeAfter /
+FinMkt) as the primary rail** (30+ lenders prime→subprime through one API), plus
+**a few direct-API lenders** for brands patients ask for (HFD, Denefits, PowerPay,
+CareCredit), plus **portal lenders** (Proceed) via the reconciliation path.
+Aggregator selection (which of the three) is a procurement task for the
+implementation plan; all three implement behind the same adapter seam, so the
+choice does not change the app architecture.
 
 ### Tier 1 — API aggregators (one integration → many lenders) — recommended primary
 
@@ -332,12 +338,10 @@ the current `financing_applications` / `financing_submissions` schema.
 
 ## Open questions (resolve during planning)
 
-- **Integration strategy (biggest one): aggregator-first vs. per-lender adapters?**
-  An aggregator (Versatile / ChargeAfter / FinMkt) reaches 30+ lenders through one
-  API; per-lender adapters mean many partner deals but full control + brand names
-  patients ask for. Recommended: aggregator as primary rail + a few direct-API
-  lenders (HFD, Denefits, PowerPay, CareCredit) + portal lenders (Proceed) via the
-  reconciliation path. Needs the user's call — it's a vendor/cost decision.
+- ~~Integration strategy: aggregator-first vs. per-lender adapters?~~ **RESOLVED:
+  aggregator-first hybrid** (see Integration strategy above). Remaining sub-task:
+  pick the specific aggregator (Versatile / ChargeAfter / FinMkt) during planning —
+  a procurement choice that does not affect app architecture.
 - New `financing_prequal_offers` table vs. extending `financing_submissions`?
 - Do we run prequal against the treatment total from the clinical case, or a
   staff/patient-entered amount, or both?
