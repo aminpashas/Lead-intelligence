@@ -15,6 +15,7 @@ import {
   Settings,
   Calendar,
   Target,
+  Flame,
   RefreshCw,
   X,
   Building2,
@@ -51,6 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
       { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
+      { name: 'In Closing', href: '/closing', icon: Flame },
       { name: 'Leads', href: '/leads', icon: Users },
       { name: 'Conversations', href: '/conversations', icon: MessageSquare },
       { name: 'Call Center', href: '/call-center', icon: Phone },
@@ -86,7 +88,7 @@ const SETTINGS_ITEM: NavItem = { name: 'Settings', href: '/settings', icon: Sett
 // their nav stays on today's work — they still reach a single patient by opening
 // it from a consult or conversation. These pages also hard-redirect focused
 // staff server-side, so this is the nav mirror of that guard, not the guard.
-const FOCUSED_STAFF_HIDDEN_HREFS = new Set(['/pipeline', '/leads'])
+const FOCUSED_STAFF_HIDDEN_HREFS = new Set(['/pipeline', '/closing', '/leads'])
 
 function NavLink({
   item,

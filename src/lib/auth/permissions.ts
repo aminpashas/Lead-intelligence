@@ -314,6 +314,7 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/agency': 'agency:console',
   '/dashboard': 'dashboard:view',
   '/pipeline': 'pipeline:read',
+  '/closing': 'pipeline:read',
   // Leads + Smart Lists
   '/leads': 'leads:read',
   '/leads/lists': 'smart_lists:read',
