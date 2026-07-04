@@ -48,6 +48,34 @@ const PRESERVED: Array<{ slug: LiStageSlug; name: string }> = [
   { slug: 'dnd-sms', name: 'DND SMS' },
 ]
 
+/**
+ * GHL stages that merely mean "not worked yet". They must never OVERRIDE a lead
+ * LI has genuinely engaged: a GHL opp sitting in "No Communication" is stale the
+ * moment LI sends the first text or places the first call. Won/lost/DND and real
+ * funnel stages still apply — only these non-advancing buckets are guarded.
+ */
+const DEMOTING_SLUGS: ReadonlySet<LiStageSlug> = new Set(['no-communication', 'new'])
+
+/** Engagement signals carried on the lead row (cheap — no join). */
+export type LeadEngagement = {
+  status: string | null
+  total_messages_sent: number | null
+  total_messages_received: number | null
+  last_contacted_at: string | null
+  last_responded_at: string | null
+}
+
+/**
+ * True when LI has real two-way activity on the lead: any message sent/received,
+ * a contact/response timestamp, or a status past intake. Pure so the guard is
+ * unit-testable without GHL/DB I/O.
+ */
+export function hasLiEngagement(lead: LeadEngagement): boolean {
+  if (lead.status && lead.status !== 'new') return true
+  if ((lead.total_messages_sent ?? 0) + (lead.total_messages_received ?? 0) > 0) return true
+  return Boolean(lead.last_contacted_at || lead.last_responded_at)
+}
+
 export type ReconcileReport = {
   status: 'ok' | 'skipped'
   fetched: number
@@ -70,7 +98,7 @@ type LeadRow = {
   sms_consent_status: string | null
   email_hash: string | null
   phone_hash: string | null
-}
+} & LeadEngagement
 
 type LeadPlan = {
   leadId: string
@@ -79,6 +107,8 @@ type LeadPlan = {
   target: ReconcileTarget
   smsDnd: boolean
   allChannelDnd: boolean
+  /** LI has real activity — a stale GHL "No Communication"/"New" must not win. */
+  engaged: boolean
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -181,7 +211,8 @@ export async function reconcileGhlStages(
   // ---- Phase B: load all org leads once, index by hash ----
   const byEmail = new Map<string, LeadRow>()
   const byPhone = new Map<string, LeadRow>()
-  const SELECT = 'id, stage_id, sms_consent_status, email_hash, phone_hash'
+  const SELECT =
+    'id, stage_id, sms_consent_status, email_hash, phone_hash, status, total_messages_sent, total_messages_received, last_contacted_at, last_responded_at'
   const PAGE = 1000
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
@@ -219,6 +250,7 @@ export async function reconcileGhlStages(
       target,
       smsDnd,
       allChannelDnd,
+      engaged: hasLiEngagement(lead),
     })
   }
 
@@ -232,11 +264,14 @@ export async function reconcileGhlStages(
   let allChannelSuppressed = 0
 
   for (const plan of plans.values()) {
+    // A stale GHL "No Communication"/"New" must not overwrite a lead LI has
+    // already engaged — LI activity wins. DND/consent writes below still apply.
+    const demotesEngaged = DEMOTING_SLUGS.has(plan.target.stageSlug) && plan.engaged
     afterDistribution[plan.target.stageSlug] = (afterDistribution[plan.target.stageSlug] ?? 0) + 1
     const targetStageId = slugToId.get(plan.target.stageSlug)
     const update: Record<string, unknown> = {}
     let stageSlug: string | undefined
-    if (targetStageId && targetStageId !== plan.currentStageId) {
+    if (targetStageId && targetStageId !== plan.currentStageId && !demotesEngaged) {
       update.stage_id = targetStageId
       stageSlug = plan.target.stageSlug
       stageChanges += 1
