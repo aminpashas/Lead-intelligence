@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { PrequalResults } from '@/components/crm/prequal-results'
+import type { LenderPrequalOffer } from '@/lib/financing/prequal-types'
 
 type ApplicantType = '' | 'self' | 'on_behalf'
 type Relationship = '' | 'spouse' | 'parent' | 'adult_child' | 'other_family' | 'friend' | 'other'
@@ -397,6 +399,7 @@ export function FinancingApplicationFormPublic({
   const [step, setStep] = useState(1)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<FormResult>(null)
+  const [offers, setOffers] = useState<LenderPrequalOffer[] | null>(null)
   const [error, setError] = useState('')
   const [d, setD] = useState<FormData>({
     applicant_type: '',
@@ -493,11 +496,44 @@ export function FinancingApplicationFormPublic({
         approved_lender: data.result?.approved_lender,
         approved_amount: data.result?.approved_amount,
       })
+
+      // Also pull the stacked multi-lender comparison (soft-pull, via share token).
+      // If it returns offers, we show the "what you qualify for" comparison instead
+      // of the single-result screen. Falls back silently to the single result.
+      try {
+        const pq = await fetch('/api/financing/prequal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-share-token': shareToken },
+          body: JSON.stringify({}),
+        })
+        if (pq.ok) {
+          const pqData = await pq.json()
+          if (Array.isArray(pqData.offers) && pqData.offers.length > 0) setOffers(pqData.offers)
+        }
+      } catch { /* keep the single result */ }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please call the office directly.')
     } finally {
       setBusy(false)
     }
+  }
+
+  if (offers && offers.length > 0) {
+    const amt = Number(d.requested_amount) || requestedAmount || 20000
+    return (
+      <div>
+        <div style={{ textAlign: 'center', marginBottom: '18px' }}>
+          <h2 style={{ fontSize: '24px', fontWeight: 800, color: '#1f1a15', marginBottom: '6px' }}>
+            Here&apos;s what you qualify for, {d.first_name} 🎉
+          </h2>
+          <p style={{ fontSize: '15px', color: '#78716c', lineHeight: 1.5, margin: 0 }}>
+            Soft check — this did <strong>not</strong> affect your credit score. A team member will
+            finalize your plan and send you the lender links to complete.
+          </p>
+        </div>
+        <PrequalResults treatmentTotal={amt} offers={offers} />
+      </div>
+    )
   }
 
   if (result) {
