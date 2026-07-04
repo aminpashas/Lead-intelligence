@@ -356,7 +356,11 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                 <div className="space-y-2">
                   <Label>Goal</Label>
                   <Select value={goal} onValueChange={v => v && setGoal(v as ReactivationGoal)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue>
+                        {(value) => GOAL_OPTIONS.find(g => g.id === value)?.label ?? ''}
+                      </SelectValue>
+                    </SelectTrigger>
                     <SelectContent>
                       {GOAL_OPTIONS.map(g => (
                         <SelectItem key={g.id} value={g.id}>
@@ -372,7 +376,11 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                 <div className="space-y-2">
                   <Label>AI Tone</Label>
                   <Select value={tone} onValueChange={v => v && setTone(v as ReactivationTone)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue>
+                        {(value) => TONE_OPTIONS.find(t => t.id === value)?.label ?? ''}
+                      </SelectValue>
+                    </SelectTrigger>
                     <SelectContent>
                       {TONE_OPTIONS.map(t => (
                         <SelectItem key={t.id} value={t.id}>{t.label} — {t.description}</SelectItem>

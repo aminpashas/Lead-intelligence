@@ -282,7 +282,9 @@ function NewCaseContent() {
               <Label>Assign to Doctor</Label>
               <Select value={form.assigned_doctor_id} onValueChange={v => v && setForm({ ...form, assigned_doctor_id: v })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a doctor..." />
+                  <SelectValue placeholder="Select a doctor...">
+                    {(value) => doctors.find((d) => d.id === value)?.full_name ?? 'Select a doctor...'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {doctors.map(d => (

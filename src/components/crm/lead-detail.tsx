@@ -449,7 +449,9 @@ export function LeadDetail({
                 onValueChange={(v) => updateLead({ stage_id: v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select stage" />
+                  <SelectValue placeholder="Select stage">
+                    {(value) => stages.find((s) => s.id === value)?.name ?? 'Select stage'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {stages.map((s) => (
@@ -476,7 +478,9 @@ export function LeadDetail({
                 onValueChange={(v) => updateLead({ assigned_to: v === 'unassigned' ? null : v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Unassigned" />
+                  <SelectValue placeholder="Unassigned">
+                    {(value) => teamMembers.find((m) => m.id === value)?.full_name ?? 'Unassigned'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">Unassigned</SelectItem>

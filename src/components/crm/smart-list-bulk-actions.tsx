@@ -243,7 +243,11 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
               <div className="space-y-2">
                 <Label className="text-[13px]">Pipeline stage</Label>
                 <Select value={stageId} onValueChange={(v) => v && setStageId(v)}>
-                  <SelectTrigger><SelectValue placeholder="Pick a stage" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick a stage">
+                      {(value) => stages.find((s) => s.id === value)?.name ?? 'Pick a stage'}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
                     {stages.map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
@@ -268,7 +272,11 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
               <div className="space-y-2">
                 <Label className="text-[13px]">Campaign</Label>
                 <Select value={campaignId} onValueChange={(v) => v && setCampaignId(v)}>
-                  <SelectTrigger><SelectValue placeholder="Pick an active campaign" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick an active campaign">
+                      {(value) => campaigns.find((c) => c.id === value)?.name ?? 'Pick an active campaign'}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
                     {campaigns.length === 0 ? (
                       <SelectItem value="__none__" disabled>No active campaigns</SelectItem>
