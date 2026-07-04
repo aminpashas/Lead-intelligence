@@ -7,18 +7,7 @@ import { redirect } from 'next/navigation'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
-
-// Service-line filter: new ad leads carry custom_fields.treatment_interest +
-// a tags entry, but the historical book (45k GHL/WhatConverts imports) is only
-// classifiable via campaign/UTM keywords — so each service matches both.
-// Single-word keywords only: multi-word values break PostgREST .or() parsing.
-const SERVICE_KEYWORDS: Record<string, string[]> = {
-  implants: ['implant', 'ao4', 'aox', 'arch'],
-  cosmetic: ['veneer', 'cosmetic', 'makeover'],
-  tmj: ['tmj'],
-  sleep_apnea: ['sleep'],
-  lanap: ['lanap'],
-}
+import { SERVICE_KEYWORDS } from '@/lib/leads/service-line'
 
 // URL sort key → leads column, whitelisted so the param can't order by
 // arbitrary (e.g. encrypted) columns.

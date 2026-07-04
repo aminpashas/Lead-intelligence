@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
@@ -20,6 +20,7 @@ import { PipelineColumn } from './pipeline-column'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
+import { SERVICE_LINES, classifyLeadServiceLines } from '@/lib/leads/service-line'
 import { toast } from 'sonner'
 
 export function PipelineBoard({
@@ -36,9 +37,39 @@ export function PipelineBoard({
   const [leads, setLeads] = useState(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
+  // null = "All" (no treatment filter). GHL splits treatments into separate
+  // pipelines; we keep one funnel and filter it down to a single service line.
+  const [serviceFilter, setServiceFilter] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => { setMounted(true) }, [])
+
+  // Classify each lead's service line(s) once. Recompute only when the lead set
+  // changes (drag updates stage_id, not attribution, so this stays cheap).
+  const serviceByLead = useMemo(() => {
+    const m: Record<string, string[]> = {}
+    for (const l of leads) m[l.id] = classifyLeadServiceLines(l)
+    return m
+  }, [leads])
+
+  // Per-service counts across the whole book — only offer a chip for services
+  // that actually have leads, so the row reflects this practice's mix.
+  const serviceCounts = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const lines of Object.values(serviceByLead)) {
+      for (const key of lines) c[key] = (c[key] ?? 0) + 1
+    }
+    return c
+  }, [serviceByLead])
+
+  // Leads shown on the board — all of them, or just the active treatment.
+  const visibleLeads = useMemo(
+    () =>
+      serviceFilter
+        ? leads.filter((l) => (serviceByLead[l.id] ?? []).includes(serviceFilter))
+        : leads,
+    [leads, serviceFilter, serviceByLead]
+  )
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -104,16 +135,41 @@ export function PipelineBoard({
     [moveLeadToStage]
   )
 
+  // Treatment filter chips — only services with leads get a chip. Mirrors GHL's
+  // "switch pipeline" but over one shared funnel. Rendered above the board.
+  const chipRow = (
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      <ServiceChip
+        label="All"
+        count={leads.length}
+        active={serviceFilter === null}
+        onClick={() => setServiceFilter(null)}
+      />
+      {SERVICE_LINES.filter((s) => (serviceCounts[s.key] ?? 0) > 0).map((s) => (
+        <ServiceChip
+          key={s.key}
+          label={s.label}
+          count={serviceCounts[s.key]}
+          active={serviceFilter === s.key}
+          onClick={() => setServiceFilter((cur) => (cur === s.key ? null : s.key))}
+        />
+      ))}
+    </div>
+  )
+
   // Prevent hydration mismatch — DnD-kit generates unique IDs at runtime
   if (!mounted) {
     return (
-      <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-13rem)]">
-        {stages.filter((s) => !s.is_lost).map((stage) => {
-          const stageLeads = leads.filter((l) => l.stage_id === stage.id)
-          return (
-            <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
-          )
-        })}
+      <div>
+        {chipRow}
+        <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-16rem)]">
+          {stages.filter((s) => !s.is_lost).map((stage) => {
+            const stageLeads = visibleLeads.filter((l) => l.stage_id === stage.id)
+            return (
+              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -125,11 +181,12 @@ export function PipelineBoard({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-13rem)]">
+      {chipRow}
+      <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-16rem)]">
         {stages
           .filter((s) => !s.is_lost)
           .map((stage) => {
-            const stageLeads = leads.filter((l) => l.stage_id === stage.id)
+            const stageLeads = visibleLeads.filter((l) => l.stage_id === stage.id)
             return (
               <PipelineColumn
                 key={stage.id}
@@ -148,5 +205,39 @@ export function PipelineBoard({
         {activeLead && <LeadCard lead={activeLead} />}
       </DragOverlay>
     </DndContext>
+  )
+}
+
+function ServiceChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string
+  count: number
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] transition-colors ${
+        active
+          ? 'border-aurea-ink bg-aurea-ink text-white'
+          : 'border-aurea-border bg-white text-aurea-ink-2 hover:border-aurea-ink/40 hover:text-aurea-ink'
+      }`}
+    >
+      <span>{label}</span>
+      <span
+        className={`font-mono text-[11px] tabular-nums ${
+          active ? 'text-white/70' : 'text-aurea-ink-3'
+        }`}
+      >
+        {count}
+      </span>
+    </button>
   )
 }
