@@ -1,0 +1,241 @@
+/**
+ * Persist a normalized GHL message into LI's conversation store — the single
+ * write path shared by the go-forward webhook and the historical backfill.
+ *
+ * Responsibilities:
+ *   • find-or-create the (lead, channel) conversation
+ *   • idempotently insert the message (dedup on the namespaced external_id)
+ *   • log calls/voicemails as activities (the conversations.channel CHECK has no
+ *     'call' value, and GHL call records rarely carry a transcript)
+ *   • fold TCPA opt-out / opt-in keywords into the lead's consent state
+ *
+ * Counter behavior is caller-controlled:
+ *   • webhook  (bumpCounters=true)  — mirror the live Twilio path: increment the
+ *     atomic counter RPCs so unread/last_message reflect the just-arrived message.
+ *   • backfill (bumpCounters=false) — insert only; the caller runs the
+ *     authoritative recompute (recompute_*_stats) once at the end so year-old
+ *     history never stamps NOW() onto recency fields. Messages MUST be fed in
+ *     chronological order so opt-out/opt-in settles last-wins.
+ */
+
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { isOptInMessage, isOptOutMessage, type NormalizedGhlMessage } from './conversations'
+
+export type IngestLead = {
+  id: string
+  first_name?: string | null
+  last_name?: string | null
+}
+
+export type PersistResult = {
+  status: 'inserted' | 'skipped' | 'call_logged'
+  conversationId?: string
+  /** True when this message flipped the lead's SMS consent (opt-out/opt-in). */
+  consentChanged?: boolean
+}
+
+export type PersistParams = {
+  organizationId: string
+  lead: IngestLead
+  normalized: NormalizedGhlMessage
+  /** Increment live counters (webhook) vs. defer to end-of-run recompute (backfill). */
+  bumpCounters: boolean
+  /** Optional (leadId:channel)→conversationId cache to avoid re-querying in bulk. */
+  conversationCache?: Map<string, string>
+}
+
+/** A message insert with no persistable conversation channel (call/voicemail). */
+function isConversational(n: NormalizedGhlMessage): boolean {
+  return n.channel === 'sms' || n.channel === 'email' || n.channel === 'web_chat' || n.channel === 'whatsapp'
+}
+
+/** Find-or-create the active conversation for a lead on a channel. */
+async function resolveConversation(
+  supabase: SupabaseClient,
+  organizationId: string,
+  leadId: string,
+  channel: 'sms' | 'email' | 'web_chat' | 'whatsapp',
+  cache?: Map<string, string>,
+): Promise<string | null> {
+  const key = `${leadId}:${channel}`
+  const cached = cache?.get(key)
+  if (cached) return cached
+
+  const { data: existing } = await supabase
+    .from('conversations')
+    .select('id')
+    .eq('lead_id', leadId)
+    .eq('channel', channel)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  let id = existing?.id as string | undefined
+  if (!id) {
+    const { data: created } = await supabase
+      .from('conversations')
+      .insert({
+        organization_id: organizationId,
+        lead_id: leadId,
+        channel,
+        status: 'active',
+        // Backfilled/synced GHL threads default to assist, not auto: importing
+        // history must never trigger the AI to fire off a reply on its own.
+        ai_enabled: false,
+        ai_mode: 'assist',
+        metadata: { source: 'ghl' },
+      })
+      .select('id')
+      .single()
+    id = created?.id as string | undefined
+  }
+  if (id) cache?.set(key, id)
+  return id ?? null
+}
+
+/** Apply a TCPA opt-out/opt-in keyword to the lead's consent columns. */
+async function applyConsentKeyword(
+  supabase: SupabaseClient,
+  organizationId: string,
+  leadId: string,
+  createdAt: string,
+  optOut: boolean,
+): Promise<void> {
+  if (optOut) {
+    await supabase
+      .from('leads')
+      .update({
+        sms_consent_status: 'declined',
+        sms_opt_out: true,
+        sms_opt_out_at: createdAt,
+        sms_consent_source: 'ghl_message',
+      })
+      .eq('id', leadId)
+    await supabase
+      .from('campaign_enrollments')
+      .update({ status: 'exited', completed_at: createdAt })
+      .eq('lead_id', leadId)
+      .eq('status', 'active')
+  } else {
+    await supabase
+      .from('leads')
+      .update({
+        sms_consent_status: 'granted',
+        sms_opt_out: false,
+        sms_consent: true,
+        sms_consent_at: createdAt,
+        sms_consent_source: 'ghl_message',
+      })
+      .eq('id', leadId)
+  }
+}
+
+export async function persistGhlMessage(
+  supabase: SupabaseClient,
+  params: PersistParams,
+): Promise<PersistResult> {
+  const { organizationId, lead, normalized: n, bumpCounters, conversationCache } = params
+
+  // ── Idempotency: never insert the same GHL message twice ──
+  const { data: dupe } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .eq('external_id', n.externalId)
+    .limit(1)
+    .maybeSingle()
+  if (dupe) return { status: 'skipped' }
+
+  // ── Calls/voicemails → activity, not a conversation message ──
+  if (n.isCall) {
+    const ghlId = n.externalId.replace(/^ghl_msg:/, '')
+    const { data: existingActivity } = await supabase
+      .from('lead_activities')
+      .select('id')
+      .eq('lead_id', lead.id)
+      .eq('activity_type', 'call_logged')
+      .filter('metadata->>ghl_message_id', 'eq', ghlId)
+      .limit(1)
+      .maybeSingle()
+    if (existingActivity) return { status: 'skipped' }
+
+    await supabase.from('lead_activities').insert({
+      organization_id: organizationId,
+      lead_id: lead.id,
+      activity_type: 'call_logged',
+      title: `${n.direction === 'outbound' ? 'Outbound' : 'Inbound'} call (GoHighLevel)`,
+      description: n.body || null,
+      created_at: n.createdAt,
+      metadata: { source: 'ghl', ghl_message_id: ghlId, direction: n.direction },
+    })
+    return { status: 'call_logged' }
+  }
+
+  if (!isConversational(n)) return { status: 'skipped' }
+  const channel = n.channel as 'sms' | 'email' | 'web_chat' | 'whatsapp'
+
+  const conversationId = await resolveConversation(
+    supabase,
+    organizationId,
+    lead.id,
+    channel,
+    conversationCache,
+  )
+  if (!conversationId) return { status: 'skipped' }
+
+  const senderName =
+    n.direction === 'inbound'
+      ? `${lead.first_name ?? ''} ${lead.last_name ?? ''}`.trim() || null
+      : null
+
+  await supabase.from('messages').insert({
+    organization_id: organizationId,
+    conversation_id: conversationId,
+    lead_id: lead.id,
+    direction: n.direction,
+    channel,
+    body: n.body,
+    subject: n.subject,
+    // Inbound = the lead; outbound came from GHL (its automation or a GHL user),
+    // not LI staff/AI, so 'system' is the honest attribution for imported sends.
+    sender_type: n.direction === 'inbound' ? 'lead' : 'system',
+    sender_name: senderName,
+    status: 'delivered',
+    external_id: n.externalId,
+    created_at: n.createdAt,
+    metadata: { source: 'ghl' },
+  })
+
+  // ── Compliance: opt-out/opt-in only meaningful on inbound SMS ──
+  let consentChanged = false
+  if (channel === 'sms' && n.direction === 'inbound') {
+    if (isOptOutMessage(n.body)) {
+      await applyConsentKeyword(supabase, organizationId, lead.id, n.createdAt, true)
+      consentChanged = true
+    } else if (isOptInMessage(n.body)) {
+      await applyConsentKeyword(supabase, organizationId, lead.id, n.createdAt, false)
+      consentChanged = true
+    }
+  }
+
+  // ── Live counter bump (webhook only) — mirrors the Twilio path ──
+  if (bumpCounters) {
+    if (n.direction === 'inbound') {
+      await supabase.rpc('increment_lead_sms_received', { p_lead_id: lead.id }).then(
+        () => {},
+        () => {},
+      )
+    }
+    await supabase
+      .rpc('increment_conversation_counters', {
+        p_conversation_id: conversationId,
+        p_last_message_preview: n.body.substring(0, 100),
+      })
+      .then(
+        () => {},
+        () => {},
+      )
+  }
+
+  return { status: 'inserted', conversationId, consentChanged }
+}
