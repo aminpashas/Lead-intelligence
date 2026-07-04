@@ -126,17 +126,13 @@ export async function POST(
   const expiryDays = settings.contracts?.share_token_expiry_days ?? 30
   const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000)
 
-  // If re-sending, rotate the share_token so the previous link stops working.
-  let shareToken = contract.share_token
-  if (contract.status === 'sent' || contract.status === 'viewed') {
-    const { data: rotated } = await supabase
-      .from('patient_contracts')
-      .update({ share_token: crypto.randomUUID() })
-      .eq('id', id)
-      .select('share_token')
-      .single()
-    if (rotated) shareToken = rotated.share_token
-  }
+  // If re-sending, rotate the share_token so the previous link stops working —
+  // but only compute the new token IN MEMORY here. Persisting it before delivery
+  // meant a total delivery failure invalidated the patient's still-working link
+  // AND never delivered the new one. We persist the rotation below, only after at
+  // least one channel succeeds (folded into the status update).
+  const isResend = contract.status === 'sent' || contract.status === 'viewed'
+  const shareToken = isResend ? crypto.randomUUID() : contract.share_token
 
   const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ?? ''
   const portalUrl = `${base}/contract/${shareToken}`
@@ -208,6 +204,9 @@ export async function POST(
       status: 'sent',
       sent_at: new Date().toISOString(),
       sent_via: sentVia,
+      // Persist the rotated token now that delivery succeeded on ≥1 channel. On a
+      // first send this is a no-op (shareToken === contract.share_token).
+      share_token: shareToken,
       share_token_expires_at: expiresAt.toISOString(),
     })
     .eq('id', id)

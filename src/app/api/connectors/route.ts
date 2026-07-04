@@ -155,6 +155,28 @@ export async function PUT(request: NextRequest) {
   }
 
   if (hasCredentialsPayload) {
+    // SSRF: validate webhook-URL destinations BEFORE storing them, so unsafe
+    // config (internal / cloud-metadata / private hosts) can't be persisted and
+    // later fetched. The connectors also guard at fetch time (authoritative,
+    // covers DNS-rebind); this gives fast operator feedback + defense-in-depth.
+    if (body.connector_type === 'slack' || body.connector_type === 'outbound_webhook') {
+      const urlField = body.credentials.webhookUrl ?? body.credentials.url
+      if (urlField) {
+        try {
+          const { assertSafeWebhookUrl } = await import('@/lib/connectors/url-guard')
+          const safe = await assertSafeWebhookUrl(urlField)
+          if (body.connector_type === 'slack' && safe.hostname !== 'hooks.slack.com') {
+            return NextResponse.json({ error: 'Slack webhook must be on hooks.slack.com' }, { status: 400 })
+          }
+        } catch (err) {
+          return NextResponse.json(
+            { error: err instanceof Error ? err.message : 'Unsafe webhook URL' },
+            { status: 400 },
+          )
+        }
+      }
+    }
+
     // Encrypt each string value in credentials before persisting. The
     // underlying encryptField is idempotent (enc:: prefix check) so re-saves
     // of already-encrypted values remain safe.

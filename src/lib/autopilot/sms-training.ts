@@ -17,8 +17,17 @@
  * dry run never fires booking/financing side effects against a real lead.
  */
 
+import crypto from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SmsTrainingSession, SmsTrainingMode, AIRolePlaySession } from '@/types/database'
+
+/** Constant-time string compare (length-safe) for the training PIN. */
+function timingSafeStrEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a)
+  const bb = Buffer.from(b)
+  if (ab.length !== bb.length) return false
+  return crypto.timingSafeEqual(ab, bb)
+}
 import {
   generateRolePlayResponse,
   generateRolePlayRetry,
@@ -258,7 +267,7 @@ export async function handleTrainerSms(
     if (cmd.kind === 'help' || cmd.kind === 'status') return { handled: true, reply: HELP_TEXT }
 
     if (cmd.kind === 'train' || cmd.kind === 'roleplay') {
-      if (config.pin && cmd.pin !== config.pin) {
+      if (config.pin && !timingSafeStrEqual(cmd.pin ?? '', config.pin)) {
         return { handled: true, reply: 'Invalid PIN. Text HELP for commands.' }
       }
       const referenceOrgId = await resolveReferenceOrg(supabase, config.referenceOrgId)

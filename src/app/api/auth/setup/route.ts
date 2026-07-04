@@ -1,15 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 
+/**
+ * POST /api/auth/setup — first-run org + owner-profile bootstrap.
+ *
+ * SECURITY: This route uses the service client (RLS bypass) to create an
+ * organization and an `owner` user_profiles row. It MUST therefore be locked to
+ * the authenticated caller:
+ *   - a valid session is required (401 otherwise),
+ *   - the profile is always created for the SESSION user id — the request body
+ *     can no longer name an arbitrary `user_id` (previously this let anyone on
+ *     the internet mint an `owner` profile for any auth.users id and spawn
+ *     unlimited orgs),
+ *   - it refuses to run if the caller already has a profile (no re-bootstrap /
+ *     org takeover).
+ *
+ * In normal signup, org+profile are created by the `on_auth_user_created` DB
+ * trigger; this endpoint is a fallback for accounts that predate the trigger.
+ */
 export async function POST(request: NextRequest) {
-  const body = await request.json()
-  const { user_id, full_name, email, practice_name } = body
+  const authed = await createClient()
+  const { data: { user }, error: authError } = await authed.auth.getUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-  if (!user_id || !full_name || !email || !practice_name) {
+  const body = await request.json().catch(() => null)
+  const { full_name, practice_name } = body ?? {}
+  // Identity is taken from the session, never the body.
+  const user_id = user.id
+  const email = user.email
+
+  if (!full_name || !practice_name || !email) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
   const supabase = createServiceClient()
+
+  // Idempotency / anti-takeover: if this user already has a profile, do not
+  // create a second org or overwrite their role.
+  const { data: existingProfile } = await supabase
+    .from('user_profiles')
+    .select('id, organization_id')
+    .eq('id', user_id)
+    .maybeSingle()
+
+  if (existingProfile) {
+    return NextResponse.json({ error: 'Account already set up' }, { status: 409 })
+  }
 
   // Create organization
   const slug = practice_name
@@ -28,10 +66,11 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (orgError) {
-    return NextResponse.json({ error: orgError.message }, { status: 500 })
+    console.error('[auth/setup] org create failed:', orgError)
+    return NextResponse.json({ error: 'Failed to create organization' }, { status: 500 })
   }
 
-  // Create user profile
+  // Create user profile for the SESSION user
   const { error: profileError } = await supabase
     .from('user_profiles')
     .insert({
@@ -43,7 +82,8 @@ export async function POST(request: NextRequest) {
     })
 
   if (profileError) {
-    return NextResponse.json({ error: profileError.message }, { status: 500 })
+    console.error('[auth/setup] profile create failed:', profileError)
+    return NextResponse.json({ error: 'Failed to create profile' }, { status: 500 })
   }
 
   return NextResponse.json({ organization: org })

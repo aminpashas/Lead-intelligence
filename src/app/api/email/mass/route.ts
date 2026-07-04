@@ -183,9 +183,35 @@ export async function POST(request: NextRequest) {
     delivery_log: deliveryLog,
   }
 
+  // Close the consent TOCTOU window: the `sendable` filter above was computed
+  // before the campaign/org lookups. Re-check opt-out state immediately before the
+  // send loop so a lead who unsubscribed in that gap is dropped. (The SMS mass path
+  // gets this for free via sendSMSToLead's per-send assertConsent; the low-level
+  // sendEmail() used below bypasses the gate, so we re-check here.) Only opt-out /
+  // declined are checked — a legitimately-unconsented re-permission recipient
+  // (allow_unconsented_email) has neither flag set and is correctly not dropped.
+  const optedOutNow = new Set<string>()
+  {
+    const ids = recipients.map((l) => l.id)
+    for (let i = 0; i < ids.length; i += 500) {
+      const { data: flipped } = await supabase
+        .from('leads')
+        .select('id')
+        .in('id', ids.slice(i, i + 500))
+        .or('email_opt_out.eq.true,email_consent_status.eq.declined')
+      for (const r of flipped || []) optedOutNow.add(r.id as string)
+    }
+  }
+
   for (const lead of recipients) {
     const email = decryptField(lead.email) || lead.email || ''
     const leadName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'Unknown'
+
+    if (optedOutNow.has(lead.id)) {
+      results.skipped++
+      deliveryLog.push({ lead_id: lead.id, lead_name: leadName, email, status: 'skipped', error: 'Opted out before send' })
+      continue
+    }
 
     try {
       const subject = personalize(subject_template, lead)

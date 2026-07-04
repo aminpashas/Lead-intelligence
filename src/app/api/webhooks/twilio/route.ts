@@ -95,20 +95,40 @@ export async function POST(request: NextRequest) {
   // TCPA: Handle opt-out keywords (STOP, UNSUBSCRIBE, CANCEL, END, QUIT)
   const optOutKeywords = /^\s*(stop|unsubscribe|cancel|end|quit)\s*$/i
   if (optOutKeywords.test(body)) {
+    const nowIso = new Date().toISOString()
+    // TCPA: a plain "STOP" revokes consent across every automated channel the
+    // caller uses — it is not limited to SMS. The confirmation we send below
+    // promises "no more automated messages," so we must also stop autodialed
+    // voice and marketing email. Previously only sms_opt_out was set, which left
+    // the AI voice dialer free to keep calling an opted-out lead.
     await supabase
       .from('leads')
       .update({
         sms_opt_out: true,
-        sms_opt_out_at: new Date().toISOString(),
+        sms_opt_out_at: nowIso,
+        voice_opt_out: true,
+        voice_opt_out_at: nowIso,
+        do_not_call: true,
+        email_opt_out: true,
+        email_opt_out_at: nowIso,
       })
       .eq('id', lead.id)
 
     // Also exit any active campaign enrollments
     await supabase
       .from('campaign_enrollments')
-      .update({ status: 'exited', completed_at: new Date().toISOString() })
+      .update({ status: 'exited', completed_at: nowIso })
       .eq('lead_id', lead.id)
       .eq('status', 'active')
+
+    // Pull the lead out of any already-populated voice dial queue so a queue
+    // built before this opt-out doesn't get dialed anyway. Only queued rows are
+    // touched — an in-flight ('calling') row is left alone.
+    await supabase
+      .from('voice_campaign_leads')
+      .update({ status: 'do_not_call' })
+      .eq('lead_id', lead.id)
+      .eq('status', 'queued')
 
     // Return confirmation TwiML
     return new NextResponse(

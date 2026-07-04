@@ -251,6 +251,10 @@ export async function populateCampaignQueue(
     .eq('organization_id', campaign.organization_id)
     .eq('do_not_call', false)
     .eq('voice_opt_out', false)
+    // Cross-channel revocation: never enqueue a lead who opted out via SMS ("STOP").
+    // preCallCheck enforces this at dial time too, but excluding here keeps opted-out
+    // leads out of the queue entirely.
+    .eq('sms_opt_out', false)
     .not('phone_formatted', 'is', null)
 
   // Apply smart list criteria if available

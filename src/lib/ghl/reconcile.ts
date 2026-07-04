@@ -88,6 +88,8 @@ export type ReconcileReport = {
   stageChanges: number
   smsSuppressed: number
   allChannelSuppressed: number
+  /** won/lost/closed leads pulled out of active campaign enrollments. */
+  outreachSuppressed: number
   /** stage slug -> projected/applied count, for observability. */
   afterDistribution: Record<string, number>
 }
@@ -170,7 +172,7 @@ export async function reconcileGhlStages(
     return {
       status: 'skipped', fetched: 0, mapped: 0, noContact: 0, unmapped: 0, matched: 0,
       unmatched: 0, leadsAffected: 0, stageChanges: 0, smsSuppressed: 0, allChannelSuppressed: 0,
-      afterDistribution: {},
+      outreachSuppressed: 0, afterDistribution: {},
     }
   }
 
@@ -262,8 +264,14 @@ export async function reconcileGhlStages(
   let stageChanges = 0
   let smsSuppressed = 0
   let allChannelSuppressed = 0
+  // Leads reconciled to a won/lost/closed target — pull them out of any active
+  // campaign enrollment so a closed patient stops getting "still interested?"
+  // nurture drips. (Previously the map computed target.suppressOutreach but no
+  // consumer ever read it; the docstring promised a guarantee the code didn't keep.)
+  const suppressLeadIds = new Set<string>()
 
   for (const plan of plans.values()) {
+    if (plan.target.suppressOutreach || plan.allChannelDnd) suppressLeadIds.add(plan.leadId)
     // A stale GHL "No Communication"/"New" must not overwrite a lead LI has
     // already engaged — LI activity wins. DND/consent writes below still apply.
     const demotesEngaged = DEMOTING_SLUGS.has(plan.target.stageSlug) && plan.engaged
@@ -316,6 +324,7 @@ export async function reconcileGhlStages(
     stageChanges,
     smsSuppressed,
     allChannelSuppressed,
+    outreachSuppressed: suppressLeadIds.size,
     afterDistribution,
   }
   if (dryRun) return report
@@ -333,6 +342,19 @@ export async function reconcileGhlStages(
   await Promise.all(Array.from({ length: CONCURRENCY }, worker))
   for (const c of chunk(activities, 500)) {
     await supabase.from('lead_activities').insert(c)
+  }
+
+  // Honor suppressOutreach: exit active/paused campaign enrollments for won/lost/
+  // closed leads so they drop out of nurture drips. Batched by lead-id chunk.
+  if (suppressLeadIds.size > 0) {
+    for (const c of chunk(Array.from(suppressLeadIds), 200)) {
+      const { error } = await supabase
+        .from('campaign_enrollments')
+        .update({ status: 'exited', completed_at: new Date().toISOString() })
+        .in('lead_id', c)
+        .in('status', ['active', 'paused'])
+      if (error) log(`suppress outreach for ${c.length} leads failed: ${error.message}`)
+    }
   }
 
   return report

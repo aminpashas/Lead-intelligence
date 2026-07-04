@@ -44,13 +44,16 @@ function resolveAllowedOrgIds(caller: string): string[] | '*' {
   const raw = envName ? process.env[envName] : undefined
   const trimmed = (raw ?? '').trim()
   if (!trimmed || trimmed === '*') {
-    // Fail CLOSED in production: an unset allowlist would let the bridge key
-    // touch ANY org. Require an explicit allowlist there; deny (empty) until set.
-    if (process.env.NODE_ENV === 'production' && trimmed !== '*') {
+    // Fail CLOSED in production for BOTH an unset allowlist AND an explicit '*'.
+    // Previously '*' was honored as unrestricted (any-org) even in production, so a
+    // single env misconfiguration silently disabled multi-tenant isolation for the
+    // bridge key. In production there is no legitimate reason to grant all-org
+    // access via wildcard — require an explicit comma-separated org-id allowlist.
+    if (process.env.NODE_ENV === 'production') {
       if (!unrestrictedWarned.has(caller)) {
         unrestrictedWarned.add(caller)
         logger.error(
-          `Service bridge "${caller}" has no ${envName ?? '<allowlist env>'} set in production — denying all orgs. Set the allowlist to enable.`,
+          `Service bridge "${caller}" ${trimmed === '*' ? 'is set to "*" (wildcard is not allowed in production)' : `has no ${envName ?? '<allowlist env>'} set`} — denying all orgs. Set ${envName ?? '<allowlist env>'} to a comma-separated org-id list to enable.`,
         )
       }
       return []

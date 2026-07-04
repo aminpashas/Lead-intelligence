@@ -33,6 +33,18 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // GHL authority only — mirror the cron guard. reconcileGhlStages is a
+  // GHL-authoritative overwrite: it moves stage_id and writes declined/opt_out
+  // from GHL's DND columns. For an LI-authority practice that would stomp
+  // manually-advanced leads (e.g. a booked lead yanked back to a stale GHL stage
+  // and marked SMS-declined). Refuse rather than run.
+  if (config.stageAuthority !== 'ghl') {
+    return NextResponse.json(
+      { error: 'This practice runs pipeline stages in Lead Intelligence (not GHL-authoritative), so manual GHL sync is disabled to avoid overwriting LI-owned stages.' },
+      { status: 400 },
+    )
+  }
+
   try {
     const result = await reconcileGhlStages(service, orgId, config)
     return NextResponse.json({ result })

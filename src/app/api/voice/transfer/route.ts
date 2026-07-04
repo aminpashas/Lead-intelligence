@@ -25,6 +25,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
+import { RATE_LIMITS } from '@/lib/rate-limit'
 import { resolveTransferCandidates } from '@/lib/voice/transfer-routing'
 import {
   loadActiveRoutes,
@@ -62,7 +64,13 @@ export async function POST(request: NextRequest) {
   }
   const auth = request.headers.get('authorization') || ''
   const headerSecret = request.headers.get('x-transfer-secret') || auth.replace(/^Bearer\s+/i, '')
-  if (headerSecret !== secret) return unauthorized()
+  if (headerSecret !== secret) {
+    // Throttle credential-guessing WITHOUT ever rate-limiting valid Retell traffic:
+    // the limiter is consumed only on a failed auth. (Valid callers skip it, so the
+    // shared Retell egress IP + legitimate mid-call hold-polling are never capped.)
+    const rl = await applyDistributedRateLimit(request, RATE_LIMITS.publicForm, 'voice-transfer-auth')
+    return rl ?? unauthorized()
+  }
 
   let body: Record<string, unknown>
   try {
