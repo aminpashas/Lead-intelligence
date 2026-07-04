@@ -13,6 +13,7 @@ import { claimIdempotencyKey, recordIdempotencyResponse, countTodaysOutbound, DA
 import { assertActiveSubscription } from '@/lib/auth/entitlement'
 import { getOrgFlags } from '@/lib/org/flags'
 import { isUsSmsBlocked, A2P_PENDING_MESSAGE } from '@/lib/messaging/a2p-gate'
+import { recordAudit } from '@/lib/audit/record'
 
 const massSMSSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
@@ -297,6 +298,25 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', campaign.id)
   }
+
+  // Audit trail: one summary event per mass-send request (not per-recipient).
+  // A human with mass_sms:write clicked send, so this is a non-autonomous user action.
+  void recordAudit(supabase, {
+    organizationId: orgId,
+    action: 'sms.mass_sent',
+    actor: { actorType: 'user', actorId: profile.id, actorLabel: profile.full_name ?? null },
+    source: 'api_route',
+    resourceType: 'campaign',
+    resourceId: campaign?.id ?? null,
+    ai: { autonomous: false, approved_by: profile.id },
+    metadata: {
+      recipient_count: results.sent,
+      total_targeted: results.total,
+      failed: results.failed,
+      skipped: results.skipped,
+      smart_list_id: smart_list_id ?? null,
+    },
+  })
 
   // Persist the response so a duplicate retry returns it instead of re-sending.
   if (idempotencyKey) {
