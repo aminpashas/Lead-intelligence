@@ -76,17 +76,21 @@ export function LeadTimeline({ lead, entries }: { lead: Lead; entries: TimelineE
             No calls, texts, or emails yet. Use the actions above to start the conversation.
           </CardContent>
         </Card>
-      ) : view === 'summary' ? (
-        <SummaryTimeline entries={entries} />
       ) : (
-        <DetailedTimeline entries={entries} />
+        <TimelineFeed entries={entries} variant={view} />
       )}
     </div>
   )
 }
 
+/** Presentational feed — the Summary/Detailed renderings, no actions or state.
+ *  Shared by the patient card (with a toggle) and the conversations page. */
+export function TimelineFeed({ entries, variant }: { entries: TimelineEntry[]; variant: ViewMode }) {
+  return variant === 'summary' ? <SummaryTimeline entries={entries} /> : <DetailedTimeline entries={entries} />
+}
+
 // ── View toggle ─────────────────────────────────────────────
-function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
+export function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
   return (
     <div className="inline-flex shrink-0 items-center rounded-full border border-aurea-border bg-aurea-surface p-0.5 text-[11px]">
       {(['summary', 'detailed'] as const).map((v) => (
