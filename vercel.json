@@ -5,6 +5,10 @@
       "schedule": "0 8 1 * *"
     },
     {
+      "path": "/api/cron/usage-balance",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/enrich",
       "schedule": "*/15 * * * *"
     },

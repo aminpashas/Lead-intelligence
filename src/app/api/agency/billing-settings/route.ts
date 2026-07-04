@@ -20,6 +20,12 @@ const bodySchema = z.object({
   platformFeeCents: z.number().int().min(0).max(100_000_000),
   /** Optional: enable/disable monthly auto-charge for this practice (needs a card on file). */
   autocharge: z.boolean().optional(),
+  /** Optional: 'invoice' (postpaid monthly) or 'prepaid' (wallet + auto-reload) usage billing. */
+  billingMode: z.enum(['invoice', 'prepaid']).optional(),
+  /** Optional: enable prepaid auto-reload (needs a card on file). */
+  autoReload: z.boolean().optional(),
+  /** Optional: prepaid top-up amount per reload, in cents. */
+  reloadAmountCents: z.number().int().min(0).max(100_000_000).optional(),
 })
 
 export async function PATCH(request: NextRequest) {
@@ -37,7 +43,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 
-  const { organizationId, markupPct, platformFeeCents, autocharge } = parsed
+  const { organizationId, markupPct, platformFeeCents, autocharge, billingMode, autoReload, reloadAmountCents } = parsed
   const markups = { ai: markupPct, sms: markupPct, voice: markupPct, email: markupPct }
 
   const row: Record<string, unknown> = {
@@ -47,6 +53,9 @@ export async function PATCH(request: NextRequest) {
     updated_at: new Date().toISOString(),
   }
   if (typeof autocharge === 'boolean') row.autocharge = autocharge
+  if (billingMode) row.billing_mode = billingMode
+  if (typeof autoReload === 'boolean') row.auto_reload = autoReload
+  if (typeof reloadAmountCents === 'number') row.reload_amount_cents = reloadAmountCents
 
   const { error } = await supabase.from('billing_settings').upsert(row, { onConflict: 'organization_id' })
 
@@ -54,5 +63,5 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to save pricing' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, organizationId, markupPct, platformFeeCents, autocharge })
+  return NextResponse.json({ ok: true, organizationId, markupPct, platformFeeCents, autocharge, billingMode })
 }

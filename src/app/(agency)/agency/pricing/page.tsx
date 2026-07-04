@@ -15,12 +15,23 @@ export default async function AgencyPricingPage() {
 
   const [{ data: orgs }, { data: settings }] = await Promise.all([
     supabase.from('organizations').select('id, name').order('name'),
-    supabase.from('billing_settings').select('organization_id, markups, platform_fee_cents, autocharge, stripe_customer_id'),
+    supabase
+      .from('billing_settings')
+      .select('organization_id, markups, platform_fee_cents, autocharge, stripe_customer_id, billing_mode, auto_reload, reload_amount_cents, balance_cents'),
   ])
 
   const settingsByOrg = new Map<
     string,
-    { markups: Record<string, number> | null; platform_fee_cents: number | null; autocharge: boolean; stripe_customer_id: string | null }
+    {
+      markups: Record<string, number> | null
+      platform_fee_cents: number | null
+      autocharge: boolean
+      stripe_customer_id: string | null
+      billing_mode: 'invoice' | 'prepaid'
+      auto_reload: boolean
+      reload_amount_cents: number | null
+      balance_cents: number
+    }
   >()
   for (const s of settings ?? []) {
     settingsByOrg.set(s.organization_id as string, {
@@ -28,6 +39,10 @@ export default async function AgencyPricingPage() {
       platform_fee_cents: s.platform_fee_cents as number | null,
       autocharge: (s.autocharge as boolean | null) ?? false,
       stripe_customer_id: (s.stripe_customer_id as string | null) ?? null,
+      billing_mode: ((s.billing_mode as string | null) as 'invoice' | 'prepaid') ?? 'invoice',
+      auto_reload: (s.auto_reload as boolean | null) ?? false,
+      reload_amount_cents: (s.reload_amount_cents as number | null) ?? null,
+      balance_cents: Number(s.balance_cents ?? 0),
     })
   }
 
@@ -44,6 +59,10 @@ export default async function AgencyPricingPage() {
         hasOverride: !!cfg,
         autocharge: cfg?.autocharge ?? false,
         hasCardOnFile: !!cfg?.stripe_customer_id,
+        prepaid: cfg?.billing_mode === 'prepaid',
+        autoReload: cfg?.auto_reload ?? false,
+        reloadAmountCents: cfg?.reload_amount_cents ?? 50_000,
+        balanceCents: cfg?.balance_cents ?? 0,
       }
     })
     // Practices with usage first (they matter most), then alphabetical.

@@ -17,7 +17,7 @@ export const POST = withCron('autocharge-invoices', async ({ supabase }) => {
 
   const { data: settings } = await supabase
     .from('billing_settings')
-    .select('organization_id, stripe_customer_id')
+    .select('organization_id, stripe_customer_id, billing_mode')
     .eq('autocharge', true)
     .not('stripe_customer_id', 'is', null)
 
@@ -27,11 +27,14 @@ export const POST = withCron('autocharge-invoices', async ({ supabase }) => {
 
   for (const s of settings ?? []) {
     const orgId = s.organization_id as string
+    // Prepaid practices bill usage via the wallet, so their monthly invoice is platform-fee only.
+    const excludeUsage = s.billing_mode === 'prepaid'
     const { id, error } = await generateUsageInvoice(supabase, {
       organizationId: orgId,
       periodStart,
       periodEnd,
       status: 'issued',
+      excludeUsage,
     })
     if (error || !id) {
       failed++

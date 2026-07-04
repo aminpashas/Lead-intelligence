@@ -18,8 +18,16 @@ export type PricingPractice = {
   hasOverride: boolean
   /** Whether monthly auto-charge is enabled for this practice. */
   autocharge: boolean
-  /** Whether a Stripe card is on file (autocharge can only fire when true). */
+  /** Whether a Stripe card is on file (autocharge / reload can only fire when true). */
   hasCardOnFile: boolean
+  /** Prepaid wallet mode (usage draws down a balance instead of monthly invoicing). */
+  prepaid: boolean
+  /** Prepaid auto-reload when the balance runs low. */
+  autoReload: boolean
+  /** Reload top-up amount, in cents. */
+  reloadAmountCents: number
+  /** Current prepaid balance, in cents. */
+  balanceCents: number
 }
 
 const usd = (cents: number) =>
@@ -60,17 +68,25 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
   const [issuing, setIssuing] = useState(false)
   const [autocharge, setAutocharge] = useState(practice.autocharge)
   const [settingUpCard, setSettingUpCard] = useState(false)
+  const [prepaid, setPrepaid] = useState(practice.prepaid)
+  const [autoReload, setAutoReload] = useState(practice.autoReload)
+  const [reloadDollars, setReloadDollars] = useState(Math.round(practice.reloadAmountCents / 100))
+  const [reloading, setReloading] = useState(false)
 
   const markupPct = Math.max(0, (multiple - 1) * 100)
   const usageBillableCents = practice.usageCostCents * multiple
   const feeCents = Math.max(0, feeDollars) * 100
   const blendedCents = usageBillableCents + feeCents
   const marginCents = blendedCents - practice.usageCostCents
+  const reloadCents = Math.max(0, reloadDollars) * 100
 
   const dirty =
     Math.abs(markupPct - practice.currentMarkupPct) > 0.001 ||
     feeCents !== practice.currentFeeCents ||
-    autocharge !== practice.autocharge
+    autocharge !== practice.autocharge ||
+    prepaid !== practice.prepaid ||
+    autoReload !== practice.autoReload ||
+    reloadCents !== practice.reloadAmountCents
 
   async function save() {
     setSaving(true)
@@ -84,6 +100,9 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
           markupPct: Math.round(markupPct * 100) / 100,
           platformFeeCents: feeCents,
           autocharge,
+          billingMode: prepaid ? 'prepaid' : 'invoice',
+          autoReload,
+          reloadAmountCents: reloadCents,
         }),
       })
       if (!res.ok) {
@@ -93,6 +112,9 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
       practice.currentMarkupPct = markupPct
       practice.currentFeeCents = feeCents
       practice.autocharge = autocharge
+      practice.prepaid = prepaid
+      practice.autoReload = autoReload
+      practice.reloadAmountCents = reloadCents
       setSaved(true)
       toast.success(`Saved pricing for ${practice.name}`)
     } catch (err) {
@@ -135,6 +157,25 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
       toast.error(err instanceof Error ? err.message : 'Failed to start card setup')
     } finally {
       setSettingUpCard(false)
+    }
+  }
+
+  async function reloadNow() {
+    setReloading(true)
+    try {
+      const res = await fetch('/api/agency/billing-settings/reload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId: practice.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Reload failed')
+      practice.balanceCents = data.balanceCents ?? practice.balanceCents
+      toast.success(`Reloaded ${usd(data.amountCents ?? 0)} — balance ${usd(data.balanceCents ?? 0)}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Reload failed')
+    } finally {
+      setReloading(false)
     }
   }
 
@@ -237,6 +278,57 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
             {practice.hasCardOnFile ? 'Update card' : 'Set up card'}
           </button>
         </div>
+      </div>
+
+      {/* Prepaid wallet + auto-reload */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-aurea-border/60 pt-3">
+        <label className="flex items-center gap-2 text-[12px] text-aurea-ink-2">
+          <input
+            type="checkbox"
+            checked={prepaid}
+            onChange={(e) => setPrepaid(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-aurea-border accent-aurea-primary"
+          />
+          Prepaid wallet
+        </label>
+        {prepaid && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label className="flex items-center gap-2 text-[12px] text-aurea-ink-2">
+              <input
+                type="checkbox"
+                checked={autoReload}
+                onChange={(e) => setAutoReload(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-aurea-border accent-aurea-primary"
+              />
+              Auto-reload at 10% ({usd(reloadCents * 0.1)})
+              {autoReload && !practice.hasCardOnFile && <span className="text-aurea-amber">· needs a card</span>}
+            </label>
+            <label className="flex items-center gap-1.5 text-[12px] text-aurea-ink-3">
+              Reload
+              <span className="relative">
+                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-aurea-ink-3">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={50}
+                  value={reloadDollars}
+                  onChange={(e) => setReloadDollars(Number(e.target.value))}
+                  className="w-24 rounded-md border border-aurea-border bg-aurea-surface px-2 py-1.5 pl-5 text-right font-mono text-[12px] tabular-nums text-aurea-ink focus:border-aurea-primary focus:outline-none"
+                />
+              </span>
+            </label>
+            <span className="font-mono text-[11px] text-aurea-ink-3">Balance {usd(practice.balanceCents)}</span>
+            <button
+              type="button"
+              onClick={reloadNow}
+              disabled={reloading}
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-aurea-ink-3 transition-colors hover:text-aurea-ink disabled:opacity-50"
+            >
+              {reloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Add funds
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

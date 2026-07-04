@@ -44,7 +44,7 @@ function quantityFor(service: string, u: { quantities: { smsOutSegments: number;
  */
 export async function composeUsageInvoice(
   supabase: SupabaseClient,
-  args: { organizationId: string; periodStart: string; periodEnd: string },
+  args: { organizationId: string; periodStart: string; periodEnd: string; excludeUsage?: boolean },
 ): Promise<ComposedUsageInvoice> {
   const [{ byOrg }, feeRow] = await Promise.all([
     loadLiveSpend(supabase, {
@@ -59,7 +59,9 @@ export async function composeUsageInvoice(
       .maybeSingle(),
   ])
 
-  const u = byOrg[args.organizationId]
+  // In prepaid mode usage is billed via the balance wallet, so a monthly invoice covers the
+  // platform fee only — excludeUsage drops the usage lines to avoid double-billing.
+  const u = args.excludeUsage ? undefined : byOrg[args.organizationId]
   const platformFeeCents = resolvePlatformFeeCents((feeRow.data?.platform_fee_cents as number | null) ?? null)
 
   const lineItems: UsageInvoiceLineItem[] = u
@@ -100,7 +102,7 @@ export async function composeUsageInvoice(
  */
 export async function generateUsageInvoice(
   supabase: SupabaseClient,
-  args: { organizationId: string; periodStart: string; periodEnd: string; status?: 'draft' | 'issued' },
+  args: { organizationId: string; periodStart: string; periodEnd: string; status?: 'draft' | 'issued'; excludeUsage?: boolean },
 ): Promise<{ invoice: ComposedUsageInvoice; id: string | null; error: string | null }> {
   const invoice = await composeUsageInvoice(supabase, args)
   const { data, error } = await supabase

@@ -80,7 +80,7 @@ export default async function UsagePage({
     )
   }
 
-  const [{ byOrg }, invoicesRes] = await Promise.all([
+  const [{ byOrg }, invoicesRes, balanceRes] = await Promise.all([
     loadLiveSpend(supabase, { sinceDays, organizationId: active.orgId }),
     supabase
       .from('usage_invoices')
@@ -89,9 +89,18 @@ export default async function UsagePage({
       .in('status', ['issued', 'paid'])
       .order('period_start', { ascending: false })
       .limit(12),
+    // Prepaid balance = the running balance on the latest ledger row (practice-readable via RLS).
+    supabase
+      .from('balance_transactions')
+      .select('balance_after')
+      .eq('organization_id', active.orgId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ])
   const usage = byOrg[active.orgId]
   const invoices = (invoicesRes.data ?? []) as { id: string; period_start: string; period_end: string; total_cents: number; status: string }[]
+  const prepaidBalanceCents = balanceRes.data ? Number(balanceRes.data.balance_after) : null
 
   const monthLabel = (d: string) =>
     new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
@@ -127,6 +136,20 @@ export default async function UsagePage({
         </div>
       </header>
 
+      {/* ── Prepaid balance (only when on a wallet plan) ──── */}
+      {prepaidBalanceCents !== null && (
+        <section className="aurea-card p-6">
+          <div className="flex items-center justify-between">
+            <p className="aurea-eyebrow">Prepaid balance</p>
+            <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">wallet</span>
+          </div>
+          <p className={`mt-4 aurea-display text-[52px] tabular-nums ${prepaidBalanceCents <= 0 ? 'text-aurea-rose' : 'text-aurea-ink'}`}>
+            {formatUsd(prepaidBalanceCents)}
+          </p>
+          <p className="mt-2 text-[12.5px] text-aurea-ink-3">Usage draws from your balance · auto-reloads when low</p>
+        </section>
+      )}
+
       {/* ── Total ─────────────────────────────────────────── */}
       <section className="aurea-card p-6">
         <div className="flex items-center justify-between">
@@ -134,7 +157,7 @@ export default async function UsagePage({
           <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">/01</span>
         </div>
         <p className="mt-4 aurea-display text-[52px] tabular-nums text-aurea-ink">{formatUsd(totalBillable)}</p>
-        <p className="mt-2 text-[12.5px] text-aurea-ink-3">Rate included · billed on top of your subscription</p>
+        <p className="mt-2 text-[12.5px] text-aurea-ink-3">Rate included · drawn from your prepaid balance</p>
       </section>
 
       {/* ── Breakdown ─────────────────────────────────────── */}
