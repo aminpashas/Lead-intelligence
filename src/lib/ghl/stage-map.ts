@@ -1,14 +1,20 @@
 /**
- * Mirror a GHL pipeline's stages into LI `pipeline_stages`.
+ * Map a GHL pipeline's stages onto the org's EXISTING LI `pipeline_stages`.
  *
- * Why: the LI Pipeline board groups leads by `stage_id`. To make a synced lead
- * actually appear on the board (the bug the old one-time importer had — it set
- * `status` but no `stage_id`), every GHL stage must resolve to a real LI stage.
+ * Why: the LI Pipeline board groups leads by `stage_id`, so every synced GHL
+ * opportunity must resolve to a real LI stage or it won't appear on the board.
  *
- * Strategy: find-or-create by slug. If the org already has a stage whose slug
- * matches the GHL stage name (e.g. both call it "New"), we REUSE it rather than
- * creating a duplicate. Genuinely new GHL stages are appended after the org's
- * current max position. Idempotent across runs.
+ * Authority: LI owns its pipeline; GHL is a capture source, not the pipeline
+ * definition. So this NEVER creates stages. A GHL stage whose slug matches an
+ * existing LI stage maps onto it; anything unrecognized (or blank-named) maps
+ * onto the org's intake column (its lowest-position stage, typically "New
+ * Lead"). LI-side staff then move leads to the right stage. Idempotent.
+ *
+ * History: an earlier version find-or-CREATED unmatched GHL stages, appending
+ * them after the org's max position. Because the seeded default stages used
+ * different slugs (LI "New Lead" → `new` vs GHL's `new-lead`), a 28-stage GHL
+ * pipeline appended wholesale onto the clean 11-stage default — a 39-column,
+ * unusable board with a duplicate "New Lead". Map-only prevents that recurring.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -26,9 +32,10 @@ export function slugifyStageName(name: string): string {
 type ExistingStage = { id: string; slug: string; position: number | null }
 
 /**
- * Returns a map of GHL stage id → LI pipeline_stages id for the given pipeline,
- * creating any missing LI stages. Stages with no resolvable slug (blank names)
- * are skipped and simply won't appear in the map.
+ * Returns a map of GHL stage id → existing LI pipeline_stages id. Never mutates
+ * `pipeline_stages`. GHL stages matching an LI slug map onto it; everything else
+ * (including blank names) maps onto the org's intake stage so the lead still
+ * lands on the board. Empty map only when the org has no stages at all.
  */
 export async function ensureStageMapping(
   supabase: SupabaseClient,
@@ -44,64 +51,26 @@ export async function ensureStageMapping(
     .eq('organization_id', organizationId)
 
   const existing = (existingRows ?? []) as ExistingStage[]
+
+  // Index by slug, and pick the intake column (lowest position) as the fallback
+  // home for any GHL stage LI doesn't recognize.
   const bySlug = new Map<string, string>()
-  let maxPosition = -1
+  let fallbackId: string | null = null
+  let fallbackPos = Infinity
   for (const row of existing) {
-    bySlug.set(row.slug, row.id)
-    if (typeof row.position === 'number' && row.position > maxPosition) maxPosition = row.position
+    if (row.slug) bySlug.set(row.slug, row.id)
+    const pos = typeof row.position === 'number' ? row.position : Infinity
+    if (pos < fallbackPos) {
+      fallbackPos = pos
+      fallbackId = row.id
+    }
   }
 
-  // Build the GHL-stage → slug list, skipping blank names and de-duping slugs
-  // within this pipeline (two GHL stages slugifying identically share one LI stage).
   const map: Record<string, string> = {}
-  const toCreate: { ghlStageId: string; name: string; slug: string; position: number }[] = []
-  const plannedSlugs = new Set<string>()
-  let nextPosition = maxPosition
-
   for (const st of stages) {
     const slug = slugifyStageName(st.name)
-    if (!slug) continue
-    const found = bySlug.get(slug)
-    if (found) {
-      map[st.id] = found
-      continue
-    }
-    if (plannedSlugs.has(slug)) {
-      // Already queued for creation by an earlier stage in this pipeline; the
-      // post-insert backfill below will assign both GHL ids to the new row.
-      continue
-    }
-    plannedSlugs.add(slug)
-    nextPosition += 1
-    toCreate.push({ ghlStageId: st.id, name: st.name, slug, position: nextPosition })
-  }
-
-  if (toCreate.length > 0) {
-    const { data: inserted, error } = await supabase
-      .from('pipeline_stages')
-      .insert(
-        toCreate.map((s) => ({
-          organization_id: organizationId,
-          name: s.name,
-          slug: s.slug,
-          position: s.position,
-        })),
-      )
-      .select('id, slug')
-
-    if (error) throw new Error(`pipeline_stages insert failed: ${error.message}`)
-
-    const newBySlug = new Map<string, string>()
-    for (const row of (inserted ?? []) as { id: string; slug: string }[]) {
-      newBySlug.set(row.slug, row.id)
-    }
-    // Assign every GHL stage (including those that shared a slug) to its new LI id.
-    for (const st of stages) {
-      if (map[st.id]) continue
-      const slug = slugifyStageName(st.name)
-      const id = newBySlug.get(slug)
-      if (id) map[st.id] = id
-    }
+    const target = (slug && bySlug.get(slug)) || fallbackId
+    if (target) map[st.id] = target
   }
 
   return map
