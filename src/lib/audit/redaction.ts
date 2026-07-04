@@ -1,5 +1,7 @@
-// Columns whose values must never be snapshotted into audit_events.
-// MIRRORED in supabase/migrations/20260704160000_audit_events.sql (audit_row_change). Keep in sync.
+// Per-table denylist for the app-side redactRow() helper. NOTE: the DB trigger
+// (audit_row_change, migration 20260704170000) redacts by column-NAME PATTERN
+// across all audited tables — a superset of this list — so newly-audited tables
+// are protected automatically. This explicit map is the app-path fallback.
 export const SENSITIVE_COLUMNS: Record<string, string[]> = {
   leads: ['email', 'phone', 'phone_formatted', 'date_of_birth', 'insurance_provider', 'phone_hash', 'email_hash'],
   patient_profiles: ['personal_details'],
