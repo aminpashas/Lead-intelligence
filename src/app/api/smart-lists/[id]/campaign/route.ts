@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, requirePermission } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const launchCampaignSchema = z.object({
@@ -33,8 +33,10 @@ export async function POST(
 ) {
   const { id: smartListId } = await params
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
-  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Launching a campaign from a Smart List is agency-side.
+  const guard = await requirePermission(supabase, 'campaigns:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
   const body = await request.json()
   const parsed = launchCampaignSchema.safeParse(body)
 

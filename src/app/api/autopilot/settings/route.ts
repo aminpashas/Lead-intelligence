@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
-import { isAdminRole } from '@/lib/auth/permissions'
+import { hasPermission } from '@/lib/auth/permissions'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 
 // Day schedule schema for per-day-of-week settings
@@ -122,11 +122,12 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Only admins can modify autopilot settings. Use the shared admin-role check
-  // (doctor_admin / office_manager / owner / admin / agency_admin) — the old
-  // bare `role !== 'admin'` locked out every real admin in the healthcare model.
-  if (!isAdminRole(profile.role)) {
-    return NextResponse.json({ error: 'Only admins can modify autopilot settings' }, { status: 403 })
+  // Tuning the AI (autopilot config) is agency-side — ai_control:write is held
+  // only by agency_admin. Practice admins keep ai_control:read (they can see the
+  // settings) and can still hit the kill-switch, but retuning the automation
+  // stays with the company. This is the "power stays on the company side" line.
+  if (!hasPermission(profile.role, 'ai_control:write')) {
+    return NextResponse.json({ error: 'AI settings are managed by your agency' }, { status: 403 })
   }
 
   const { orgId } = await resolveActiveOrg(supabase)

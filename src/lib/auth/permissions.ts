@@ -91,6 +91,7 @@ export type Permission =
   | 'reactivation:write'
   | 'mass_sms:write'
   | 'mass_email:write'
+  | 'bulk_actions:write'
   | 'broadcast_audit:read'
   | 'call_center:read'
   | 'call_center:write'
@@ -110,7 +111,11 @@ export type Permission =
   | 'connectors:manage'
   | 'agency:console'
 
-// Full access set for admin roles
+// Full practice-side access for practice admin roles. Deliberately EXCLUDES
+// agency-scale outbound (mass SMS/email, campaign/reactivation launches, bulk
+// actions) and AI configuration: those stay with the agency (agency_admin) so
+// a practice can never blast its own book or retune the AI. Practice admins
+// keep full visibility (reads) plus 1:1 outreach via lead detail / call center.
 const FULL_PERMISSIONS: Permission[] = [
   'dashboard:view',
   'clinical:read', 'clinical:write',
@@ -118,21 +123,32 @@ const FULL_PERMISSIONS: Permission[] = [
   'leads:read', 'leads:write',
   'conversations:read', 'conversations:write',
   'pipeline:read', 'pipeline:write',
-  'campaigns:read', 'campaigns:write',
+  'campaigns:read',
   'analytics:read',
   'billing:read', 'billing:write',
   'team:read', 'team:manage',
-  'ai_control:read', 'ai_control:write',
+  'ai_control:read',
   'settings:read', 'settings:write',
   'smart_lists:read', 'smart_lists:write',
-  'reactivation:read', 'reactivation:write',
-  'mass_sms:write', 'mass_email:write',
+  'reactivation:read',
   'broadcast_audit:read',
   'call_center:read', 'call_center:write',
-  'funnel:read', 'funnel:write',
+  'funnel:read',
   'cases:read', 'cases:create', 'cases:diagnose',
   'contracts:read', 'contracts:generate', 'contracts:approve', 'contracts:void',
   'contract_templates:manage', 'legal_settings:manage',
+]
+
+// Agency-scale outbound + AI configuration. Only agency_admin carries these;
+// they are the enforcement half of the practice/agency split (SF Dentistry
+// onboarding decision, 2026-07-03).
+const AGENCY_OUTBOUND_PERMISSIONS: Permission[] = [
+  'campaigns:write',
+  'reactivation:write',
+  'mass_sms:write', 'mass_email:write',
+  'bulk_actions:write',
+  'ai_control:write',
+  'funnel:write',
 ]
 
 // Clinical-only permissions
@@ -155,17 +171,18 @@ const DOCTOR_PERMISSIONS: Permission[] = [
   'contracts:generate',
 ]
 
-// Treatment coordinator: clinical + marketing + contract generation
+// Treatment coordinator: clinical + lead working + contract generation.
+// Campaign/reactivation visibility is read-only; launching anything at scale
+// (broadcasts, campaign activation, bulk actions) is agency-side.
 const TC_PERMISSIONS: Permission[] = [
   ...CLINICAL_PERMISSIONS,
   'leads:write',
   'pipeline:write',
-  'campaigns:read', 'campaigns:write',
+  'campaigns:read',
   'smart_lists:read', 'smart_lists:write',
-  'reactivation:read', 'reactivation:write',
-  'mass_sms:write', 'mass_email:write',
+  'reactivation:read',
   'broadcast_audit:read',
-  'funnel:read', 'funnel:write',
+  'funnel:read',
   'call_center:read', 'call_center:write',
   'contracts:generate',
 ]
@@ -183,10 +200,17 @@ export const ROLE_PERMISSIONS: Record<PracticeRole, Permission[]> = {
   admin: FULL_PERMISSIONS,
   manager: TC_PERMISSIONS,
   member: CLINICAL_PERMISSIONS,
-  // Agency admin gets everything PLUS the agency-only capabilities. These two
-  // permissions are intentionally absent from every other role — they are what
-  // keep marketing connectors and the agency console out of client staff's reach.
-  agency_admin: [...FULL_PERMISSIONS, 'connectors:manage', 'agency:console'],
+  // Agency admin gets everything PLUS the agency-only capabilities: mass
+  // outbound / campaign launches / AI config (AGENCY_OUTBOUND_PERMISSIONS) and
+  // the connector + console permissions. All of these are intentionally absent
+  // from every practice role — they are what keep bulk outreach, AI tuning,
+  // marketing connectors, and the agency console out of client staff's reach.
+  agency_admin: [
+    ...FULL_PERMISSIONS,
+    ...AGENCY_OUTBOUND_PERMISSIONS,
+    'connectors:manage',
+    'agency:console',
+  ],
 }
 
 // ── Permission Utilities ────────────────────────────────────────

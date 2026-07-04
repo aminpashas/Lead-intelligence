@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, requirePermission } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const bulkTagSchema = z.object({
@@ -12,8 +12,13 @@ const bulkTagSchema = z.object({
 // POST /api/leads/bulk/tags — Bulk add/remove tags
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
-  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Tagging is lead organization, not outbound — anyone who can write leads
+  // (practice admins, treatment coordinators) may bulk-tag. It is deliberately
+  // NOT gated to bulk_actions:write like /api/leads/bulk (which can enroll or
+  // delete across the book).
+  const guard = await requirePermission(supabase, 'leads:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
   const body = await request.json()
   const parsed = bulkTagSchema.safeParse(body)
 

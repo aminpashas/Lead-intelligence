@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, requirePermission } from '@/lib/auth/active-org'
 import { sendEmail } from '@/lib/messaging/resend'
 import { z } from 'zod'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
@@ -32,8 +32,11 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
-  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Mass outbound is agency-side only (see /api/sms/mass). Practice staff email
+  // a lead 1:1 from lead detail; broadcasts require agency_admin.
+  const guard = await requirePermission(supabase, 'mass_email:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
   const body = await request.json()
   const parsed = massEmailSchema.safeParse(body)
 

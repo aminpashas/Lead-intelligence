@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { resolveActiveOrg, requirePermission } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const createCampaignSchema = z.object({
@@ -78,9 +78,13 @@ export async function POST(request: NextRequest) {
   }
 
   const { data: { user } } = await supabase.auth.getUser()
-  const { orgId } = await resolveActiveOrg(supabase)
+  // Creating campaigns is agency-side (marketing automation). Practice roles
+  // keep campaigns:read to see what's running; only agency_admin has :write.
+  const guard = await requirePermission(supabase, 'campaigns:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
-  if (!user || !orgId) {
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

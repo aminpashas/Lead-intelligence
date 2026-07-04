@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, requirePermission } from '@/lib/auth/active-org'
 import { scoreLead } from '@/lib/ai/scoring'
 import { z } from 'zod'
 import { safeParseBody } from '@/lib/body-size'
@@ -18,8 +18,12 @@ const bulkActionSchema = z.object({
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
-  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Bulk actions over the lead book (score/assign/stage/enroll/disqualify/delete
+  // across up to 100 leads at once) are an agency-side lever. Staff still work
+  // leads one at a time from the lead detail; the fleet-level moves are gated.
+  const guard = await requirePermission(supabase, 'bulk_actions:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
   const { data: body, error: bodyError } = await safeParseBody(request)
   if (bodyError) return bodyError
   const parsed = bulkActionSchema.safeParse(body)
