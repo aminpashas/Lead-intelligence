@@ -18,6 +18,8 @@ const bodySchema = z.object({
   markupPct: z.number().min(0).max(100000),
   /** Monthly platform fee in cents (0 = explicitly no fee). */
   platformFeeCents: z.number().int().min(0).max(100_000_000),
+  /** Optional: enable/disable monthly auto-charge for this practice (needs a card on file). */
+  autocharge: z.boolean().optional(),
 })
 
 export async function PATCH(request: NextRequest) {
@@ -35,22 +37,22 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 
-  const { organizationId, markupPct, platformFeeCents } = parsed
+  const { organizationId, markupPct, platformFeeCents, autocharge } = parsed
   const markups = { ai: markupPct, sms: markupPct, voice: markupPct, email: markupPct }
 
-  const { error } = await supabase.from('billing_settings').upsert(
-    {
-      organization_id: organizationId,
-      markups,
-      platform_fee_cents: platformFeeCents,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'organization_id' },
-  )
+  const row: Record<string, unknown> = {
+    organization_id: organizationId,
+    markups,
+    platform_fee_cents: platformFeeCents,
+    updated_at: new Date().toISOString(),
+  }
+  if (typeof autocharge === 'boolean') row.autocharge = autocharge
+
+  const { error } = await supabase.from('billing_settings').upsert(row, { onConflict: 'organization_id' })
 
   if (error) {
     return NextResponse.json({ error: 'Failed to save pricing' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, organizationId, markupPct, platformFeeCents })
+  return NextResponse.json({ ok: true, organizationId, markupPct, platformFeeCents, autocharge })
 }

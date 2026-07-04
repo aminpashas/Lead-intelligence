@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Loader2, Send, Check, Ban, CircleDollarSign } from 'lucide-react'
+import { Loader2, Send, Check, Ban, CircleDollarSign, CreditCard } from 'lucide-react'
 
 export type InvoiceRow = {
   id: string
@@ -57,19 +57,29 @@ function InvoiceRowView({ inv }: { inv: InvoiceRow }) {
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
 
-  async function act(kind: 'issue' | 'void' | 'mark_paid' | 'send') {
+  async function act(kind: 'issue' | 'void' | 'mark_paid' | 'send' | 'charge') {
     setBusy(kind)
     try {
-      const url = kind === 'send' ? `/api/agency/invoices/${inv.id}/send` : `/api/agency/invoices/${inv.id}`
+      const postKind = kind === 'send' || kind === 'charge'
+      const url =
+        kind === 'send'
+          ? `/api/agency/invoices/${inv.id}/send`
+          : kind === 'charge'
+            ? `/api/agency/invoices/${inv.id}/charge`
+            : `/api/agency/invoices/${inv.id}`
       const res = await fetch(url, {
-        method: kind === 'send' ? 'POST' : 'PATCH',
+        method: postKind ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: kind === 'send' ? undefined : JSON.stringify({ action: kind }),
+        body: postKind ? undefined : JSON.stringify({ action: kind }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Action failed')
       toast.success(
-        kind === 'send' ? `Emailed to ${data.sentTo}` : kind === 'issue' ? 'Invoice issued' : kind === 'void' ? 'Invoice voided' : 'Marked paid',
+        kind === 'send'
+          ? `Emailed to ${data.sentTo}`
+          : kind === 'charge'
+            ? data.status === 'paid' ? 'Charged — paid' : 'Charge started'
+            : kind === 'issue' ? 'Invoice issued' : kind === 'void' ? 'Invoice voided' : 'Marked paid',
       )
       router.refresh()
     } catch (err) {
@@ -105,6 +115,9 @@ function InvoiceRowView({ inv }: { inv: InvoiceRow }) {
         )}
         {canSend && (
           <ActionButton label="Send" icon={Send} busy={spin('send')} disabled={disabled} onClick={() => act('send')} />
+        )}
+        {inv.status !== 'void' && inv.status !== 'paid' && (
+          <ActionButton label="Charge" icon={CreditCard} busy={spin('charge')} disabled={disabled} onClick={() => act('charge')} />
         )}
         {inv.status === 'issued' && (
           <ActionButton label="Paid" icon={CircleDollarSign} busy={spin('mark_paid')} disabled={disabled} onClick={() => act('mark_paid')} />

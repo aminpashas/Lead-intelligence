@@ -15,14 +15,19 @@ export default async function AgencyPricingPage() {
 
   const [{ data: orgs }, { data: settings }] = await Promise.all([
     supabase.from('organizations').select('id, name').order('name'),
-    supabase.from('billing_settings').select('organization_id, markups, platform_fee_cents'),
+    supabase.from('billing_settings').select('organization_id, markups, platform_fee_cents, autocharge, stripe_customer_id'),
   ])
 
-  const settingsByOrg = new Map<string, { markups: Record<string, number> | null; platform_fee_cents: number | null }>()
+  const settingsByOrg = new Map<
+    string,
+    { markups: Record<string, number> | null; platform_fee_cents: number | null; autocharge: boolean; stripe_customer_id: string | null }
+  >()
   for (const s of settings ?? []) {
     settingsByOrg.set(s.organization_id as string, {
       markups: s.markups as Record<string, number> | null,
       platform_fee_cents: s.platform_fee_cents as number | null,
+      autocharge: (s.autocharge as boolean | null) ?? false,
+      stripe_customer_id: (s.stripe_customer_id as string | null) ?? null,
     })
   }
 
@@ -37,6 +42,8 @@ export default async function AgencyPricingPage() {
         currentMarkupPct: resolveMarkupPct('sms', cfg ? { markups: cfg.markups } : null),
         currentFeeCents: resolvePlatformFeeCents(cfg?.platform_fee_cents),
         hasOverride: !!cfg,
+        autocharge: cfg?.autocharge ?? false,
+        hasCardOnFile: !!cfg?.stripe_customer_id,
       }
     })
     // Practices with usage first (they matter most), then alphabetical.

@@ -16,6 +16,10 @@ export type PricingPractice = {
   currentFeeCents: number
   /** Whether this practice has an explicit billing_settings row (vs. running on defaults). */
   hasOverride: boolean
+  /** Whether monthly auto-charge is enabled for this practice. */
+  autocharge: boolean
+  /** Whether a Stripe card is on file (autocharge can only fire when true). */
+  hasCardOnFile: boolean
 }
 
 const usd = (cents: number) =>
@@ -54,6 +58,8 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [issuing, setIssuing] = useState(false)
+  const [autocharge, setAutocharge] = useState(practice.autocharge)
+  const [settingUpCard, setSettingUpCard] = useState(false)
 
   const markupPct = Math.max(0, (multiple - 1) * 100)
   const usageBillableCents = practice.usageCostCents * multiple
@@ -62,7 +68,9 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
   const marginCents = blendedCents - practice.usageCostCents
 
   const dirty =
-    Math.abs(markupPct - practice.currentMarkupPct) > 0.001 || feeCents !== practice.currentFeeCents
+    Math.abs(markupPct - practice.currentMarkupPct) > 0.001 ||
+    feeCents !== practice.currentFeeCents ||
+    autocharge !== practice.autocharge
 
   async function save() {
     setSaving(true)
@@ -75,6 +83,7 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
           organizationId: practice.id,
           markupPct: Math.round(markupPct * 100) / 100,
           platformFeeCents: feeCents,
+          autocharge,
         }),
       })
       if (!res.ok) {
@@ -83,6 +92,7 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
       }
       practice.currentMarkupPct = markupPct
       practice.currentFeeCents = feeCents
+      practice.autocharge = autocharge
       setSaved(true)
       toast.success(`Saved pricing for ${practice.name}`)
     } catch (err) {
@@ -110,8 +120,27 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
     }
   }
 
+  async function setupCard() {
+    setSettingUpCard(true)
+    try {
+      const res = await fetch('/api/agency/billing-settings/card-setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId: practice.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.url) throw new Error(data.error || 'Failed to start card setup')
+      window.open(data.url, '_blank', 'noopener')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to start card setup')
+    } finally {
+      setSettingUpCard(false)
+    }
+  }
+
   return (
-    <div className="aurea-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:gap-4 sm:py-3.5">
+    <div className="aurea-card flex flex-col gap-3 p-4 sm:py-3.5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-4">
       {/* Practice */}
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 text-[10px] font-semibold text-aurea-ink-2 ring-1 ring-aurea-border">
@@ -179,6 +208,35 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved && !dirty ? <Check className="h-3.5 w-3.5" /> : null}
           {saved && !dirty ? 'Saved' : 'Save'}
         </Button>
+      </div>
+      </div>
+
+      {/* Auto-charge + card on file */}
+      <div className="flex items-center justify-between gap-3 border-t border-aurea-border/60 pt-3">
+        <label className="flex items-center gap-2 text-[12px] text-aurea-ink-2">
+          <input
+            type="checkbox"
+            checked={autocharge}
+            onChange={(e) => setAutocharge(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-aurea-border accent-aurea-primary"
+          />
+          Auto-charge monthly
+          {autocharge && !practice.hasCardOnFile && <span className="text-aurea-amber">· needs a card</span>}
+        </label>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[11px] text-aurea-ink-3">
+            {practice.hasCardOnFile ? 'Card on file' : 'No card on file'}
+          </span>
+          <button
+            type="button"
+            onClick={setupCard}
+            disabled={settingUpCard}
+            className="inline-flex items-center gap-1 text-[12px] font-medium text-aurea-ink-3 transition-colors hover:text-aurea-ink disabled:opacity-50"
+          >
+            {settingUpCard ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {practice.hasCardOnFile ? 'Update card' : 'Set up card'}
+          </button>
+        </div>
       </div>
     </div>
   )

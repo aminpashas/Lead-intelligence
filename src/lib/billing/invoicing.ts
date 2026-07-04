@@ -101,29 +101,40 @@ export async function composeUsageInvoice(
 export async function generateUsageInvoice(
   supabase: SupabaseClient,
   args: { organizationId: string; periodStart: string; periodEnd: string; status?: 'draft' | 'issued' },
-): Promise<{ invoice: ComposedUsageInvoice; error: string | null }> {
+): Promise<{ invoice: ComposedUsageInvoice; id: string | null; error: string | null }> {
   const invoice = await composeUsageInvoice(supabase, args)
-  const { error } = await supabase.from('usage_invoices').upsert(
-    {
-      organization_id: invoice.organizationId,
-      period_start: invoice.periodStart,
-      period_end: invoice.periodEnd,
-      usage_cost_cents: invoice.usageCostCents,
-      usage_billable_cents: invoice.usageBillableCents,
-      platform_fee_cents: invoice.platformFeeCents,
-      total_cents: invoice.totalCents,
-      line_items: invoice.lineItems,
-      status: args.status ?? 'issued',
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'organization_id,period_start,period_end' },
-  )
-  return { invoice, error: error ? error.message : null }
+  const { data, error } = await supabase
+    .from('usage_invoices')
+    .upsert(
+      {
+        organization_id: invoice.organizationId,
+        period_start: invoice.periodStart,
+        period_end: invoice.periodEnd,
+        usage_cost_cents: invoice.usageCostCents,
+        usage_billable_cents: invoice.usageBillableCents,
+        platform_fee_cents: invoice.platformFeeCents,
+        total_cents: invoice.totalCents,
+        line_items: invoice.lineItems,
+        status: args.status ?? 'issued',
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'organization_id,period_start,period_end' },
+    )
+    .select('id')
+    .single()
+  return { invoice, id: (data?.id as string) ?? null, error: error ? error.message : null }
 }
 
-/** First-of-this-month → now, as a default "current month to date" period ('YYYY-MM-DD' strings). */
+/** First-of-this-month → first-of-next-month ('YYYY-MM-DD' strings, end exclusive). */
 export function currentMonthPeriod(now: Date): { periodStart: string; periodEnd: string } {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+  return { periodStart: start.toISOString().slice(0, 10), periodEnd: end.toISOString().slice(0, 10) }
+}
+
+/** The previous whole calendar month ('YYYY-MM-DD', end exclusive) — what the monthly cron bills. */
+export function previousMonthPeriod(now: Date): { periodStart: string; periodEnd: string } {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
   return { periodStart: start.toISOString().slice(0, 10), periodEnd: end.toISOString().slice(0, 10) }
 }
