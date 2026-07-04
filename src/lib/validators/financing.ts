@@ -102,6 +102,15 @@ export const paymentEstimateRequestSchema = z.object({
 
 export type PaymentEstimateRequestInput = z.infer<typeof paymentEstimateRequestSchema>
 
+// ── Collect-All Prequalification Request ────────────────────────
+
+export const prequalRequestSchema = z.object({
+  lead_id: z.string().uuid(),
+  amount: z.number().positive('Amount must be positive').max(250_000, 'Maximum financing amount is $250,000'),
+})
+
+export type PrequalRequestInput = z.infer<typeof prequalRequestSchema>
+
 // ── Webhook Payload Schemas (per lender) ────────────────────────
 
 export const financingWebhookBaseSchema = z.object({
