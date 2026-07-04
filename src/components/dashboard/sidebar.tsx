@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useOrgStore } from '@/lib/store/use-org'
-import { canAccessRoute, ROLE_LABELS, ROLE_COLORS, type PracticeRole } from '@/lib/auth/permissions'
+import { canAccessRoute, isFocusedStaff, ROLE_LABELS, ROLE_COLORS, type PracticeRole } from '@/lib/auth/permissions'
 import {
   LayoutDashboard,
   Users,
@@ -80,6 +80,12 @@ const NAV_GROUPS: NavGroup[] = [
 
 const SETTINGS_ITEM: NavItem = { name: 'Settings', href: '/settings', icon: Settings }
 
+// The browse-the-whole-book surfaces. Hidden from focused (clinical) staff so
+// their nav stays on today's work — they still reach a single patient by opening
+// it from a consult or conversation. These pages also hard-redirect focused
+// staff server-side, so this is the nav mirror of that guard, not the guard.
+const FOCUSED_STAFF_HIDDEN_HREFS = new Set(['/pipeline', '/leads'])
+
 function NavLink({
   item,
   isActive,
@@ -121,9 +127,16 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
 
   // Filter each group by role, then drop any group left with no visible items.
+  // Focused (clinical) staff additionally lose the pipeline kanban and the full
+  // lead book — their nav is the Today-work set.
+  const focused = isFocusedStaff(role)
   const groups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => canAccessRoute(role, item.href)),
+    items: group.items.filter(
+      (item) =>
+        canAccessRoute(role, item.href) &&
+        !(focused && FOCUSED_STAFF_HIDDEN_HREFS.has(item.href))
+    ),
   })).filter((group) => group.items.length > 0)
 
   const canSeeSettings = canAccessRoute(role, SETTINGS_ITEM.href)

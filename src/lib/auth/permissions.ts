@@ -228,6 +228,33 @@ export function isAdminRole(role: PracticeRole | string): boolean {
 }
 
 /**
+ * "Focused" front-desk staff: can view a lead but not work the book at scale
+ * (leads:read without leads:write) — i.e., clinical-only roles (doctor, nurse,
+ * assistant, member). These get the Today dashboard and a curated nav (no
+ * pipeline kanban, no 45k-lead browse) — less overwhelm, smaller PII surface.
+ * Capability-driven so new clinical roles inherit it automatically.
+ */
+export function isFocusedStaff(role: PracticeRole | string): boolean {
+  return hasPermission(role, 'leads:read') && !hasPermission(role, 'leads:write')
+}
+
+/**
+ * Which home dashboard a role sees:
+ *  - 'agency'    → the AI command center (company control room). agency_admin.
+ *  - 'frontdesk' → the Today view (consults, schedule, per-visit prep). Clinical
+ *                  staff (see isFocusedStaff).
+ *  - 'ops'       → the practice ops board (pipeline stages + funnel + booked
+ *                  consults) without campaign/AI powers. Practice admins + TCs.
+ */
+export function dashboardVariant(
+  role: PracticeRole | string
+): 'agency' | 'ops' | 'frontdesk' {
+  if (role === 'agency_admin') return 'agency'
+  if (isFocusedStaff(role)) return 'frontdesk'
+  return 'ops'
+}
+
+/**
  * Privilege ranking for "can actor act on target" decisions (deactivate / change
  * role). Higher wins. Used to stop a practice-level admin from deactivating the
  * practice owner or the overseeing agency_admin, and to protect the last admin.
