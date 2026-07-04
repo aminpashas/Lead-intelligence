@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { FinancingWaterfallTracker } from './financing-waterfall-tracker'
-import { DollarSign, Send, RefreshCw, Copy, Check } from 'lucide-react'
+import { PrequalResults } from './prequal-results'
+import { DollarSign, Send, RefreshCw, Copy, Check, Layers } from 'lucide-react'
 import type { Lead } from '@/types/database'
+import type { LenderPrequalOffer } from '@/lib/financing/prequal-types'
 
 type FinancingAppData = {
   id: string
@@ -68,6 +70,9 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [estimateAmount, setEstimateAmount] = useState(lead.treatment_value?.toString() || '20000')
+  const [prequalOffers, setPrequalOffers] = useState<LenderPrequalOffer[] | null>(null)
+  const [prequalAmount, setPrequalAmount] = useState<number>(0)
+  const [prequalLoading, setPrequalLoading] = useState(false)
 
   // Load existing financing application if one exists
   useEffect(() => {
@@ -100,6 +105,24 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
       }
     } catch { /* silent */ }
     finally { setLoading(false) }
+  }
+
+  async function runPrequal() {
+    const amount = Number(estimateAmount) || 20000
+    setPrequalLoading(true)
+    try {
+      const res = await fetch('/api/financing/prequal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: lead.id, amount }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setPrequalOffers(data.offers || [])
+        setPrequalAmount(amount)
+      }
+    } catch { /* silent */ }
+    finally { setPrequalLoading(false) }
   }
 
   function copyFinancingLink() {
@@ -236,6 +259,16 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
           </div>
         )}
 
+        {/* Stacked prequalification results */}
+        {prequalOffers && prequalOffers.length > 0 && (
+          <PrequalResults treatmentTotal={prequalAmount} offers={prequalOffers} />
+        )}
+        {prequalOffers && prequalOffers.length === 0 && (
+          <p className="text-[11px] leading-tight text-aurea-ink-3">
+            No lender offers returned — check that active lenders are configured for this org.
+          </p>
+        )}
+
         {/* Actions */}
         <div className="flex flex-col gap-2 pt-1">
           {!appData && (
@@ -260,6 +293,11 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
           <Button variant="outline" size="sm" className="w-full" onClick={loadEstimates} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} strokeWidth={1.75} />
             {loading ? 'Loading…' : estimates.length > 0 ? 'Refresh Estimates' : 'Get Payment Estimates'}
+          </Button>
+
+          <Button variant="default" size="sm" className="w-full" onClick={runPrequal} disabled={prequalLoading}>
+            <Layers className={`h-3.5 w-3.5 mr-1.5 ${prequalLoading ? 'animate-pulse' : ''}`} strokeWidth={1.75} />
+            {prequalLoading ? 'Checking all lenders…' : prequalOffers ? 'Re-run Prequalification' : 'Run Prequalification'}
           </Button>
 
           {appData && (
