@@ -7,6 +7,7 @@ import { isFlagEnabled } from '@/lib/org/flags'
 import { isSendAllowed } from '@/lib/messaging/test-allowlist'
 import { recordSmsEstimate } from '@/lib/billing/cost-events'
 import { logger } from '@/lib/logger'
+import { recordAudit } from '@/lib/audit/record'
 
 // TCPA federal quiet hours: no telemarketing before 8am or after 9pm local time.
 const TCPA_START_HOUR = 8
@@ -182,6 +183,24 @@ export async function sendSMSToLead(params: {
       leadId: params.leadId,
     })
   }
+
+  // Audit trail: record the send, distinguishing autonomous autopilot sends from
+  // system/staff sends. Fire-and-forget and never throws — must not affect the send.
+  const isAutopilot = (params.caller ?? '').startsWith('autopilot.')
+  void recordAudit(params.supabase, {
+    organizationId: decision.lead.organization_id,
+    action: 'sms.sent',
+    actor: isAutopilot
+      ? { actorType: 'ai_agent', actorId: null, actorLabel: 'AI Autopilot' }
+      : { actorType: 'system', actorId: null, actorLabel: null },
+    source: 'api_route',
+    resourceType: 'lead',
+    resourceId: params.leadId,
+    ai: isAutopilot
+      ? { autonomous: true, agent_role: 'autopilot', gate: 'autopilot' }
+      : null,
+    metadata: { caller: params.caller ?? null },
+  })
 
   return { sent: true, sid: result.sid, status: result.status }
 }
