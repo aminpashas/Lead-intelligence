@@ -83,9 +83,13 @@ export type ConversationPage = {
  */
 export async function searchConversations(
   config: GhlConfig,
-  params: { contactId?: string; startAfterDate?: string; limit?: number } = {},
+  params: { contactId?: string; startAfterDate?: string; limit?: number; sort?: 'asc' | 'desc' } = {},
 ): Promise<ConversationPage> {
   const limit = params.limit ?? 100
+  // `startAfterDate` is a bidirectional cursor: with sort=asc it returns
+  // conversations NEWER than the date, with sort=desc it returns OLDER ones
+  // (verified against the live API). So the same last-item-date cursor pages
+  // forward (asc = full sweep, oldest-first) or backward (desc = recent-first).
   const data = await ghlFetch<{ conversations?: GhlConversation[] }>(
     conversationsConfig(config),
     '/conversations/search',
@@ -95,7 +99,7 @@ export async function searchConversations(
       limit,
       startAfterDate: params.startAfterDate,
       sortBy: 'last_message_date',
-      sort: 'asc',
+      sort: params.sort ?? 'asc',
     },
   )
   const conversations = data.conversations ?? []
