@@ -138,6 +138,17 @@ export async function POST(request: NextRequest) {
   const routes = await loadActiveRoutes(supabase, orgId)
   const { primary, overflow } = resolveTransferCandidates(routes)
 
+  // No target configured for this moment (e.g. after hours = all-AI) → don't make
+  // the caller wait on hold; let the AI handle everything end to end.
+  if (primary.length === 0 && overflow.length === 0) {
+    await supabase.from('voice_calls').update({ transfer_status: 'none' }).eq('id', call.id)
+    return NextResponse.json({
+      available: false,
+      action: 'wrap_up',
+      say: "I can take care of everything you need right now — let's get you set up.",
+    })
+  }
+
   // Try in-window targets first, then overflow (concierge / answering service).
   let claimedTargetId = await claimTarget(supabase, orgId, primary, call.id as string)
   if (!claimedTargetId && overflow.length > 0) {
