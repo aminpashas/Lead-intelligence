@@ -258,6 +258,183 @@ export async function rollupLeadOutcomes(
   }
 }
 
+// ── Consult rollup (appointments → lead show / no-show / consult dates) ──────
+
+export type AppointmentForConsult = {
+  status: string | null
+  start_at: string | null
+}
+
+export type ConsultOutcome = {
+  consultation_date: string | null   // earliest kept/booked visit
+  consult_completed_at: string | null // earliest 'Checked Out' (they showed)
+  no_show_count: number
+}
+
+/**
+ * Pure aggregation — a lead's CareStack appointments → consult outcome columns.
+ * CareStack statuses seen live: Scheduled, Confirmed, Checked Out, Missed,
+ * Cancelled, Blocked (Blocked never reaches here — no patient). Exported for tests.
+ */
+export function computeConsultOutcome(appts: AppointmentForConsult[]): ConsultOutcome {
+  let consultationDate: string | null = null
+  let consultCompletedAt: string | null = null
+  let noShow = 0
+
+  for (const a of appts) {
+    const s = (a.status ?? '').trim().toLowerCase()
+    if (s === 'cancelled' || s === 'rescheduled' || s === 'blocked') continue
+    if (s === 'missed') { noShow++; continue }
+
+    const when = a.start_at
+    if (when && (consultationDate === null || when < consultationDate)) consultationDate = when
+    if (s === 'checked out' && when && (consultCompletedAt === null || when < consultCompletedAt)) {
+      consultCompletedAt = when
+    }
+  }
+
+  return { consultation_date: consultationDate, consult_completed_at: consultCompletedAt, no_show_count: noShow }
+}
+
+export type ConsultRollupResult = {
+  resource: 'lead_consult_rollup'
+  status: 'success' | 'partial' | 'failed'
+  leads_examined: number
+  leads_updated: number
+  leads_failed?: number
+  dry_run: boolean
+  error?: string
+}
+
+/**
+ * Roll CareStack appointment outcomes onto the matched leads: sets
+ * consultation_date / consult_completed_at / no_show_count so the dashboards'
+ * consult + show-rate metrics stop reading null. Idempotent.
+ */
+export async function rollupConsultOutcomes(
+  supabase: SupabaseClient,
+  organizationId: string,
+  opts: { dryRun?: boolean } = {}
+): Promise<ConsultRollupResult> {
+  const dryRun = !!opts.dryRun
+  try {
+    // 1. patient → lead map (lead-linked only).
+    const patientToLead = new Map<string, string>()
+    const leadIds = new Set<string>()
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .from('patients')
+        .select('id, lead_id')
+        .eq('organization_id', organizationId)
+        .not('lead_id', 'is', null)
+        .range(from, from + 999)
+      if (error) throw new Error(`patients read failed: ${error.message}`)
+      if (!data || data.length === 0) break
+      for (const row of data) {
+        patientToLead.set(row.id as string, row.lead_id as string)
+        leadIds.add(row.lead_id as string)
+      }
+      if (data.length < 1000) break
+    }
+    if (patientToLead.size === 0) {
+      return { resource: 'lead_consult_rollup', status: 'success', leads_examined: 0, leads_updated: 0, dry_run: dryRun }
+    }
+
+    // 2. Page appointments, bucket by lead.
+    const byLead = new Map<string, AppointmentForConsult[]>()
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .from('ehr_appointments')
+        .select('patient_id, status, start_at')
+        .eq('organization_id', organizationId)
+        .range(from, from + 999)
+      if (error) throw new Error(`appointments read failed: ${error.message}`)
+      if (!data || data.length === 0) break
+      for (const row of data) {
+        const leadId = row.patient_id ? patientToLead.get(row.patient_id as string) : undefined
+        if (!leadId) continue
+        const list = byLead.get(leadId) ?? []
+        list.push({ status: (row.status as string) ?? null, start_at: (row.start_at as string) ?? null })
+        byLead.set(leadId, list)
+      }
+      if (data.length < 1000) break
+    }
+
+    // 3. Current lead consult values (write only real changes).
+    const current = new Map<string, { consultation_date: string | null; consult_completed_at: string | null; no_show_count: number; status: string | null }>()
+    const allLeadIds = [...leadIds]
+    for (let i = 0; i < allLeadIds.length; i += 100) {
+      const chunk = allLeadIds.slice(i, i + 100)
+      const { data, error } = await supabase
+        .from('leads')
+        .select('id, consultation_date, consult_completed_at, no_show_count, status')
+        .in('id', chunk)
+      if (error) throw new Error(`leads read failed: ${error.message}`)
+      for (const row of data ?? []) {
+        current.set(row.id as string, {
+          consultation_date: (row.consultation_date as string) ?? null,
+          consult_completed_at: (row.consult_completed_at as string) ?? null,
+          no_show_count: (row.no_show_count as number) ?? 0,
+          status: (row.status as string) ?? null,
+        })
+      }
+    }
+
+    let updated = 0
+    let failed = 0
+    for (const [leadId, appts] of byLead) {
+      const outcome = computeConsultOutcome(appts)
+      if (!outcome.consultation_date && !outcome.consult_completed_at && outcome.no_show_count === 0) continue
+
+      const cur = current.get(leadId)
+      const changed =
+        !cur ||
+        cur.consultation_date !== outcome.consultation_date ||
+        cur.consult_completed_at !== outcome.consult_completed_at ||
+        cur.no_show_count !== outcome.no_show_count
+      if (!changed) continue
+
+      if (dryRun) { updated++; continue }
+
+      const patch: Record<string, unknown> = { no_show_count: outcome.no_show_count }
+      if (outcome.consultation_date && (!cur?.consultation_date || outcome.consultation_date < cur.consultation_date)) {
+        patch.consultation_date = outcome.consultation_date
+      }
+      if (outcome.consult_completed_at && (!cur?.consult_completed_at || outcome.consult_completed_at < cur.consult_completed_at)) {
+        patch.consult_completed_at = outcome.consult_completed_at
+      }
+      // Advance status from an early stage to reflect the real consult outcome.
+      if (EARLY_STATUSES.has(cur?.status ?? null)) {
+        if (outcome.consult_completed_at) patch.status = 'consultation_completed'
+        else if (outcome.no_show_count > 0) patch.status = 'no_show'
+        else if (outcome.consultation_date) patch.status = 'consultation_scheduled'
+      }
+
+      const { error } = await supabase.from('leads').update(patch).eq('id', leadId)
+      if (error) { failed++; continue }
+      updated++
+    }
+
+    return {
+      resource: 'lead_consult_rollup',
+      status: failed > 0 ? 'partial' : 'success',
+      leads_examined: byLead.size,
+      leads_updated: updated,
+      leads_failed: failed,
+      dry_run: dryRun,
+    }
+  } catch (e) {
+    return {
+      resource: 'lead_consult_rollup',
+      status: 'failed',
+      leads_examined: 0,
+      leads_updated: 0,
+      dry_run: dryRun,
+      error: e instanceof Error ? e.message : String(e),
+    }
+  }
+}
+
 function emptyResult(dryRun: boolean): RollupResult {
   return {
     resource: 'lead_revenue_rollup',
