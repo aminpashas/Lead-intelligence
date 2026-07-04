@@ -170,39 +170,50 @@ export async function backfillGhlConversations(
     }
 
     for (const conv of page.conversations) {
-      const lead = await resolveContactLead(supabase, organizationId, config, conv.contactId, contactCache)
-      if (lead) {
-        const thread = await fetchThread(config, conv.id)
-        for (const raw of thread) {
-          const normalized = normalizeGhlMessage(raw)
-          if (!normalized) {
-            skipped += 1
-            continue
-          }
-          if (dryRun) {
-            if (normalized.isCall) calls += 1
-            else inserted += 1
-            affectedLeads.add(lead.id)
-            continue
-          }
-          const result = await persistGhlMessage(supabase, {
-            organizationId,
-            lead,
-            normalized,
-            bumpCounters: false,
-            conversationCache,
-          })
-          if (result.status === 'inserted') {
-            inserted += 1
-            affectedLeads.add(lead.id)
-            if (result.conversationId) affectedConversations.add(result.conversationId)
-          } else if (result.status === 'call_logged') {
-            calls += 1
-            affectedLeads.add(lead.id)
-          } else {
-            skipped += 1
+      // A single conversation that GHL 500s (or any per-conversation failure)
+      // must NOT abort the whole sweep — an uncaught throw here escapes before
+      // the end-of-chunk writeState, so the cursor never advances and every
+      // later run (cron included) re-hits the same poison-pill conversation and
+      // fails identically, freezing the backfill forever. Isolate each one:
+      // skip on error and let the cursor advance past it.
+      try {
+        const lead = await resolveContactLead(supabase, organizationId, config, conv.contactId, contactCache)
+        if (lead) {
+          const thread = await fetchThread(config, conv.id)
+          for (const raw of thread) {
+            const normalized = normalizeGhlMessage(raw)
+            if (!normalized) {
+              skipped += 1
+              continue
+            }
+            if (dryRun) {
+              if (normalized.isCall) calls += 1
+              else inserted += 1
+              affectedLeads.add(lead.id)
+              continue
+            }
+            const result = await persistGhlMessage(supabase, {
+              organizationId,
+              lead,
+              normalized,
+              bumpCounters: false,
+              conversationCache,
+            })
+            if (result.status === 'inserted') {
+              inserted += 1
+              affectedLeads.add(lead.id)
+              if (result.conversationId) affectedConversations.add(result.conversationId)
+            } else if (result.status === 'call_logged') {
+              calls += 1
+              affectedLeads.add(lead.id)
+            } else {
+              skipped += 1
+            }
           }
         }
+      } catch (err) {
+        skipped += 1
+        log(`skip conversation ${conv.id}: ${err instanceof Error ? err.message : String(err)}`)
       }
 
       processed += 1
