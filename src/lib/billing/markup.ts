@@ -11,15 +11,31 @@
 export type BillableService = 'ai' | 'sms' | 'voice' | 'email'
 
 /**
- * Platform default markups (percent). AI carries the highest markup — its raw provider cost is
- * a fraction of a cent while the value it drives is high — and telephony sits lower, closer to
- * a commodity pass-through. Tunable per practice in the agency dashboard.
+ * Platform default markups (percent). House default is a flat 3× re-bill — the practice pays 3×
+ * what we pay the provider — expressed as a 200% markup (billable = cost × (1 + 200/100) = cost × 3).
+ * Applied uniformly across services; overridable per practice via the agency pricing calculator,
+ * which writes `billing_settings.markups`. Keep the vocabularies straight: the field is
+ * markup-over-cost (200), not the multiple (3×).
  */
 export const DEFAULT_MARKUP_PCT: Record<BillableService, number> = {
-  ai: 50,
-  sms: 40,
-  voice: 30,
-  email: 40,
+  ai: 200,
+  sms: 200,
+  voice: 200,
+  email: 200,
+}
+
+/**
+ * House default monthly platform fee per practice, in cents ($1,500/mo). This is the flat retainer
+ * on top of usage — the primary revenue lever — separate from per-event markup. Applied at invoice
+ * aggregation and shown blended in the agency panel; overridable per practice via the pricing
+ * calculator (`billing_settings.platform_fee_cents`). A stored 0 means "no fee" and is respected.
+ */
+export const DEFAULT_PLATFORM_FEE_CENTS = 150_000
+
+/** Resolve a practice's monthly platform fee (cents). A stored non-negative value wins, incl. 0. */
+export function resolvePlatformFeeCents(stored?: number | null): number {
+  if (typeof stored === 'number' && Number.isFinite(stored) && stored >= 0) return stored
+  return DEFAULT_PLATFORM_FEE_CENTS
 }
 
 export type MarkupConfig = {

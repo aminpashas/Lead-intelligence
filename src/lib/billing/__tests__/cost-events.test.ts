@@ -17,8 +17,8 @@ describe('buildSmsCostEvent', () => {
     expect(row.external_id).toBe('SM123')
     expect(row.source_table).toBe('messages')
     expect(row.cost_cents).toBeCloseTo(2 * 1.1, 6) // 2 segments × 1.1¢
-    expect(row.billable_cents).toBeCloseTo(2 * 1.1 * 1.4, 6) // × (1 + 40%)
-    expect(row.markup_pct).toBe(40)
+    expect(row.billable_cents).toBeCloseTo(2 * 1.1 * 3, 6) // × (1 + 200%) = 3× cost
+    expect(row.markup_pct).toBe(200)
     expect(row.metadata).toMatchObject({ lead_id: 'lead-9' })
   })
 
@@ -33,7 +33,7 @@ describe('buildSmsCostEvent', () => {
     expect(row.status).toBe('final')
     expect(row.quantity).toBe(1)
     expect(row.cost_cents).toBeCloseTo(0.79, 6)
-    expect(row.billable_cents).toBeCloseTo(0.79 * 1.4, 6)
+    expect(row.billable_cents).toBeCloseTo(0.79 * 3, 6)
   })
 
   it('honors a per-practice markup override', () => {
@@ -64,7 +64,7 @@ describe('buildVoiceCostEvent', () => {
     expect(row.unit).toBe('seconds')
     expect(row.source_table).toBe('voice_calls')
     expect(row.cost_cents).toBe(15)
-    expect(row.billable_cents).toBeCloseTo(15 * 1.3, 6) // 30% voice markup
-    expect(row.markup_pct).toBe(30)
+    expect(row.billable_cents).toBeCloseTo(15 * 3, 6) // 200% voice markup = 3× cost
+    expect(row.markup_pct).toBe(200)
   })
 })
