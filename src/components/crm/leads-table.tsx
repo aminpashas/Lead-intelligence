@@ -24,6 +24,7 @@ import { TagBadgeList } from './tag-badge'
 import { formatCampaignAttribution } from '@/lib/attribution'
 import type { Lead, PipelineStage, Tag } from '@/types/database'
 import { LeadActions } from './lead-actions'
+import { LEAD_DATE_RANGES } from '@/lib/leads/date-range'
 import { useState } from 'react'
 
 // Lead qualification chips — monochrome editorial palette
@@ -47,6 +48,16 @@ const SERVICE_OPTIONS = [
 
 type Facet = { value: string; count: number }
 
+// Credit buckets stored on the lead (CreditRange). Titles the raw enum values
+// for the dropdown; unknown values fall back to a capitalized display.
+const CREDIT_LABELS: Record<string, string> = {
+  excellent: 'Excellent',
+  good: 'Good',
+  fair: 'Fair',
+  rebuilding: 'Rebuilding',
+  unknown: 'Unknown',
+}
+
 export function LeadsTable({
   leads,
   stages,
@@ -57,6 +68,7 @@ export function LeadsTable({
   leadTagsMap,
   sourceFacets,
   campaignFacets,
+  creditFacets,
 }: {
   leads: Lead[]
   stages: PipelineStage[]
@@ -67,6 +79,7 @@ export function LeadsTable({
   leadTagsMap?: Record<string, Tag[]>
   sourceFacets?: Facet[]
   campaignFacets?: Facet[]
+  creditFacets?: Facet[]
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -140,6 +153,24 @@ export function LeadsTable({
             className="pl-9"
           />
         </div>
+
+        {/* Date range — filters on created_at (calendar days, practice tz) */}
+        <Select
+          value={searchParams.get('range') || 'all'}
+          onValueChange={(v) => updateFilters('range', v)}
+        >
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Date" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Any Time</SelectItem>
+            {LEAD_DATE_RANGES.map((r) => (
+              <SelectItem key={r.value} value={r.value}>
+                {r.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Select
           value={searchParams.get('qualification') || 'all'}
@@ -215,6 +246,28 @@ export function LeadsTable({
           </Select>
         )}
 
+        {/* Credit range — facet-gated: hidden until discovery captures credit
+            data (empty across the imported book today). */}
+        {creditFacets && creditFacets.length > 0 && (
+          <Select
+            value={searchParams.get('credit') || 'all'}
+            onValueChange={(v) => updateFilters('credit', v)}
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Credit" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any Credit</SelectItem>
+              {creditFacets.map((f) => (
+                <SelectItem key={f.value} value={f.value}>
+                  {CREDIT_LABELS[f.value] ?? f.value}
+                  <span className="ml-1 text-aurea-ink-3">({f.count.toLocaleString()})</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
         {/* Campaign */}
         {campaignFacets && campaignFacets.length > 0 && (
           <Select
@@ -277,7 +330,7 @@ export function LeadsTable({
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Tags</TableHead>
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Condition</TableHead>
               <TableHead className="aurea-eyebrow text-aurea-ink-3">Source</TableHead>
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Activity</TableHead>
+              <SortableHead label="Activity" sortKey="activity" />
               <SortableHead label="Value" sortKey="value" />
               <SortableHead label="Created" sortKey="created" />
               <TableHead className="aurea-eyebrow text-aurea-ink-3 text-right">Actions</TableHead>

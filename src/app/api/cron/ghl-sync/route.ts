@@ -1,21 +1,30 @@
 /**
- * GoHighLevel → Lead Intelligence incremental sync — every 15 minutes.
+ * GoHighLevel -> Lead Intelligence stage reconciliation — nightly.
  *
- * For every org with a GHL connector configured AND enabled, pull the
- * location's opportunities into LI leads (idempotent + incremental). Each org
- * is isolated: one org's failure is recorded and the loop continues.
+ * For every org with a GHL connector configured, enabled, AND set to GHL stage
+ * authority (settings.stage_authority = 'ghl'), re-map every opportunity across
+ * the location's pipelines and correct the matching LI lead's stage / DND. GHL
+ * is the source of truth for pipeline position; the DGS bridge remains the
+ * source of truth for lead CREATION (this pass never creates leads).
  *
- * Vercel cron: every 15 min. Heartbeats to cron_runs via withCron.
+ * Orgs on the default 'li' authority are skipped — once you operate the pipeline
+ * inside LI, GHL must not stomp your moves.
+ *
+ * Vercel cron: daily. A full sweep is heavy (all pipelines, all opportunities),
+ * so it runs once a day rather than every 15 minutes.
  */
 
 import { withCron } from '@/lib/cron/with-cron'
 import { getGhlConfig } from '@/lib/ghl/client'
-import { syncGhlLeads } from '@/lib/ghl/sync'
-import type { GhlSyncResult } from '@/lib/ghl/types'
+import { reconcileGhlStages } from '@/lib/ghl/reconcile'
+import type { ReconcileReport } from '@/lib/ghl/reconcile'
+
+/** The reconcile sweep can take minutes; give the function room. */
+export const maxDuration = 300
 
 type OrgRunResult =
-  | ({ organization_id: string } & GhlSyncResult)
-  | { organization_id: string; status: 'failed'; error: string }
+  | ({ organization_id: string } & ReconcileReport)
+  | { organization_id: string; status: 'skipped' | 'failed'; reason: string }
 
 export const POST = withCron('ghl-sync', async ({ supabase }) => {
   const { data: orgs } = await supabase
@@ -33,22 +42,27 @@ export const POST = withCron('ghl-sync', async ({ supabase }) => {
   for (const org of orgs as Array<{ organization_id: string }>) {
     const config = await getGhlConfig(supabase, org.organization_id)
     if (!config) {
-      results.push({ organization_id: org.organization_id, status: 'failed', error: 'config_invalid' })
+      results.push({ organization_id: org.organization_id, status: 'failed', reason: 'config_invalid' })
+      continue
+    }
+    // GHL authority only — leave LI-owned pipelines untouched.
+    if (config.stageAuthority !== 'ghl') {
+      results.push({ organization_id: org.organization_id, status: 'skipped', reason: 'authority_li' })
       continue
     }
     try {
-      const r = await syncGhlLeads(supabase, org.organization_id, config)
+      const r = await reconcileGhlStages(supabase, org.organization_id, config)
       results.push({ organization_id: org.organization_id, ...r })
     } catch (err) {
       results.push({
         organization_id: org.organization_id,
         status: 'failed',
-        error: err instanceof Error ? err.message : 'sync_failed',
+        reason: err instanceof Error ? err.message : 'reconcile_failed',
       })
     }
   }
 
-  const items = results.reduce((n, r) => n + ('inserted' in r ? r.inserted : 0), 0)
+  const items = results.reduce((n, r) => n + ('stageChanges' in r ? r.stageChanges : 0), 0)
   return { items, data: { orgs: results.length, results } }
 })
 

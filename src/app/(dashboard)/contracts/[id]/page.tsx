@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Send, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Loader2, Mail, MessageSquare, RefreshCw, Send, XCircle } from 'lucide-react'
 import type { PatientContract, RenderedContractSection, ContractEvent } from '@/types/database'
+
+type Channel = 'email' | 'sms'
 
 type Payload = {
   contract: PatientContract
@@ -37,6 +39,7 @@ function ContractReviewContent({ id }: { id: string }) {
   const [sending, setSending] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [edits, setEdits] = useState<Record<string, string>>({})
+  const [channels, setChannels] = useState<Channel[]>(['email'])
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/contracts/${id}`)
@@ -79,23 +82,41 @@ function ContractReviewContent({ id }: { id: string }) {
 
   const approveAndSend = async () => {
     if (!contract) return
-    setApproving(true)
-    const approve = await fetch(`/api/contracts/${id}/approve`, { method: 'POST' })
-    setApproving(false)
-    if (!approve.ok) {
-      const err = await approve.json().catch(() => ({}))
-      toast.error(err.error ?? 'Approve failed')
+    if (channels.length === 0) {
+      toast.error('Select at least one channel')
       return
+    }
+    const needsApproval = ['pending_review', 'changes_requested'].includes(contract.status)
+    if (needsApproval) {
+      setApproving(true)
+      const approve = await fetch(`/api/contracts/${id}/approve`, { method: 'POST' })
+      setApproving(false)
+      if (!approve.ok) {
+        const err = await approve.json().catch(() => ({}))
+        toast.error(err.error ?? 'Approve failed')
+        return
+      }
     }
     setSending(true)
-    const send = await fetch(`/api/contracts/${id}/send`, { method: 'POST' })
+    const send = await fetch(`/api/contracts/${id}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channels }),
+    })
     setSending(false)
+    const result = await send.json().catch(() => ({}))
     if (!send.ok) {
-      const err = await send.json().catch(() => ({}))
-      toast.error(err.error ?? 'Send failed')
+      toast.error(result.error ?? 'Send failed')
       return
     }
-    toast.success('Contract approved and sent to patient')
+    // Partial success: some channels delivered, others were refused (e.g. no SMS consent).
+    const delivered: Channel[] = result.sent ?? channels
+    const label = delivered.map((c: Channel) => (c === 'sms' ? 'text' : 'email')).join(' + ')
+    toast.success(`Contract sent to patient via ${label}`)
+    const failed = Object.entries((result.errors ?? {}) as Record<string, string>)
+    for (const [ch, msg] of failed) {
+      toast.warning(`${ch === 'sms' ? 'Text' : 'Email'}: ${msg}`)
+    }
     await load()
   }
 
@@ -278,14 +299,52 @@ function ContractReviewContent({ id }: { id: string }) {
             <h2 className="aurea-display text-[18px] text-aurea-ink">Actions</h2>
           </div>
           <div className="space-y-2 px-5 py-4">
+            {canApprove && ['pending_review', 'changes_requested', 'sent', 'viewed'].includes(contract.status) && (
+              (() => {
+                const hasEmail = !!data.case?.patient_email
+                const hasPhone = !!data.case?.patient_phone
+                const toggle = (ch: Channel) =>
+                  setChannels((prev) =>
+                    prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch]
+                  )
+                const chip = (ch: Channel, enabled: boolean, Icon: typeof Mail, text: string) => (
+                  <button
+                    type="button"
+                    disabled={!enabled}
+                    onClick={() => toggle(ch)}
+                    className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+                      channels.includes(ch)
+                        ? 'border-aurea-primary/30 bg-aurea-primary/10 text-aurea-primary'
+                        : 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-3 hover:text-aurea-ink-2'
+                    } ${enabled ? '' : 'cursor-not-allowed opacity-40'}`}
+                  >
+                    <Icon className="h-3.5 w-3.5" strokeWidth={1.75} /> {text}
+                  </button>
+                )
+                return (
+                  <div>
+                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-aurea-ink-3">
+                      Deliver via
+                    </p>
+                    <div className="flex gap-2">
+                      {chip('email', hasEmail, Mail, 'Email')}
+                      {chip('sms', hasPhone, MessageSquare, 'Text')}
+                    </div>
+                    {!hasPhone && (
+                      <p className="mt-1.5 text-[11px] text-aurea-ink-3">No phone on file for texting.</p>
+                    )}
+                  </div>
+                )
+              })()
+            )}
             {canApprove && ['pending_review', 'changes_requested'].includes(contract.status) && (
-              <Button onClick={approveAndSend} disabled={approving || sending} className="w-full">
+              <Button onClick={approveAndSend} disabled={approving || sending || channels.length === 0} className="w-full">
                 {approving || sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" strokeWidth={1.75} />}
                 Approve &amp; Send
               </Button>
             )}
             {canApprove && ['sent', 'viewed'].includes(contract.status) && (
-              <Button onClick={approveAndSend} variant="outline" disabled={sending} className="w-full">
+              <Button onClick={approveAndSend} variant="outline" disabled={sending || channels.length === 0} className="w-full">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" strokeWidth={1.75} />}
                 Resend link
               </Button>

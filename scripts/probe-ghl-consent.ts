@@ -64,7 +64,7 @@ async function main() {
 
   // Sample a handful of opportunities to get real contact ids.
   const pipelines = await fetchPipelines(config)
-  const opps = await searchOpportunities(config, { pipelineId: pipelines[0]?.id ?? '', page: 1 })
+  const { opportunities: opps } = await searchOpportunities(config, { pipelineId: pipelines[0]?.id ?? '' })
   console.log(`\nfetched ${opps.length} opportunities (page 1)`)
   if (opps.length) {
     console.log('opportunity top-level keys:', Object.keys(opps[0] as Record<string, unknown>).sort().join(', '))

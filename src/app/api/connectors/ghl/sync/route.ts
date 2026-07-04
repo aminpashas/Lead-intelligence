@@ -13,7 +13,7 @@ import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { requireAgencyClientOrg } from '@/lib/auth/active-org'
 import { getGhlConfig } from '@/lib/ghl/client'
-import { syncGhlLeads } from '@/lib/ghl/sync'
+import { reconcileGhlStages } from '@/lib/ghl/reconcile'
 
 export async function POST(request: NextRequest) {
   const rlError = applyRateLimit(request, RATE_LIMITS.api)
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await syncGhlLeads(service, orgId, config)
+    const result = await reconcileGhlStages(service, orgId, config)
     return NextResponse.json({ result })
   } catch (err) {
     return NextResponse.json(

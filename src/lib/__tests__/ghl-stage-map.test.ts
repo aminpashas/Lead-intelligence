@@ -14,95 +14,97 @@ describe('slugifyStageName', () => {
   })
 })
 
-// ── Mock supabase tailored for ensureStageMapping ────────────────────
+// ── Mock supabase tailored for ensureStageMapping (read-only) ────────
 // from('pipeline_stages').select(...).eq(...)  → { data: existing }
-// from('pipeline_stages').insert(rows).select() → { data: inserted }
+// insert() must never be called — map-only. If it is, the test fails loudly.
 function mockSupabase(
   existing: Array<{ id: string; slug: string; position: number | null }>,
 ) {
-  const calls: { inserted: Array<{ slug: string }> | null } = { inserted: null }
+  const insert = vi.fn(() => {
+    throw new Error('ensureStageMapping must not insert — LI owns the pipeline')
+  })
   function builder() {
-    let op: 'select' | 'insert' = 'select'
-    let insertRows: Array<{ slug: string }> = []
     const chain = {
       select: vi.fn(() => chain),
       eq: vi.fn(() => chain),
-      insert: vi.fn((rows: Array<{ slug: string }>) => {
-        op = 'insert'
-        insertRows = rows
-        calls.inserted = rows
-        return chain
-      }),
-      then: (resolve: (v: unknown) => void) => {
-        if (op === 'insert') {
-          resolve({ data: insertRows.map((r) => ({ id: `new-${r.slug}`, slug: r.slug })), error: null })
-        } else {
-          resolve({ data: existing, error: null })
-        }
-      },
+      insert,
+      then: (resolve: (v: unknown) => void) => resolve({ data: existing, error: null }),
     }
     return chain
   }
   return {
     api: { from: vi.fn(() => builder()) } as never,
-    calls,
+    insert,
   }
 }
 
 const ORG = 'org-1'
 
-describe('ensureStageMapping', () => {
-  it('reuses an existing stage by matching slug, creates only the missing ones', async () => {
-    const { api, calls } = mockSupabase([{ id: 'stage-new', slug: 'new', position: 0 }])
+describe('ensureStageMapping (map-only, LI owns the pipeline)', () => {
+  it('maps a GHL stage onto the matching LI slug', async () => {
+    const { api, insert } = mockSupabase([
+      { id: 'stage-new', slug: 'new', position: 0 },
+      { id: 'stage-booked', slug: 'booked', position: 1 },
+    ])
     const pipeline: GhlPipeline = {
       id: 'p1',
       name: 'Sales',
       stages: [
-        { id: 'g-new', name: 'New' }, // matches existing slug 'new' → reuse
-        { id: 'g-booked', name: 'Booked' }, // missing → create
+        { id: 'g-new', name: 'New' },
+        { id: 'g-booked', name: 'Booked' },
       ],
     }
 
     const map = await ensureStageMapping(api, ORG, pipeline)
 
     expect(map['g-new']).toBe('stage-new')
-    expect(map['g-booked']).toBe('new-booked')
-    // only the genuinely-missing stage was inserted
-    expect(calls.inserted).toHaveLength(1)
-    expect(calls.inserted?.[0].slug).toBe('booked')
+    expect(map['g-booked']).toBe('stage-booked')
+    expect(insert).not.toHaveBeenCalled()
   })
 
-  it('appends new stages after the current max position', async () => {
-    const { api } = mockSupabase([{ id: 's1', slug: 'a', position: 5 }])
+  it('routes unrecognized GHL stages onto the intake column (lowest position)', async () => {
+    const { api, insert } = mockSupabase([
+      { id: 'stage-intake', slug: 'new', position: 0 },
+      { id: 'stage-mid', slug: 'qualified', position: 2 },
+    ])
     const pipeline: GhlPipeline = {
       id: 'p1',
       name: 'P',
-      stages: [{ id: 'g1', name: 'Brand New Stage' }],
+      stages: [
+        { id: 'g1', name: 'Brand New Stage' }, // no slug match → intake
+        { id: 'g2', name: '2nd Attempt' }, // no slug match → intake
+        { id: 'g3', name: 'Qualified' }, // matches → stage-mid
+      ],
     }
-    await ensureStageMapping(api, ORG, pipeline)
-    // position assertion is implicit via insert; the mapping must still resolve
+
     const map = await ensureStageMapping(api, ORG, pipeline)
-    expect(map['g1']).toBe('new-brand-new-stage')
+
+    expect(map['g1']).toBe('stage-intake')
+    expect(map['g2']).toBe('stage-intake')
+    expect(map['g3']).toBe('stage-mid')
+    expect(insert).not.toHaveBeenCalled()
   })
 
-  it('skips blank-named stages', async () => {
-    const { api, calls } = mockSupabase([])
+  it('routes blank-named stages onto the intake column too', async () => {
+    const { api } = mockSupabase([{ id: 'stage-intake', slug: 'new', position: 0 }])
     const pipeline: GhlPipeline = {
       id: 'p1',
       name: 'P',
       stages: [
         { id: 'g-blank', name: '   ' },
-        { id: 'g-real', name: 'Real' },
+        { id: 'g-real', name: 'New' },
       ],
     }
     const map = await ensureStageMapping(api, ORG, pipeline)
-    expect(map['g-blank']).toBeUndefined()
-    expect(map['g-real']).toBe('new-real')
-    expect(calls.inserted).toHaveLength(1)
+    expect(map['g-blank']).toBe('stage-intake')
+    expect(map['g-real']).toBe('stage-intake')
   })
 
   it('collapses two GHL stages with the same slug onto one LI stage', async () => {
-    const { api, calls } = mockSupabase([])
+    const { api } = mockSupabase([
+      { id: 'stage-intake', slug: 'new', position: 0 },
+      { id: 'stage-follow', slug: 'follow-up', position: 3 },
+    ])
     const pipeline: GhlPipeline = {
       id: 'p1',
       name: 'P',
@@ -112,13 +114,12 @@ describe('ensureStageMapping', () => {
       ],
     }
     const map = await ensureStageMapping(api, ORG, pipeline)
-    expect(map['g1']).toBe('new-follow-up')
-    expect(map['g2']).toBe('new-follow-up')
-    expect(calls.inserted).toHaveLength(1) // created once
+    expect(map['g1']).toBe('stage-follow')
+    expect(map['g2']).toBe('stage-follow')
   })
 
   it('returns empty map for a pipeline with no stages', async () => {
-    const { api } = mockSupabase([])
+    const { api } = mockSupabase([{ id: 'stage-intake', slug: 'new', position: 0 }])
     const map = await ensureStageMapping(api, ORG, { id: 'p', name: 'P', stages: [] })
     expect(map).toEqual({})
   })

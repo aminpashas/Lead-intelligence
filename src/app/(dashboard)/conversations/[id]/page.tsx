@@ -25,6 +25,16 @@ export default async function ConversationDetailPage({
     .eq('conversation_id', id)
     .order('created_at', { ascending: true })
 
+  // Completed calls for this conversation — rendered as transcript cards in the
+  // timeline. Active calls (ended_at null) are handled live by the client panel,
+  // so we only pull finished ones here to avoid double-rendering.
+  const { data: calls } = await supabase
+    .from('voice_calls')
+    .select('*')
+    .eq('conversation_id', id)
+    .not('ended_at', 'is', null)
+    .order('created_at', { ascending: true })
+
   // Mark as read
   await supabase
     .from('conversations')
@@ -36,6 +46,7 @@ export default async function ConversationDetailPage({
       lead={decryptLeadPII(conversation.lead as Record<string, unknown>) as any}
       conversation={conversation}
       messages={messages || []}
+      calls={calls || []}
     />
   )
 }

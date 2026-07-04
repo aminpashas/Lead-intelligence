@@ -29,11 +29,12 @@ import {
   MessageSquare,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Conversation, Message, Lead, AgentType } from '@/types/database'
+import type { Conversation, Message, Lead, AgentType, VoiceCall } from '@/types/database'
 import { AgentIndicator, AgentMessageLabel } from './agent-indicator'
 import { AIModeToggle } from './ai-mode-toggle'
 import { LeadActions } from './lead-actions'
 import { LiveCallIndicator, LiveCallPanel } from './live-call-panel'
+import { CallCard } from './call-card'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
 
 // ── Thread shaping ──────────────────────────────────────────
@@ -44,12 +45,26 @@ const GROUP_WINDOW_MS = 8 * 60 * 1000
 type ThreadItem =
   | { type: 'day'; key: string; label: string }
   | { type: 'group'; key: string; messages: Message[] }
+  | { type: 'call'; key: string; call: VoiceCall }
 
 function agentOf(msg: Message): string {
   return ((msg.metadata as Record<string, string> | null)?.agent) || ''
 }
 
-function buildThread(messages: Message[]): ThreadItem[] {
+// A completed call sits in the timeline at the moment it ended.
+function callTime(call: VoiceCall): number {
+  return new Date(call.ended_at || call.started_at || call.created_at).getTime()
+}
+
+function buildThread(messages: Message[], calls: VoiceCall[]): ThreadItem[] {
+  // Interleave messages and finished calls into one time-ordered stream. Calls
+  // are standalone cards, so they break any in-progress message group.
+  type Ev = { t: number; msg?: Message; call?: VoiceCall }
+  const events: Ev[] = [
+    ...messages.map((m) => ({ t: new Date(m.created_at).getTime(), msg: m })),
+    ...calls.map((c) => ({ t: callTime(c), call: c })),
+  ].sort((a, b) => a.t - b.t)
+
   const items: ThreadItem[] = []
   let group: Message[] = []
   let lastDay = ''
@@ -61,8 +76,8 @@ function buildThread(messages: Message[]): ThreadItem[] {
     }
   }
 
-  for (const msg of messages) {
-    const d = new Date(msg.created_at)
+  for (const ev of events) {
+    const d = new Date(ev.t)
     const day = format(d, 'yyyy-MM-dd')
     if (day !== lastDay) {
       flush()
@@ -73,6 +88,14 @@ function buildThread(messages: Message[]): ThreadItem[] {
       })
       lastDay = day
     }
+
+    if (ev.call) {
+      flush()
+      items.push({ type: 'call', key: `call-${ev.call.id}`, call: ev.call })
+      continue
+    }
+
+    const msg = ev.msg!
     const prev = group[group.length - 1]
     const continues =
       prev &&
@@ -91,10 +114,12 @@ export function ConversationThread({
   lead,
   conversation,
   messages: initialMessages,
+  calls = [],
 }: {
   lead: Lead
   conversation: Conversation
   messages: Message[]
+  calls?: VoiceCall[]
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
@@ -261,7 +286,7 @@ export function ConversationThread({
     }
   }
 
-  const thread = buildThread(messages)
+  const thread = buildThread(messages, calls)
   const initials = `${lead.first_name?.[0] ?? ''}${lead.last_name?.[0] ?? ''}`.toUpperCase() || '?'
   const smsSegments = Math.max(1, Math.ceil(draft.length / 160))
 
@@ -368,12 +393,14 @@ export function ConversationThread({
                 <span className="aurea-eyebrow">{item.label}</span>
                 <div className="h-px flex-1 bg-aurea-border" />
               </div>
+            ) : item.type === 'call' ? (
+              <CallCard key={item.key} call={item.call} />
             ) : (
               <MessageGroup key={item.key} messages={item.messages} lead={lead} />
             )
           )}
 
-          {messages.length === 0 && live.status === 'idle' && (
+          {messages.length === 0 && calls.length === 0 && live.status === 'idle' && (
             <div className="flex flex-col items-center py-16 text-center">
               <MessageSquare className="mb-3 h-7 w-7 text-aurea-ink-3" strokeWidth={1.5} />
               <p className="text-[14px] font-medium text-aurea-ink">No messages yet</p>

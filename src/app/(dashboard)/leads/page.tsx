@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
+import { resolveLeadDateRange } from '@/lib/leads/date-range'
 
 // Service-line filter: new ad leads carry custom_fields.treatment_interest +
 // a tags entry, but the historical book (45k GHL/WhatConverts imports) is only
@@ -27,6 +28,10 @@ const SORT_COLUMNS: Record<string, string> = {
   score: 'ai_score',
   value: 'treatment_value',
   created: 'created_at',
+  // engagement_score is the purpose-built activity metric (message volume +
+  // responsiveness). Populated once a lead is actually worked; today the 45k
+  // imported book is all zeros, so this sort is dormant but correct.
+  activity: 'engagement_score',
 }
 
 export default async function LeadsPage({
@@ -66,6 +71,17 @@ export default async function LeadsPage({
   }
   if (params.source) {
     query = query.eq('source_type', params.source)
+  }
+  if (params.credit) {
+    query = query.eq('credit_range', params.credit)
+  }
+  if (params.range) {
+    // Calendar-day windows in the practice tz (see lib/leads/date-range).
+    const bounds = resolveLeadDateRange(params.range)
+    if (bounds) {
+      query = query.gte('created_at', bounds.gte)
+      if (bounds.lt) query = query.lt('created_at', bounds.lt)
+    }
   }
   if (params.campaign) {
     // Campaign names contain commas/brackets — PostgREST needs them quoted
@@ -160,6 +176,9 @@ export default async function LeadsPage({
   const { data: facets } = await supabase.rpc('leads_filter_facets', { p_org: orgId })
   const sourceFacets = (facets?.source_types ?? []) as { value: string; count: number }[]
   const campaignFacets = (facets?.campaigns ?? []) as { value: string; count: number }[]
+  // Credit buckets only appear once discovery captures them — empty today, so
+  // the dropdown stays hidden (facet-gated in the table, like source/campaign).
+  const creditFacets = (facets?.credit_ranges ?? []) as { value: string; count: number }[]
 
   // Fetch all tags for the filter dropdown
   const { data: allTags } = await supabase
@@ -213,6 +232,7 @@ export default async function LeadsPage({
         leadTagsMap={leadTagsMap}
         sourceFacets={sourceFacets}
         campaignFacets={campaignFacets}
+        creditFacets={creditFacets}
       />
     </div>
   )
