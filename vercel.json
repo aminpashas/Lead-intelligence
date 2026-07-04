@@ -42,7 +42,7 @@
     },
     {
       "path": "/api/cron/ghl-sync",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/windsor-sync",
