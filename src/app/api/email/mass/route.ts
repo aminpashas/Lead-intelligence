@@ -14,6 +14,7 @@ import { emailCampaignGate, logUnconsentedEmailSend } from '@/lib/consent/gate'
 import { appendEmailFooter, getUnsubscribeHeaders } from '@/lib/messaging/email-footer'
 import { getOrgPostalAddress } from '@/lib/content/practice-assets'
 import { assertActiveSubscription } from '@/lib/auth/entitlement'
+import { recordAudit } from '@/lib/audit/record'
 
 const massEmailSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
@@ -307,6 +308,26 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', campaign.id)
   }
+
+  // Audit trail: one summary event per mass-send request (not per-recipient).
+  // A human with mass_email:write clicked send, so this is a non-autonomous user action.
+  void recordAudit(supabase, {
+    organizationId: orgId,
+    action: 'email.mass_sent',
+    actor: { actorType: 'user', actorId: profile.id, actorLabel: profile.full_name ?? null },
+    source: 'api_route',
+    resourceType: 'campaign',
+    resourceId: campaign?.id ?? null,
+    ai: { autonomous: false, approved_by: profile.id },
+    metadata: {
+      recipient_count: results.sent,
+      total_targeted: results.total,
+      failed: results.failed,
+      skipped: results.skipped,
+      smart_list_id: smart_list_id ?? null,
+      allow_unconsented_email,
+    },
+  })
 
   // Persist the response so a duplicate retry returns it instead of re-sending.
   if (idempotencyKey) {

@@ -25,6 +25,7 @@ import { TagBadge } from './tag-badge'
 import { channelLabel } from '@/lib/attribution'
 import { TagSelector } from './tag-selector'
 import { PersonalityProfileCard } from './personality-profile-card'
+import { AuditTimeline } from '@/components/audit/AuditTimeline'
 import {
   ArrowLeft,
   Brain,
@@ -359,7 +360,7 @@ export function LeadDetail({
               )}
             </TabsContent>
 
-            <TabsContent value="activity" className="mt-4">
+            <TabsContent value="activity" className="mt-4 space-y-4">
               <div className="aurea-card overflow-hidden">
                 {activities.map((act, i) => (
                   <div
@@ -378,6 +379,12 @@ export function LeadDetail({
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Full audit trail — every action taken on this lead, by staff and by AI */}
+              <div>
+                <h3 className="aurea-display mb-2 text-[16px] text-aurea-ink">Audit trail</h3>
+                <AuditTimeline query={`resourceType=leads&resourceId=${lead.id}`} />
               </div>
             </TabsContent>
           </Tabs>

@@ -19,6 +19,7 @@ import { createOutboundCall, type RetellCallResponse } from './retell-client'
 import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/lib/consent/gate'
 import { decryptField } from '@/lib/encryption'
 import { logger } from '@/lib/logger'
+import { recordAudit } from '@/lib/audit/record'
 
 export type OutboundToLeadResult =
   | { placed: true; call: RetellCallResponse }
@@ -138,6 +139,18 @@ export async function placeOutboundCallToLead(
         metadata: { caller: params.caller, retell_call_id: call.call_id },
       })
     }
+
+    // Audit trail: best-effort, fire-and-forget — never blocks or alters the call result.
+    void recordAudit(params.supabase, {
+      organizationId: params.organizationId,
+      action: 'call.placed',
+      actor: { actorType: 'ai_agent', actorId: null, actorLabel: 'AI Voice Agent' },
+      source: 'cron',
+      resourceType: 'lead',
+      resourceId: params.leadId,
+      ai: { autonomous: true, agent_role: 'voice', model: agentId },
+      metadata: { caller: params.caller, retell_call_id: call.call_id ?? null },
+    })
 
     return { placed: true, call }
   } catch (err) {
