@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { computeLeadOutcome, type ProcedureForRollup } from '@/lib/ehr/carestack/rollup'
+import {
+  computeLeadOutcome,
+  computeConsultOutcome,
+  type ProcedureForRollup,
+  type AppointmentForConsult,
+} from '@/lib/ehr/carestack/rollup'
+
+function appt(o: Partial<AppointmentForConsult>): AppointmentForConsult {
+  return { status: 'Scheduled', start_at: null, ...o }
+}
 
 function proc(o: Partial<ProcedureForRollup>): ProcedureForRollup {
   return {
@@ -59,5 +68,45 @@ describe('computeLeadOutcome', () => {
     ])
     expect(r.treatment_value).toBe(0)
     expect(r.actual_revenue).toBe(0)
+  })
+})
+
+describe('computeConsultOutcome', () => {
+  it('sets consult_completed_at (and consultation_date) from a Checked Out visit', () => {
+    const r = computeConsultOutcome([appt({ status: 'Checked Out', start_at: '2026-05-01T17:00:00Z' })])
+    expect(r.consult_completed_at).toBe('2026-05-01T17:00:00Z')
+    expect(r.consultation_date).toBe('2026-05-01T17:00:00Z')
+    expect(r.no_show_count).toBe(0)
+  })
+
+  it('counts Missed as a no-show and does not set it as the consultation date', () => {
+    const r = computeConsultOutcome([appt({ status: 'Missed', start_at: '2026-04-01T17:00:00Z' })])
+    expect(r.no_show_count).toBe(1)
+    expect(r.consultation_date).toBeNull()
+    expect(r.consult_completed_at).toBeNull()
+  })
+
+  it('ignores Cancelled / Blocked / Rescheduled', () => {
+    const r = computeConsultOutcome([
+      appt({ status: 'Cancelled', start_at: '2026-01-01T00:00:00Z' }),
+      appt({ status: 'Blocked', start_at: '2026-01-02T00:00:00Z' }),
+      appt({ status: 'Rescheduled', start_at: '2026-01-03T00:00:00Z' }),
+    ])
+    expect(r).toEqual({ consultation_date: null, consult_completed_at: null, no_show_count: 0 })
+  })
+
+  it('takes the earliest kept visit as consultation_date and earliest Checked Out as completed', () => {
+    const r = computeConsultOutcome([
+      appt({ status: 'Checked Out', start_at: '2026-06-10T00:00:00Z' }),
+      appt({ status: 'Scheduled', start_at: '2026-03-05T00:00:00Z' }),
+      appt({ status: 'Checked Out', start_at: '2026-04-20T00:00:00Z' }),
+    ])
+    expect(r.consultation_date).toBe('2026-03-05T00:00:00Z')
+    expect(r.consult_completed_at).toBe('2026-04-20T00:00:00Z')
+  })
+
+  it('is case-insensitive on status', () => {
+    const r = computeConsultOutcome([appt({ status: 'checked out', start_at: '2026-05-01T00:00:00Z' })])
+    expect(r.consult_completed_at).toBe('2026-05-01T00:00:00Z')
   })
 })

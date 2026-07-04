@@ -15,6 +15,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { carestackFetch, type CareStackConfig } from './client'
 import { upsertCareStackPatient } from './match'
+import { getCsSyncAppointments } from './scheduler'
 
 // ── shared ──────────────────────────────────────────────────────────────
 
@@ -578,4 +579,100 @@ async function ensurePatientStub(
 
   if (!inserted) return null
   return { patient_row_id: inserted.id as string, lead_id: null }
+}
+
+// ── 4. Appointments sync ────────────────────────────────────────────────────
+// Pulls the CareStack calendar (/sync/appointments) into ehr_appointments so the
+// consult rollup can set show / no-show / consultation dates on the lead.
+// 'Blocked' rows are operatory blocks (patientId null) — skipped.
+
+export async function syncCareStackAppointments(
+  supabase: SupabaseClient,
+  organizationId: string,
+  config: CareStackConfig
+): Promise<RunResult> {
+  const resource = 'appointments'
+  const cursor = await loadCursor(supabase, organizationId, resource)
+  const modifiedSince = cursor.modifiedSince ?? '2000-01-01T00:00:00Z'
+  let continueToken = cursor.continueToken
+  let highWater = cursor.modifiedSince
+  let fetched = 0
+  let upserted = 0
+  let pages = 0
+
+  try {
+    while (pages < MAX_PAGES_PER_RUN) {
+      const resp = await getCsSyncAppointments(config, modifiedSince, continueToken ?? undefined)
+      const results = resp.results ?? []
+      const nextToken = resp.continueToken ?? null
+
+      for (const a of results) {
+        const apptId = pickField<number>(a, 'id', 'Id', 'appointmentId', 'AppointmentId')
+        if (apptId == null) continue
+        const patientId = pickField<number>(a, 'patientId', 'PatientId')
+        // Blocked slots / operatory holds carry no patient — not a visit.
+        if (patientId == null) continue
+
+        const status = pickField<string>(a, 'status', 'Status') ?? null
+        const startRaw = pickField<string>(a, 'startDateTime', 'StartDateTime')
+        const lastUpdatedRaw = pickField<string>(a, 'lastUpdatedOn', 'LastUpdatedOn')
+        const startAt = startRaw ? new Date(startRaw).toISOString() : null
+        const lastUpdated = lastUpdatedRaw ? new Date(lastUpdatedRaw).toISOString() : null
+        if (lastUpdated && (!highWater || lastUpdated > highWater)) highWater = lastUpdated
+
+        const bridge = await ensurePatientStub(supabase, organizationId, patientId)
+
+        const row = {
+          organization_id: organizationId,
+          patient_id: bridge?.patient_row_id ?? null,
+          ehr_source: 'carestack',
+          ehr_appointment_id: apptId,
+          ehr_patient_id: String(patientId),
+          status,
+          start_at: startAt,
+          duration_minutes: pickField<number>(a, 'duration', 'Duration') ?? null,
+          location_id: pickField<number>(a, 'locationId', 'LocationId') ?? null,
+          provider_ids: pickField<unknown>(a, 'providerIds', 'ProviderIds') ?? null,
+          operatory_id: pickField<number>(a, 'operatoryId', 'OperatoryId') ?? null,
+          production_type_id: pickField<number>(a, 'productionTypeId', 'ProductionTypeId') ?? null,
+          ehr_last_updated_on: lastUpdated,
+          updated_at: new Date().toISOString(),
+        }
+
+        const { error } = await supabase
+          .from('ehr_appointments')
+          .upsert(row, { onConflict: 'organization_id,ehr_source,ehr_appointment_id' })
+        if (error) throw new Error(error.message)
+        upserted++
+        fetched++
+      }
+
+      pages++
+      if (!nextToken) {
+        continueToken = null
+        if (!highWater || highWater < new Date().toISOString()) highWater = new Date().toISOString()
+        break
+      }
+      continueToken = nextToken
+    }
+
+    const status: 'success' | 'partial' = continueToken ? 'partial' : 'success'
+    await saveCursor(supabase, organizationId, resource, {
+      last_synced_at: status === 'success' ? highWater : cursor.modifiedSince,
+      continue_token: continueToken,
+      last_run_status: status,
+      last_run_count: fetched,
+    })
+    return { resource, fetched, upserted, events_emitted: 0, status, high_water: highWater }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    await saveCursor(supabase, organizationId, resource, {
+      last_synced_at: cursor.modifiedSince,
+      continue_token: continueToken,
+      last_run_status: 'failed',
+      last_run_count: fetched,
+      last_run_error: message,
+    })
+    return { resource, fetched, upserted, events_emitted: 0, status: 'failed', error: message }
+  }
 }

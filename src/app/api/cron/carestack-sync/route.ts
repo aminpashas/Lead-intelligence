@@ -18,9 +18,9 @@
 
 import { withCron } from '@/lib/cron/with-cron'
 import { getCareStackConfig } from '@/lib/ehr/carestack/client'
-import { syncPatients, syncTreatmentProcedures, syncInvoices } from '@/lib/ehr/carestack/sync'
+import { syncPatients, syncTreatmentProcedures, syncInvoices, syncCareStackAppointments } from '@/lib/ehr/carestack/sync'
 import { syncCareStackBusySlots } from '@/lib/ehr/carestack/busy-sync'
-import { rollupLeadOutcomes } from '@/lib/ehr/carestack/rollup'
+import { rollupLeadOutcomes, rollupConsultOutcomes } from '@/lib/ehr/carestack/rollup'
 import { rematchUnlinkedPatients } from '@/lib/ehr/carestack/rematch'
 
 export const POST = withCron('carestack-sync', async ({ supabase }) => {
@@ -72,6 +72,10 @@ export const POST = withCron('carestack-sync', async ({ supabase }) => {
     // 4) Busy slots — mirror PMS occupancy so booking availability stays accurate.
     runs.push(await syncCareStackBusySlots(supabase, org.organization_id, config))
 
+    // 4b) Appointments — pull the CareStack calendar so we can measure consult
+    //     show / no-show. Feeds the consult rollup below.
+    runs.push(await syncCareStackAppointments(supabase, org.organization_id, config))
+
     // 5) Re-match sweep — link already-synced patients back to leads (most
     //    synced before their lead was hashed, so lead_id sits null). Must run
     //    before the rollup so newly-linked patients get their $ rolled up.
@@ -96,6 +100,17 @@ export const POST = withCron('carestack-sync', async ({ supabase }) => {
       events_emitted: 0,
       status: rollup.status,
       error: rollup.error,
+    })
+
+    // 7) Consult rollup — appointment show / no-show / consult dates onto leads.
+    const consult = await rollupConsultOutcomes(supabase, org.organization_id)
+    runs.push({
+      resource: consult.resource,
+      fetched: consult.leads_examined,
+      upserted: consult.leads_updated,
+      events_emitted: 0,
+      status: consult.status,
+      error: consult.error,
     })
 
     results.push({ organization_id: org.organization_id, runs })
