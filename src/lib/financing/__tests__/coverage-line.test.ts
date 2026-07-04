@@ -43,8 +43,8 @@ describe('monthlyPaymentFor', () => {
 })
 
 describe('pickAffordableTerm', () => {
-  it('picks the term with the lowest monthly payment', () => {
-    // 24mo (~$692) is cheaper monthly than the 0%/12mo (~$1250).
+  it('picks the longest term (lowest required monthly payment)', () => {
+    // longest of [12, 24] = 24mo (~$692/mo vs the 0%/12mo ~$1250/mo).
     expect(pickAffordableTerm(cherry, 15000).term_months).toBe(24)
   })
 

@@ -32,6 +32,9 @@ This is delivered as **one shared results component** reused in two surfaces:
   that both patient and staff can reopen to see per-lender progress and finish
   what's outstanding, since a stacked application spans multiple visits/days.
 - Surface any **remaining gap** to route to cash / in-house / insurance.
+- **Payoff acceleration coaching** — default to the longest term (lowest required
+  payment), then show biweekly + extra-principal savings (no prepayment penalty),
+  reusing `calculator.ts`.
 - **Expanded lender roster** beyond the current 7, with link/portal-based lenders
   supported as first-class (not just API lenders).
 - One results component, two surfaces (staff + patient), consistent rendering.
@@ -200,6 +203,26 @@ reliably programmatic). Primary signals are manual; automation is a bonus:
 hand to the closing/contract workflow. Residual gap routes to cash / in-house /
 insurance via the existing `buildBudgetPlan()`.
 
+### 6. Payoff acceleration coaching (presentation — reuses `calculator.ts`)
+
+The practice's coaching rule: **take the longest term** (lowest *required*
+monthly = maximum flexibility), then — because these loans have **no prepayment
+penalty** — **accelerate voluntarily** (extra principal each month + weekly/
+biweekly payments) to cut total interest and finish years early. This is why the
+recommended-plan default term is the **longest** (`pickAffordableTerm`,
+implemented Plan 1), not the cheapest-cost term.
+
+This is a **presentation layer, not new math** — `src/lib/financing/calculator.ts`
+already computes it: `calculateBiweeklyDetails` (biweekly payment, interest
+saved, months saved) and `calculateExtraPaymentSavings` (+$50/$100/$200
+scenarios), plus `generateSavingsTips`. In Plan 2/3, `PrequalResults` shows, per
+the chosen plan, a "pay it off faster" panel: *"On the 84-mo plan your required
+payment is $X. Pay biweekly + $100 extra → save $Y interest, done in Z months."*
+
+Guard: only surface acceleration where the term is penalty-free. All current
+lenders are (per practice); if a future lender charges a prepayment penalty, add
+a `prepayment_penalty` flag to `LenderTermOption` and hide the panel for it.
+
 ## Data flow
 
 **Patient self-service**
@@ -337,7 +360,8 @@ the current `financing_applications` / `financing_submissions` schema.
 2. **Allocator:** `allocateCoverage()` pure function + unit tests (user authors
    the strategy scoring in learning mode).
 3. **Shared component:** `PrequalResults` with **interactive selection + live
-   totals** (`computeSelectionTotals`); wire into staff lead-detail.
+   totals** (`computeSelectionTotals`) + **payoff-acceleration panel** (biweekly /
+   extra-principal, reusing `calculator.ts`); wire into staff lead-detail.
 4. **Patient surface:** replace `ResultScreen` on `/finance/[shareToken]` + consent chrome.
 5. **Checkout + resume:** Checkout Session model, per-lender link dispatch,
    reusable resume token, Checkout Status page (patient + staff), one-tap staff

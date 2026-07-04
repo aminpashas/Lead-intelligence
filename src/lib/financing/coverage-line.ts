@@ -18,17 +18,23 @@ export function monthlyPaymentFor(amount: number, term: LenderTermOption): numbe
 }
 
 /**
- * Default recommended term for a lender at a given draw amount: the term with
- * the LOWEST monthly payment (most affordable). The patient can override this
- * per lender in the UI.
+ * Default recommended term for a lender: the LONGEST term (lowest *required*
+ * monthly payment, maximum flexibility). This is the practice's coaching rule —
+ * take the longest term for a low mandatory payment, then, since these loans
+ * have NO prepayment penalty, accelerate voluntarily (extra principal +
+ * weekly/biweekly payments) to cut total interest. Ties on term length break to
+ * the lower monthly payment. The patient can override the term per lender in the UI.
  */
 export function pickAffordableTerm(offer: LenderPrequalOffer, amount: number): LenderTermOption {
   if (offer.terms.length === 0) {
     throw new Error(`lender ${offer.lender_slug} has no term options`)
   }
-  return offer.terms.reduce((best, term) =>
-    monthlyPaymentFor(amount, term) < monthlyPaymentFor(amount, best) ? term : best,
-  )
+  return offer.terms.reduce((best, term) => {
+    if (term.term_months !== best.term_months) {
+      return term.term_months > best.term_months ? term : best
+    }
+    return monthlyPaymentFor(amount, term) < monthlyPaymentFor(amount, best) ? term : best
+  })
 }
 
 /**
