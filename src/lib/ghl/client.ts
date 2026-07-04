@@ -142,18 +142,44 @@ export async function fetchPipelines(config: GhlConfig): Promise<GhlPipeline[]> 
   return data.pipelines ?? []
 }
 
-/** One page of opportunities for a pipeline. `page` is 1-based. */
+/** One page of opportunities plus the cursor for the next page. */
+export type OpportunityPage = {
+  opportunities: GhlOpportunity[]
+  /** Cursor for the following page; undefined when this was the last page. */
+  nextStartAfter?: string
+  nextStartAfterId?: string
+}
+
+/**
+ * One page of opportunities for a pipeline using GHL v2 cursor pagination.
+ *
+ * GHL deprecated `page`-based paging on /opportunities/search — it now returns
+ * HTTP 400 ("Please use startAfter and startAfterId") unless you page with the
+ * cursor echoed back in `meta`. Omit the cursor for the first page.
+ */
 export async function searchOpportunities(
   config: GhlConfig,
-  params: { pipelineId: string; page: number; limit?: number },
-): Promise<GhlOpportunity[]> {
-  const data = await ghlFetch<{ opportunities?: GhlOpportunity[] }>(config, '/opportunities/search', {
-    location_id: config.locationId,
-    pipeline_id: params.pipelineId,
-    page: params.page,
-    limit: params.limit ?? SEARCH_PAGE_SIZE,
-  })
-  return data.opportunities ?? []
+  params: { pipelineId: string; startAfter?: string; startAfterId?: string; limit?: number },
+): Promise<OpportunityPage> {
+  const data = await ghlFetch<{ opportunities?: GhlOpportunity[]; meta?: Record<string, unknown> }>(
+    config,
+    '/opportunities/search',
+    {
+      location_id: config.locationId,
+      pipeline_id: params.pipelineId,
+      limit: params.limit ?? SEARCH_PAGE_SIZE,
+      startAfter: params.startAfter,
+      startAfterId: params.startAfterId,
+    },
+  )
+  const opportunities = data.opportunities ?? []
+  const meta = data.meta ?? {}
+  const last = opportunities.length >= (params.limit ?? SEARCH_PAGE_SIZE)
+  return {
+    opportunities,
+    nextStartAfter: last && meta.startAfter != null ? String(meta.startAfter) : undefined,
+    nextStartAfterId: last && meta.startAfterId != null ? String(meta.startAfterId) : undefined,
+  }
 }
 
 /** Page size constant exposed so the sync loop can detect the last page. */
