@@ -1,7 +1,7 @@
 // Columns whose values must never be snapshotted into audit_events.
 // MIRRORED in supabase/migrations/20260704160000_audit_events.sql (audit_row_change). Keep in sync.
 export const SENSITIVE_COLUMNS: Record<string, string[]> = {
-  leads: ['email', 'phone', 'date_of_birth', 'insurance_id', 'phone_hash', 'email_hash'],
+  leads: ['email', 'phone', 'phone_formatted', 'date_of_birth', 'insurance_provider', 'phone_hash', 'email_hash'],
   patient_profiles: ['personal_details'],
   clinical_cases: ['patient_email', 'patient_phone'],
 }

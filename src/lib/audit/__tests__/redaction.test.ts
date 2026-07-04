@@ -16,6 +16,6 @@ describe('redactRow', () => {
     expect(redactRow('leads', { id: '1', stage: 'won' })).toEqual({ id: '1', stage: 'won' })
   })
   it('denylist includes leads PII columns', () => {
-    expect(SENSITIVE_COLUMNS.leads).toEqual(expect.arrayContaining(['email', 'phone', 'date_of_birth', 'insurance_id']))
+    expect(SENSITIVE_COLUMNS.leads).toEqual(expect.arrayContaining(['email', 'phone', 'date_of_birth', 'insurance_provider']))
   })
 })
