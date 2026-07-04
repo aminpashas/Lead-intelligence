@@ -52,6 +52,20 @@ where organization_id <> public.get_user_org_id();
 Expected: `0`. (Policy `audit_events_org_select` mirrors the proven
 `hipaa_audit_log` SELECT policy: `organization_id = public.get_user_org_id()`.)
 
+**Result (2026-07-04): confirmed** — simulated an authenticated user (set
+`request.jwt.claims.sub` + `set local role authenticated`, which is subject to
+RLS, unlike the superuser service connection): `cross_org_leak = 0`, `visible_rows`
+scoped to the user's own org only.
+
+## 5. Coverage note
+
+As of migration `20260704170000`, the row-change trigger is attached to **53
+org-scoped tables** (all except logs/recursion, event-queue plumbing,
+sync/telemetry rollups, comms-volume tables whose sends are already audited via
+`recordAudit`, and bulk-membership tables). Redaction is by column-NAME pattern
+(`audit_is_sensitive_col`) so newly-audited tables are protected automatically —
+verified on `patients`: sensitive columns present, zero leaked unredacted.
+
 ## 4. Trigger attachment inventory
 
 ```sql
