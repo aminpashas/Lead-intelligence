@@ -19,7 +19,7 @@ export type LenderTermOption = {
 export type LenderPrequalOffer = {
   lender_slug: LenderSlug
   lender_name: string
-  decision: 'approved' | 'declined'
+  decision: 'approved' | 'declined' | 'estimate'  // 'estimate' = link-only lender, indicative terms, no instant decision
   approved_amount: number       // max this lender will fund; 0 when declined
   terms: LenderTermOption[]     // the term options this lender offers (empty when declined)
 }
