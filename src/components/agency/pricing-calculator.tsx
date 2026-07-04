@@ -92,7 +92,7 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
     }
   }
 
-  async function issueInvoice() {
+  async function draftInvoice() {
     setIssuing(true)
     try {
       const res = await fetch('/api/agency/invoices/generate', {
@@ -101,10 +101,10 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
         body: JSON.stringify({ organizationId: practice.id }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Failed to issue invoice')
-      toast.success(`Invoice issued for ${practice.name}: ${usd(data.invoice?.totalCents ?? 0)}`)
+      if (!res.ok) throw new Error(data.error || 'Failed to draft invoice')
+      toast.success(`Draft invoice for ${practice.name}: ${usd(data.invoice?.totalCents ?? 0)} — review in Invoices`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to issue invoice')
+      toast.error(err instanceof Error ? err.message : 'Failed to draft invoice')
     } finally {
       setIssuing(false)
     }
@@ -167,12 +167,13 @@ function PracticeRow({ practice }: { practice: PricingPractice }) {
       <div className="flex items-center justify-end gap-2 sm:w-40">
         <button
           type="button"
-          onClick={issueInvoice}
+          onClick={draftInvoice}
           disabled={issuing}
           className="inline-flex items-center gap-1 text-[12px] font-medium text-aurea-ink-3 transition-colors hover:text-aurea-ink disabled:opacity-50"
+          title="Create a draft invoice for the current month; review & send from Invoices"
         >
           {issuing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          Issue invoice
+          Bill month
         </button>
         <Button size="sm" variant={dirty ? 'default' : 'outline'} disabled={!dirty || saving} onClick={save} className="gap-1.5">
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved && !dirty ? <Check className="h-3.5 w-3.5" /> : null}

@@ -86,7 +86,7 @@ export default async function UsagePage({
       .from('usage_invoices')
       .select('id, period_start, period_end, total_cents, status')
       .eq('organization_id', active.orgId)
-      .eq('status', 'issued')
+      .in('status', ['issued', 'paid'])
       .order('period_start', { ascending: false })
       .limit(12),
   ])

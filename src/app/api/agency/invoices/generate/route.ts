@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     organizationId: parsed.organizationId,
     periodStart,
     periodEnd,
-    status: parsed.status ?? 'issued',
+    status: parsed.status ?? 'draft',
   })
 
   if (error) {
