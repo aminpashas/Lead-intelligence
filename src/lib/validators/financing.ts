@@ -111,6 +111,35 @@ export const prequalRequestSchema = z.object({
 
 export type PrequalRequestInput = z.infer<typeof prequalRequestSchema>
 
+// ── Checkout (stacked plan) Schemas ─────────────────────────────
+
+const lenderTermOptionSchema = z.object({
+  apr: z.number(),
+  term_months: z.number().int().positive(),
+  promo_period_months: z.number().int().min(0),
+})
+
+export const checkoutCreateSchema = z.object({
+  lead_id: z.string().uuid(),
+  treatment_total: z.number().positive().max(250_000),
+  selections: z.array(z.object({
+    lender_slug: z.string().min(1),
+    lender_name: z.string().min(1),
+    requested_amount: z.number().positive(),
+    term: lenderTermOptionSchema,
+    application_url: z.string().url().optional(),
+  })).min(1).max(10),
+})
+export type CheckoutCreateInput = z.infer<typeof checkoutCreateSchema>
+
+export const checkoutReconcileSchema = z.object({
+  lender_slug: z.string().min(1),
+  status: z.enum(['selected', 'link_sent', 'started', 'approved', 'funded', 'declined', 'expired']),
+  funded_amount: z.number().min(0).optional(),
+  confirmed_by: z.enum(['staff', 'patient', 'webhook']).optional(),
+})
+export type CheckoutReconcileInput = z.infer<typeof checkoutReconcileSchema>
+
 // ── Webhook Payload Schemas (per lender) ────────────────────────
 
 export const financingWebhookBaseSchema = z.object({
