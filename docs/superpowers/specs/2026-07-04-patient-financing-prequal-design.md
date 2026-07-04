@@ -85,11 +85,10 @@ yes. The existing stop-at-first waterfall remains as a selectable fallback.
 A pure, I/O-free function:
 
 ```
-allocateCoverage(treatmentTotal, offers[], strategy) -> {
-  plan: Array<{ lenderSlug, amount, apr, termMonths, monthlyPayment, isPromo }>,
-  totalCovered: number,
-  gap: number,                    // treatmentTotal - totalCovered, routed to cash/in-house
-  blendedMonthly: number,
+allocateCoverage(treatmentTotal, offers[], strategy) -> CoveragePlan {
+  lines: Array<{ lender_slug, amount, apr, term_months, promo_period_months, monthly_payment, is_promo }>,
+  total_loan: number, total_monthly: number,
+  gap: number,                    // treatmentTotal - total_loan, routed to cash/in-house
   strategy: StackingStrategy,
 }
 ```
@@ -98,18 +97,26 @@ Given the treatment total and each lender's approved amount, it returns a
 **combination** that covers the total (or gets as close as possible), plus the
 remaining gap. It lives on the pure side of the codebase seam (alongside
 `lender-profiles.ts`), so it is unit-testable with fake offers and no network.
+**IMPLEMENTED (Plan 1):** `src/lib/financing/allocate-coverage.ts`.
 
-**Stacking strategy is a business decision (pluggable).** Default:
-**minimize blended APR** — fill with 0%-promo and cheapest money first, matching
-the "recommended plan" framing. Alternative strategies to keep swappable:
+**Multiple terms per lender.** Each `LenderPrequalOffer` carries a `terms[]`
+array (e.g. Cherry: 0%/12mo OR 9.99%/24mo OR 14.9%/60mo) — lenders offer several,
+each a different monthly payment. `CoverageLine` records the chosen term. The
+recommended plan defaults each included lender to its **lowest-monthly term**
+(`pickAffordableTerm`, most affordable); the patient can override the term per
+lender in the UI (Plan 2/3).
 
-- `minimize_apr` (default) — lowest total interest cost to the patient.
-- `minimize_lenders` — fewest applications/accounts (simplest, fastest to close).
-- `maximize_certainty` — largest, most-certain approvals first (least fall-through).
+**Stacking strategy (DECIDED per owner):**
 
-> **Learning-mode implementation note:** the per-strategy scoring/ordering
-> function (~8–12 lines) is authored by the user during implementation — it
-> encodes the practice's closing philosophy and lender preferences.
+- `maximize_coverage` **(default)** — **highest approved amount first**, cheaper
+  cost only a tiebreaker. Covering the big number with the fewest lenders is the
+  priority: a 0% lender that only covers $6k must NOT outrank a $30k approval.
+- `minimize_apr` — cheapest money first (promo/0% then ascending APR), larger
+  approval as tiebreaker. Kept as a selectable alternative.
+
+(The earlier `minimize_lenders` / `maximize_certainty` were dropped —
+`maximize_coverage` already expresses largest-first. The strategy comparator
+lives in `orderOffersForStrategy`; refine to taste, the tests pin behavior.)
 
 ### 3. Shared `PrequalResults` component
 
@@ -130,23 +137,26 @@ Surfaces differ only in **data source** and **consent chrome**, not rendering.
 ### 4. Interactive selection + live totals (pure)
 
 `PrequalResults` is **interactive**, not static. Each approved offer has a
-toggle; each selected lender carries a **requested amount** defaulting to the
-allocator's pick and editable up to that lender's approved cap. A pure
-`computeSelectionTotals(selection, treatmentTotal)` recalculates on every change:
+toggle; each selected lender carries a **requested amount** (defaulting to the
+allocator's pick, editable up to that lender's approved cap) **and a chosen
+term** (defaulting to the lowest-monthly term, switchable among the lender's
+`terms[]`). A pure `computeSelectionTotals(selections, treatmentTotal)`
+recalculates on every change. **IMPLEMENTED (Plan 1):**
+`src/lib/financing/selection-totals.ts`.
 
 ```
-computeSelectionTotals(selection, treatmentTotal) -> {
-  totalLoan: number,        // sum of selected requested amounts (<= treatmentTotal)
-  totalMonthly: number,     // sum of selected lenders' monthly payments
-  covered: number,
-  gap: number,              // treatmentTotal - covered
-  selectedCount: number,
+computeSelectionTotals(selections, treatmentTotal) -> SelectionTotals {
+  total_loan: number,       // sum of selected requested amounts (clamped to approved cap)
+  total_monthly: number,    // sum of selected lenders' monthly payments for chosen terms
+  covered: number,          // min(total_loan, treatmentTotal)
+  gap: number,              // max(0, treatmentTotal - total_loan)
+  selected_count: number,
 }
 ```
 
 The allocator's recommended plan is just the **default selection** — staff or
-patient can override which lenders and how much from each. Same behavior on both
-surfaces. This is client-side pure math (no network) for instant feedback.
+patient can override which lenders, how much from each, **and which term**. Same
+behavior on both surfaces. Client-side pure math (no network) for instant feedback.
 
 ### 5. Checkout + resumable orchestration ("pick back up")
 

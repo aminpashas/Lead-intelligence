@@ -14,6 +14,27 @@
 
 ---
 
+## Revision (2026-07-04, post-owner-feedback) — IMPLEMENTED
+
+The model was revised during implementation per owner feedback; the **committed
+code supersedes the flat single-term code blocks shown in Tasks 1–4 below**:
+
+- **Multiple terms per lender:** `LenderPrequalOffer` carries `terms: LenderTermOption[]`
+  (not a single apr/term/promo). `CoverageLine` records the chosen term.
+- **Amount-first stacking:** default strategy is `maximize_coverage` (highest
+  approved amount first, cost only a tiebreaker), not `minimize_apr`. `minimize_apr`
+  kept as the alternative. Strategy enum is `'maximize_coverage' | 'minimize_apr'`.
+- **Default recommended term = lowest monthly** (`pickAffordableTerm`); patient
+  can override per lender in the UI.
+- New/changed exports: `monthlyPaymentFor`, `pickAffordableTerm`,
+  `buildCoverageLine(offer, amount, term)`, `orderOffersForStrategy`,
+  `allocateCoverage(total, offers, strategy='maximize_coverage')`,
+  `computeSelectionTotals(selections, total)` where a selection is `{offer, amount, term}`.
+
+Status: all four files implemented, **16 tests green, tsc clean**, committed
+(`61a5e1e` supersedes the originally-planned single-term commits). The learning-mode
+`orderOffersForStrategy` slot was resolved by the owner's explicit ordering rule.
+
 ## File structure
 
 - Create `src/lib/financing/prequal-types.ts` — new types: `StackingStrategy`, `LenderPrequalOffer`, `CoverageLine`, `CoveragePlan`, `LenderSelection`, `SelectionTotals`.
