@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
-import { isAdminRole } from '@/lib/auth/permissions'
+import { hasPermission } from '@/lib/auth/permissions'
 import { serviceLineSlugSchema } from '@/lib/validators/practice-profile'
 import { getBlueprint, blueprintSystemKey } from '@/lib/campaigns/blueprints'
 import { getProfileGaps, renderBlueprintSteps } from '@/lib/campaigns/onboarding'
@@ -29,8 +29,11 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId || !role) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!isAdminRole(role)) {
-    return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  // Materializing a blueprint into a campaign (even as a draft) is campaign
+  // creation — agency-side. The practice still runs the onboarding interview
+  // (profile answers); the agency turns those into live campaigns.
+  if (!hasPermission(role, 'campaigns:write')) {
+    return NextResponse.json({ error: 'Campaigns are launched by your agency' }, { status: 403 })
   }
 
   const parsed = launchSchema.safeParse(await request.json())

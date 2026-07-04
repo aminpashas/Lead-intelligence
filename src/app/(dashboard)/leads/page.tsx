@@ -3,7 +3,9 @@ import { LeadsTable } from '@/components/crm/leads-table'
 import { LeadCSVImport } from '@/components/crm/lead-csv-import'
 import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import type { Tag } from '@/types/database'
+import { redirect } from 'next/navigation'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
 
 // Service-line filter: new ad leads carry custom_fields.treatment_interest +
@@ -39,8 +41,12 @@ export default async function LeadsPage({
   // account operates on that client's org (via agency_active_org); everyone
   // else operates on their own home org. Filtering on the home org here was the
   // bug that made the Leads view empty for agency admins managing a practice.
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return null
+
+  // The full lead book (45k rows) is not a focused-staff surface — they reach a
+  // single patient from a consult or conversation. Send them to the Today view.
+  if (isFocusedStaff(role || 'member')) redirect('/dashboard')
 
   // Fetch leads — sort column/direction come from the URL (whitelisted above).
   const sortCol = SORT_COLUMNS[params.sort] || 'created_at'

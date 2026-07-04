@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { createClient } from '@/lib/supabase/server'
 import { populateCampaignQueue, processVoiceCampaign } from '@/lib/voice/campaign-dialer'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { hasPermission } from '@/lib/auth/permissions'
 import { logger } from '@/lib/logger'
 
 // ── GET: List voice campaigns ────────────────────────────────
@@ -55,7 +56,11 @@ export async function POST(request: NextRequest) {
   // Effective org honors an agency_admin's entered client account.
   const { orgId } = await resolveActiveOrg(authClient)
   if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
-  if (!['owner', 'admin', 'manager'].includes(profile.role)) {
+  // Automatic outbound calling stays a practice capability (per onboarding
+  // scope), but is limited to roles with call-center write — practice admins,
+  // office managers, and treatment coordinators — not clinical-only staff.
+  // Also replaces the stale legacy-only role list so the healthcare roles work.
+  if (!hasPermission(profile.role, 'call_center:write')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
@@ -137,7 +142,11 @@ export async function PATCH(request: NextRequest) {
   // Effective org honors an agency_admin's entered client account.
   const { orgId } = await resolveActiveOrg(authClient)
   if (!orgId) return NextResponse.json({ error: 'No org' }, { status: 403 })
-  if (!['owner', 'admin', 'manager'].includes(profile.role)) {
+  // Automatic outbound calling stays a practice capability (per onboarding
+  // scope), but is limited to roles with call-center write — practice admins,
+  // office managers, and treatment coordinators — not clinical-only staff.
+  // Also replaces the stale legacy-only role list so the healthcare roles work.
+  if (!hasPermission(profile.role, 'call_center:write')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 

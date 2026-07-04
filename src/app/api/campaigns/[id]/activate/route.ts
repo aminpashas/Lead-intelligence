@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { requirePermission } from '@/lib/auth/active-org'
 
 export async function POST(
   request: NextRequest,
@@ -9,12 +9,11 @@ export async function POST(
   const { id } = await params
   const supabase = await createClient()
 
-  // Auth + org scoping — effective org honors agency acting-as (matches RLS).
-  const { orgId } = await resolveActiveOrg(supabase)
-
-  if (!orgId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // Activating a campaign is agency-side. Effective org honors agency
+  // acting-as (matches RLS get_user_org_id()).
+  const guard = await requirePermission(supabase, 'campaigns:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   const { data: campaign, error } = await supabase
     .from('campaigns')

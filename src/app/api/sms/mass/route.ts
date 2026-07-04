@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, requirePermission } from '@/lib/auth/active-org'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { z } from 'zod'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
@@ -26,8 +26,12 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
-  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Mass outbound is agency-side only. Practice staff can text a lead 1:1 from
+  // the lead detail, but never blast the book — this gate is the boundary, not
+  // the hidden nav item.
+  const guard = await requirePermission(supabase, 'mass_sms:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   // A2P 10DLC hard-block: refuse US SMS broadcasts until this org's 10DLC campaign
   // is verified (us_sms_enabled flag). Authoritative server gate; the composer also

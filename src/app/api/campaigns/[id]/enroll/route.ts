@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { requirePermission } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const enrollSchema = z.object({
@@ -20,11 +20,10 @@ export async function POST(
     return NextResponse.json({ error: 'lead_ids required' }, { status: 400 })
   }
 
-  const { orgId } = await resolveActiveOrg(supabase)
-
-  if (!orgId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // Enrolling leads into a campaign is an agency-side launch action.
+  const guard = await requirePermission(supabase, 'campaigns:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   // Get first step delay
   const { data: firstStep } = await supabase

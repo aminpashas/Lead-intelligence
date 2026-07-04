@@ -1,7 +1,9 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PipelineBoard } from '@/components/crm/pipeline-board'
 import { decryptLeadsPII } from '@/lib/encryption'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { isFocusedStaff } from '@/lib/auth/permissions'
 import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
 
@@ -10,8 +12,12 @@ export default async function PipelinePage() {
 
   // Effective org honors an agency_admin's entered client account (see
   // resolveActiveOrg); falls back to the caller's home org otherwise.
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return null
+
+  // The pipeline kanban is a whole-book, PII-heavy surface. Focused (clinical)
+  // staff get the Today view instead — they open one patient at a time.
+  if (isFocusedStaff(role || 'member')) redirect('/dashboard')
 
   // Fetch pipeline stages
   const { data: stages } = await supabase

@@ -12,6 +12,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { hasPermission, type Permission } from '@/lib/auth/permissions'
 
 export type ActiveOrg = {
   /** The org the current request should operate on (active client or home). */
@@ -138,6 +139,40 @@ export async function requireAgencyClientOrg(
     }
   }
   return { orgId: active.orgId }
+}
+
+/**
+ * Permission guard for API routes. Nav hiding (canAccessRoute) is a courtesy;
+ * this is the boundary. Any route whose action is permission-scoped (mass
+ * sends, campaign launches, bulk actions, AI config) must call this rather
+ * than trusting that the UI never exposed the button.
+ *
+ * Resolves the effective org (honoring an agency admin's entered client) and
+ * checks the caller's role against the RBAC map. Returns a ready-to-send
+ * NextResponse on failure: 401 not authenticated · 403 lacking permission.
+ *
+ * Usage:
+ *   const guard = await requirePermission(supabase, 'mass_sms:write')
+ *   if ('error' in guard) return guard.error
+ *   const { orgId, role } = guard
+ */
+export async function requirePermission(
+  supabase: SupabaseClient,
+  permission: Permission
+): Promise<{ orgId: string; role: string } | { error: NextResponse }> {
+  const active = await resolveActiveOrg(supabase)
+  if (!active.role || !active.orgId) {
+    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  }
+  if (!hasPermission(active.role, permission)) {
+    return {
+      error: NextResponse.json(
+        { error: 'Your role does not allow this action. Ask your agency contact.' },
+        { status: 403 }
+      ),
+    }
+  }
+  return { orgId: active.orgId, role: active.role }
 }
 
 /** Error codes surfaced as `?oauth_error=` on the connectors settings page. */

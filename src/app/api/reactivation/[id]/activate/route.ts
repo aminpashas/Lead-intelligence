@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { requirePermission } from '@/lib/auth/active-org'
 
 // POST /api/reactivation/[id]/activate — Activate the reactivation campaign
 export async function POST(
@@ -9,14 +9,10 @@ export async function POST(
 ) {
   const { id } = await params
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
-  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // Activating a reactivation campaign is agency-side.
+  const guard = await requirePermission(supabase, 'reactivation:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   // Get the reactivation campaign
   const { data: reactivation } = await supabase

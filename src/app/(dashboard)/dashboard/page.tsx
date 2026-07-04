@@ -1,10 +1,20 @@
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { DashboardHome } from '@/components/crm/dashboard-home'
+import { FrontDeskToday } from '@/components/crm/front-desk-today'
+import { OpsDashboard } from '@/components/crm/ops-dashboard'
 import { OrgGoalsCard } from '@/components/crm/org-goals-card'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { dashboardVariant } from '@/lib/auth/permissions'
 import { decryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
 import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
 
+// The dashboard shows a different home depending on who is looking:
+//  - agency_admin        → AI command center (company control room)
+//  - clinical front-desk → the Today view (consults + per-visit prep)
+//  - practice admin/ops  → the command center for now (Phase 3 gives them a
+//                          dedicated pipeline/funnel ops board)
+// See dashboardVariant() for the role→variant mapping.
 export default async function DashboardPage() {
   const supabase = await createClient()
 
@@ -13,8 +23,230 @@ export default async function DashboardPage() {
 
   // …but the data is scoped to the effective org, which honors an agency_admin's
   // entered client account (see resolveActiveOrg).
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return null
+
+  const userName = profile?.full_name?.split(' ')[0] || 'there'
+  const variant = dashboardVariant(role || 'member')
+
+  if (variant === 'frontdesk') {
+    return <FrontDeskDashboard supabase={supabase} orgId={orgId} userName={userName} />
+  }
+
+  if (variant === 'ops') {
+    return <OpsDashboardView supabase={supabase} orgId={orgId} userName={userName} />
+  }
+
+  // agency_admin → the AI command center (company control room).
+  return <AgencyDashboard supabase={supabase} orgId={orgId} userName={userName} />
+}
+
+// ── Practice-admin (ops) home: pipeline stages + funnel + booked consults ────
+async function OpsDashboardView({
+  supabase,
+  orgId,
+  userName,
+}: {
+  supabase: SupabaseClient
+  orgId: string
+  userName: string
+}) {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const sevenDaysAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+  const [
+    stagesResult,
+    totalLeadsResult,
+    weekLeadsResult,
+    awaitingContactResult,
+    bookedResult,
+    unreadThreadsResult,
+    pipelineResult,
+    upcomingResult,
+    hotLeadsResult,
+  ] = await Promise.all([
+    // Leads-by-stage via the RPC (aggregates in Postgres — no 1000-row cap).
+    supabase.rpc('pipeline_stage_counts', { p_org: orgId }),
+
+    supabase.from('leads').select('id', { count: 'exact', head: true }).eq('organization_id', orgId),
+
+    supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gte('created_at', sevenDaysAgo)
+      .or(PAID_AD_CHANNEL_OR_FILTER),
+
+    supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gte('created_at', sevenDaysAgo)
+      .is('last_contacted_at', null)
+      .or(PAID_AD_CHANNEL_OR_FILTER),
+
+    supabase
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gte('scheduled_at', todayStart)
+      .lt('scheduled_at', sevenDaysAhead)
+      .in('status', ['scheduled', 'confirmed']),
+
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gt('unread_count', 0),
+
+    supabase.from('leads').select('treatment_value').eq('organization_id', orgId).gt('treatment_value', 0),
+
+    supabase
+      .from('appointments')
+      .select('id, type, status, scheduled_at, confirmation_received, confirmed_at, lead:leads(id, first_name, last_name)')
+      .eq('organization_id', orgId)
+      .gte('scheduled_at', todayStart)
+      .lt('scheduled_at', sevenDaysAhead)
+      .in('status', ['scheduled', 'confirmed'])
+      .order('scheduled_at', { ascending: true })
+      .limit(10),
+
+    supabase
+      .from('leads')
+      .select('id, first_name, last_name, ai_score, ai_qualification')
+      .eq('organization_id', orgId)
+      .eq('ai_qualification', 'hot')
+      .not('status', 'in', '("disqualified","lost","completed","contract_signed")')
+      .order('ai_score', { ascending: false })
+      .limit(6),
+  ])
+
+  // Positions 11+ are a legacy GHL-mirror pipeline (duplicate stage names); the
+  // canonical sales funnel is positions 0–10. Keep the real funnel only.
+  type StageRow = { stage_id: string; name: string; stage_position: number; lead_count: number }
+  const stages = ((stagesResult.data as StageRow[] | null) || []).filter((s) => s.stage_position <= 10)
+
+  const pipelineValue = (pipelineResult.data || []).reduce((s, l) => s + (l.treatment_value || 0), 0)
+
+  const upcomingConsults = (upcomingResult.data || []).map((appt: Record<string, any>) => ({
+    ...appt,
+    lead: appt.lead ? decryptLeadPII(appt.lead as Record<string, unknown>) : appt.lead,
+  }))
+  const hotLeads = decryptLeadsPII(hotLeadsResult.data || [])
+
+  return (
+    <OpsDashboard
+      userName={userName}
+      kpis={{
+        totalLeads: totalLeadsResult.count ?? 0,
+        weekLeads: weekLeadsResult.count ?? 0,
+        bookedThisWeek: bookedResult.count ?? 0,
+        awaitingContact: awaitingContactResult.count ?? 0,
+        unreadThreads: unreadThreadsResult.count ?? 0,
+        pipelineValue,
+      }}
+      stages={stages}
+      upcomingConsults={upcomingConsults}
+      hotLeads={hotLeads}
+    />
+  )
+}
+
+// ── Front-desk (clinical) home: today's consults with AI prep ───────────────
+async function FrontDeskDashboard({
+  supabase,
+  orgId,
+  userName,
+}: {
+  supabase: SupabaseClient
+  orgId: string
+  userName: string
+}) {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
+  const sevenDaysAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+  // The prequal + conversation-analysis fields are the whole point of this view —
+  // they turn "who's coming in" into "what to know before they walk in".
+  const CONSULT_LEAD_SELECT =
+    'id, first_name, last_name, phone, ai_score, ai_qualification, ai_summary, ' +
+    'conversation_intent, conversation_sentiment, conversation_red_flag, ' +
+    'primary_objection, treatment_value'
+
+  const [todayResult, upcomingResult, weekCountResult] = await Promise.all([
+    supabase
+      .from('appointments')
+      .select(`*, lead:leads(${CONSULT_LEAD_SELECT})`)
+      .eq('organization_id', orgId)
+      .gte('scheduled_at', todayStart)
+      .lt('scheduled_at', todayEnd)
+      .in('status', ['scheduled', 'confirmed'])
+      .order('scheduled_at', { ascending: true }),
+
+    supabase
+      .from('appointments')
+      .select('id, type, status, scheduled_at, confirmation_received, confirmed_at, lead:leads(id, first_name, last_name)')
+      .eq('organization_id', orgId)
+      .gte('scheduled_at', todayEnd)
+      .lt('scheduled_at', sevenDaysAhead)
+      .in('status', ['scheduled', 'confirmed'])
+      .order('scheduled_at', { ascending: true })
+      .limit(20),
+
+    supabase
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .gte('scheduled_at', todayStart)
+      .lt('scheduled_at', sevenDaysAhead)
+      .in('status', ['scheduled', 'confirmed']),
+  ])
+
+  // Decrypt the joined lead PII server-side before it reaches the client.
+  // Loosely typed (like the command-center rows) — the appointment shape varies
+  // by query and the client component reads fields defensively.
+  const decryptConsult = (appt: Record<string, any>): Record<string, any> => ({
+    ...appt,
+    lead: appt.lead ? decryptLeadPII(appt.lead as Record<string, unknown>) : appt.lead,
+  })
+
+  const todayConsults = (todayResult.data || []).map(decryptConsult)
+  const upcomingConsults = (upcomingResult.data || []).map(decryptConsult)
+
+  const confirmedCount = todayConsults.filter(
+    (c) => c.status === 'confirmed' || c.confirmation_received || c.confirmed_at
+  ).length
+
+  return (
+    <div className="animate-in fade-in-0 duration-500">
+      <FrontDeskToday
+        userName={userName}
+        todayConsults={todayConsults}
+        upcomingConsults={upcomingConsults}
+        stats={{
+          todayCount: todayConsults.length,
+          confirmedCount,
+          needsConfirmationCount: todayConsults.length - confirmedCount,
+          weekCount: weekCountResult.count ?? 0,
+        }}
+      />
+    </div>
+  )
+}
+
+// ── Agency / ops home: the AI command center ────────────────────────────────
+async function AgencyDashboard({
+  supabase,
+  orgId,
+  userName,
+}: {
+  supabase: SupabaseClient
+  orgId: string
+  userName: string
+}) {
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
   const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
@@ -176,23 +408,23 @@ export default async function DashboardPage() {
     <div className="animate-in fade-in-0 duration-500 space-y-4">
       <OrgGoalsCard />
       <DashboardHome
-      userName={profile?.full_name?.split(' ')[0] || 'there'}
-      hotLeads={hotLeads}
-      todayAppointments={todayAppointments}
-      recentLeads={recentLeadsResult.data || []}
-      unreadConversations={unreadConvosResult.data || []}
-      activeCampaigns={activeCampaignsResult.data || []}
-      recentActivities={recentActivitiesResult.data || []}
-      kpis={{
-        totalLeads: totalLeadsResult.count ?? 0,
-        weekLeads: weekLeadsResult.count ?? 0,
-        prevWeekLeads: prevWeekLeadsResult.count ?? 0,
-        awaitingContact: awaitingContactResult.count ?? 0,
-        engaged: engagedResult.count ?? 0,
-        pipelineValue,
-        upcomingAppointments: upcomingApptsResult.count ?? 0,
-        unreadThreads: unreadThreadsResult.count ?? 0,
-      }}
+        userName={userName}
+        hotLeads={hotLeads}
+        todayAppointments={todayAppointments}
+        recentLeads={recentLeadsResult.data || []}
+        unreadConversations={unreadConvosResult.data || []}
+        activeCampaigns={activeCampaignsResult.data || []}
+        recentActivities={recentActivitiesResult.data || []}
+        kpis={{
+          totalLeads: totalLeadsResult.count ?? 0,
+          weekLeads: weekLeadsResult.count ?? 0,
+          prevWeekLeads: prevWeekLeadsResult.count ?? 0,
+          awaitingContact: awaitingContactResult.count ?? 0,
+          engaged: engagedResult.count ?? 0,
+          pipelineValue,
+          upcomingAppointments: upcomingApptsResult.count ?? 0,
+          unreadThreads: unreadThreadsResult.count ?? 0,
+        }}
       />
     </div>
   )

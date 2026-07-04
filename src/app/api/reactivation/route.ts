@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { getOwnProfile, resolveActiveOrg, requirePermission } from '@/lib/auth/active-org'
 import { z } from 'zod'
 
 const createReactivationSchema = z.object({
@@ -70,8 +70,10 @@ export async function GET() {
 // POST /api/reactivation - Create reactivation campaign
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
-  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Reactivation campaigns are agency-side (mass re-engagement of the book).
+  const guard = await requirePermission(supabase, 'reactivation:write')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
   const body = await request.json()
   const parsed = createReactivationSchema.safeParse(body)
 
