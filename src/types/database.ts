@@ -1113,6 +1113,12 @@ export type VoiceCallOutcome = 'appointment_booked' | 'callback_requested' | 'in
 export type VoiceCampaignStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'archived'
 export type VoiceCampaignLeadStatus = 'queued' | 'calling' | 'completed' | 'skipped' | 'failed' | 'do_not_call'
 
+// AI-fronted live-agent transfer (bulk dialer that forwards answered calls to a human).
+export type VoiceTransferMode = 'immediate' | 'greet_transfer' | 'qualify_transfer'
+export type VoiceTransferStatus = 'none' | 'requested' | 'holding' | 'bridged' | 'completed' | 'abandoned' | 'failed'
+export type VoiceTransferTargetKind = 'phone' | 'sip' | 'softphone_user'
+export type VoiceAgentPresenceStatus = 'available' | 'on_call' | 'offline'
+
 export type VoiceCallTranscriptEntry = {
   role: 'agent' | 'lead'
   content: string
@@ -1167,6 +1173,14 @@ export type VoiceCall = {
   call_mode: 'ai' | 'browser' | 'bridge' | null
   dial_token: string | null
 
+  // Live-agent transfer lifecycle (AI-fronted bulk dialer → human handoff).
+  transfer_status: VoiceTransferStatus
+  transferred_to_target_id: string | null
+  transfer_requested_at: string | null
+  transfer_bridged_at: string | null
+  /** Seconds the AI held/qualified the live person before a rep picked up (or gave up). */
+  hold_seconds: number
+
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -1208,6 +1222,14 @@ export type VoiceCampaign = {
   custom_greeting: string | null
   custom_voicemail: string | null
 
+  // Live-agent transfer config (this campaign forwards answered calls to a human).
+  live_transfer_enabled: boolean
+  transfer_mode: VoiceTransferMode
+  /** Burst multiplier: dial (dial_ratio × available reps) at a time. 1.0 = progressive. */
+  dial_ratio: number
+  /** Per-campaign override of the org hold cap; null = inherit org default. */
+  max_hold_seconds: number | null
+
   // Stats
   total_leads: number
   total_called: number
@@ -1243,6 +1265,57 @@ export type VoiceCampaignLead = {
 
   // Joined
   lead?: Lead
+}
+
+// ── Live-Agent Transfer (AI bulk dialer → human handoff) ────
+
+/** A "live person" an answered call can be forwarded to. */
+export type VoiceTransferTarget = {
+  id: string
+  organization_id: string
+  name: string
+  kind: VoiceTransferTargetKind
+  /** PSTN/SIP destination to <Dial> (for kind 'phone'/'sip'); null for softphone reps. */
+  destination: string | null
+  /** Staff member whose softphone rings (for kind 'softphone_user'); null otherwise. */
+  user_id: string | null
+  active: boolean
+  on_duty: boolean
+  max_concurrent: number
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/** Time-of-day routing rule: which targets (in order) receive calls in a window. */
+export type VoiceTransferRoute = {
+  id: string
+  organization_id: string
+  name: string
+  /** Lower = evaluated first. Overflow rules sit at the end with is_overflow=true. */
+  priority: number
+  active_days: string[]
+  start_hour: number
+  end_hour: number
+  timezone: string
+  /** Ordered voice_transfer_targets ids to try; first available wins. */
+  target_ids: string[]
+  is_overflow: boolean
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** Live availability of a transfer target (claimed atomically by the broker). */
+export type VoiceAgentPresence = {
+  id: string
+  organization_id: string
+  target_id: string
+  status: VoiceAgentPresenceStatus
+  active_calls: number
+  current_call_id: string | null
+  last_heartbeat_at: string | null
+  updated_at: string
 }
 
 // ── Multi-Channel Content Delivery ──────────────────────────

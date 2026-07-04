@@ -65,6 +65,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true })
   }
 
+  // ── Live-transfer cleanup ──
+  // When a call that was bridged to a live rep ends, hand the rep's seat back so
+  // they become available for the next dial. Only on call_ended (call_analyzed
+  // fires separately and could double-release). Idempotent: acts only while the
+  // transfer is still in a non-terminal state.
+  if (event === 'call_ended') {
+    const { data: xfer } = await supabase
+      .from('voice_calls')
+      .select('id, transfer_status, transferred_to_target_id, transfer_requested_at')
+      .eq('retell_call_id', retellCallId)
+      .maybeSingle()
+    if (xfer && (xfer.transfer_status === 'bridged' || xfer.transfer_status === 'holding')) {
+      if (xfer.transferred_to_target_id) {
+        await supabase.rpc('release_transfer_target', { p_target_id: xfer.transferred_to_target_id })
+      }
+      const heldSeconds = xfer.transfer_requested_at
+        ? Math.round((Date.now() - new Date(xfer.transfer_requested_at as string).getTime()) / 1000)
+        : 0
+      await supabase
+        .from('voice_calls')
+        .update({
+          // A bridged call that ended = completed transfer; a still-holding call
+          // that ended before any rep picked up = abandoned hold.
+          transfer_status: xfer.transfer_status === 'bridged' ? 'completed' : 'abandoned',
+          ...(xfer.transfer_status === 'holding' ? { hold_seconds: heldSeconds } : {}),
+        })
+        .eq('id', xfer.id)
+    }
+  }
+
   try {
     // ── 1. Fetch full call data from Retell ──
     const retellRes = await fetch(`https://api.retellai.com/v2/get-call/${retellCallId}`, {

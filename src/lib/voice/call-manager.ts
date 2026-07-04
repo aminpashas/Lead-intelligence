@@ -238,9 +238,13 @@ export async function initiateOutboundCall(
     phone: string // Already decrypted from preCallCheck
     voice_campaign_id?: string
     agent_type?: 'setter' | 'closer'
+    // Live-agent transfer: when set, tells the hosted-LLM agent it may hand off to
+    // a human and how talkative to be first (immediate/greet/qualify).
+    live_transfer?: boolean
+    transfer_mode?: 'immediate' | 'greet_transfer' | 'qualify_transfer'
   }
 ): Promise<{ call_id: string; retell_call_id: string } | { error: string }> {
-  const { organization_id, lead_id, lead, phone, voice_campaign_id, agent_type } = params
+  const { organization_id, lead_id, lead, phone, voice_campaign_id, agent_type, live_transfer, transfer_mode } = params
 
   // Get org settings for caller ID and agent
   const { data: org } = await supabase
@@ -348,6 +352,12 @@ export async function initiateOutboundCall(
       // We initiated the call to an existing lead → they're a known/returning contact.
       is_new_lead: 'false',
       is_returning: 'true',
+      // Live-transfer signalling for the hosted-LLM prompt. When live_transfer is
+      // 'true', the agent should attempt a handoff via the transfer custom function
+      // per transfer_mode (immediate → connect ASAP; greet → brief hello first;
+      // qualify → discovery, then transfer only if interested).
+      live_transfer: String(!!live_transfer),
+      transfer_mode: transfer_mode || '',
     },
   }
 

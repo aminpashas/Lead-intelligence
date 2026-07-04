@@ -18,6 +18,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
           { name: 'Team', href: '/settings/team' },
           { name: 'Billing', href: '/settings/billing' },
           { name: 'AI Control', href: '/settings/ai' },
+          { name: 'Live Transfer', href: '/settings/live-transfer' },
           { name: 'Connectors', href: '/settings/connectors' },
           { name: 'Legal', href: '/settings/legal' },
           { name: 'Templates', href: '/settings/contracts/templates' },
