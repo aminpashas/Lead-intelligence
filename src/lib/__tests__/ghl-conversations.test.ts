@@ -95,28 +95,44 @@ describe('normalizeGhlMessage', () => {
 })
 
 describe('extractGhlCall', () => {
-  it('reads duration + state + recording from meta.call', () => {
+  it('reads duration + state from the confirmed meta.call shape', () => {
+    // The real payload: {"call":{"duration":13,"status":"completed"}} (probe).
     const c = extractGhlCall({
       id: 'c1',
       messageType: 'TYPE_CALL',
-      meta: { call: { duration: 252, status: 'completed', recordingUrl: 'https://x/r.mp3' } },
+      meta: { call: { duration: 252, status: 'completed' } },
     } as GhlMessage)
     expect(c.durationSec).toBe(252)
     expect(c.state).toBe('answered')
-    expect(c.recordingUrl).toBe('https://x/r.mp3')
+    expect(c.recordingUrl).toBeNull()
+    expect(c.raw).toEqual({ call: { duration: 252, status: 'completed' } })
   })
 
-  it('classifies voicemail / no-answer / busy defensively across key spellings', () => {
-    expect(extractGhlCall({ id: 'a', meta: { callStatus: 'voicemail', callDuration: 8 } } as GhlMessage).state).toBe('voicemail')
-    expect(extractGhlCall({ id: 'b', status: 'no-answer' } as GhlMessage).state).toBe('no_answer')
-    expect(extractGhlCall({ id: 'c', meta: { call: { status: 'busy' } } } as GhlMessage).state).toBe('busy')
+  it('maps the probe-observed statuses (completed / ringing / failed)', () => {
+    expect(extractGhlCall({ id: 'a', meta: { call: { duration: 13, status: 'completed' } } } as GhlMessage).state).toBe('answered')
+    expect(extractGhlCall({ id: 'b', meta: { call: { duration: null, status: 'failed' } } } as GhlMessage).state).toBe('failed')
+    // "ringing" is a transient/unconnected state with no LI equivalent → unknown.
+    const ringing = extractGhlCall({ id: 'c', meta: { call: { duration: null, status: 'ringing' } } } as GhlMessage)
+    expect(ringing.state).toBe('unknown')
+    expect(ringing.durationSec).toBeNull()
   })
 
-  it('finds a recording in attachments and defaults unknown state / null duration', () => {
-    const c = extractGhlCall({ id: 'd', attachments: ['https://cdn/rec.wav?sig=1'] } as unknown as GhlMessage)
-    expect(c.recordingUrl).toBe('https://cdn/rec.wav?sig=1')
-    expect(c.state).toBe('unknown')
-    expect(c.durationSec).toBeNull()
+  it('classifies further GHL call statuses and falls back to top-level status', () => {
+    expect(extractGhlCall({ id: 'd', meta: { call: { status: 'voicemail' } } } as GhlMessage).state).toBe('voicemail')
+    expect(extractGhlCall({ id: 'e', meta: { call: { status: 'busy' } } } as GhlMessage).state).toBe('busy')
+    // Top-level status mirrors meta.call.status on outbound rows; used when meta.call is absent.
+    expect(extractGhlCall({ id: 'f', status: 'no-answer' } as GhlMessage).state).toBe('no_answer')
+  })
+
+  it('leaves recording null (endpoint omits it) but reads meta.call.recordingUrl if a revision adds it', () => {
+    // Conversations messages never carry a recording today → null, unknown, null.
+    const bare = extractGhlCall({ id: 'g' } as GhlMessage)
+    expect(bare.recordingUrl).toBeNull()
+    expect(bare.state).toBe('unknown')
+    expect(bare.durationSec).toBeNull()
+    // Forward-compat: if GHL nests a recording alongside duration/status, surface it.
+    const withRec = extractGhlCall({ id: 'h', meta: { call: { status: 'completed', recordingUrl: 'https://x/r.mp3' } } } as GhlMessage)
+    expect(withRec.recordingUrl).toBe('https://x/r.mp3')
   })
 
   it('is attached to normalized call records only', () => {

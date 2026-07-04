@@ -1,13 +1,14 @@
 # GHL Conversation-History Enrichment — Timelines, Call Records & Summaries
 
-**Status:** Tier 1 IMPLEMENTED 2026-07-04 (on the committed backfill base); tsc clean, 18 unit tests pass.
+**Status:** Tier 1 IMPLEMENTED 2026-07-04 (on the committed backfill base); tsc clean, 19 unit tests pass.
+**Step 0 probe RUN 2026-07-04** — call-payload field keys confirmed against the live location and `extractGhlCall` tightened to them (see Step 0 below).
 
 ## Implementation status
 | Piece | State |
 |---|---|
 | Message + call timestamps (timeline) | ✅ already in base backfill |
 | **Tier 1** — call duration / outcome / recording | ✅ implemented: `extractGhlCall` (conversations.ts) + enriched `lead_activities` metadata + outcome-aware `formatCallTitle` (ingest-message.ts) |
-| **Step 0** — live GHL call-payload probe | ✅ script written: `scripts/ghl-probe-call-payload.ts` (run it to confirm/tighten field keys — needs env) |
+| **Step 0** — live GHL call-payload probe | ✅ RUN 2026-07-04 (`scripts/ghl-probe-call-payload.ts`): keys confirmed as `meta.call.{duration,status}` only — no recording/aliases — and `extractGhlCall` narrowed to them |
 | **Tier 2** — Claude call summarizer | ✅ module written: `src/lib/voice/call-summary.ts` (runs on any transcript text) |
 | Tier 2 — STT of recordings | ⛔ BLOCKED: no STT provider in repo (only @anthropic-ai/sdk; Claude can't transcribe audio). Explicit seam `transcribeRecording()` — provision Whisper/Deepgram/AssemblyAI + key. |
 | Tier 2 — summary cron over answered/long calls | ⬜ not built (pending STT + Step-0 confirmation that recordings/transcripts exist) |
@@ -76,19 +77,32 @@ Mirror the idempotency the current `lead_activities` path uses.
 
 ---
 
-## ⚠️ Step 0 — verify the GHL call payload FIRST
+## ✅ Step 0 — GHL call payload CONFIRMED (2026-07-04)
 
-GHL's `TYPE_CALL` message shape varies by API revision. Before mapping, pull **one** real call message and log
-its raw JSON:
+`scripts/ghl-probe-call-payload.ts` was run against the live location (`GET
+/conversations/{conversationId}/messages`, Version `2021-04-15`). Across every sampled `TYPE_CALL` row the
+shape was identical and minimal:
 
+```jsonc
+// top-level keys: id, direction, status, type, locationId, contactId,
+//                 conversationId, dateAdded, dateUpdated, userId, source,
+//                 meta, altId, from, to, messageType   (+ `error` on failed calls)
+"meta": { "call": { "duration": 13, "status": "completed" } }
 ```
-GET /conversations/{conversationId}/messages   (Version: 2021-04-15)
-```
 
-Confirm the actual keys for: duration, call status/disposition, recording URL, and any transcript/summary.
-Common shapes seen in the wild (treat as *candidates*, verify): `meta.call.duration`, `meta.call.status`,
-top-level `attachments[]` for the recording, `meta.callDuration`, `status`. Extract **defensively** (read
-several possible keys, fall back to null) rather than trusting one.
+**Confirmed mapping — the extractor reads only these:**
+- **Duration** → `meta.call.duration` (seconds; `null` or `0` when the call never connected). No
+  `callDuration` / `meta.duration` alias ever appeared.
+- **Status** → `meta.call.status` — observed values `completed` / `ringing` / `failed`; top-level `status`
+  mirrors it on outbound rows (fallback). No `callStatus` alias.
+- **Recording** → **not present.** `attachments` was always `undefined` and `meta` carried nothing but
+  `{call:{duration,status}}`. Recording audio would need the dedicated call-recording endpoint (out of scope
+  for this ingestion path); `extractGhlCall` keeps a forward-compat read of `meta.call.recordingUrl` but it is
+  `null` today.
+- **Transcript/summary** → not present in the payload → Tier 2 must STT the (unavailable-here) recording.
+
+The earlier "read several candidate keys defensively" guidance is now retired: `extractGhlCall` is narrowed to
+the confirmed keys above, with `meta` preserved verbatim in `NormalizedGhlCall.raw` for audit / future re-parse.
 
 ---
 

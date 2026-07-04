@@ -193,21 +193,33 @@ export function isOptInMessage(body: string | undefined): boolean {
 
 /**
  * Derive call detail (duration / connection state / recording) from a GHL call
- * message. GHL's `TYPE_CALL` payload shape drifts across API revisions, so every
- * field is read defensively from several candidate keys and falls back to null —
- * confirm the real keys with scripts/ghl-probe-call-payload.ts and tighten here.
- * Pure + exported so it's unit-testable without a live location.
+ * message.
+ *
+ * Confirmed shape (scripts/ghl-probe-call-payload.ts against the live location,
+ * 2026-07): every `TYPE_CALL` row nests its detail under `meta.call` as exactly
+ * `{ duration, status }` — e.g. `{"call":{"duration":13,"status":"completed"}}`.
+ * Observed statuses were "completed" / "ringing" / "failed"; top-level `status`
+ * mirrors `meta.call.status` on outbound rows and is `undefined` on some inbound
+ * ones. `duration` is a number of seconds, or `null`/`0` when the call never
+ * connected. No `callDuration`/`callStatus` aliases, no `attachments`, and no
+ * recording URL are ever present, so this reads only the confirmed keys.
+ *
+ * The full `meta` is preserved in `raw` for audit + re-parse if a future API
+ * revision adds fields. Pure + exported so it's unit-testable without a live
+ * location.
  */
 export function extractGhlCall(msg: GhlMessage): NormalizedGhlCall {
   const meta = (msg.meta ?? {}) as Record<string, unknown>
-  const call = ((meta.call as Record<string, unknown>) ?? meta) as Record<string, unknown>
-  const num = (v: unknown): number | null => {
-    const n = Number(v)
-    return Number.isFinite(n) && n > 0 ? n : null
-  }
-  const durationSec =
-    num(call.duration) ?? num(call.callDuration) ?? num(meta.duration) ?? num(meta.callDuration)
-  const rawState = String(call.status ?? call.callStatus ?? meta.callStatus ?? msg.status ?? '').toLowerCase()
+  const call = (meta.call as Record<string, unknown> | undefined) ?? {}
+
+  const n = Number(call.duration)
+  const durationSec = Number.isFinite(n) && n > 0 ? n : null
+
+  // meta.call.status is authoritative; top-level msg.status is the confirmed
+  // fallback for rows that omit it. The extra keyword branches (voicemail /
+  // no-answer / busy) cover GHL call statuses not seen in the probe sample but
+  // documented for the endpoint — they cost nothing and don't invent new keys.
+  const rawState = String(call.status ?? msg.status ?? '').toLowerCase()
   const state: GhlCallState =
     /voicemail|vm|voice[-_ ]?mail/.test(rawState) ? 'voicemail'
     : /no[-_ ]?answer|missed|noanswer|unanswered/.test(rawState) ? 'no_answer'
@@ -215,16 +227,16 @@ export function extractGhlCall(msg: GhlMessage): NormalizedGhlCall {
     : /fail|error|canceled|cancelled/.test(rawState) ? 'failed'
     : /answer|complet|connect|in[-_ ]?progress/.test(rawState) ? 'answered'
     : 'unknown'
-  const attachments = (msg as { attachments?: unknown }).attachments
-  const fromAttachments = Array.isArray(attachments)
-    ? (attachments.map(String).find((a) => /\.(mp3|wav|m4a|ogg)(\?|$)/i.test(a)) ?? null)
-    : null
+
+  // The Conversations messages endpoint does NOT surface call recordings (the
+  // probe never saw one — meta carries only {call:{duration,status}}). Fetching
+  // audio needs the dedicated recording endpoint, so this stays null here; we
+  // still read meta.call.recordingUrl so the field lights up automatically if a
+  // future revision nests it alongside duration/status.
   const recordingUrl =
-    (typeof call.recordingUrl === 'string' && call.recordingUrl) ||
-    (typeof meta.recordingUrl === 'string' && meta.recordingUrl) ||
-    fromAttachments ||
-    null
-  return { durationSec, state, recordingUrl: recordingUrl || null, raw: (msg.meta as Record<string, unknown>) ?? null }
+    typeof call.recordingUrl === 'string' && call.recordingUrl ? call.recordingUrl : null
+
+  return { durationSec, state, recordingUrl, raw: (msg.meta as Record<string, unknown>) ?? null }
 }
 
 /**
