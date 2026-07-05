@@ -21,6 +21,7 @@ import { sanitizeTerm } from '@/lib/campaigns/keyword-match'
 import { TEMPLATE_VARIABLES } from '@/lib/campaigns/personalization'
 import { decryptField } from '@/lib/encryption'
 import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
+import { fetchGrowthStudioAdMetrics } from '@/lib/bridges/growth-studio-metrics'
 import { recordAiUsage } from './usage'
 import { buildCurrentDateBlock } from './datetime-context'
 
@@ -348,7 +349,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_campaign_performance',
     description:
-      "Paid ad-campaign performance (spend, conversions, cost-per-conversion) by channel and campaign, synced from Dion Growth Studio's Google Ads / Meta accounts into ad_metrics_daily. Use when the user asks how campaigns/ads are doing, where ad budget is working or being wasted, cost per lead, or which channel to focus on. Returns a per-channel rollup plus the top campaigns by spend. Defaults to the last 30 days.",
+      "Paid ad-campaign performance (spend, conversions, cost-per-conversion) by channel and campaign, read live from Dion Growth Studio's Google Ads / Meta accounts (the source of truth for ad spend). Use when the user asks how campaigns/ads are doing, where ad budget is working or being wasted, cost per lead, or which channel to focus on. Returns a per-channel rollup plus the top campaigns by spend. Defaults to the last 30 days.",
     input_schema: {
       type: 'object',
       properties: {
@@ -477,15 +478,20 @@ async function executeTool(
 
   if (name === 'get_campaign_performance') {
     const days = Math.min(Math.max(Number(input.days) || 30, 1), 90)
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10)
-    const { data: rows } = await supabase
-      .from('ad_metrics_daily')
-      .select('channel, campaign_name, spend, conversions, clicks, impressions')
-      .eq('organization_id', orgId)
-      .in('channel', ['google_ads', 'meta'])
-      .gte('metric_date', cutoff)
+    // Read LIVE from Dion Growth Studio — the source of truth for ad data. LI
+    // intentionally does NOT warehouse campaign metrics locally; the engine
+    // reads from DGS on demand so there is one authoritative copy.
+    const all = await fetchGrowthStudioAdMetrics({ days })
+    if (all === null) {
+      return JSON.stringify({
+        window_days: days,
+        error:
+          'Could not reach Dion Growth Studio for campaign metrics right now (it is the source of truth for ad spend). Try again shortly.',
+      })
+    }
+    const rows = all.filter(
+      (r) => r.customer_id === orgId && (r.channel === 'google_ads' || r.channel === 'meta'),
+    )
 
     type Agg = { spend: number; conversions: number; clicks: number; impressions: number }
     const CHANNEL_LABEL: Record<string, string> = { google_ads: 'Google Ads', meta: 'Meta Ads' }
@@ -493,19 +499,12 @@ async function executeTool(
     const byChannel = new Map<string, Agg>()
     const byCampaign = new Map<string, Agg & { channel: string; name: string }>()
 
-    for (const r of (rows ?? []) as {
-      channel: string
-      campaign_name: string | null
-      spend: number | null
-      conversions: number | null
-      clicks: number | null
-      impressions: number | null
-    }[]) {
+    for (const r of rows) {
       const add = (a: Agg) => {
-        a.spend += Number(r.spend) || 0
-        a.conversions += Number(r.conversions) || 0
-        a.clicks += Number(r.clicks) || 0
-        a.impressions += Number(r.impressions) || 0
+        a.spend += r.spend
+        a.conversions += r.conversions
+        a.clicks += r.clicks
+        a.impressions += r.impressions
       }
       const ch = byChannel.get(r.channel) ?? zero()
       add(ch)
@@ -520,7 +519,7 @@ async function executeTool(
     if (byChannel.size === 0) {
       return JSON.stringify({
         window_days: days,
-        note: 'No paid ad-metrics synced for this practice yet. Campaign performance is pulled from Dion Growth Studio into ad_metrics_daily.',
+        note: 'No paid Google/Meta ad activity in Dion Growth Studio for this practice in the selected window.',
       })
     }
 
@@ -545,7 +544,7 @@ async function executeTool(
         cost_per_conversion: costPer(c),
       }))
 
-    return JSON.stringify({ window_days: days, channels, top_campaigns })
+    return JSON.stringify({ window_days: days, source: 'dion_growth_studio_live', channels, top_campaigns })
   }
 
   if (name === 'list_smart_lists') {

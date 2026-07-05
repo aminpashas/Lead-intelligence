@@ -2,18 +2,16 @@
  * Campaign ad-metrics bridge — Dion Growth Studio → Lead Intelligence.
  *
  * DGS owns the Google Ads / Meta connectors and stores per-campaign, per-day
- * spend + conversions in its `metrics_daily` table. LI needs that resident
- * locally (in `ad_metrics_daily`) so the agents' follow-up decisions can weigh
- * campaign health — "this lead came from a $150-CPL Meta campaign that's still
- * producing" vs. "Google spent $70/day for one lead this week" — without a live
- * dependency on DGS being reachable at decision time.
+ * spend + conversions in its `metrics_daily` table. DGS is the source of truth
+ * for ad data; LI does NOT warehouse a local copy. Instead the engine reads
+ * from DGS live on demand — e.g. the command agent's get_campaign_performance
+ * tool calls this to answer "how are Google/Meta doing?" so campaign health is
+ * always current and there is one authoritative copy.
  *
- * This is the pull half. It calls DGS's `/api/v1/ad-metrics` endpoint (the
- * sibling of the `/api/v1/performance` rollup already used by
- * `bridges/growth-studio.ts`) and returns rows already shaped for
- * `ad_metrics_daily`. The cron at /api/cron/sync-growth-studio-metrics upserts
- * them. Returns null if the bridge isn't configured or is unreachable, so the
- * cron degrades to a clean no-op rather than throwing.
+ * It calls DGS's `/api/v1/ad-metrics` endpoint (the sibling of the
+ * `/api/v1/performance` rollup already used by `bridges/growth-studio.ts`) and
+ * returns normalized rows (channel mapped to google_ads/meta/ga4). Returns null
+ * if the bridge isn't configured or is unreachable, so callers degrade cleanly.
  *
  * Env (Vercel only):
  *   GROWTH_STUDIO_BASE_URL — e.g. https://dion-growth-studio.vercel.app
