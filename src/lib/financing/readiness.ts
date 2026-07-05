@@ -13,6 +13,7 @@ import type { Lead, FinancialSignals } from '@/types/database'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { getPublicAppUrl } from '@/lib/app-url'
 import { escapeHtml } from '@/lib/utils'
 import { logger } from '@/lib/logger'
 
@@ -290,9 +291,10 @@ async function sendFinancingLink(
     .limit(1)
     .single()
 
+  const appBase = getPublicAppUrl()
   const financeUrl = existingApp?.share_token
-    ? `${process.env.NEXT_PUBLIC_APP_URL}/finance/${existingApp.share_token}`
-    : `${process.env.NEXT_PUBLIC_APP_URL}/qualify/${organizationId}`
+    ? `${appBase}/finance/${existingApp.share_token}`
+    : `${appBase}/qualify/${organizationId}`
 
   // Personalize message based on financial signals
   const signals = (lead.financial_signals || {}) as Partial<FinancialSignals>
