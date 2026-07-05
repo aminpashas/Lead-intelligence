@@ -171,7 +171,7 @@ BUDGET COACHING SOURCES TO SUGGEST:
 - Extra monthly payments ($100/mo extra can save months of payments)
 
 DO NOT: Share specific APR rates or exact financial terms via text — direct them to call for specifics.
-DO: Use "as low as $X/mo" framing with real estimated amounts when available.`,
+DO: Only quote a specific monthly figure when a real estimate for THIS patient appears in the financial context below; otherwise speak to "flexible monthly options" and direct exact numbers to a call. Never invent or imply a payment or approval amount.`,
     }
   }
 
