@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateTwilioWebhook } from '@/lib/messaging/twilio'
+import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
 
 /**
  * Twilio Voice Webhook — Inbound Call Handler
@@ -88,6 +89,7 @@ export async function POST(req: NextRequest) {
   let leadId: string | null = null
   let orgId: string | null = null
   let conversationId: string | null = null
+  let voiceTimezone: string | null = null
 
   const supabase = getSupabase()
   if (supabase) {
@@ -102,6 +104,13 @@ export async function POST(req: NextRequest) {
       if (org) {
         orgId = org.id
         practiceName = org.name || 'our practice'
+        // Practice-timezone clock for the voice agent (see date variables below).
+        const { data: bs } = await supabase
+          .from('booking_settings')
+          .select('timezone')
+          .eq('organization_id', org.id)
+          .maybeSingle()
+        voiceTimezone = (bs?.timezone as string | null) ?? null
       } else {
         // Fallback only when genuinely single-tenant. Guessing "first org" in a
         // multi-tenant deployment would attribute a call (and any created lead /
@@ -255,6 +264,11 @@ export async function POST(req: NextRequest) {
       console.error('[Voice Inbound] DB error (non-fatal, proceeding to Retell):', dbError)
     }
   }
+
+  // Ground the hosted voice agent in the real clock + a dated 2-week calendar so
+  // it never says "next Tuesday" without knowing the date. The Retell prompt must
+  // reference {{current_datetime}} and {{upcoming_dates}}.
+  Object.assign(dynamicVariables, buildDateDynamicVariables(voiceTimezone))
 
   // ── 2. Register the call with Retell (CRITICAL — must succeed) ──
   try {

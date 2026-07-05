@@ -23,6 +23,7 @@ import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
 import { logger } from '@/lib/logger'
+import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
 import type {
   VoiceCallStatus,
   VoiceCallOutcome,
@@ -262,6 +263,14 @@ export async function initiateOutboundCall(
     return { error: 'No outbound caller ID configured' }
   }
 
+  // Practice-timezone clock + dated calendar for the hosted voice agent.
+  const { data: bsForTz } = await supabase
+    .from('booking_settings')
+    .select('timezone')
+    .eq('organization_id', organization_id)
+    .maybeSingle()
+  const dateVars = buildDateDynamicVariables((bsForTz?.timezone as string | null) ?? null)
+
   // Find or create voice conversation
   let conversationId: string
   const { data: existingConvo } = await supabase
@@ -358,6 +367,9 @@ export async function initiateOutboundCall(
       // qualify → discovery, then transfer only if interested).
       live_transfer: String(!!live_transfer),
       transfer_mode: transfer_mode || '',
+      // Real clock + dated 2-week calendar. Retell prompt references
+      // {{current_datetime}} and {{upcoming_dates}}.
+      ...dateVars,
     },
   }
 
