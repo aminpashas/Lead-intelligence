@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { getPublicAppUrl } from '@/lib/app-url'
 
 type FollowUpContext = {
   supabase: SupabaseClient
@@ -103,7 +104,7 @@ export async function followUpLinkNotStarted(ctx: FollowUpContext): Promise<Foll
 
   const expiresAt = new Date(app.expires_at)
   const hoursLeft = Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60)))
-  const url = `${process.env.NEXT_PUBLIC_APP_URL}/finance/${app.share_token}`
+  const url = `${getPublicAppUrl()}/finance/${app.share_token}`
 
   const smsBody = `Hi ${contact.firstName}, just checking in — did you get a chance to look at your financing options? It only takes 2 minutes to apply. Your link expires in ${hoursLeft} hours: ${url}`
 
@@ -147,7 +148,7 @@ export async function followUpFormAbandoned(ctx: FollowUpContext): Promise<Follo
     .limit(1)
     .single()
 
-  const url = app?.share_token ? `${process.env.NEXT_PUBLIC_APP_URL}/finance/${app.share_token}` : ''
+  const url = app?.share_token ? `${getPublicAppUrl()}/finance/${app.share_token}` : ''
 
   const smsBody = `Hi ${contact.firstName}, looks like you started your financing application — you're almost done! It only takes 2 more minutes to finish.${url ? ` Continue here: ${url}` : ''} Questions? Just reply.`
 

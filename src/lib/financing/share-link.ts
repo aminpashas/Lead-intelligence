@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { getPublicAppUrl } from '@/lib/app-url'
 
 export type FinancingShareLink = {
   url: string
@@ -36,8 +37,12 @@ export async function getOrCreateFinancingShareLink(
     expiresInMs?: number
   }
 ): Promise<FinancingShareLink | null> {
-  const appBase = process.env.NEXT_PUBLIC_APP_URL
-  if (!appBase) return null
+  // Always resolve through getPublicAppUrl(): the link is baked into an SMS /
+  // email and forwarded to a co-signer, so its host must be the STABLE prod
+  // alias — never the ephemeral `-projects.vercel.app` snapshot of whatever
+  // deployment happened to run the send job (that snapshot 404s / bounces to
+  // /login the moment it lacks a route). See src/lib/app-url.ts.
+  const appBase = getPublicAppUrl()
 
   // Reuse an existing open application's token so a patient who already has a
   // link doesn't get a second, conflicting one.

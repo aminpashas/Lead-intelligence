@@ -1,4 +1,5 @@
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
+import { getPublicAppUrl } from '@/lib/app-url'
 import type {
   LenderAdapter,
   LenderApplicationRequest,
@@ -58,8 +59,8 @@ export class AffirmAdapter implements LenderAdapter {
         merchant: {
           public_api_key: credentials.public_key,
           // API-3: use the actual webhook handler route, not a nonexistent /redirect path
-          user_confirmation_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/financing/affirm`,
-          user_cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/finance/cancelled`,
+          user_confirmation_url: `${getPublicAppUrl()}/api/webhooks/financing/affirm`,
+          user_cancel_url: `${getPublicAppUrl()}/finance/cancelled`,
           user_confirmation_url_action: 'POST',
           ...(credentials.financial_product_key && {
             financial_product_key: credentials.financial_product_key,
