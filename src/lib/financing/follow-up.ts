@@ -9,11 +9,46 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { getPublicAppUrl } from '@/lib/app-url'
 
 type FollowUpContext = {
   supabase: SupabaseClient
   leadId: string
   organizationId: string
+}
+
+/**
+ * KILL SWITCH for automated "you've been approved" patient notifications.
+ *
+ * A false credit-approval text (asserting an approval the patient never applied
+ * for) is FCRA / UDAAP / TCPA exposure. Because a sandbox/UAT lender credential
+ * or seeded data can write a genuine `financing_submissions.status='approved'`
+ * row, the per-message "real approved submission" guard is NOT enough on its
+ * own. This master switch is OFF unless `FINANCING_APPROVAL_SMS_ENABLED=true`
+ * is explicitly set, so the default posture is: never auto-assert an approval.
+ * When off, callers log + escalate for human review instead of texting.
+ */
+function approvalNoticesEnabled(): boolean {
+  return process.env.FINANCING_APPROVAL_SMS_ENABLED === 'true'
+}
+
+/** Record that an approval notice was withheld so a human can verify + follow up. */
+async function escalateWithheldApproval(
+  ctx: FollowUpContext,
+  trigger: string,
+  approvedAmount: number
+): Promise<void> {
+  console.warn(
+    `[financing.follow-up] Approval notice WITHHELD (kill switch) for lead ${ctx.leadId} ` +
+      `(trigger=${trigger}, amount=${approvedAmount}). Set FINANCING_APPROVAL_SMS_ENABLED=true to enable.`
+  )
+  await ctx.supabase.from('lead_activities').insert({
+    organization_id: ctx.organizationId,
+    lead_id: ctx.leadId,
+    activity_type: 'financing_approval_withheld',
+    title: 'Automated approval SMS withheld — needs human verification',
+    metadata: { type: 'financing_followup', trigger, approved_amount: approvedAmount, reason: 'approval_sms_kill_switch' },
+  }).then(() => {}, () => { /* activity logging is best-effort */ })
 }
 
 type FollowUpResult = {
@@ -103,7 +138,7 @@ export async function followUpLinkNotStarted(ctx: FollowUpContext): Promise<Foll
 
   const expiresAt = new Date(app.expires_at)
   const hoursLeft = Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60)))
-  const url = `${process.env.NEXT_PUBLIC_APP_URL}/finance/${app.share_token}`
+  const url = `${getPublicAppUrl()}/finance/${app.share_token}`
 
   const smsBody = `Hi ${contact.firstName}, just checking in — did you get a chance to look at your financing options? It only takes 2 minutes to apply. Your link expires in ${hoursLeft} hours: ${url}`
 
@@ -147,7 +182,7 @@ export async function followUpFormAbandoned(ctx: FollowUpContext): Promise<Follo
     .limit(1)
     .single()
 
-  const url = app?.share_token ? `${process.env.NEXT_PUBLIC_APP_URL}/finance/${app.share_token}` : ''
+  const url = app?.share_token ? `${getPublicAppUrl()}/finance/${app.share_token}` : ''
 
   const smsBody = `Hi ${contact.firstName}, looks like you started your financing application — you're almost done! It only takes 2 more minutes to finish.${url ? ` Continue here: ${url}` : ''} Questions? Just reply.`
 
@@ -183,8 +218,40 @@ export async function followUpApproved(
   monthlyPayment: number,
   lenderName: string
 ): Promise<FollowUpResult> {
+  // KILL SWITCH: default-off. Never auto-assert a credit approval unless the
+  // practice has explicitly enabled it after verifying no test/sandbox lender is
+  // firing real patient SMS. See approvalNoticesEnabled().
+  if (!approvalNoticesEnabled()) {
+    await escalateWithheldApproval(ctx, 'approved', approvedAmount)
+    return { sent: false, channel: null, message_type: 'approved' }
+  }
+
   const contact = await getLeadContact(ctx.supabase, ctx.leadId)
   if (!contact) return { sent: false, channel: null, message_type: 'approved' }
+
+  // GUARD: never assert a credit approval to a patient without a genuine lender
+  // decision on record. This message states a definitive outcome ("you've been
+  // approved for $X through Y") — sending it without a real approval is a false
+  // credit-approval claim (FCRA / UDAAP / TCPA exposure). The only legitimate
+  // caller (executeWaterfall) writes financing_submissions.status='approved'
+  // before invoking this, so a matching row must exist. A direct or fabricated
+  // call — a test harness, or a link-only lender like Cherry that has no API
+  // decision — has no such row and is refused here.
+  const { data: approvedSubmission } = await ctx.supabase
+    .from('financing_submissions')
+    .select('id')
+    .eq('lead_id', ctx.leadId)
+    .eq('status', 'approved')
+    .limit(1)
+    .maybeSingle()
+
+  if (!approvedSubmission) {
+    console.warn(
+      `[financing.follow-up] Refusing approval notice for lead ${ctx.leadId}: ` +
+        `no financing_submissions row with status='approved' (lender=${lenderName}, amount=${approvedAmount}).`
+    )
+    return { sent: false, channel: null, message_type: 'approved' }
+  }
 
   const smsBody = `Great news, ${contact.firstName}! 🎉 You've been approved for $${approvedAmount.toLocaleString()} in dental financing through ${lenderName} — that's just $${Math.round(monthlyPayment)}/mo. Let's get your consultation scheduled! Reply with a good time or call us.`
 
@@ -278,6 +345,12 @@ export async function followUpPending(ctx: FollowUpContext, lenderName: string):
  * Trigger: 48 hours after approval, no appointment created.
  */
 export async function followUpApprovedNoSchedule(ctx: FollowUpContext, approvedAmount: number): Promise<FollowUpResult> {
+  // KILL SWITCH: default-off (see approvalNoticesEnabled()).
+  if (!approvalNoticesEnabled()) {
+    await escalateWithheldApproval(ctx, 'approved_no_schedule', approvedAmount)
+    return { sent: false, channel: null, message_type: 'approved_no_schedule' }
+  }
+
   const contact = await getLeadContact(ctx.supabase, ctx.leadId)
   if (!contact) return { sent: false, channel: null, message_type: 'approved_no_schedule' }
 
@@ -290,6 +363,26 @@ export async function followUpApprovedNoSchedule(ctx: FollowUpContext, approvedA
     .limit(1)
 
   if (appointments && appointments.length > 0) {
+    return { sent: false, channel: null, message_type: 'approved_no_schedule' }
+  }
+
+  // GUARD (mirror of followUpApproved): never assert a credit approval without a
+  // genuine lender decision on record. "you're approved for $X" is a definitive
+  // credit-outcome claim — sending it off a bare amount is a false approval
+  // claim (FCRA / UDAAP / TCPA exposure). Require a real approved submission.
+  const { data: approvedSubmission } = await ctx.supabase
+    .from('financing_submissions')
+    .select('id')
+    .eq('lead_id', ctx.leadId)
+    .eq('status', 'approved')
+    .limit(1)
+    .maybeSingle()
+
+  if (!approvedSubmission) {
+    console.warn(
+      `[financing.follow-up] Refusing approved-no-schedule notice for lead ${ctx.leadId}: ` +
+        `no financing_submissions row with status='approved' (amount=${approvedAmount}).`
+    )
     return { sent: false, channel: null, message_type: 'approved_no_schedule' }
   }
 
