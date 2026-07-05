@@ -346,6 +346,20 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: {} },
   },
   {
+    name: 'get_campaign_performance',
+    description:
+      "Paid ad-campaign performance (spend, conversions, cost-per-conversion) by channel and campaign, synced from Dion Growth Studio's Google Ads / Meta accounts into ad_metrics_daily. Use when the user asks how campaigns/ads are doing, where ad budget is working or being wasted, cost per lead, or which channel to focus on. Returns a per-channel rollup plus the top campaigns by spend. Defaults to the last 30 days.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: {
+          type: 'number',
+          description: 'Lookback window in days (default 30, max 90).',
+        },
+      },
+    },
+  },
+  {
     name: 'look_up_lead',
     description:
       "Look up a SPECIFIC person by name and return their current status, qualification, AI score, and last contact. Use this any time the user asks about one named individual (\"what's the status of Amin Samadian\", \"did we ever reach John Doe?\"). Returns every lead whose name contains all the words provided, and matches even when the name is stored reversed or with a middle initial. This is the right tool for single-person questions — find_leads is only for scoping a group.",
@@ -415,6 +429,7 @@ ${buildCurrentDateBlock(timezone)}
 What you can do:
 - Look up a specific person by name with look_up_lead — it returns their status, qualification, AI score, and last contact. Use it whenever the user names an individual.
 - Answer questions about the pipeline or a group of leads using get_dashboard_stats, find_leads, and list_smart_lists.
+- Answer questions about ad spend, campaign performance, cost per lead, or where to focus budget using get_campaign_performance. Ground any claim about a channel or campaign in those numbers rather than estimating.
 - Draft bulk outreach — mass SMS or mass email to a targeted group — using propose_mass_sms / propose_mass_email. Proposals appear to the user as cards with a Send button. NOTHING sends until the user confirms. Never claim a message was sent; say it is ready for their review.
 
 Rules:
@@ -458,6 +473,79 @@ async function executeTool(
       todays_appointments: appts.count || 0,
       unread_conversations: unread.count || 0,
     })
+  }
+
+  if (name === 'get_campaign_performance') {
+    const days = Math.min(Math.max(Number(input.days) || 30, 1), 90)
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10)
+    const { data: rows } = await supabase
+      .from('ad_metrics_daily')
+      .select('channel, campaign_name, spend, conversions, clicks, impressions')
+      .eq('organization_id', orgId)
+      .in('channel', ['google_ads', 'meta'])
+      .gte('metric_date', cutoff)
+
+    type Agg = { spend: number; conversions: number; clicks: number; impressions: number }
+    const CHANNEL_LABEL: Record<string, string> = { google_ads: 'Google Ads', meta: 'Meta Ads' }
+    const zero = (): Agg => ({ spend: 0, conversions: 0, clicks: 0, impressions: 0 })
+    const byChannel = new Map<string, Agg>()
+    const byCampaign = new Map<string, Agg & { channel: string; name: string }>()
+
+    for (const r of (rows ?? []) as {
+      channel: string
+      campaign_name: string | null
+      spend: number | null
+      conversions: number | null
+      clicks: number | null
+      impressions: number | null
+    }[]) {
+      const add = (a: Agg) => {
+        a.spend += Number(r.spend) || 0
+        a.conversions += Number(r.conversions) || 0
+        a.clicks += Number(r.clicks) || 0
+        a.impressions += Number(r.impressions) || 0
+      }
+      const ch = byChannel.get(r.channel) ?? zero()
+      add(ch)
+      byChannel.set(r.channel, ch)
+      const cName = r.campaign_name || '(unattributed)'
+      const key = `${r.channel}::${cName}`
+      const camp = byCampaign.get(key) ?? { ...zero(), channel: r.channel, name: cName }
+      add(camp)
+      byCampaign.set(key, camp)
+    }
+
+    if (byChannel.size === 0) {
+      return JSON.stringify({
+        window_days: days,
+        note: 'No paid ad-metrics synced for this practice yet. Campaign performance is pulled from Dion Growth Studio into ad_metrics_daily.',
+      })
+    }
+
+    const round = (n: number) => Math.round(n * 100) / 100
+    const costPer = (a: Agg) => (a.conversions > 0 ? round(a.spend / a.conversions) : null)
+    const channels = [...byChannel.entries()].map(([channel, a]) => ({
+      channel: CHANNEL_LABEL[channel] ?? channel,
+      spend: round(a.spend),
+      conversions: round(a.conversions),
+      cost_per_conversion: costPer(a),
+      clicks: a.clicks,
+      impressions: a.impressions,
+    }))
+    const top_campaigns = [...byCampaign.values()]
+      .sort((x, y) => y.spend - x.spend)
+      .slice(0, 8)
+      .map((c) => ({
+        channel: CHANNEL_LABEL[c.channel] ?? c.channel,
+        campaign: c.name,
+        spend: round(c.spend),
+        conversions: round(c.conversions),
+        cost_per_conversion: costPer(c),
+      }))
+
+    return JSON.stringify({ window_days: days, channels, top_campaigns })
   }
 
   if (name === 'list_smart_lists') {
