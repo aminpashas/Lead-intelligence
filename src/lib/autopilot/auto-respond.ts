@@ -23,6 +23,7 @@ import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { detectPromptInjection, wrapUserContent } from '@/lib/ai/prompt-guard'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
+import { canDisclosePHI } from '@/lib/ai/identity-verification'
 import {
   getAutopilotConfig,
   shouldAutoRespond,
@@ -360,6 +361,11 @@ async function buildAgentContext(
     conversation_history: history,
     handoff_history: handoffHistory,
     message_count: (conversation.message_count as number) || history.length,
+    disclose_phi: canDisclosePHI({
+      lead,
+      verifiedAt: (conversation as Record<string, unknown>).identity_verified_at as string | null,
+      channel,
+    }),
     financing_context: financingCtx,
     competitor_context: competitorContext && competitorContext.length > 0 ? competitorContext : undefined,
     negotiation_levers: negotiationLevers && negotiationLevers.length > 0 ? negotiationLevers : undefined,

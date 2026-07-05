@@ -28,6 +28,7 @@ import { encryptLeadPII } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { verifyDob } from '@/lib/ai/identity-verification'
 import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
 import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
@@ -72,6 +73,20 @@ export function isAgentStageTransitionAllowed(from: LeadStatus, to: LeadStatus):
 // ═══════════════════════════════════════════════════════════
 
 const CROSS_CHANNEL_TOOLS: Anthropic.Tool[] = [
+  {
+    name: 'verify_identity',
+    description: 'Confirm the person you are talking to really is this patient BEFORE sharing any appointment time, treatment plan, financing, or insurance detail. Ask them for their date of birth, then call this with exactly what they said. Returns whether it matched what is on file. Only discuss case-specific details after this returns verified. If it does not match, do not share details — offer to have a team member call them back at the number on file. You may still greet them by first name, answer general questions, and book a consultation without verifying.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        date_of_birth: {
+          type: 'string',
+          description: 'The date of birth the patient stated, in whatever format they gave it (e.g. "March 5 1980", "3/5/1980").',
+        },
+      },
+      required: ['date_of_birth'],
+    },
+  },
   {
     name: 'send_sms_to_lead',
     description: 'Send a custom SMS text message to the patient. Use this when the patient asks you to text them information, or when you need to send something that\'s better in written form (e.g., a link, address, confirmation). Works from any channel — you can send a text while on a phone call.',
@@ -305,6 +320,48 @@ export type ToolResult = {
 }
 
 /**
+ * Tools that surface the patient's OWN case data. Blocked until the conversation
+ * is identity-verified (context.disclose_phi !== false). Action-only tools
+ * (check_availability, create_booking) stay open — they don't disclose existing
+ * PHI, and the model has none in context to leak while unverified.
+ */
+const PHI_GATED_TOOLS: ReadonlySet<string> = new Set([
+  'check_financing_status',
+  'check_closing_progress',
+  'check_contract_status',
+  'prepare_contract_draft',
+  'send_preop_instructions',
+])
+
+/**
+ * verify_identity — compare the caller's stated DOB against the encrypted DOB on
+ * file and, on a match, mark the conversation verified for the TTL window.
+ */
+async function executeVerifyIdentity(
+  supabase: SupabaseClient,
+  context: { conversation_id: string; lead: Record<string, unknown> },
+  claimedDob: string,
+): Promise<ToolResult> {
+  const matched = verifyDob(claimedDob, context.lead.date_of_birth as string | null | undefined)
+  if (!matched) {
+    return {
+      success: false,
+      data: { verified: false },
+      message: 'The date of birth did not match our records. Do NOT share any appointment, treatment, financing, or insurance details. Politely ask them to confirm their date of birth once more; if it still does not match, offer to have a team member call them back at the number on file.',
+    }
+  }
+  await supabase
+    .from('conversations')
+    .update({ identity_verified_at: new Date().toISOString(), identity_verified_via: 'dob' })
+    .eq('id', context.conversation_id)
+  return {
+    success: true,
+    data: { verified: true },
+    message: 'Identity verified via date of birth. You may now discuss this patient\'s appointment, treatment, and financing details for the remainder of this conversation.',
+  }
+}
+
+/**
  * Execute a tool call from the AI agent.
  */
 export async function executeAgentTool(
@@ -318,9 +375,24 @@ export async function executeAgentTool(
     conversation_id: string
     channel?: string // The current channel the agent is on
     agent_role?: 'setter' | 'closer' // Attributes downstream message inserts
+    disclose_phi?: boolean // HIPAA gate: false until identity is verified
   }
 ): Promise<ToolResult> {
+  // HIPAA gate: tools that surface the patient's own case data are blocked until
+  // identity is verified. This is enforcement in code — it holds even if the
+  // model ignores the prompt. verify_identity itself is always allowed.
+  if (context.disclose_phi === false && PHI_GATED_TOOLS.has(toolName)) {
+    return {
+      success: false,
+      data: { requires_verification: true },
+      message: 'Identity not verified. Before sharing this patient\'s appointment, treatment, financing, or insurance details, ask for their date of birth and call verify_identity. If it cannot be verified, offer a callback from a team member.',
+    }
+  }
+
   switch (toolName) {
+    case 'verify_identity':
+      return executeVerifyIdentity(supabase, context, toolInput.date_of_birth as string)
+
     case 'check_availability':
       return executeCheckAvailability(supabase, context.organization_id, toolInput.preferred_day as string | undefined)
 

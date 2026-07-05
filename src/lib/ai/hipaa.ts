@@ -157,24 +157,35 @@ export function scrubPHI(text: string, detections?: PHIDetection[]): string {
  * Uses pseudonymization — keeps enough context for AI to be useful
  * while removing direct identifiers.
  */
-export function buildSafeLeadContext(lead: Record<string, unknown>): string {
+export function buildSafeLeadContext(
+  lead: Record<string, unknown>,
+  options?: { disclosePHI?: boolean },
+): string {
   const parts: string[] = []
+  // Default true preserves behavior for internal callers (scoring, psychology,
+  // sweeps). Patient-facing agents pass false until identity is verified, which
+  // strips the case-specific (Tier-1) block so the model can never disclose it.
+  const disclosePHI = options?.disclosePHI !== false
 
   // Use first name only (partial de-identification). Lead-supplied free-text
   // fields are neutralized for prompt injection before being interpolated.
   if (lead.first_name) parts.push(`Patient: ${neutralizeUntrusted(String(lead.first_name))}`)
 
-  // Keep clinical data (necessary for treatment context)
-  if (lead.dental_condition) parts.push(`Dental Condition: ${String(lead.dental_condition).replace(/_/g, ' ')}`)
-  if (lead.dental_condition_details) parts.push(`Details: ${neutralizeUntrusted(String(lead.dental_condition_details))}`)
-  if (lead.current_dental_situation) parts.push(`Current Situation: ${neutralizeUntrusted(String(lead.current_dental_situation))}`)
-  if (lead.has_dentures != null) parts.push(`Has Dentures: ${lead.has_dentures ? 'Yes' : 'No'}`)
+  if (disclosePHI) {
+    // Keep clinical data (necessary for treatment context)
+    if (lead.dental_condition) parts.push(`Dental Condition: ${String(lead.dental_condition).replace(/_/g, ' ')}`)
+    if (lead.dental_condition_details) parts.push(`Details: ${neutralizeUntrusted(String(lead.dental_condition_details))}`)
+    if (lead.current_dental_situation) parts.push(`Current Situation: ${neutralizeUntrusted(String(lead.current_dental_situation))}`)
+    if (lead.has_dentures != null) parts.push(`Has Dentures: ${lead.has_dentures ? 'Yes' : 'No'}`)
 
-  // Financial context (generalized)
-  if (lead.financing_interest) parts.push(`Financing Interest: ${String(lead.financing_interest).replace(/_/g, ' ')}`)
-  if (lead.budget_range) parts.push(`Budget Range: ${String(lead.budget_range).replace(/_/g, ' ')}`)
-  if (lead.credit_range && lead.credit_range !== 'unknown') parts.push(`Self-Reported Credit: ${String(lead.credit_range)}`)
-  if (lead.timeline_note) parts.push(`Stated Timeline: ${neutralizeUntrusted(String(lead.timeline_note))}`)
+    // Financial context (generalized)
+    if (lead.financing_interest) parts.push(`Financing Interest: ${String(lead.financing_interest).replace(/_/g, ' ')}`)
+    if (lead.budget_range) parts.push(`Budget Range: ${String(lead.budget_range).replace(/_/g, ' ')}`)
+    if (lead.credit_range && lead.credit_range !== 'unknown') parts.push(`Self-Reported Credit: ${String(lead.credit_range)}`)
+    if (lead.timeline_note) parts.push(`Stated Timeline: ${neutralizeUntrusted(String(lead.timeline_note))}`)
+  } else {
+    parts.push('Case details withheld: caller identity not yet verified. Do not reveal or confirm any appointment, treatment, financing, or insurance specifics until verify_identity succeeds.')
+  }
 
   // Behavioral context (no PHI)
   if (lead.ai_qualification) parts.push(`Qualification: ${lead.ai_qualification}`)

@@ -81,6 +81,13 @@ export type AgentContext = {
   competitor_context?: CompetitorContext[]
   /** Phase 4: org-approved negotiation levers selected for this lead's price sensitivity. */
   negotiation_levers?: string[]
+  /**
+   * HIPAA identity gate: may the agent disclose Tier-1 (case-specific) PHI to
+   * whoever is on the other end? Computed via canDisclosePHI() where the context
+   * is assembled. Undefined is treated as true for internal/non-patient-facing
+   * callers; patient-facing surfaces set it explicitly.
+   */
+  disclose_phi?: boolean
 }
 
 export type CompetitorContext = {

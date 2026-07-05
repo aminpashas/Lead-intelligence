@@ -16,6 +16,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { routeToAgent } from '@/lib/ai/agent-handoff'
+import { canDisclosePHI } from '@/lib/ai/identity-verification'
 import { getPatientProfile } from '@/lib/ai/patient-psychology'
 import { getHandoffHistory } from '@/lib/ai/agent-handoff'
 import { detectPromptInjection, wrapUserContent } from '@/lib/ai/prompt-guard'
@@ -224,6 +225,11 @@ export async function processVoiceTranscript(
     conversation_history: history,
     handoff_history: handoffHistory,
     message_count: retellRequest.transcript.length,
+    disclose_phi: canDisclosePHI({
+      lead,
+      verifiedAt: (conversation as Record<string, unknown>)?.identity_verified_at as string | null,
+      channel: 'voice',
+    }),
   }
 
   // Route to the SAME agents (Setter/Closer) used by SMS/email

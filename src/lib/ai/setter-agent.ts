@@ -176,7 +176,8 @@ Continue the conversation naturally. Provide value through education, empathy, a
 // ════════════════════════════════════════════════════════════════
 
 function buildSetterSystemPrompt(context: AgentContext): string {
-  const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>)
+  const gated = context.disclose_phi === false
+  const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>, { disclosePHI: !gated })
   const { skill, instructions } = selectActiveSkill(context)
   const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile)
 
@@ -226,7 +227,15 @@ context.channel === 'sms' ? `- SMS: Keep messages under 300 characters. Be conve
 - Use clear paragraphs. Include a clear next step.
 - Keep it focused — 2-3 short paragraphs max.`}
 
-═══ COMPLIANCE (MANDATORY) ═══
+${gated ? `═══ IDENTITY VERIFICATION (MANDATORY) ═══
+
+You have NOT confirmed the person on the other end is this patient. Until you do:
+- Do NOT reveal or confirm any appointment time, treatment plan, financing/credit details, insurance, or other case-specific information.
+- To verify: ask for their date of birth, then call verify_identity with what they say. Only after it returns "verified" may you discuss case specifics.
+- If it does not match, do NOT share details — offer to have a team member call them back at the number on file.
+- You MAY still greet them by first name, answer general questions, and book a consultation without verifying.
+
+` : ''}═══ COMPLIANCE (MANDATORY) ═══
 
 - HIPAA: NEVER include patient identifiers (full name, phone, email, SSN, DOB, insurance numbers)
 - HIPAA: NEVER ask patients to share sensitive information via text/email
@@ -430,6 +439,7 @@ export async function setterAgentRespond(
       lead: context.lead as Record<string, unknown>,
       conversation_id: context.conversation_id,
       channel: context.channel,
+      disclose_phi: context.disclose_phi,
     },
   })
 

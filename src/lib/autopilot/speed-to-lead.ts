@@ -12,6 +12,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getAutopilotConfig, getLocalHourAndDay } from './config'
 import { routeToAgent } from '@/lib/ai/agent-handoff'
+import { canDisclosePHI } from '@/lib/ai/identity-verification'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { checkAgentCapacity } from '@/lib/agents/discipline-engine'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
@@ -179,6 +180,9 @@ export async function triggerSpeedToLead(
     conversation_history: [] as ConversationMessage[],
     handoff_history: [],
     message_count: 0,
+    // First outbound touch to a fresh lead — no case data yet, so this resolves
+    // to true; wired for consistency so the gate is uniform across surfaces.
+    disclose_phi: canDisclosePHI({ lead, verifiedAt: null, channel }),
   }
 
   // 6. Get AI response from Setter Agent
