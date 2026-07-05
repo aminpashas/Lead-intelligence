@@ -124,7 +124,8 @@ type CareStackPatientSyncRow = Record<string, unknown>
 export async function syncPatients(
   supabase: SupabaseClient,
   organizationId: string,
-  config: CareStackConfig
+  config: CareStackConfig,
+  deadlineAt?: number,
 ): Promise<RunResult> {
   const cursor = await loadCursor(supabase, organizationId, 'patients')
   let upserted = 0
@@ -134,7 +135,7 @@ export async function syncPatients(
   let highWater: string | null = cursor.modifiedSince
 
   try {
-    while (pages < MAX_PAGES_PER_RUN) {
+    while (pages < MAX_PAGES_PER_RUN && (deadlineAt === undefined || Date.now() < deadlineAt)) {
       const query: Record<string, string | number> = { pageSize: PAGE_SIZE }
       if (continueToken) query.continueToken = continueToken
       else if (cursor.modifiedSince) query.modifiedSince = cursor.modifiedSince
@@ -209,7 +210,8 @@ const PROC_STATUS_COMPLETED = 8
 export async function syncTreatmentProcedures(
   supabase: SupabaseClient,
   organizationId: string,
-  config: CareStackConfig
+  config: CareStackConfig,
+  deadlineAt?: number,
 ): Promise<RunResult> {
   const cursor = await loadCursor(supabase, organizationId, 'treatment_procedures')
   let upserted = 0
@@ -220,7 +222,7 @@ export async function syncTreatmentProcedures(
   let highWater: string | null = cursor.modifiedSince
 
   try {
-    while (pages < MAX_PAGES_PER_RUN) {
+    while (pages < MAX_PAGES_PER_RUN && (deadlineAt === undefined || Date.now() < deadlineAt)) {
       const query: Record<string, string | number | boolean> = { pageSize: PAGE_SIZE, includeDeleted: true }
       if (continueToken) query.continueToken = continueToken
       else if (cursor.modifiedSince) query.modifiedSince = cursor.modifiedSince
@@ -392,7 +394,8 @@ type CareStackInvoiceRow = Record<string, unknown>
 export async function syncInvoices(
   supabase: SupabaseClient,
   organizationId: string,
-  config: CareStackConfig
+  config: CareStackConfig,
+  deadlineAt?: number,
 ): Promise<RunResult> {
   const cursor = await loadCursor(supabase, organizationId, 'invoices')
   let upserted = 0
@@ -403,7 +406,7 @@ export async function syncInvoices(
   let highWater: string | null = cursor.modifiedSince
 
   try {
-    while (pages < MAX_PAGES_PER_RUN) {
+    while (pages < MAX_PAGES_PER_RUN && (deadlineAt === undefined || Date.now() < deadlineAt)) {
       const query: Record<string, string | number> = { pageSize: PAGE_SIZE }
       if (continueToken) query.continueToken = continueToken
       else if (cursor.modifiedSince) query.modifiedSince = cursor.modifiedSince
@@ -589,7 +592,8 @@ async function ensurePatientStub(
 export async function syncCareStackAppointments(
   supabase: SupabaseClient,
   organizationId: string,
-  config: CareStackConfig
+  config: CareStackConfig,
+  deadlineAt?: number,
 ): Promise<RunResult> {
   const resource = 'appointments'
   const cursor = await loadCursor(supabase, organizationId, resource)
@@ -601,7 +605,7 @@ export async function syncCareStackAppointments(
   let pages = 0
 
   try {
-    while (pages < MAX_PAGES_PER_RUN) {
+    while (pages < MAX_PAGES_PER_RUN && (deadlineAt === undefined || Date.now() < deadlineAt)) {
       const resp = await getCsSyncAppointments(config, modifiedSince, continueToken ?? undefined)
       const results = resp.results ?? []
       const nextToken = resp.continueToken ?? null
