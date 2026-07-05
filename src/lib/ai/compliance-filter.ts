@@ -53,6 +53,34 @@ const FORBIDDEN_CLAIMS = [
   /\bmiracle\b/i,
 ]
 
+// False / unverifiable credit-approval claims. An AI-generated message must NEVER
+// assert that this patient has been approved (or pre-approved) for financing or a
+// specific amount: that is a definitive credit decision the model has no basis to
+// make, and asserting an approval the patient never applied for is a false
+// credit-approval claim (FCRA / ECOA / UDAAP / TCPA exposure). Genuine approvals
+// are delivered ONLY by the guarded, staff-verified followUpApproved template —
+// never by free-form AI generation — so these are an absolute block here.
+// Surgical by design: matches second-person completed assertions ("you've been
+// approved") and "approved for $<amount>", NOT generic marketing like "approvals
+// for all credit types" or the conditional "we can get you approved".
+const FALSE_APPROVAL_CLAIMS = [
+  /\byou(?:'ve|'re| have| are)\s+(?:been\s+)?(?:pre[-\s]?)?approved\b/i, // "you've been approved", "you're pre-approved"
+  /\b(?:pre[-\s]?)?approved\s+for\s+\$\s?\d/i,                          // "approved for $25,000"
+  /\bcongratulations\b[^.!?]*\bapprov/i,                               // "Congratulations ... approved/approval"
+]
+
+// Unverifiable insurance/benefit coverage assertions. The AI cannot verify a
+// patient's benefits, and stating "your insurance covers this" as fact is an
+// unverifiable financial claim (ECOA/UDAAP-adjacent). Flag for staff review
+// rather than hard-block — a real benefits check may legitimately follow. Note
+// financial-coach hard-codes a $2,000 coverage figure that the closer can relay.
+const COVERAGE_CLAIMS = [
+  /\b(?:your|our)\s+insurance\s+(?:covers|will\s+cover|pays|paid|covered)\b/i,
+  /\byou(?:'re| are)\s+covered\b/i,
+  /\bbenefits\s+(?:are\s+)?(?:verified|confirmed|approved)\b/i,
+  /\b(?:fully|100%)\s+covered\b/i,
+]
+
 // Specific dollar amounts in outbound — pricing language must be staff-reviewed because
 // quotes vary by case and incorrect quotes create contract exposure.
 const PRICE_PATTERNS = [
@@ -118,10 +146,33 @@ export function checkCompliance(body: string, ctx: ComplianceContext): Complianc
     }
   }
 
+  // ── false credit-approval claims (absolute block) ──
+  // The AI must never state an approval outcome. Block the send outright and flag
+  // for a human — a real approval goes out only via the verified template path.
+  for (const pattern of FALSE_APPROVAL_CLAIMS) {
+    const match = trimmed.match(pattern)
+    if (match) {
+      return {
+        allowed: false,
+        reasons: [`false_approval_claim:${match[0].slice(0, 40)}`],
+        requiresReview: true,
+      }
+    }
+  }
+
   // ── pricing claims ──
   for (const pattern of PRICE_PATTERNS) {
     if (pattern.test(trimmed)) {
       reasons.push('contains_pricing')
+      requiresReview = true
+      break
+    }
+  }
+
+  // ── unverifiable insurance/coverage claims ──
+  for (const pattern of COVERAGE_CLAIMS) {
+    if (pattern.test(trimmed)) {
+      reasons.push('unverifiable_coverage_claim')
       requiresReview = true
       break
     }

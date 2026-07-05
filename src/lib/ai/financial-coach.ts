@@ -406,7 +406,7 @@ export function formatFinancingContextForPrompt(ctx: FinancingContext): string {
     lines.push('')
     lines.push('── BUDGET BREAKDOWN ──')
     lines.push(`Treatment Value:      $${bb.treatment_value.toLocaleString()}`)
-    if (bb.insurance_coverage > 0) lines.push(`Insurance Coverage:  -$${bb.insurance_coverage.toLocaleString()}`)
+    if (bb.insurance_coverage > 0) lines.push(`Est. Insurance (unverified, patient must confirm with plan):  -$${bb.insurance_coverage.toLocaleString()}`)
     if (bb.hsa_fsa > 0) lines.push(`HSA/FSA:             -$${bb.hsa_fsa.toLocaleString()}`)
     if (bb.down_payment > 0) lines.push(`Down Payment:        -$${bb.down_payment.toLocaleString()}`)
     lines.push(`Amount to Finance:    $${bb.amount_to_finance.toLocaleString()}`)
