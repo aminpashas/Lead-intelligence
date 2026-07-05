@@ -32,6 +32,7 @@ import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
 import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
 import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/treatment/treatment-closing'
+import { getOrCreateFinancingShareLink } from '@/lib/financing/share-link'
 import { escapeHtml } from '@/lib/utils'
 import { executeStageTransition } from '@/lib/funnel/executor'
 import { ensureContractDraftForCase } from '@/lib/contracts/orchestrator'
@@ -963,8 +964,28 @@ async function executeSendFinancingLink(
     ? (decryptField(context.lead.phone_formatted as string) || context.lead.phone_formatted)
     : null
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.example.com'
-  const financingUrl = `${appUrl}/financing/${context.lead_id}`
+  // Mint (or reuse) the patient's real share-token portal link. NEVER hand-roll
+  // the URL: the public route is `/finance/{shareToken}` (share-token gated in
+  // src/lib/auth/public-paths.ts), NOT `/financing/{leadId}`. A hand-built
+  // `/financing/...` URL matches no route AND isn't a public prefix, so the auth
+  // middleware bounces the patient to /login — the "link just takes me to the
+  // sign in page" failure. getOrCreateFinancingShareLink also resolves the
+  // stable public host (no ephemeral preview snapshot). See financing/share-link.ts.
+  const link = await getOrCreateFinancingShareLink(supabase, {
+    organizationId: context.organization_id,
+    leadId: context.lead_id,
+    requestedAmount: treatmentValue ?? (context.lead.treatment_value as number | undefined) ?? null,
+  }).catch(() => null)
+
+  if (!link) {
+    return {
+      success: false,
+      data: {},
+      message: 'Could not generate the financing application link right now. Do NOT tell the patient a link was sent. Let them know a team member will follow up with their financing options, and flag it for a human.',
+    }
+  }
+
+  const financingUrl = link.url
 
   if (phone && typeof phone === 'string') {
     const valueText = treatmentValue ? ` for your $${treatmentValue.toLocaleString()} treatment plan` : ''
