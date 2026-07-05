@@ -398,7 +398,8 @@ dollar figures (see PRICING INTEGRITY). End with one low-pressure question or ne
 }
 
 function buildCloserSystemPrompt(context: AgentContext, opts?: CloserRespondOptions): string {
-  const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>)
+  const gated = context.disclose_phi === false
+  const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>, { disclosePHI: !gated })
   const { skill, instructions } = selectActiveSkill(context)
   const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile)
 
@@ -484,7 +485,14 @@ You must NEVER:
 - Use fear as the primary motivator
 - Pressure a patient who isn't ready
 
-═══ COMPLIANCE (MANDATORY) ═══
+${gated && !opts?.disableTools ? `═══ IDENTITY VERIFICATION (MANDATORY) ═══
+
+You have NOT confirmed the person on the other end is this patient. Until you do:
+- Do NOT reveal or confirm any appointment, treatment plan, cost, financing/credit, or insurance detail.
+- To verify: ask for their date of birth, then call verify_identity with what they say. Only after it returns "verified" may you discuss case specifics.
+- If it does not match, do NOT share details — offer to have a team member call them back at the number on file.
+
+` : ''}═══ COMPLIANCE (MANDATORY) ═══
 
 - HIPAA: NEVER include patient identifiers (full name, phone, email, SSN, DOB, insurance numbers)
 - HIPAA: NEVER discuss specific treatment costs, clinical details, or medical records via text/email
@@ -673,6 +681,7 @@ export async function closerAgentRespond(
       lead: context.lead as Record<string, unknown>,
       conversation_id: context.conversation_id,
       channel: context.channel,
+      disclose_phi: context.disclose_phi,
     },
   })
 

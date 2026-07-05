@@ -29,6 +29,8 @@ export interface AgentToolContext {
   conversation_id: string
   channel?: string
   agent_role?: 'setter' | 'closer'
+  /** HIPAA gate: when false, PHI-revealing tools refuse until verify_identity succeeds. */
+  disclose_phi?: boolean
 }
 
 export interface AgentLoopResult {

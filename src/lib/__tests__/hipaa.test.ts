@@ -82,4 +82,27 @@ describe('buildSafeLeadContext', () => {
     expect(ctx).toContain('missing all upper')
     expect(ctx).toContain('cash pay')
   })
+
+  it('withholds Tier-1 case data when identity is not verified', () => {
+    const lead = {
+      first_name: 'Jane',
+      dental_condition: 'missing_all_upper',
+      financing_interest: 'cash_pay',
+      budget_range: '20k_30k',
+    }
+    const ctx = buildSafeLeadContext(lead, { disclosePHI: false })
+    // First name (Tier-0) still present so the agent can greet naturally...
+    expect(ctx).toContain('Jane')
+    // ...but nothing case-specific.
+    expect(ctx).not.toContain('missing all upper')
+    expect(ctx).not.toContain('cash pay')
+    expect(ctx).not.toContain('20k')
+    expect(ctx).toContain('identity not yet verified')
+  })
+
+  it('includes Tier-1 data when disclosePHI is true (default preserved)', () => {
+    const lead = { first_name: 'Jane', dental_condition: 'missing_all_upper' }
+    expect(buildSafeLeadContext(lead, { disclosePHI: true })).toContain('missing all upper')
+    expect(buildSafeLeadContext(lead)).toContain('missing all upper')
+  })
 })

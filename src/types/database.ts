@@ -368,6 +368,10 @@ export type Conversation = {
   agent_assigned_at: string | null
   agent_handoff_count: number
 
+  // HIPAA identity verification gate
+  identity_verified_at: string | null
+  identity_verified_via: string | null
+
   created_at: string
   updated_at: string
 
