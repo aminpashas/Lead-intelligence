@@ -113,11 +113,14 @@ export async function POST(request: NextRequest) {
         status: 'pending',
         requested_amount: effectiveTreatmentValue,
         share_token: shareToken,
-        // DI-5: consent_given_at is null — patient hasn't consented yet, just link creation
-        consent_given_at: null,
+        // consent_given_at intentionally OMITTED — the column is NOT NULL with a
+        // DB default of now(); passing an explicit null overrides the default and
+        // fails the insert (this silently killed the public /finance flow in prod).
+        // The apply route overwrites it with the real patient-consent timestamp on submit.
         expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), // 72h
         waterfall_config: { lenders: [] },
-        // DI-4: use null instead of empty string to avoid accidental decryption of ''
+        // applicant_data_encrypted is nullable (see migration 20260705…): the
+        // patient hasn't filled the form yet; the apply route sets it on submit.
         applicant_data_encrypted: null,
       })
       .select('id')
