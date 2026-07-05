@@ -19,6 +19,7 @@ import { createOutboundCall, type RetellCallResponse } from './retell-client'
 import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/lib/consent/gate'
 import { decryptField } from '@/lib/encryption'
 import { logger } from '@/lib/logger'
+import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
 
 export type OutboundToLeadResult =
   | { placed: true; call: RetellCallResponse }
@@ -88,6 +89,14 @@ export async function placeOutboundCallToLead(
     process.env.RETELL_AGENT_ID
   if (!agentId) return { placed: false, reason: 'no_agent' }
 
+  // Practice-timezone clock + dated calendar for the hosted voice agent.
+  const { data: bsForTz } = await params.supabase
+    .from('booking_settings')
+    .select('timezone')
+    .eq('organization_id', params.organizationId)
+    .maybeSingle()
+  const dateVars = buildDateDynamicVariables((bsForTz?.timezone as string | null) ?? null)
+
   // Open or find the active voice conversation so the post-call webhook can attach the transcript.
   const conversationId = await ensureVoiceConversation(
     params.supabase,
@@ -117,6 +126,9 @@ export async function placeOutboundCallToLead(
         is_returning: 'true',
         // Back-compat: some older prompt copies still read {{first_name}}.
         first_name: (lead.first_name as string) || 'there',
+        // Real clock + dated 2-week calendar. Retell prompt references
+        // {{current_datetime}} and {{upcoming_dates}}.
+        ...dateVars,
         ...(params.dynamicVariables || {}),
       },
     })
