@@ -61,6 +61,7 @@ function SortableLeadCard({
 export function PipelineColumn({
   stage,
   leads,
+  totalCount,
   onLeadClick,
   probabilityByLead,
   suggestionByLead,
@@ -68,12 +69,22 @@ export function PipelineColumn({
 }: {
   stage: PipelineStage
   leads: Lead[]
+  /** True stage total. When larger than the rendered cards (the server caps how
+   *  many cards load per column), the header shows this and a "showing N of
+   *  total" line. Undefined → fall back to the rendered count (e.g. when a
+   *  service filter is active and only the loaded sample is meaningful). */
+  totalCount?: number
   onLeadClick: (id: string) => void
   probabilityByLead?: Record<string, number>
   suggestionByLead?: Record<string, StageSuggestion>
   onApplySuggestion?: (leadId: string, toStageId: string) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
+
+  // Header count is the true stage total when supplied; otherwise the rendered
+  // card count. Note the cap when the book is larger than what we render.
+  const headerCount = totalCount ?? leads.length
+  const capped = totalCount != null && totalCount > leads.length
 
   // Calculate stage value
   const totalValue = leads.reduce((sum, l) => sum + (l.treatment_value || 0), 0)
@@ -96,7 +107,7 @@ export function PipelineColumn({
           />
           <span className="aurea-eyebrow leading-none">{stage.name}</span>
           <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
-            {leads.length}
+            {headerCount.toLocaleString()}
           </span>
         </div>
         {totalValue > 0 && (
@@ -105,6 +116,14 @@ export function PipelineColumn({
           </span>
         )}
       </div>
+
+      {/* Cards are capped per column — make the truncation explicit so the count
+          above never reads as "all of them are here". */}
+      {capped && (
+        <div className="px-3 py-1 border-b border-aurea-border text-[10px] uppercase tracking-wide text-aurea-ink-3">
+          showing {leads.length} of {headerCount.toLocaleString()}
+        </div>
+      )}
 
       {/* Cards */}
       <div

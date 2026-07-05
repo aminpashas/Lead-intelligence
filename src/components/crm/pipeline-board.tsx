@@ -26,11 +26,15 @@ import { toast } from 'sonner'
 export function PipelineBoard({
   stages,
   leads: initialLeads,
+  stageCounts,
   probabilityByLead,
   suggestionByLead,
 }: {
   stages: PipelineStage[]
   leads: Lead[]
+  /** True per-stage totals (stage_id → count), decoupled from the capped cards
+   *  actually rendered. Column headers show these instead of leads.length. */
+  stageCounts?: Record<string, number>
   probabilityByLead?: Record<string, number>
   suggestionByLead?: Record<string, StageSuggestion>
 }) {
@@ -61,6 +65,14 @@ export function PipelineBoard({
     }
     return c
   }, [serviceByLead])
+
+  // True grand total for the "All" chip — sum of the per-stage totals so it
+  // reflects the whole book, not the capped card sample (falls back to the
+  // loaded count if the server didn't supply stage totals).
+  const totalLeadCount = useMemo(
+    () => (stageCounts ? Object.values(stageCounts).reduce((a, b) => a + b, 0) : leads.length),
+    [stageCounts, leads.length]
+  )
 
   // Leads shown on the board — all of them, or just the active treatment.
   const visibleLeads = useMemo(
@@ -141,10 +153,13 @@ export function PipelineBoard({
     <div className="mb-4 flex flex-wrap items-center gap-2">
       <ServiceChip
         label="All"
-        count={leads.length}
+        count={totalLeadCount}
         active={serviceFilter === null}
         onClick={() => setServiceFilter(null)}
       />
+      {/* Per-service counts are over the loaded card sample (full-book service
+          classification isn't available server-side); the funnel columns show
+          true totals via stageCounts. */}
       {SERVICE_LINES.filter((s) => (serviceCounts[s.key] ?? 0) > 0).map((s) => (
         <ServiceChip
           key={s.key}
@@ -166,7 +181,7 @@ export function PipelineBoard({
           {stages.filter((s) => !s.is_lost).map((stage) => {
             const stageLeads = visibleLeads.filter((l) => l.stage_id === stage.id)
             return (
-              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
+              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={serviceFilter ? undefined : stageCounts?.[stage.id]} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
             )
           })}
         </div>
@@ -192,6 +207,7 @@ export function PipelineBoard({
                 key={stage.id}
                 stage={stage}
                 leads={stageLeads}
+                totalCount={serviceFilter ? undefined : stageCounts?.[stage.id]}
                 onLeadClick={(id) => router.push(`/leads/${id}`)}
                 probabilityByLead={probabilityByLead}
                 suggestionByLead={suggestionByLead}
