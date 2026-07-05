@@ -4,6 +4,7 @@ import { LeadDetail } from '@/components/crm/lead-detail'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
 import { decryptLeadPII } from '@/lib/encryption'
+import { isFlagEnabled } from '@/lib/org/flags'
 
 export default async function LeadDetailPage({
   params,
@@ -98,6 +99,10 @@ export default async function LeadDetailPage({
     .eq('organization_id', lead.organization_id)
     .eq('is_active', true)
 
+  // Account-level pre-qualification switch — drives whether the per-lead
+  // "Send Pre-Qual" action shows in the action bar.
+  const prequalEnabled = await isFlagEnabled(supabase, lead.organization_id, 'financing_prequal_enabled')
+
   return (
     <LeadDetail
       lead={lead}
@@ -109,6 +114,7 @@ export default async function LeadDetailPage({
       analyzableConversationId={analyzableConversationId}
       stages={stages || []}
       teamMembers={teamMembers || []}
+      prequalEnabled={prequalEnabled}
     />
   )
 }

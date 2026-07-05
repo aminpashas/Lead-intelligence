@@ -63,6 +63,7 @@ export function LeadDetail({
   analyzableConversationId,
   stages,
   teamMembers,
+  prequalEnabled = false,
 }: {
   lead: Lead
   activities: LeadActivity[]
@@ -73,6 +74,7 @@ export function LeadDetail({
   analyzableConversationId: string | null
   stages: PipelineStage[]
   teamMembers: Pick<UserProfile, 'id' | 'full_name' | 'email' | 'role'>[]
+  prequalEnabled?: boolean
 }) {
   const [lead, setLead] = useState(initialLead)
   const [scoring, setScoring] = useState(false)
@@ -216,7 +218,7 @@ export function LeadDetail({
             <p className="aurea-eyebrow capitalize">{lead.ai_qualification}</p>
           </div>
 
-          <LeadActions lead={lead} variant="bar" />
+          <LeadActions lead={lead} variant="bar" prequalEnabled={prequalEnabled} />
           <ScheduleAppointment lead={lead} />
 
           <Button onClick={scoreLead} disabled={scoring} variant="outline" size="sm" className="gap-1.5">

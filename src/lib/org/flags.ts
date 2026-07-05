@@ -18,6 +18,17 @@ export type OrgFeatureFlag =
   | 'competitor_intel'         // Phase 4
   | 'org_goals'                // Phase 5
   | 'business_alerts'          // Phase 5
+  // Financing pre-qualification. Two independent switches:
+  //   • financing_prequal_enabled — makes the per-lead "Send Pre-Qual" button
+  //     live. Manual, human-in-the-loop only. OFF = the button is hidden and the
+  //     manual-send route 403s.
+  //   • financing_auto_send_enabled — arms the AI readiness auto-trigger
+  //     (checkAndTriggerFinancing). DELIBERATELY separate and default-OFF so
+  //     turning prequal "on" never silently lets the AI start financing
+  //     conversations on its own. Flip this only when the practice is ready to
+  //     let financing go out without a click.
+  | 'financing_prequal_enabled'
+  | 'financing_auto_send_enabled'
 
 export type OrgFlags = Partial<Record<OrgFeatureFlag, boolean>>
 

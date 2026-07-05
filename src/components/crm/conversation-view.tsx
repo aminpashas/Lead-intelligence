@@ -22,12 +22,15 @@ export function ConversationView({
   messages,
   calls,
   timeline,
+  prequalEnabled = false,
 }: {
   lead: Lead
   conversation: Conversation
   messages: Message[]
   calls: VoiceCall[]
   timeline: TimelineEntry[]
+  /** Account financing pre-qualification switch, forwarded to the action bar. */
+  prequalEnabled?: boolean
 }) {
   const [mode, setMode] = useState<Mode>('thread')
 
@@ -42,7 +45,7 @@ export function ConversationView({
 
       {mode === 'thread' ? (
         <div className="min-h-0 flex-1">
-          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} />
+          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">

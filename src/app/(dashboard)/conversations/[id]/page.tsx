@@ -3,6 +3,7 @@ import { ConversationView } from '@/components/crm/conversation-view'
 import { notFound } from 'next/navigation'
 import { decryptLeadPII } from '@/lib/encryption'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
+import { isFlagEnabled } from '@/lib/org/flags'
 
 export default async function ConversationDetailPage({
   params,
@@ -57,6 +58,11 @@ export default async function ConversationDetailPage({
     activities: activities || [],
   })
 
+  // Account-level pre-qualification switch — gates the "Send Pre-Qual" action.
+  const prequalEnabled = conversation.organization_id
+    ? await isFlagEnabled(supabase, conversation.organization_id as string, 'financing_prequal_enabled')
+    : false
+
   return (
     <ConversationView
       lead={decryptLeadPII(conversation.lead as Record<string, unknown>) as any}
@@ -64,6 +70,7 @@ export default async function ConversationDetailPage({
       messages={messages || []}
       calls={calls || []}
       timeline={timeline}
+      prequalEnabled={prequalEnabled}
     />
   )
 }

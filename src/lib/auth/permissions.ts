@@ -354,6 +354,9 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/settings/team': 'team:manage',
   '/settings/billing': 'billing:read',
   '/settings/ai': 'ai_control:read',
+  // Financing tab: visible to anyone who can read AI control (practice admins +
+  // agency); the toggle writes are gated separately to ai_control:write.
+  '/settings/financing': 'ai_control:read',
   '/settings/connectors': 'connectors:manage',
   '/settings/legal': 'legal_settings:manage',
   // Key matches the real page + the Settings hub tab href. There is no
