@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { getPublicAppUrl } from '@/lib/app-url'
 
 export type FinancingShareLink = {
   url: string
@@ -36,8 +37,12 @@ export async function getOrCreateFinancingShareLink(
     expiresInMs?: number
   }
 ): Promise<FinancingShareLink | null> {
-  const appBase = process.env.NEXT_PUBLIC_APP_URL
-  if (!appBase) return null
+  // Always resolve through getPublicAppUrl(): the link is baked into an SMS /
+  // email and forwarded to a co-signer, so its host must be the STABLE prod
+  // alias — never the ephemeral `-projects.vercel.app` snapshot of whatever
+  // deployment happened to run the send job (that snapshot 404s / bounces to
+  // /login the moment it lacks a route). See src/lib/app-url.ts.
+  const appBase = getPublicAppUrl()
 
   // Reuse an existing open application's token so a patient who already has a
   // link doesn't get a second, conflicting one.
@@ -67,7 +72,10 @@ export async function getOrCreateFinancingShareLink(
       status: 'pending',
       requested_amount: params.requestedAmount ?? null,
       share_token: shareToken,
-      consent_given_at: null, // applicant hasn't consented yet — just link creation
+      // NOTE: `consent_given_at` is NOT NULL with a DB default of now(). Do NOT
+      // pass it here — an explicit null overrides the default and fails the
+      // insert, silently dropping the co-signer link. Real consent is recorded
+      // (overwriting this) when the applicant submits in POST /api/financing/apply.
       expires_at: new Date(Date.now() + (params.expiresInMs ?? DEFAULT_EXPIRY_MS)).toISOString(),
       waterfall_config: { lenders: [] },
       applicant_data_encrypted: null,
