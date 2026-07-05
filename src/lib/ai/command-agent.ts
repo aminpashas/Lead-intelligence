@@ -22,6 +22,7 @@ import { TEMPLATE_VARIABLES } from '@/lib/campaigns/personalization'
 import { decryptField } from '@/lib/encryption'
 import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
 import { recordAiUsage } from './usage'
+import { buildCurrentDateBlock } from './datetime-context'
 
 const MODEL = 'claude-sonnet-4-6'
 const MAX_AGENT_TURNS = 8
@@ -405,11 +406,11 @@ const TOOLS: Anthropic.Tool[] = [
 
 // ── System prompt ───────────────────────────────────────────────────
 
-function buildSystemPrompt(userName: string | undefined): string {
+function buildSystemPrompt(userName: string | undefined, timezone: string | null | undefined): string {
   const vars = TEMPLATE_VARIABLES.map((v) => v.var).join(', ')
   return `You are the AI operations agent inside Lead Intelligence, a CRM for a dental implant practice. You chat with practice staff${userName ? ` (currently ${userName})` : ''} on their dashboard and run tasks for them.
 
-Today's date: ${new Date().toISOString().slice(0, 10)}.
+${buildCurrentDateBlock(timezone)}
 
 What you can do:
 - Look up a specific person by name with look_up_lead — it returns their status, qualification, AI score, and last contact. Use it whenever the user names an individual.
@@ -566,7 +567,15 @@ export async function runCommandAgent(opts: {
     content: t.content,
   }))
 
-  const system = buildSystemPrompt(userName)
+  // Ground the agent in the practice's real clock (timezone-aware) so it never
+  // guesses the day/time or offers a slot that already passed.
+  const { data: bs } = await supabase
+    .from('booking_settings')
+    .select('timezone')
+    .eq('organization_id', orgId)
+    .maybeSingle()
+
+  const system = buildSystemPrompt(userName, bs?.timezone as string | null | undefined)
   let tokensIn = 0
   let tokensOut = 0
   let reply = ''

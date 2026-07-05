@@ -42,7 +42,11 @@ vi.mock('@/lib/logger', () => ({
 }))
 
 import { processVoiceTranscript, isVoiceCallEnding, isUserEndingCall, VOICE_CHANNEL_INSTRUCTIONS, type VoiceAgentContext } from '@/lib/voice/voice-agent'
-import { buildCurrentDateBlock } from '@/lib/ai/datetime-context'
+import {
+  buildCurrentDateBlock,
+  buildUpcomingDatesList,
+  buildDateDynamicVariables,
+} from '@/lib/ai/datetime-context'
 import { routeToAgent } from '@/lib/ai/agent-handoff'
 import { detectStopWord } from '@/lib/autopilot/config'
 import { getAutopilotConfig } from '@/lib/autopilot/config'
@@ -443,16 +447,55 @@ describe('isUserEndingCall', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('buildCurrentDateBlock', () => {
-  it('states today as ground truth and includes the day of month', () => {
+  it('states the current date and time as ground truth and includes the day of month', () => {
     const block = buildCurrentDateBlock('America/New_York')
-    expect(block).toContain("TODAY'S DATE (GROUND TRUTH)")
+    expect(block).toContain('CURRENT DATE & TIME (GROUND TRUTH)')
     expect(block).toContain('America/New_York')
     expect(block).toMatch(/day \d+ of the month/)
+    // Time-of-day is now part of the ground truth (e.g. "3:47 PM EDT").
+    expect(block).toMatch(/\d{1,2}:\d{2}\s?(AM|PM)/)
   })
 
   it('falls back gracefully on an invalid timezone', () => {
     expect(() => buildCurrentDateBlock('Not/AZone')).not.toThrow()
     expect(() => buildCurrentDateBlock(null)).not.toThrow()
     expect(() => buildCurrentDateBlock(undefined)).not.toThrow()
+  })
+
+  it('embeds a dated calendar and forbids computing dates by hand', () => {
+    const block = buildCurrentDateBlock('America/New_York')
+    // Today and tomorrow are explicitly labeled so the model never guesses.
+    expect(block).toMatch(/\(today\)/)
+    expect(block).toMatch(/\(tomorrow\)/)
+    // Instruction that fixes "next Tuesday but doesn't know when".
+    expect(block).toContain('never a bare')
+  })
+})
+
+describe('buildUpcomingDatesList', () => {
+  it('produces one dated line per day, marking today and tomorrow', () => {
+    const list = buildUpcomingDatesList('America/New_York', 14)
+    const lines = list.split('\n')
+    expect(lines).toHaveLength(14)
+    expect(lines[0]).toContain('(today)')
+    expect(lines[1]).toContain('(tomorrow)')
+    // Every line names a weekday and a numeric day.
+    for (const line of lines) {
+      expect(line).toMatch(/^- \w+day, \w+ \d+/)
+    }
+  })
+
+  it('respects a custom horizon and never throws on a bad timezone', () => {
+    expect(buildUpcomingDatesList('America/New_York', 3).split('\n')).toHaveLength(3)
+    expect(() => buildUpcomingDatesList('Not/AZone')).not.toThrow()
+  })
+})
+
+describe('buildDateDynamicVariables (Retell voice)', () => {
+  it('returns a current_datetime string and an upcoming_dates calendar', () => {
+    const vars = buildDateDynamicVariables('America/Los_Angeles')
+    expect(typeof vars.current_datetime).toBe('string')
+    expect(vars.current_datetime).toMatch(/\d{1,2}:\d{2}\s?(AM|PM)/)
+    expect(vars.upcoming_dates).toContain('(today)')
   })
 })
