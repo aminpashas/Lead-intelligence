@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Phone, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone } from 'lucide-react'
+import { Phone, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone, HandCoins } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
@@ -52,15 +52,24 @@ function dndOf(lead: Lead): Record<DndChannel, boolean> {
 export function LeadActions({
   lead,
   variant = 'bar',
+  prequalEnabled = false,
 }: {
   lead: Lead
   variant?: Variant
+  /**
+   * Account-level financing pre-qualification switch
+   * (organizations.feature_flags.financing_prequal_enabled). When false the
+   * "Send Pre-Qual" button is not rendered at all — this is the UI half of the
+   * gate the /api/leads/[id]/prequal route enforces server-side.
+   */
+  prequalEnabled?: boolean
 }) {
   const router = useRouter()
   const { startCall } = useSoftphone()
   const [dnd, setDnd] = useState<Record<DndChannel, boolean>>(() => dndOf(lead))
   const [pending, setPending] = useState<DndChannel | 'all' | null>(null)
   const [calling, setCalling] = useState(false)
+  const [sendingPrequal, setSendingPrequal] = useState(false)
   const [msgOpen, setMsgOpen] = useState(false)
   const [msgChannel, setMsgChannel] = useState<'sms' | 'email'>('sms')
 
@@ -77,6 +86,11 @@ export function LeadActions({
     : null
   const smsBlock = !lead.phone ? 'No phone number' : dnd.sms ? 'SMS muted (DND)' : null
   const emailBlock = !lead.email ? 'No email address' : dnd.email ? 'Email muted (DND)' : null
+  // Pre-qual sends over SMS (preferred) or email, so it needs at least one
+  // reachable, un-muted channel.
+  const smsReachable = !!lead.phone && !dnd.sms
+  const emailReachable = !!lead.email && !dnd.email
+  const prequalBlock = !smsReachable && !emailReachable ? 'No reachable phone or email' : null
 
   async function setChannelDnd(channels: DndChannel[], enabled: boolean, key: DndChannel | 'all') {
     setPending(key)
@@ -160,6 +174,28 @@ export function LeadActions({
     setMsgOpen(true)
   }
 
+  // Manual pre-qualification send. This is the ONLY path that goes out on a
+  // human click — the AI's readiness auto-trigger is gated off separately — so
+  // it deliberately has no confidence check or scheduling: staff decided.
+  async function sendPrequal() {
+    if (prequalBlock || sendingPrequal) return
+    setSendingPrequal(true)
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/prequal`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Could not send pre-qualification')
+      const via = Array.isArray(data.sent_via) && data.sent_via.length
+        ? data.sent_via.join(' & ')
+        : 'message'
+      toast.success(`Pre-qualification sent to ${lead.first_name || 'lead'} via ${via}`)
+      router.refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not send pre-qualification')
+    } finally {
+      setSendingPrequal(false)
+    }
+  }
+
   const allOn = DND_CHANNELS.every((c) => dnd[c])
   const anyOn = DND_CHANNELS.some((c) => dnd[c])
 
@@ -233,6 +269,14 @@ export function LeadActions({
       </div>
       {action({ label: 'SMS', icon: <MessageSquare className={iconSize} strokeWidth={1.75} />, block: smsBlock, onClick: () => openMessage('sms') })}
       {action({ label: 'Email', icon: <Mail className={iconSize} strokeWidth={1.75} />, block: emailBlock, onClick: () => openMessage('email') })}
+      {/* Only rendered when the account has pre-qualification enabled. */}
+      {prequalEnabled && action({
+        label: 'Pre-Qual',
+        icon: <HandCoins className={iconSize} strokeWidth={1.75} />,
+        block: prequalBlock,
+        onClick: sendPrequal,
+        busy: sendingPrequal,
+      })}
 
       <DropdownMenu>
         <DropdownMenuTrigger

@@ -16,6 +16,7 @@ import { decryptField } from '@/lib/encryption'
 import { getPublicAppUrl } from '@/lib/app-url'
 import { escapeHtml } from '@/lib/utils'
 import { logger } from '@/lib/logger'
+import { isFlagEnabled } from '@/lib/org/flags'
 
 export type ReadinessAssessment = {
   score: number          // 0-100
@@ -214,6 +215,19 @@ export async function checkAndTriggerFinancing(
     .eq('id', leadId)
 
   if (!assessment.is_ready) {
+    return { triggered: false, assessment }
+  }
+
+  // Autonomy leash. The readiness score is still computed and stored above (so
+  // the signal stays visible to staff), but the AI must NOT push a financing
+  // link on its own unless the org has explicitly armed auto-send. This flag is
+  // separate from `financing_prequal_enabled` and default-OFF: enabling the
+  // prequal feature (which lights up the manual "Send Pre-Qual" button) never by
+  // itself lets the AI start a financing conversation. While the practice's job
+  // is rapport → booked consult, this stays off and financing only goes out when
+  // a human clicks. See src/lib/org/flags.ts.
+  const autoSendArmed = await isFlagEnabled(supabase, organizationId, 'financing_auto_send_enabled')
+  if (!autoSendArmed) {
     return { triggered: false, assessment }
   }
 

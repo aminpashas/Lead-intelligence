@@ -115,11 +115,13 @@ export function ConversationThread({
   conversation,
   messages: initialMessages,
   calls = [],
+  prequalEnabled = false,
 }: {
   lead: Lead
   conversation: Conversation
   messages: Message[]
   calls?: VoiceCall[]
+  prequalEnabled?: boolean
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
@@ -330,7 +332,7 @@ export function ConversationThread({
         </div>
         <div className="flex items-center gap-2.5">
           <LiveCallIndicator live={live} />
-          <LeadActions lead={lead} variant="compact" />
+          <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} />
           <AgentIndicator
             activeAgent={activeAgent}
             conversationId={conversation.id}
