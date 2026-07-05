@@ -32,3 +32,21 @@ describe('checkCompliance — false credit-approval claims', () => {
     expect(res.reasons.some((r) => r.startsWith('false_approval_claim'))).toBe(false)
   })
 })
+
+describe('checkCompliance — unverifiable coverage claims', () => {
+  it.each([
+    'Good news — your insurance covers this procedure!',
+    "You're covered for the full treatment.",
+    'Your benefits are verified and ready to go.',
+  ])('flags for review (still sendable): %s', (body) => {
+    const res = checkCompliance(`Hi there! ${body}`, sms)
+    expect(res.allowed).toBe(true) // review, not block
+    expect(res.requiresReview).toBe(true)
+    expect(res.reasons).toContain('unverifiable_coverage_claim')
+  })
+
+  it('does not flag a coverage question', () => {
+    const res = checkCompliance('Does your insurance cover implants? Happy to check!', sms)
+    expect(res.reasons).not.toContain('unverifiable_coverage_claim')
+  })
+})

@@ -69,6 +69,18 @@ const FALSE_APPROVAL_CLAIMS = [
   /\bcongratulations\b[^.!?]*\bapprov/i,                               // "Congratulations ... approved/approval"
 ]
 
+// Unverifiable insurance/benefit coverage assertions. The AI cannot verify a
+// patient's benefits, and stating "your insurance covers this" as fact is an
+// unverifiable financial claim (ECOA/UDAAP-adjacent). Flag for staff review
+// rather than hard-block — a real benefits check may legitimately follow. Note
+// financial-coach hard-codes a $2,000 coverage figure that the closer can relay.
+const COVERAGE_CLAIMS = [
+  /\b(?:your|our)\s+insurance\s+(?:covers|will\s+cover|pays|paid|covered)\b/i,
+  /\byou(?:'re| are)\s+covered\b/i,
+  /\bbenefits\s+(?:are\s+)?(?:verified|confirmed|approved)\b/i,
+  /\b(?:fully|100%)\s+covered\b/i,
+]
+
 // Specific dollar amounts in outbound — pricing language must be staff-reviewed because
 // quotes vary by case and incorrect quotes create contract exposure.
 const PRICE_PATTERNS = [
@@ -152,6 +164,15 @@ export function checkCompliance(body: string, ctx: ComplianceContext): Complianc
   for (const pattern of PRICE_PATTERNS) {
     if (pattern.test(trimmed)) {
       reasons.push('contains_pricing')
+      requiresReview = true
+      break
+    }
+  }
+
+  // ── unverifiable insurance/coverage claims ──
+  for (const pattern of COVERAGE_CLAIMS) {
+    if (pattern.test(trimmed)) {
+      reasons.push('unverifiable_coverage_claim')
       requiresReview = true
       break
     }

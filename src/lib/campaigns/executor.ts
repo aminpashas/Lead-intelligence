@@ -10,6 +10,7 @@ import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { POST_CONSULT_NURTURE_KEY } from './post-consult-nurture'
 import { executeNurtureStep } from './nurture-executor'
+import { checkCompliance } from '@/lib/ai/compliance-filter'
 
 export type ExecutionResult = {
   enrollment_id: string
@@ -204,6 +205,38 @@ async function executeOneStep(
       exit_reason: `No email consent or opted out (${emailGate.reason})`,
     }).eq('id', enrollment.id)
     return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: 'No email consent' }
+  }
+
+  // Content compliance for fixed-template + AI campaign copy. The per-send filter
+  // inside sendSMSToLead only runs for aiGenerated content, and the email path
+  // here calls sendEmail() directly (bypassing sendEmailToLead's gate), so
+  // template copy would otherwise reach patients unscreened. We hard-block only
+  // (allowed === false): false approval claims, PII, profanity, forbidden medical
+  // claims. Soft-review items (pricing, coverage) still send so live "$X/mo"
+  // campaigns are unaffected. Voice steps carry no patient-facing body here.
+  if (step.channel === 'sms' || step.channel === 'email') {
+    const compliance = checkCompliance(messageBody, { channel: step.channel })
+    if (!compliance.allowed) {
+      await supabase.from('campaign_enrollments').update({
+        status: 'exited',
+        exited_at: new Date().toISOString(),
+        exit_reason: `Compliance blocked: ${compliance.reasons.join(', ')}`,
+      }).eq('id', enrollment.id)
+      await supabase.from('events').insert({
+        organization_id: campaign.organization_id,
+        lead_id: lead.id,
+        event_type: 'compliance_block',
+        payload: {
+          channel: step.channel,
+          caller: `campaign.executor:${campaign.name}:step_${step.step_number}`,
+          reasons: compliance.reasons,
+          body_preview: messageBody.slice(0, 200),
+        },
+        capi_status: 'na',
+        gads_status: 'na',
+      }).then(() => undefined, () => undefined)
+      return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: `compliance_blocked: ${compliance.reasons.join(', ')}` }
+    }
   }
 
   // Send the message
