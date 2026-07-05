@@ -4,7 +4,7 @@ import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/li
 import { checkCompliance } from '@/lib/ai/compliance-filter'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { isFlagEnabled } from '@/lib/org/flags'
-import { isSendAllowed } from '@/lib/messaging/test-allowlist'
+import { isSendAllowed, messagingDryRun } from '@/lib/messaging/test-allowlist'
 import { recordSmsEstimate } from '@/lib/billing/cost-events'
 import { logger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit/record'
@@ -26,6 +26,17 @@ function getClient() {
  * For any lead-facing message, use sendSMSToLead() so consent is enforced.
  */
 export async function sendSMS(to: string, body: string): Promise<{ sid: string; status: string }> {
+  // DRY-RUN hard clamp (strongest guard, checked first): when MESSAGING_DRY_RUN is
+  // set, nothing physically leaves the system — to anyone. This is the choke point
+  // every SMS path funnels through, so a smoke test or stray script cannot reach a
+  // real number regardless of consent, flags, or recipient. See test-allowlist.ts.
+  if (messagingDryRun()) {
+    logger.warn('MESSAGING_DRY_RUN active — SMS suppressed (not sent)', {
+      last4: to.replace(/[^0-9]/g, '').slice(-4),
+    })
+    return { sid: 'dry-run', status: 'blocked' }
+  }
+
   // TEST-MODE hard clamp: when TEST_SEND_ALLOWLIST is set, refuse any recipient
   // not on the list. This is the single lowest-level choke point — every SMS path
   // (sendSMSToLead, crons, agent tools, raw transactional sends) funnels here — so

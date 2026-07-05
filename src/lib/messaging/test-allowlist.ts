@@ -38,6 +38,21 @@ function parse(): { phones: Set<string>; emails: Set<string> } {
   return cache
 }
 
+/**
+ * DRY-RUN switch — the strongest send clamp. When `MESSAGING_DRY_RUN` is truthy
+ * ("1"/"true"/"yes"/"on"), the low-level sendSMS / sendEmail / sendBatchEmails log
+ * the intended send and return a synthetic "blocked" result WITHOUT calling
+ * Twilio/Resend. Nothing physically leaves the system — to ANYONE. Stronger than
+ * the allowlist (which still delivers to listed numbers): use it in smoke tests
+ * and scripts so a stray/mistaken run can never reach a real person.
+ *
+ * Unset / empty / "0" / "false" => disabled (normal delivery).
+ */
+export function messagingDryRun(): boolean {
+  const v = (process.env.MESSAGING_DRY_RUN ?? '').trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
+}
+
 /** True when the allowlist is active (env set to a non-empty list). */
 export function testAllowlistActive(): boolean {
   const { phones, emails } = parse()
