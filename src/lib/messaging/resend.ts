@@ -2,7 +2,7 @@ import { Resend } from 'resend'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/lib/consent/gate'
 import { checkCompliance } from '@/lib/ai/compliance-filter'
-import { isSendAllowed } from '@/lib/messaging/test-allowlist'
+import { isSendAllowed, messagingDryRun } from '@/lib/messaging/test-allowlist'
 import { logger } from '@/lib/logger'
 
 function getResend() {
@@ -23,6 +23,13 @@ export async function sendEmail(params: {
   replyTo?: string
   headers?: Record<string, string>
 }): Promise<{ id: string }> {
+  // DRY-RUN hard clamp (strongest guard, checked first): when MESSAGING_DRY_RUN is
+  // set, nothing physically leaves the system — to anyone. See test-allowlist.ts.
+  if (messagingDryRun()) {
+    logger.warn('MESSAGING_DRY_RUN active — email suppressed (not sent)', { to: params.to })
+    return { id: 'dry-run' }
+  }
+
   // TEST-MODE hard clamp: when TEST_SEND_ALLOWLIST is set, refuse any recipient
   // not on the list. Lowest-level choke point for every email path (sendEmailToLead,
   // campaign/cron/agent-tool sends, raw transactional sends).
@@ -130,6 +137,12 @@ export async function sendBatchEmails(
     text?: string
   }>
 ): Promise<{ ids: string[] }> {
+  // DRY-RUN hard clamp (strongest guard, checked first): suppress the whole batch.
+  if (messagingDryRun()) {
+    logger.warn('MESSAGING_DRY_RUN active — batch email suppressed (not sent)', { count: emails.length })
+    return { ids: [] }
+  }
+
   // TEST-MODE hard clamp: drop any batch recipient not on the allowlist.
   const allowed = emails.filter((e) => isSendAllowed(e.to))
   if (allowed.length < emails.length) {
