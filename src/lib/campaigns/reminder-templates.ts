@@ -6,6 +6,8 @@
  * compliant footers and one-click confirmation buttons.
  */
 
+import { getPublicAppUrl } from '@/lib/app-url'
+
 // ═══════════════════════════════════════════════════════════════
 // CONFIRMATION URL HELPERS
 // ═══════════════════════════════════════════════════════════════
@@ -19,14 +21,12 @@ export function generateConfirmationToken(appointmentId: string, orgId: string):
 
 export function getConfirmationUrl(appointmentId: string, orgId: string): string {
   const token = generateConfirmationToken(appointmentId, orgId)
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
-  return `${baseUrl}/api/appointments/confirm?token=${token}&action=confirm`
+  return `${getPublicAppUrl()}/api/appointments/confirm?token=${token}&action=confirm`
 }
 
 export function getRescheduleUrl(appointmentId: string, orgId: string): string {
   const token = generateConfirmationToken(appointmentId, orgId)
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'
-  return `${baseUrl}/api/appointments/confirm?token=${token}&action=reschedule`
+  return `${getPublicAppUrl()}/api/appointments/confirm?token=${token}&action=reschedule`
 }
 
 // ═══════════════════════════════════════════════════════════════
