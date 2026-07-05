@@ -16,6 +16,8 @@ import {
   Crosshair,
   Activity,
   DollarSign,
+  SlidersHorizontal,
+  Receipt,
   FlaskConical,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -27,6 +29,8 @@ const agencyNavigation = [
       { name: 'Agency Home', href: '/agency', icon: LayoutDashboard, exact: true },
       { name: 'Practices', href: '/agency/practices', icon: Building2 },
       { name: 'Spend & Margin', href: '/agency/spend', icon: DollarSign },
+      { name: 'Pricing', href: '/agency/pricing', icon: SlidersHorizontal },
+      { name: 'Invoices', href: '/agency/invoices', icon: Receipt },
     ],
   },
   {

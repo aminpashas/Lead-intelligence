@@ -69,6 +69,38 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
+
+        // Usage-billing card capture (agency ← practice). Store the saved card on billing_settings
+        // and set it as the customer's default so off-session usage invoices can charge it.
+        if (session.mode === 'setup' && session.metadata?.purpose === 'usage_billing_card') {
+          const orgId = session.metadata.organization_id
+          const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id
+          const setupIntentId = typeof session.setup_intent === 'string' ? session.setup_intent : session.setup_intent?.id
+          if (orgId && customerId) {
+            let pmId: string | null = null
+            if (setupIntentId) {
+              const si = await stripe.setupIntents.retrieve(setupIntentId)
+              pmId = typeof si.payment_method === 'string' ? si.payment_method : si.payment_method?.id ?? null
+              if (pmId) {
+                await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: pmId } })
+              }
+            }
+            await supabase
+              .from('billing_settings')
+              .upsert(
+                {
+                  organization_id: orgId,
+                  stripe_customer_id: customerId,
+                  stripe_default_pm_id: pmId,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'organization_id' },
+              )
+            logger.info('Usage-billing card stored', { orgId, customerId })
+          }
+          break
+        }
+
         if (session.mode !== 'subscription') break
 
         const orgId = session.metadata?.organization_id
@@ -156,6 +188,26 @@ export async function POST(request: NextRequest) {
 
             logger.warn('Subscription payment failed', { orgId: org.id, invoiceId: invoice.id })
           }
+        }
+        break
+      }
+
+      case 'invoice.paid': {
+        // Usage-invoice auto-charge settled → mark our local invoice paid (keyed on our metadata,
+        // not organizations.* which is subject to schema drift).
+        const invoice = event.data.object as Stripe.Invoice
+        const usageInvoiceId = invoice.metadata?.usage_invoice_id
+        if (invoice.metadata?.purpose === 'usage_invoice' && usageInvoiceId) {
+          await supabase
+            .from('usage_invoices')
+            .update({
+              status: 'paid',
+              paid_at: new Date().toISOString(),
+              hosted_invoice_url: invoice.hosted_invoice_url ?? undefined,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', usageInvoiceId)
+          logger.info('Usage invoice paid', { usageInvoiceId })
         }
         break
       }
