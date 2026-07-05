@@ -66,62 +66,63 @@ export default async function PracticesPage() {
         {organizations?.map((org) => (
           <Card
             key={org.id}
-            className="bg-aurea-surface border-aurea-border hover:border-aurea-border-strong transition-all duration-200 group"
+            className="bg-aurea-surface border-aurea-border hover:border-aurea-border-strong hover:shadow-sm transition-all duration-200 group flex flex-col h-full"
           >
             <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-aurea-surface-2 flex items-center justify-center border border-aurea-border group-hover:border-aurea-primary/30 transition-colors">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-10 w-10 shrink-0 rounded-xl bg-aurea-surface-2 flex items-center justify-center border border-aurea-border group-hover:border-aurea-primary/30 transition-colors">
                     <Building2 className="h-5 w-5 text-aurea-ink-3" />
                   </div>
-                  <div>
-                    <CardTitle className="text-aurea-ink text-sm">{org.name}</CardTitle>
-                    <CardDescription className="text-aurea-ink-3 text-xs mt-0.5">
+                  <div className="min-w-0">
+                    <CardTitle className="text-aurea-ink text-sm truncate">{org.name}</CardTitle>
+                    <CardDescription className="text-aurea-ink-3 text-xs mt-0.5 truncate">
                       /{org.slug}
                     </CardDescription>
                   </div>
                 </div>
-                {STATUS_ICONS[org.subscription_status] ?? STATUS_ICONS['active']}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-aurea-ink-3">Plan</span>
                 <Badge
-                  className={`capitalize text-[10px] h-4 px-1.5 border ${TIER_COLORS[org.subscription_tier] ?? TIER_COLORS['trial']}`}
+                  className={`shrink-0 capitalize text-[10px] leading-none py-1 px-2 border ${TIER_COLORS[org.subscription_tier] ?? TIER_COLORS['trial']}`}
                 >
                   {org.subscription_tier}
                 </Badge>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-aurea-ink-3">Status</span>
-                <span className="text-xs text-aurea-ink-2 capitalize">
-                  {org.subscription_status.replace('_', ' ')}
-                </span>
-              </div>
-              {org.email && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-aurea-ink-3">Email</span>
-                  <span className="text-xs text-aurea-ink-2 truncate max-w-[160px]">{org.email}</span>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col">
+              <dl className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-xs text-aurea-ink-3">Status</dt>
+                  <dd className="flex items-center gap-1.5 text-xs text-aurea-ink-2 capitalize">
+                    {STATUS_ICONS[org.subscription_status] ?? STATUS_ICONS['active']}
+                    {org.subscription_status.replace('_', ' ')}
+                  </dd>
                 </div>
-              )}
-              {org.phone && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-aurea-ink-3">Phone</span>
-                  <span className="text-xs text-aurea-ink-2">{org.phone}</span>
+                {org.email && (
+                  <div className="flex items-center justify-between gap-2">
+                    <dt className="text-xs text-aurea-ink-3">Email</dt>
+                    <dd className="text-xs text-aurea-ink-2 truncate max-w-[180px]">{org.email}</dd>
+                  </div>
+                )}
+                {org.phone && (
+                  <div className="flex items-center justify-between gap-2">
+                    <dt className="text-xs text-aurea-ink-3">Phone</dt>
+                    <dd className="text-xs text-aurea-ink-2">{org.phone}</dd>
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-xs text-aurea-ink-3">Created</dt>
+                  <dd className="text-xs text-aurea-ink-2">
+                    {new Date(org.created_at).toLocaleDateString()}
+                  </dd>
                 </div>
-              )}
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-aurea-ink-3">Created</span>
-                <span className="text-xs text-aurea-ink-2">
-                  {new Date(org.created_at).toLocaleDateString()}
-                </span>
+              </dl>
+              <div className="mt-auto pt-4">
+                <EnterAccountButton
+                  orgId={org.id}
+                  orgName={org.name}
+                  isCurrent={org.id === activeOrgId}
+                />
               </div>
-              <EnterAccountButton
-                orgId={org.id}
-                orgName={org.name}
-                isCurrent={org.id === activeOrgId}
-              />
             </CardContent>
           </Card>
         ))}
