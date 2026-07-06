@@ -189,52 +189,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (!transcript || !leadId || !orgId) {
-      console.log('[Voice Events] Missing data, skipping', { leadId, orgId, hasTranscript: !!transcript })
-      return NextResponse.json({ received: true })
-    }
-
-    // ── 3. Extract caller info ──
+    // ── 3. Extract caller info (pure regex parse — safe on empty transcript) ──
     const extracted = extractFromTranscript(transcript)
 
-    // ── 4. Process through unified encounter processor ──
-    await processEncounter({
-      channel: 'voice',
-      orgId,
-      leadId,
-      conversationId,
-      transcript,
-      summary: (callAnalysis.call_summary as string) || null,
-      sentiment: (callAnalysis.user_sentiment as string) || null,
-      callSuccessful: !!callAnalysis.call_successful,
-      durationSeconds: callDuration,
-      recordingUrl,
-      retellCallId,
-      extractedInfo: extracted,
-    })
-
-    // ── 4b. Refresh the rolling AI summary so staff see post-call state ──
-    if (conversationId) {
-      try {
-        const { summarizeConversation } = await import('@/lib/ai/summarize')
-        await summarizeConversation(supabase, {
-          conversationId,
-          organizationId: orgId,
-          leadId,
-        })
-      } catch {
-        // Non-blocking — never fail the post-call flow on summary refresh.
-      }
-    }
-
-    // ── 5. Persist the voice_call record (voice-specific) ──
-    // Inbound SIP-trunk calls are never pre-registered through our API, so a
-    // row usually does NOT exist yet — insert it here (update if it does).
-    // Note: user sentiment lives in metadata.call_analysis; voice_calls has no
-    // sentiment column.
+    // ── 4. FINALIZE the voice_calls record FIRST — unconditional ──
+    // This MUST run before any AI processing. Previously the record update sat
+    // behind processEncounter()/summarize(), whose throws are swallowed by the
+    // outer catch (which returns HTTP 200, so Retell never retries). Any hiccup
+    // there — or an empty transcript, or a not-yet-attributed call — permanently
+    // stranded the row at status='ringing' / ended_at=null even though Retell
+    // held a full transcript. Finalizing here first makes the record the source
+    // of truth regardless of what the AI steps do.
+    //
+    // We finalize even with an empty transcript: the call genuinely ended, so the
+    // row must reflect that (with disconnection_reason as the outcome). Inbound
+    // SIP-trunk calls are usually pre-registered by /api/voice/inbound, so the
+    // row typically EXISTS — update by retell_call_id, which needs neither
+    // leadId nor orgId. Insert only when no row exists AND we can attribute it.
     const callRecord = {
       status: 'completed',
-      ended_at: new Date().toISOString(),
+      ended_at: callData.end_timestamp
+        ? new Date(callData.end_timestamp as number).toISOString()
+        : new Date().toISOString(),
       duration_seconds: callDuration,
       recording_url: recordingUrl,
       transcript: transcript.slice(0, 50000),
@@ -254,8 +230,10 @@ export async function POST(req: NextRequest) {
       .eq('retell_call_id', retellCallId).maybeSingle()
 
     if (existingCall) {
-      await supabase.from('voice_calls').update(callRecord).eq('id', existingCall.id)
-    } else {
+      const { error: updateError } = await supabase
+        .from('voice_calls').update(callRecord).eq('id', existingCall.id)
+      if (updateError) console.error('[Voice Events] voice_calls update failed:', updateError)
+    } else if (orgId && leadId) {
       const { error: insertError } = await supabase.from('voice_calls').insert({
         ...callRecord,
         organization_id: orgId,
@@ -271,32 +249,75 @@ export async function POST(req: NextRequest) {
         consent_verified: true,
       })
       if (insertError) console.error('[Voice Events] voice_calls insert failed:', insertError)
+    } else {
+      // No pre-registered row and we couldn't attribute the call to an org/lead
+      // (ambiguous multi-tenant SIP call). Nothing to finalize — log and move on.
+      console.log('[Voice Events] Unattributed call, no row to finalize', { retellCallId })
     }
 
-    // ── 5b. Record the actual voice cost (billable ledger) ──
-    // Retell reports call_cost.combined_cost in cents (engine + telephony). Capture it as a
-    // final cost_event now — voice has no useful pre-call estimate, so this is the only write.
+    // ── 4b. Record the actual voice cost (billable ledger) ──
+    // Independent of transcript — cost applies to any answered call. Retell reports
+    // call_cost.combined_cost in cents (engine + telephony).
     const combinedCostCents = Number(callData.call_cost?.combined_cost ?? 0)
-    if (combinedCostCents > 0) {
-      const { recordVoiceFinal } = await import('@/lib/billing/cost-events')
-      await recordVoiceFinal(supabase, {
-        organizationId: orgId,
-        retellCallId,
-        seconds: callDuration,
-        costCents: combinedCostCents,
-        leadId,
-      })
+    if (orgId && combinedCostCents > 0) {
+      try {
+        const { recordVoiceFinal } = await import('@/lib/billing/cost-events')
+        await recordVoiceFinal(supabase, {
+          organizationId: orgId,
+          retellCallId,
+          seconds: callDuration,
+          costCents: combinedCostCents,
+          leadId,
+        })
+      } catch (costErr) {
+        console.error('[Voice Events] cost capture failed (non-fatal):', costErr)
+      }
     }
 
-    // ── 6. Post-call follow-up: send SMS/email if AI promised it ──
-    // Detect common follow-up promises in the transcript and action them.
-    await sendPostCallFollowUps(supabase, {
-      orgId,
-      leadId,
-      transcript,
-      extracted,
-      callAnalysis,
-    })
+    // ── 5. AI post-processing — ISOLATED so a failure here can never strand the
+    //    finalized record above. Only runs when we have a transcript + attribution.
+    if (transcript && leadId && orgId) {
+      try {
+        // 5a. Unified encounter processor (extraction → lead mutation → follow-ups)
+        await processEncounter({
+          channel: 'voice',
+          orgId,
+          leadId,
+          conversationId,
+          transcript,
+          summary: (callAnalysis.call_summary as string) || null,
+          sentiment: (callAnalysis.user_sentiment as string) || null,
+          callSuccessful: !!callAnalysis.call_successful,
+          durationSeconds: callDuration,
+          recordingUrl,
+          retellCallId,
+          extractedInfo: extracted,
+        })
+
+        // 5b. Refresh the rolling AI summary so staff see post-call state
+        if (conversationId) {
+          const { summarizeConversation } = await import('@/lib/ai/summarize')
+          await summarizeConversation(supabase, {
+            conversationId,
+            organizationId: orgId,
+            leadId,
+          })
+        }
+
+        // 5c. Post-call follow-up: send SMS/email if the AI promised it
+        await sendPostCallFollowUps(supabase, {
+          orgId,
+          leadId,
+          transcript,
+          extracted,
+          callAnalysis,
+        })
+      } catch (aiErr) {
+        console.error('[Voice Events] Post-call AI processing failed (record already finalized):', aiErr)
+      }
+    } else {
+      console.log('[Voice Events] Skipping AI processing (no transcript/attribution)', { leadId, orgId, hasTranscript: !!transcript })
+    }
 
   } catch (error) {
     console.error('[Voice Events] Error:', error)
