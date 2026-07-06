@@ -27,6 +27,7 @@ import {
   Shield,
   AlertTriangle,
   MessageSquare,
+  Mail,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Conversation, Message, Lead, AgentType, VoiceCall } from '@/types/database'
@@ -125,6 +126,11 @@ export function ConversationThread({
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
+  // Which channel the composer sends on. Seeded from the thread's channel but
+  // switchable inline, so text + email both happen here — no popup dialog.
+  const [sendChannel, setSendChannel] = useState<'sms' | 'email'>(
+    conversation.channel === 'email' ? 'email' : 'sms'
+  )
   const [sending, setSending] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [aiMode, setAiMode] = useState<string>('education')
@@ -153,8 +159,8 @@ export function ConversationThread({
     setSending(true)
 
     try {
-      const endpoint = conversation.channel === 'sms' ? '/api/sms/send' : '/api/email/send'
-      const payload = conversation.channel === 'sms'
+      const endpoint = sendChannel === 'sms' ? '/api/sms/send' : '/api/email/send'
+      const payload = sendChannel === 'sms'
         ? { lead_id: lead.id, message: draft }
         : { lead_id: lead.id, subject: conversation.subject || 'Follow up', body: draft }
 
@@ -332,7 +338,9 @@ export function ConversationThread({
         </div>
         <div className="flex items-center gap-2.5">
           <LiveCallIndicator live={live} />
-          <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} />
+          {/* Call + DND live here; SMS/Email happen in the composer below, so
+              suppress the modal buttons to keep everything in one surface. */}
+          <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} showMessaging={false} />
           <AgentIndicator
             activeAgent={activeAgent}
             conversationId={conversation.id}
@@ -470,7 +478,7 @@ export function ConversationThread({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={
-              conversation.channel === 'sms'
+              sendChannel === 'sms'
                 ? `Text ${lead.first_name || 'this lead'}...`
                 : `Email ${lead.first_name || 'this lead'}...`
             }
@@ -486,6 +494,32 @@ export function ConversationThread({
           {/* Toolbar */}
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
+              {/* Channel toggle — send this message as a text or an email,
+                  right here. No separate window. */}
+              <div className="inline-flex overflow-hidden rounded-lg border border-aurea-border">
+                {(['sms', 'email'] as const).map((ch) => {
+                  const active = sendChannel === ch
+                  const Icon = ch === 'sms' ? MessageSquare : Mail
+                  const blocked = ch === 'sms' ? !lead.phone : !lead.email
+                  return (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => setSendChannel(ch)}
+                      disabled={blocked}
+                      title={blocked ? (ch === 'sms' ? 'No phone number' : 'No email address') : `Send as ${ch === 'sms' ? 'text' : 'email'}`}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                        active
+                          ? 'bg-aurea-ink text-aurea-canvas'
+                          : 'text-aurea-ink-3 hover:bg-aurea-surface-2 hover:text-aurea-ink'
+                      }`}
+                    >
+                      <Icon className="h-3 w-3" strokeWidth={1.75} />
+                      {ch === 'sms' ? 'Text' : 'Email'}
+                    </button>
+                  )
+                })}
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -515,7 +549,7 @@ export function ConversationThread({
               </Select>
             </div>
             <div className="flex items-center gap-3">
-              {conversation.channel === 'sms' && draft.length > 0 && (
+              {sendChannel === 'sms' && draft.length > 0 && (
                 <span className={`text-[11px] tabular-nums ${draft.length > 320 ? 'text-aurea-amber' : 'text-aurea-ink-3'}`}>
                   {draft.length} · {smsSegments} segment{smsSegments > 1 ? 's' : ''}
                 </span>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow, format } from 'date-fns'
 import { Button } from '@/components/ui/button'
@@ -16,6 +17,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { LeadActions } from './lead-actions'
 import { LeadTimeline } from './lead-timeline'
+import { ConversationThread } from './conversation-thread'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
 import { ScheduleAppointment } from './schedule-appointment'
 // LeadFinancingCard import removed pending live integrations
@@ -34,13 +36,12 @@ import {
   MapPin,
   Calendar,
   DollarSign,
-  MessageSquare,
   Activity,
   RefreshCw,
   Loader2,
   Tags,
 } from 'lucide-react'
-import type { Lead, PipelineStage, LeadActivity, Conversation, UserProfile, Tag, PatientProfile, ConversationAnalysis } from '@/types/database'
+import type { Lead, PipelineStage, LeadActivity, Conversation, Message, VoiceCall, UserProfile, Tag, PatientProfile, ConversationAnalysis } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
 import { toast } from 'sonner'
 
@@ -57,6 +58,9 @@ export function LeadDetail({
   lead: initialLead,
   activities,
   conversations,
+  primaryConversation,
+  threadMessages,
+  threadCalls,
   timeline,
   patientProfile,
   latestAnalysis,
@@ -68,6 +72,9 @@ export function LeadDetail({
   lead: Lead
   activities: LeadActivity[]
   conversations: Conversation[]
+  primaryConversation: Conversation | null
+  threadMessages: Message[]
+  threadCalls: VoiceCall[]
   timeline: TimelineEntry[]
   patientProfile: PatientProfile | null
   latestAnalysis: ConversationAnalysis | null
@@ -233,13 +240,13 @@ export function LeadDetail({
       <div className="grid grid-cols-3 gap-6">
         {/* ── Left Column — Details ──────────────────────── */}
         <div className="col-span-2 space-y-6">
-          <Tabs defaultValue="overview">
+          <Tabs defaultValue="conversations">
             <TabsList>
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="channel">Channel</TabsTrigger>
               <TabsTrigger value="conversations">
                 Conversations ({conversations.length})
               </TabsTrigger>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="channel">Channel</TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
 
@@ -317,48 +324,57 @@ export function LeadDetail({
                 analysis={latestAnalysis}
                 analyzableConversationId={analyzableConversationId}
               />
-              <LeadTimeline lead={lead} entries={timeline} />
             </TabsContent>
 
-            <TabsContent value="conversations" className="mt-4">
-              {conversations.length === 0 ? (
-                <div className="aurea-card flex flex-col items-center py-12">
-                  <MessageSquare className="mb-3 h-10 w-10 text-aurea-ink-3" strokeWidth={1.75} />
-                  <p className="text-[14px] font-medium text-aurea-ink">No conversations yet</p>
-                  <p className="mt-1 text-[13px] text-aurea-ink-3">
-                    Start a conversation via SMS or email
-                  </p>
-                </div>
-              ) : (
-                <div className="aurea-card overflow-hidden">
-                  {conversations.map((convo, i) => (
-                    <div
-                      key={convo.id}
-                      className={`cursor-pointer px-5 py-3.5 transition-colors hover:bg-aurea-surface-2 ${i < conversations.length - 1 ? 'border-b border-aurea-border' : ''}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="rounded border border-aurea-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-aurea-ink-3">
+            <TabsContent value="conversations" className="mt-4 space-y-4">
+              {primaryConversation ? (
+                <>
+                  {/* Other threads — quick links when the patient has more than
+                      one channel conversation. The chat below opens the newest. */}
+                  {conversations.length > 1 && (
+                    <div className="aurea-card flex flex-wrap items-center gap-2 px-4 py-3">
+                      <span className="aurea-eyebrow mr-1">Threads</span>
+                      {conversations.map((convo) => {
+                        const active = convo.id === primaryConversation.id
+                        return (
+                          <Link
+                            key={convo.id}
+                            href={`/conversations/${convo.id}`}
+                            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-mono uppercase tracking-wide transition-colors ${
+                              active
+                                ? 'border-aurea-primary/30 bg-aurea-primary/10 text-aurea-primary'
+                                : 'border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2 hover:text-aurea-ink'
+                            }`}
+                          >
                             {convo.channel}
-                          </span>
-                          <span className="text-[14px] font-medium text-aurea-ink">
-                            {convo.subject || `${convo.channel.toUpperCase()} Conversation`}
-                          </span>
-                        </div>
-                        <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
-                          {convo.last_message_at
-                            ? formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })
-                            : ''}
-                        </span>
-                      </div>
-                      {convo.last_message_preview && (
-                        <p className="mt-1 truncate text-[12px] text-aurea-ink-3">
-                          {convo.last_message_preview}
-                        </p>
-                      )}
+                            {convo.last_message_at && (
+                              <span className="normal-case text-aurea-ink-3">
+                                · {formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })}
+                              </span>
+                            )}
+                          </Link>
+                        )
+                      })}
                     </div>
-                  ))}
-                </div>
+                  )}
+
+                  {/* The full patient chat — text/email, AI agent drafts, analyze
+                      and send, all in-lead. Bounded height so the message area
+                      scrolls while the header + composer stay pinned. */}
+                  <div className="h-[calc(100vh-16rem)] min-h-[520px]">
+                    <ConversationThread
+                      lead={lead}
+                      conversation={primaryConversation}
+                      messages={threadMessages}
+                      calls={threadCalls}
+                      prequalEnabled={prequalEnabled}
+                    />
+                  </div>
+                </>
+              ) : (
+                /* No thread yet — surface the start-conversation actions and any
+                    logged calls/notes via the cross-channel timeline. */
+                <LeadTimeline lead={lead} entries={timeline} />
               )}
             </TabsContent>
 
