@@ -7,19 +7,8 @@ import { redirect } from 'next/navigation'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
+import { SERVICE_KEYWORDS } from '@/lib/leads/service-line'
 import { resolveLeadDateRange } from '@/lib/leads/date-range'
-
-// Service-line filter: new ad leads carry custom_fields.treatment_interest +
-// a tags entry, but the historical book (45k GHL/WhatConverts imports) is only
-// classifiable via campaign/UTM keywords — so each service matches both.
-// Single-word keywords only: multi-word values break PostgREST .or() parsing.
-const SERVICE_KEYWORDS: Record<string, string[]> = {
-  implants: ['implant', 'ao4', 'aox', 'arch'],
-  cosmetic: ['veneer', 'cosmetic', 'makeover'],
-  tmj: ['tmj'],
-  sleep_apnea: ['sleep'],
-  lanap: ['lanap'],
-}
 
 // URL sort key → leads column, whitelisted so the param can't order by
 // arbitrary (e.g. encrypted) columns.
@@ -107,25 +96,9 @@ export default async function LeadsPage({
     // email/phone are encrypted at rest — ilike can't match ciphertext, so
     // exact-match those via their deterministic search hashes instead.
     const hash = searchHash(params.search)
-    // Strip characters that would break out of the PostgREST .or() grammar
-    // (commas/parens separate filters; backslash escapes). Wildcards left as-is.
-    const safe = params.search.replace(/[(),\\]/g, ' ').trim()
-    const conds = [
-      `first_name.ilike.%${safe}%`,
-      `last_name.ilike.%${safe}%`,
-      `email_hash.eq.${hash}`,
-      `phone_hash.eq.${hash}`,
-    ]
-    // Multi-word queries ("Amin Samadian") never match a single column, so
-    // also match first+last across the space in either order.
-    const words = safe.split(/\s+/).filter(Boolean)
-    if (words.length > 1) {
-      const [first, ...rest] = words
-      const last = rest.join(' ')
-      conds.push(`and(first_name.ilike.%${first}%,last_name.ilike.%${last}%)`)
-      conds.push(`and(first_name.ilike.%${last}%,last_name.ilike.%${first}%)`)
-    }
-    query = query.or(conds.join(','))
+    query = query.or(
+      `first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%,email_hash.eq.${hash},phone_hash.eq.${hash}`
+    )
   }
 
   // Tag filtering — look up lead IDs with this tag

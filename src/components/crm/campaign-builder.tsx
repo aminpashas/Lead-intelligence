@@ -205,7 +205,9 @@ export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmart
             </Label>
             <Select value={smartListId} onValueChange={(v) => setSmartListId(v || '')}>
               <SelectTrigger>
-                <SelectValue placeholder="All leads (no Smart List)" />
+                <SelectValue placeholder="All leads (no Smart List)">
+                  {(value) => smartLists.find((sl: any) => sl.id === value)?.name ?? 'All leads (manual targeting)'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value=" ">All leads (manual targeting)</SelectItem>

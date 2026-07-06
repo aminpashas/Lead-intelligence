@@ -79,7 +79,7 @@ P.S. We have limited consultation spots this month. Don't wait too long!`,
         name: 'Check-in SMS',
         channel: 'sms',
         delay_minutes: 2880, // 2 days
-        body_template: `Hey {{first_name}} — just checking in. Did you get a chance to look at our email? Lots of people have questions about cost. Good news: most patients get approved for monthly payments as low as $199/mo. Want to learn more?`,
+        body_template: `Hey {{first_name}} — just checking in. Did you get a chance to look at our email? Lots of people have questions about cost. Good news: we offer flexible monthly payment options, and many patients are pleasantly surprised by how affordable it can be. Want to learn more?`,
         ai_personalize: false,
         exit_condition: { if_replied: true },
       },
@@ -95,7 +95,7 @@ I wanted to share a quick story.
 
 One of our patients — let's call her Patricia — wore dentures for 12 years. She couldn't eat at restaurants. She covered her mouth when she laughed. She'd been to ClearChoice and two other places but couldn't afford it.
 
-Then she found us. We got her approved for financing at $250/month. She got her new permanent teeth in ONE day. That was 2 years ago.
+Then she found us. We helped her find financing that fit her budget. She got her new permanent teeth in ONE day. That was 2 years ago.
 
 Last week she told me: "I eat ribs every Sunday now. My grandkids love my smile. I wish I'd done this 10 years ago."
 
@@ -148,7 +148,7 @@ I know life gets busy, and big decisions take time. That's totally okay.
 But if you're still thinking about it — even a little — I want you to know:
 
 • Your consultation is still FREE (including the 3D CT scan)
-• We can usually get you approved for payments in 20 minutes
+• Checking your financing options takes about 20 minutes and won't affect your credit
 • Most patients say they wish they'd done it years sooner
 
 Whenever you're ready, we're here. No pressure, no expiration date on this offer.

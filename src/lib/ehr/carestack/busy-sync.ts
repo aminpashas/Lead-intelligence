@@ -35,6 +35,7 @@ export async function syncCareStackBusySlots(
   supabase: SupabaseClient,
   organizationId: string,
   config: CareStackConfig,
+  deadlineAt?: number,
 ): Promise<BusySyncRun> {
   const modifiedSince = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString()
   let continueToken: string | undefined
@@ -42,7 +43,7 @@ export async function syncCareStackBusySlots(
   let upserted = 0
 
   try {
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let page = 0; page < MAX_PAGES && (deadlineAt === undefined || Date.now() < deadlineAt); page++) {
       const resp = await getCsSyncAppointments(config, modifiedSince, continueToken)
       const rows = resp.results ?? []
       fetched += rows.length

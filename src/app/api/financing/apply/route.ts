@@ -7,7 +7,7 @@ import { encryptApplicantData, hashSSN } from '@/lib/financing/encryption-helper
 import { executeWaterfall } from '@/lib/financing/waterfall'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
 import { buildOptimalWaterfallOrder, describeWaterfallStrategy } from '@/lib/financing/lender-profiles'
-import type { ApplicantData, WaterfallConfig, LenderSlug } from '@/lib/financing/types'
+import type { ApplicantData, WaterfallConfig, LenderSlug, LenderIntegrationType } from '@/lib/financing/types'
 import type { CreditTier } from '@/lib/enrichment/credit-prequal'
 import { checkRateLimit, FINANCING_APPLY_RATE_LIMIT, FINANCING_TOKEN_RATE_LIMIT } from '@/lib/financing/rate-limiter'
 
@@ -86,6 +86,41 @@ export async function POST(request: NextRequest) {
       organizationId = tokenData.organization_id
       leadId = tokenData.lead_id
 
+      // Build the lender waterfall from the org's active lenders. The public
+      // (patient-initiated) branch previously left waterfall_config untouched —
+      // it stays `{ lenders: [] }` from send-link — so executeWaterfall iterated
+      // zero lenders and every patient application auto-denied. Mirror the
+      // staff branch: credit-optimized order over the active lenders.
+      const { data: publicLenderConfigsRaw } = await serviceClient
+        .from('financing_lender_configs')
+        .select('lender_slug, priority_order, integration_type')
+        .eq('organization_id', organizationId)
+        .eq('is_active', true)
+        .order('priority_order', { ascending: true })
+
+      const { data: publicLeadEnrichment } = await serviceClient
+        .from('leads')
+        .select('credit_tier')
+        .eq('id', leadId)
+        .single()
+
+      // serviceClient is not schema-generically typed, so annotate the rows.
+      const publicLenderConfigs = (publicLenderConfigsRaw ?? []) as Array<{
+        lender_slug: LenderSlug
+        priority_order: number
+        integration_type: LenderIntegrationType
+      }>
+      const publicActiveSlugs = publicLenderConfigs.map((lc) => lc.lender_slug)
+      const publicCreditTier = ((publicLeadEnrichment as { credit_tier?: CreditTier | null } | null)?.credit_tier) || 'unknown'
+      const publicOptimizedOrder = buildOptimalWaterfallOrder(publicActiveSlugs, publicCreditTier)
+      const publicFinalOrder = publicOptimizedOrder.length > 0 ? publicOptimizedOrder : publicActiveSlugs
+      const publicWaterfallConfig: WaterfallConfig = {
+        lenders: publicFinalOrder.map((slug, idx) => {
+          const cfg = publicLenderConfigs.find((lc) => lc.lender_slug === slug)!
+          return { slug, priority: idx + 1, integration_type: cfg.integration_type }
+        }),
+      }
+
       // Update the existing application with form data
       const applicantData: ApplicantData = {
         first_name: validation.data.first_name,
@@ -120,6 +155,7 @@ export async function POST(request: NextRequest) {
           applicant_data_encrypted: encrypted,
           applicant_ssn_hash: ssnHash,
           requested_amount: validation.data.requested_amount,
+          waterfall_config: publicWaterfallConfig,
           applied_on_behalf: onBehalf,
           applicant_relationship: relationship,
           consent_given_at: new Date().toISOString(),

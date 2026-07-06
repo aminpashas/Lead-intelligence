@@ -122,7 +122,9 @@ function CasesContent() {
           {doctors.length > 0 && (
             <Select value={filterDoctor} onValueChange={(v) => v && setFilterDoctor(v)}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="All Doctors" />
+                <SelectValue placeholder="All Doctors">
+                  {(value) => doctors.find((d) => d.id === value)?.full_name ?? 'All Doctors'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Doctors</SelectItem>

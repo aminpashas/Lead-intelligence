@@ -614,7 +614,11 @@ function PreviewStep(props: {
         <div className="space-y-2">
           <Label>Assign to</Label>
           <Select value={props.assignedTo || 'unassigned'} onValueChange={(v) => props.setAssignedTo(v === 'unassigned' || !v ? '' : v)}>
-            <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue placeholder="Unassigned">
+                {(value) => props.teamMembers.find((u) => u.id === value)?.full_name ?? 'Unassigned'}
+              </SelectValue>
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="unassigned">Unassigned</SelectItem>
               {props.teamMembers.map((u) => (
@@ -635,7 +639,11 @@ function PreviewStep(props: {
         <div className="space-y-2">
           <Label>Enroll into campaign (optional)</Label>
           <Select value={props.enrollCampaignId || 'none'} onValueChange={(v) => props.setEnrollCampaignId(v === 'none' || !v ? '' : v)}>
-            <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue placeholder="None">
+                {(value) => props.campaigns.find((c) => c.id === value)?.name ?? 'None'}
+              </SelectValue>
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">None</SelectItem>
               {props.campaigns.map((c) => (

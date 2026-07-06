@@ -24,6 +24,7 @@ import {
   PhoneOutgoing,
   FolderHeart,
   FileSignature,
+  History,
   ChevronsUpDown,
   PanelLeftClose,
   PanelLeftOpen,
@@ -81,6 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Insights',
     items: [
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+      { name: 'Audit Trail', href: '/audit', icon: History },
     ],
   },
 ]

@@ -53,6 +53,7 @@ export function LeadActions({
   lead,
   variant = 'bar',
   prequalEnabled = false,
+  showMessaging = true,
 }: {
   lead: Lead
   variant?: Variant
@@ -63,6 +64,13 @@ export function LeadActions({
    * gate the /api/leads/[id]/prequal route enforces server-side.
    */
   prequalEnabled?: boolean
+  /**
+   * When false, the SMS + Email buttons (which open the LeadMessaging modal)
+   * are hidden. Used where an inline composer already handles text/email, so
+   * we don't offer a duplicate popup path — e.g. the in-lead conversation
+   * console. Call and DND remain.
+   */
+  showMessaging?: boolean
 }) {
   const router = useRouter()
   const { startCall } = useSoftphone()
@@ -267,8 +275,8 @@ export function LeadActions({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {action({ label: 'SMS', icon: <MessageSquare className={iconSize} strokeWidth={1.75} />, block: smsBlock, onClick: () => openMessage('sms') })}
-      {action({ label: 'Email', icon: <Mail className={iconSize} strokeWidth={1.75} />, block: emailBlock, onClick: () => openMessage('email') })}
+      {showMessaging && action({ label: 'SMS', icon: <MessageSquare className={iconSize} strokeWidth={1.75} />, block: smsBlock, onClick: () => openMessage('sms') })}
+      {showMessaging && action({ label: 'Email', icon: <Mail className={iconSize} strokeWidth={1.75} />, block: emailBlock, onClick: () => openMessage('email') })}
       {/* Only rendered when the account has pre-qualification enabled. */}
       {prequalEnabled && action({
         label: 'Pre-Qual',

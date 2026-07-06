@@ -21,6 +21,7 @@ import { sanitizeTerm } from '@/lib/campaigns/keyword-match'
 import { TEMPLATE_VARIABLES } from '@/lib/campaigns/personalization'
 import { decryptField } from '@/lib/encryption'
 import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
+import { fetchGrowthStudioAdMetrics } from '@/lib/bridges/growth-studio-metrics'
 import { recordAiUsage } from './usage'
 import { buildCurrentDateBlock } from './datetime-context'
 
@@ -346,6 +347,20 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: {} },
   },
   {
+    name: 'get_campaign_performance',
+    description:
+      "Paid ad-campaign performance (spend, conversions, cost-per-conversion) by channel and campaign, read live from Dion Growth Studio's Google Ads / Meta accounts (the source of truth for ad spend). Use when the user asks how campaigns/ads are doing, where ad budget is working or being wasted, cost per lead, or which channel to focus on. Returns a per-channel rollup plus the top campaigns by spend. Defaults to the last 30 days.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        days: {
+          type: 'number',
+          description: 'Lookback window in days (default 30, max 90).',
+        },
+      },
+    },
+  },
+  {
     name: 'look_up_lead',
     description:
       "Look up a SPECIFIC person by name and return their current status, qualification, AI score, and last contact. Use this any time the user asks about one named individual (\"what's the status of Amin Samadian\", \"did we ever reach John Doe?\"). Returns every lead whose name contains all the words provided, and matches even when the name is stored reversed or with a middle initial. This is the right tool for single-person questions — find_leads is only for scoping a group.",
@@ -415,6 +430,7 @@ ${buildCurrentDateBlock(timezone)}
 What you can do:
 - Look up a specific person by name with look_up_lead — it returns their status, qualification, AI score, and last contact. Use it whenever the user names an individual.
 - Answer questions about the pipeline or a group of leads using get_dashboard_stats, find_leads, and list_smart_lists.
+- Answer questions about ad spend, campaign performance, cost per lead, or where to focus budget using get_campaign_performance. Ground any claim about a channel or campaign in those numbers rather than estimating.
 - Draft bulk outreach — mass SMS or mass email to a targeted group — using propose_mass_sms / propose_mass_email. Proposals appear to the user as cards with a Send button. NOTHING sends until the user confirms. Never claim a message was sent; say it is ready for their review.
 
 Rules:
@@ -458,6 +474,77 @@ async function executeTool(
       todays_appointments: appts.count || 0,
       unread_conversations: unread.count || 0,
     })
+  }
+
+  if (name === 'get_campaign_performance') {
+    const days = Math.min(Math.max(Number(input.days) || 30, 1), 90)
+    // Read LIVE from Dion Growth Studio — the source of truth for ad data. LI
+    // intentionally does NOT warehouse campaign metrics locally; the engine
+    // reads from DGS on demand so there is one authoritative copy.
+    const all = await fetchGrowthStudioAdMetrics({ days })
+    if (all === null) {
+      return JSON.stringify({
+        window_days: days,
+        error:
+          'Could not reach Dion Growth Studio for campaign metrics right now (it is the source of truth for ad spend). Try again shortly.',
+      })
+    }
+    const rows = all.filter(
+      (r) => r.customer_id === orgId && (r.channel === 'google_ads' || r.channel === 'meta'),
+    )
+
+    type Agg = { spend: number; conversions: number; clicks: number; impressions: number }
+    const CHANNEL_LABEL: Record<string, string> = { google_ads: 'Google Ads', meta: 'Meta Ads' }
+    const zero = (): Agg => ({ spend: 0, conversions: 0, clicks: 0, impressions: 0 })
+    const byChannel = new Map<string, Agg>()
+    const byCampaign = new Map<string, Agg & { channel: string; name: string }>()
+
+    for (const r of rows) {
+      const add = (a: Agg) => {
+        a.spend += r.spend
+        a.conversions += r.conversions
+        a.clicks += r.clicks
+        a.impressions += r.impressions
+      }
+      const ch = byChannel.get(r.channel) ?? zero()
+      add(ch)
+      byChannel.set(r.channel, ch)
+      const cName = r.campaign_name || '(unattributed)'
+      const key = `${r.channel}::${cName}`
+      const camp = byCampaign.get(key) ?? { ...zero(), channel: r.channel, name: cName }
+      add(camp)
+      byCampaign.set(key, camp)
+    }
+
+    if (byChannel.size === 0) {
+      return JSON.stringify({
+        window_days: days,
+        note: 'No paid Google/Meta ad activity in Dion Growth Studio for this practice in the selected window.',
+      })
+    }
+
+    const round = (n: number) => Math.round(n * 100) / 100
+    const costPer = (a: Agg) => (a.conversions > 0 ? round(a.spend / a.conversions) : null)
+    const channels = [...byChannel.entries()].map(([channel, a]) => ({
+      channel: CHANNEL_LABEL[channel] ?? channel,
+      spend: round(a.spend),
+      conversions: round(a.conversions),
+      cost_per_conversion: costPer(a),
+      clicks: a.clicks,
+      impressions: a.impressions,
+    }))
+    const top_campaigns = [...byCampaign.values()]
+      .sort((x, y) => y.spend - x.spend)
+      .slice(0, 8)
+      .map((c) => ({
+        channel: CHANNEL_LABEL[c.channel] ?? c.channel,
+        campaign: c.name,
+        spend: round(c.spend),
+        conversions: round(c.conversions),
+        cost_per_conversion: costPer(c),
+      }))
+
+    return JSON.stringify({ window_days: days, source: 'dion_growth_studio_live', channels, top_campaigns })
   }
 
   if (name === 'list_smart_lists') {

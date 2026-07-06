@@ -2,9 +2,8 @@
 
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { PhoneIncoming, PhoneOutgoing, Bot, User, ChevronDown, ChevronRight, Play } from 'lucide-react'
+import { Phone, PhoneIncoming, PhoneOutgoing, Bot, User, ChevronDown, ChevronRight, Play } from 'lucide-react'
 import type { VoiceCall } from '@/types/database'
-import { toTranscriptLines } from '@/lib/voice/transcript'
 
 const AGENT_LABEL: Record<string, string> = { setter: 'Setter', closer: 'Closer' }
 
@@ -17,6 +16,33 @@ const OUTCOME_LABEL: Record<string, string> = {
   voicemail: 'Voicemail',
   wrong_number: 'Wrong number',
   do_not_call: 'Do not call',
+}
+
+type Line = { role: 'agent' | 'lead'; content: string }
+
+/**
+ * Parse Retell's plain-text transcript ("Agent: …\nUser: …") into role-tagged
+ * lines. Continuation lines (no speaker prefix) attach to the previous line.
+ * Falls back to a single block if no speaker prefixes are present.
+ */
+function parseTranscript(raw: string): Line[] {
+  const lines: Line[] = []
+  for (const rawLine of raw.split('\n')) {
+    const line = rawLine.trimEnd()
+    if (!line.trim()) continue
+    const agent = line.match(/^(?:agent|ai|assistant)\s*:\s*(.*)$/i)
+    const lead = line.match(/^(?:user|caller|lead|patient|customer)\s*:\s*(.*)$/i)
+    if (agent) {
+      lines.push({ role: 'agent', content: agent[1] })
+    } else if (lead) {
+      lines.push({ role: 'lead', content: lead[1] })
+    } else if (lines.length) {
+      lines[lines.length - 1].content += `\n${line}`
+    } else {
+      lines.push({ role: 'agent', content: line })
+    }
+  }
+  return lines
 }
 
 function fmtDuration(seconds: number | null): string | null {
@@ -39,7 +65,15 @@ export function CallCard({ call }: { call: VoiceCall }) {
   const when = call.ended_at || call.started_at || call.created_at
   const outcome = call.outcome ? OUTCOME_LABEL[call.outcome] || call.outcome.replace(/_/g, ' ') : null
 
-  const lines = toTranscriptLines(call)
+  const transcriptText =
+    typeof call.transcript === 'string'
+      ? call.transcript
+      : Array.isArray(call.transcript)
+        ? (call.transcript as Array<{ role?: string; content?: string }>)
+            .map((t) => `${t.role === 'agent' ? 'Agent' : 'User'}: ${t.content ?? ''}`)
+            .join('\n')
+        : ''
+  const lines = transcriptText ? parseTranscript(transcriptText) : []
 
   return (
     <div className="mx-auto w-full max-w-[540px]">

@@ -172,7 +172,7 @@ function generateSoftQualify(
   if (tier === 'tier_a' || tier === 'tier_b') {
     // Already showing financial signals — lean into financing education
     return {
-      sms: `${name}, great news — most of our patients get approved for monthly payments, often as low as $199/mo. It's a quick 2-minute check that won't affect your credit. Want me to send you the link? Just text YES 👍`,
+      sms: `${name}, great news — many of our patients qualify for flexible monthly payment options that fit their budget. It's a quick 2-minute check that won't affect your credit. Want me to send you the link? Just text YES 👍`,
       email_subject: `${name}, about the cost of your new smile...`,
       email_body: buildEmailBody(name, practice,
         `I know cost is on your mind, and I want to be transparent. Most patients are pleasantly surprised by how manageable the monthly payments are.`,
@@ -217,8 +217,8 @@ function generateFinancingOffer(
   const budget = signals.budget_monthly || lead.preferred_monthly_budget
 
   const monthlyPhrase = budget
-    ? `We can likely get you to around $${budget}/mo.`
-    : `Most patients qualify for payments as low as $199/mo.`
+    ? `We'll work to find a monthly payment that fits around your $${budget}/mo target.`
+    : `Most patients find a flexible monthly payment that fits their budget.`
 
   return {
     sms: `${name}, ${monthlyPhrase} It takes just 2 minutes to see your options — soft credit check, won't affect your score. No obligation. Ready? I'll send you the link right now!`,
@@ -294,7 +294,7 @@ function generateClose(
 
   return {
     sms: personality === 'D'
-      ? `${name}, your treatment plan is ready. Dr. ${doctor} reviewed your case and everything looks great. Let's lock in your date — what works this month?`
+      ? `${name}, your treatment plan is ready to go over with you. Let's lock in your date — what works this month?`
       : `${name}, I'm really excited for you — your new smile journey is about to begin! Everything is set. When would you like to schedule your procedure? We have some great dates available this month 😊`,
     email_subject: `${name}, your treatment plan is ready — let's pick a date!`,
     email_body: buildEmailBody(name, practice,
