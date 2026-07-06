@@ -114,7 +114,7 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
               <SelectTrigger className="bg-aurea-surface-2 border-aurea-border text-aurea-ink focus:ring-aurea-primary">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-aurea-surface border-aurea-border text-aurea-ink-2">
+              <SelectContent className="aurea bg-aurea-surface border-aurea-border text-aurea-ink-2">
                 {TONES.map((t) => (
                   <SelectItem key={t.value} value={t.value} className="hover:bg-aurea-surface-2">
                     {t.label}
@@ -161,7 +161,7 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
               <SelectTrigger className="bg-aurea-surface-2 border-aurea-border text-aurea-ink focus:ring-aurea-primary">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-aurea-surface border-aurea-border text-aurea-ink-2">
+              <SelectContent className="aurea bg-aurea-surface border-aurea-border text-aurea-ink-2">
                 {MODELS.map((m) => (
                   <SelectItem key={m.value} value={m.value} className="hover:bg-aurea-surface-2">
                     {m.label}
