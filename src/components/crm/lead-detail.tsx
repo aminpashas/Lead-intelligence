@@ -5,8 +5,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow, format } from 'date-fns'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select,
   SelectContent,
@@ -16,7 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { LeadActions } from './lead-actions'
-import { LeadTimeline } from './lead-timeline'
+import { LeadTimeline, TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
 import { ScheduleAppointment } from './schedule-appointment'
@@ -34,12 +32,13 @@ import {
   Phone,
   Mail,
   MapPin,
-  Calendar,
-  DollarSign,
-  Activity,
   RefreshCw,
   Loader2,
   Tags,
+  MessagesSquare,
+  GitBranch,
+  PanelRightClose,
+  PanelRightOpen,
 } from 'lucide-react'
 import type { Lead, PipelineStage, LeadActivity, Conversation, Message, VoiceCall, UserProfile, Tag, PatientProfile, ConversationAnalysis } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
@@ -86,6 +85,10 @@ export function LeadDetail({
   const [lead, setLead] = useState(initialLead)
   const [scoring, setScoring] = useState(false)
   const [leadTags, setLeadTags] = useState<Tag[]>([])
+  // Conversation-first surface: the chat is the hero; the lead's features live
+  // in a collapsible Details panel on the same page (closed by default).
+  const [mode, setMode] = useState<'thread' | 'timeline'>('thread')
+  const [showDetails, setShowDetails] = useState(false)
   const router = useRouter()
 
   // Fetch lead tags
@@ -177,209 +180,425 @@ export function LeadDetail({
   const scoreBreakdown = (lead.ai_score_breakdown as any)?.dimensions || []
 
   return (
-    <div className="animate-in fade-in-0 duration-500 space-y-6">
-      {/* ── Header ─────────────────────────────────────── */}
-      <header className="border-b border-aurea-border pb-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => router.back()}>
-            <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
-          </Button>
-          <p className="aurea-eyebrow">Lead Detail</p>
+    <div className="flex h-full min-h-0 animate-in fade-in-0 duration-500">
+      {/* ── Conversation (hero) — the same chat window as /conversations ── */}
+      <section className="flex min-w-0 flex-1 flex-col">
+        {/* Top strip — Thread ⇄ Timeline + the Details toggle. When there's no
+            thread yet, the strip also carries the back-arrow + lead identity so
+            the surface still has a header. */}
+        <div className="flex items-center justify-between gap-2 border-b border-aurea-border px-4 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {!primaryConversation && (
+              <>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => router.push('/leads')}>
+                  <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
+                </Button>
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-aurea-border bg-aurea-surface-2">
+                  <span className="aurea-display text-[13px] text-aurea-ink-2">{initials || '?'}</span>
+                </div>
+                <span className="aurea-display truncate text-[18px] text-aurea-ink">
+                  {lead.first_name} {lead.last_name}
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            {primaryConversation && (
+              <div className="inline-flex items-center rounded-full border border-aurea-border bg-aurea-surface p-0.5 text-[12px]">
+                <ModeButton active={mode === 'thread'} onClick={() => setMode('thread')} icon={<MessagesSquare className="h-3.5 w-3.5" strokeWidth={1.75} />} label="Thread" />
+                <ModeButton active={mode === 'timeline'} onClick={() => setMode('timeline')} icon={<GitBranch className="h-3.5 w-3.5" strokeWidth={1.75} />} label="Timeline" />
+              </div>
+            )}
+            <Button
+              variant={showDetails ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowDetails((v) => !v)}
+              aria-pressed={showDetails}
+              className="gap-1.5"
+            >
+              {showDetails
+                ? <PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.75} />
+                : <PanelRightOpen className="h-3.5 w-3.5" strokeWidth={1.75} />}
+              Details
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <Avatar className="h-12 w-12 shrink-0">
-            <AvatarFallback className="text-[15px] font-semibold">{initials}</AvatarFallback>
-          </Avatar>
-          <div className="flex-1">
-            <h1 className="aurea-display text-[32px] text-aurea-ink sm:text-[40px]">
-              {lead.first_name} {lead.last_name}
-            </h1>
-            <div className="mt-1 flex flex-wrap items-center gap-4 text-[13px] text-aurea-ink-3">
-              {lead.phone && (
-                <span className="flex items-center gap-1.5">
-                  <Phone className="h-[13px] w-[13px]" strokeWidth={1.75} />
-                  <span className="font-mono">{lead.phone}</span>
-                </span>
-              )}
-              {lead.email && (
-                <span className="flex items-center gap-1.5">
-                  <Mail className="h-[13px] w-[13px]" strokeWidth={1.75} />
-                  {lead.email}
-                </span>
-              )}
-              {lead.city && (
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="h-[13px] w-[13px]" strokeWidth={1.75} />
-                  {lead.city}, {lead.state}
-                </span>
-              )}
+
+        {/* Body — the chat thread, its condensed timeline, or (no thread yet)
+            the start-conversation surface. */}
+        <div className="min-h-0 flex-1">
+          {primaryConversation ? (
+            mode === 'thread' ? (
+              <ConversationThread
+                lead={lead}
+                conversation={primaryConversation}
+                messages={threadMessages}
+                calls={threadCalls}
+                prequalEnabled={prequalEnabled}
+                backHref="/leads"
+              />
+            ) : (
+              <div className="h-full overflow-y-auto px-5 py-6">
+                {timeline.length === 0 ? (
+                  <p className="py-16 text-center text-sm text-aurea-ink-3">No calls, texts, or emails yet.</p>
+                ) : (
+                  <div className="mx-auto max-w-[680px]">
+                    <TimelineFeed entries={timeline} variant="detailed" />
+                  </div>
+                )}
+              </div>
+            )
+          ) : (
+            <div className="h-full overflow-y-auto px-5 py-6">
+              <LeadTimeline lead={lead} entries={timeline} />
             </div>
-          </div>
-
-          {/* AI Engagement Score */}
-          <div className="flex flex-col items-center gap-1">
-            <span className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[15px] font-semibold ${qualificationColors[lead.ai_qualification]}`}>
-              <Brain className="h-[15px] w-[15px]" strokeWidth={1.75} />
-              <span className="font-mono tabular-nums">{lead.ai_score}/100</span>
-            </span>
-            <p className="aurea-eyebrow capitalize">{lead.ai_qualification}</p>
-          </div>
-
-          <LeadActions lead={lead} variant="bar" prequalEnabled={prequalEnabled} />
-          <ScheduleAppointment lead={lead} />
-
-          <Button onClick={scoreLead} disabled={scoring} variant="outline" size="sm" className="gap-1.5">
-            {scoring
-              ? <Loader2 className="h-[15px] w-[15px] animate-spin" strokeWidth={1.75} />
-              : <RefreshCw className="h-[15px] w-[15px]" strokeWidth={1.75} />}
-            {scoring ? 'Scoring…' : 'Re-score'}
-          </Button>
+          )}
         </div>
-      </header>
+      </section>
 
-      <div className="grid grid-cols-3 gap-6">
-        {/* ── Left Column — Details ──────────────────────── */}
-        <div className="col-span-2 space-y-6">
-          <Tabs defaultValue="conversations">
-            <TabsList>
-              <TabsTrigger value="conversations">
-                Conversations ({conversations.length})
-              </TabsTrigger>
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="channel">Channel</TabsTrigger>
-              <TabsTrigger value="activity">Activity</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="overview" className="mt-4 space-y-4">
-              {/* AI Summary */}
-              {lead.ai_summary && (
-                <div className="aurea-card overflow-hidden">
-                  <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
-                    <Brain className="h-[15px] w-[15px] text-aurea-primary" strokeWidth={1.75} />
-                    <h2 className="aurea-display text-[18px] text-aurea-ink">AI Summary</h2>
-                  </div>
-                  <div className="px-5 py-4">
-                    <p className="text-[14px] leading-relaxed text-aurea-ink-2">{lead.ai_summary}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Score Breakdown */}
-              {scoreBreakdown.length > 0 && (
-                <div className="aurea-card overflow-hidden">
-                  <div className="border-b border-aurea-border px-5 py-4">
-                    <h2 className="aurea-display text-[18px] text-aurea-ink">Score Breakdown</h2>
-                  </div>
-                  <div className="space-y-4 px-5 py-4">
-                    {scoreBreakdown.map((dim: any) => (
-                      <div key={dim.name}>
-                        <div className="flex items-center justify-between text-[13px]">
-                          <span className="capitalize text-aurea-ink-2">{dim.name.replace(/_/g, ' ')}</span>
-                          <span className="font-mono tabular-nums text-aurea-ink">{dim.score}/100</span>
-                        </div>
-                        <div className="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-aurea-surface-2">
-                          <div
-                            className="h-full rounded-full bg-aurea-primary transition-all"
-                            style={{ width: `${dim.score}%` }}
-                          />
-                        </div>
-                        <p className="mt-1 text-[11.5px] text-aurea-ink-3">{dim.reasoning}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Dental Info */}
-              <div className="aurea-card overflow-hidden">
-                <div className="border-b border-aurea-border px-5 py-4">
-                  <h2 className="aurea-display text-[18px] text-aurea-ink">Dental Information</h2>
-                </div>
-                <div className="grid grid-cols-2 gap-px bg-aurea-border">
-                  {[
-                    { label: 'Condition', value: lead.dental_condition?.replace(/_/g, ' ') || '—', mono: false },
-                    { label: 'Has Dentures', value: lead.has_dentures === true ? 'Yes' : lead.has_dentures === false ? 'No' : '—', mono: false },
-                    { label: 'Insurance', value: lead.has_dental_insurance ? lead.insurance_provider || 'Yes' : 'No', mono: false },
-                    { label: 'Financing Interest', value: lead.financing_interest?.replace(/_/g, ' ') || '—', mono: false },
-                  ].map((item) => (
-                    <div key={item.label} className="bg-aurea-surface px-5 py-3.5">
-                      <p className="aurea-eyebrow mb-1">{item.label}</p>
-                      <p className="text-[14px] capitalize text-aurea-ink">{item.value}</p>
-                    </div>
-                  ))}
-                  {lead.dental_condition_details && (
-                    <div className="col-span-2 bg-aurea-surface px-5 py-3.5">
-                      <p className="aurea-eyebrow mb-1">Details</p>
-                      <p className="text-[14px] text-aurea-ink-2">{lead.dental_condition_details}</p>
-                    </div>
-                  )}
+      {/* ── Details panel (collapsible) — every lead feature, one page ──── */}
+      {showDetails && (
+        <aside className="w-[380px] shrink-0 overflow-y-auto border-l border-aurea-border bg-aurea-canvas">
+          <div className="space-y-4 p-4">
+            {/* Identity + primary actions */}
+            <div className="space-y-3 border-b border-aurea-border pb-4">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-11 w-11 shrink-0">
+                  <AvatarFallback className="text-[14px] font-semibold">{initials}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <h2 className="aurea-display truncate text-[20px] text-aurea-ink">
+                    {lead.first_name} {lead.last_name}
+                  </h2>
+                  <span className={`mt-1 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[12px] font-semibold ${qualificationColors[lead.ai_qualification]}`}>
+                    <Brain className="h-3 w-3" strokeWidth={1.75} />
+                    <span className="font-mono tabular-nums">{lead.ai_score}/100</span>
+                    <span className="capitalize">· {lead.ai_qualification}</span>
+                  </span>
                 </div>
               </div>
-            </TabsContent>
 
-            <TabsContent value="channel" className="mt-4 space-y-4">
-              <LeadIntelligencePanel
-                lead={lead}
-                profile={patientProfile}
-                analysis={latestAnalysis}
-                analyzableConversationId={analyzableConversationId}
-              />
-            </TabsContent>
+              <div className="space-y-1.5 text-[13px] text-aurea-ink-3">
+                {lead.phone && (
+                  <span className="flex items-center gap-1.5">
+                    <Phone className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                    <span className="font-mono">{lead.phone}</span>
+                  </span>
+                )}
+                {lead.email && (
+                  <span className="flex items-center gap-1.5">
+                    <Mail className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                    <span className="truncate">{lead.email}</span>
+                  </span>
+                )}
+                {lead.city && (
+                  <span className="flex items-center gap-1.5">
+                    <MapPin className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                    {lead.city}, {lead.state}
+                  </span>
+                )}
+              </div>
 
-            <TabsContent value="conversations" className="mt-4 space-y-4">
-              {primaryConversation ? (
-                <>
-                  {/* Other threads — quick links when the patient has more than
-                      one channel conversation. The chat below opens the newest. */}
-                  {conversations.length > 1 && (
-                    <div className="aurea-card flex flex-wrap items-center gap-2 px-4 py-3">
-                      <span className="aurea-eyebrow mr-1">Threads</span>
-                      {conversations.map((convo) => {
-                        const active = convo.id === primaryConversation.id
-                        return (
-                          <Link
-                            key={convo.id}
-                            href={`/conversations/${convo.id}`}
-                            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-mono uppercase tracking-wide transition-colors ${
-                              active
-                                ? 'border-aurea-primary/30 bg-aurea-primary/10 text-aurea-primary'
-                                : 'border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2 hover:text-aurea-ink'
-                            }`}
-                          >
-                            {convo.channel}
-                            {convo.last_message_at && (
-                              <span className="normal-case text-aurea-ink-3">
-                                · {formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })}
-                              </span>
-                            )}
-                          </Link>
-                        )
-                      })}
-                    </div>
-                  )}
+              <div className="flex flex-wrap items-center gap-2">
+                <LeadActions lead={lead} variant="bar" prequalEnabled={prequalEnabled} />
+                <ScheduleAppointment lead={lead} />
+                <Button onClick={scoreLead} disabled={scoring} variant="outline" size="sm" className="gap-1.5">
+                  {scoring
+                    ? <Loader2 className="h-[15px] w-[15px] animate-spin" strokeWidth={1.75} />
+                    : <RefreshCw className="h-[15px] w-[15px]" strokeWidth={1.75} />}
+                  {scoring ? 'Scoring…' : 'Re-score'}
+                </Button>
+              </div>
+            </div>
 
-                  {/* The full patient chat — text/email, AI agent drafts, analyze
-                      and send, all in-lead. Bounded height so the message area
-                      scrolls while the header + composer stay pinned. */}
-                  <div className="h-[calc(100vh-16rem)] min-h-[520px]">
-                    <ConversationThread
-                      lead={lead}
-                      conversation={primaryConversation}
-                      messages={threadMessages}
-                      calls={threadCalls}
-                      prequalEnabled={prequalEnabled}
-                    />
-                  </div>
-                </>
-              ) : (
-                /* No thread yet — surface the start-conversation actions and any
-                    logged calls/notes via the cross-channel timeline. */
-                <LeadTimeline lead={lead} entries={timeline} />
-              )}
-            </TabsContent>
+            {/* Other threads — quick links when the patient has more than one
+                channel conversation. */}
+            {primaryConversation && conversations.length > 1 && (
+              <div className="aurea-card flex flex-wrap items-center gap-2 px-4 py-3">
+                <span className="aurea-eyebrow mr-1">Threads</span>
+                {conversations.map((convo) => {
+                  const active = convo.id === primaryConversation.id
+                  return (
+                    <Link
+                      key={convo.id}
+                      href={`/conversations/${convo.id}`}
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-mono uppercase tracking-wide transition-colors ${
+                        active
+                          ? 'border-aurea-primary/30 bg-aurea-primary/10 text-aurea-primary'
+                          : 'border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2 hover:text-aurea-ink'
+                      }`}
+                    >
+                      {convo.channel}
+                      {convo.last_message_at && (
+                        <span className="normal-case text-aurea-ink-3">
+                          · {formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })}
+                        </span>
+                      )}
+                    </Link>
+                  )
+                })}
+              </div>
+            )}
 
-            <TabsContent value="activity" className="mt-4 space-y-4">
+            {/* AI Summary */}
+            {lead.ai_summary && (
               <div className="aurea-card overflow-hidden">
+                <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+                  <Brain className="h-[15px] w-[15px] text-aurea-primary" strokeWidth={1.75} />
+                  <h2 className="aurea-display text-[18px] text-aurea-ink">AI Summary</h2>
+                </div>
+                <div className="px-5 py-4">
+                  <p className="text-[14px] leading-relaxed text-aurea-ink-2">{lead.ai_summary}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Score Breakdown */}
+            {scoreBreakdown.length > 0 && (
+              <div className="aurea-card overflow-hidden">
+                <div className="border-b border-aurea-border px-5 py-4">
+                  <h2 className="aurea-display text-[18px] text-aurea-ink">Score Breakdown</h2>
+                </div>
+                <div className="space-y-4 px-5 py-4">
+                  {scoreBreakdown.map((dim: any) => (
+                    <div key={dim.name}>
+                      <div className="flex items-center justify-between text-[13px]">
+                        <span className="capitalize text-aurea-ink-2">{dim.name.replace(/_/g, ' ')}</span>
+                        <span className="font-mono tabular-nums text-aurea-ink">{dim.score}/100</span>
+                      </div>
+                      <div className="mt-1.5 h-[3px] w-full overflow-hidden rounded-full bg-aurea-surface-2">
+                        <div
+                          className="h-full rounded-full bg-aurea-primary transition-all"
+                          style={{ width: `${dim.score}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-[11.5px] text-aurea-ink-3">{dim.reasoning}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Dental Info */}
+            <div className="aurea-card overflow-hidden">
+              <div className="border-b border-aurea-border px-5 py-4">
+                <h2 className="aurea-display text-[18px] text-aurea-ink">Dental Information</h2>
+              </div>
+              <div className="grid grid-cols-2 gap-px bg-aurea-border">
+                {[
+                  { label: 'Condition', value: lead.dental_condition?.replace(/_/g, ' ') || '—', mono: false },
+                  { label: 'Has Dentures', value: lead.has_dentures === true ? 'Yes' : lead.has_dentures === false ? 'No' : '—', mono: false },
+                  { label: 'Insurance', value: lead.has_dental_insurance ? lead.insurance_provider || 'Yes' : 'No', mono: false },
+                  { label: 'Financing Interest', value: lead.financing_interest?.replace(/_/g, ' ') || '—', mono: false },
+                ].map((item) => (
+                  <div key={item.label} className="bg-aurea-surface px-5 py-3.5">
+                    <p className="aurea-eyebrow mb-1">{item.label}</p>
+                    <p className="text-[14px] capitalize text-aurea-ink">{item.value}</p>
+                  </div>
+                ))}
+                {lead.dental_condition_details && (
+                  <div className="col-span-2 bg-aurea-surface px-5 py-3.5">
+                    <p className="aurea-eyebrow mb-1">Details</p>
+                    <p className="text-[14px] text-aurea-ink-2">{lead.dental_condition_details}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Channel intelligence */}
+            <LeadIntelligencePanel
+              lead={lead}
+              profile={patientProfile}
+              analysis={latestAnalysis}
+              analyzableConversationId={analyzableConversationId}
+            />
+
+            {/* Tags */}
+            <div className="aurea-card overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+                <Tags className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
+                <h2 className="aurea-display text-[18px] text-aurea-ink">Tags</h2>
+              </div>
+              <div className="space-y-3 px-5 py-4">
+                {leadTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {leadTags.map((tag) => (
+                      <TagBadge key={tag.id} tag={tag} onRemove={() => removeTag(tag.id)} />
+                    ))}
+                  </div>
+                )}
+                <TagSelector
+                  selectedTagIds={leadTags.map((t) => t.id)}
+                  onTagsChange={(ids) => {
+                    const current = new Set(leadTags.map((t) => t.id))
+                    const toAdd = ids.filter((id) => !current.has(id))
+                    const toRemove = [...current].filter((id) => !ids.includes(id))
+                    if (toAdd.length > 0) addTags(toAdd)
+                    if (toRemove.length > 0) toRemove.forEach(removeTag)
+                  }}
+                  className="w-full"
+                  placeholder="Add tags..."
+                />
+              </div>
+            </div>
+
+            {/* Patient AI Summary */}
+            <PatientSummaryCard leadId={lead.id} lead={lead} />
+
+            {/* Personality Profile */}
+            <PersonalityProfileCard
+              leadId={lead.id}
+              initialProfile={lead.personality_profile as any}
+            />
+
+            {/* AI Autopilot Control */}
+            <div className="aurea-card overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
+                <Brain className="h-[15px] w-[15px] text-aurea-primary" strokeWidth={1.75} />
+                <h2 className="aurea-display text-[18px] text-aurea-ink">AI Autopilot</h2>
+              </div>
+              <div className="px-5 py-4">
+                <LeadAIOverrideToggle
+                  leadId={lead.id}
+                  currentOverride={(lead.ai_autopilot_override as any) || 'default'}
+                />
+              </div>
+            </div>
+
+            {/* Pipeline Stage */}
+            <div className="aurea-card overflow-hidden">
+              <div className="border-b border-aurea-border px-5 py-4">
+                <h2 className="aurea-display text-[18px] text-aurea-ink">Pipeline Stage</h2>
+              </div>
+              <div className="px-5 py-4">
+                <Select
+                  value={lead.stage_id || ''}
+                  onValueChange={(v) => updateLead({ stage_id: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select stage">
+                      {(value) => stages.find((s) => s.id === value)?.name ?? 'Select stage'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {stages.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />
+                          {s.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Assigned To */}
+            <div className="aurea-card overflow-hidden">
+              <div className="border-b border-aurea-border px-5 py-4">
+                <h2 className="aurea-display text-[18px] text-aurea-ink">Assigned To</h2>
+              </div>
+              <div className="px-5 py-4">
+                <Select
+                  value={lead.assigned_to || 'unassigned'}
+                  onValueChange={(v) => updateLead({ assigned_to: v === 'unassigned' ? null : v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Unassigned">
+                      {(value) => teamMembers.find((m) => m.id === value)?.full_name ?? 'Unassigned'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {teamMembers.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Engagement Stats */}
+            <div className="aurea-card overflow-hidden">
+              <div className="border-b border-aurea-border px-5 py-4">
+                <h2 className="aurea-display text-[18px] text-aurea-ink">Engagement</h2>
+              </div>
+              <div className="px-5">
+                {[
+                  { label: 'Messages Sent', value: lead.total_messages_sent },
+                  { label: 'Messages Received', value: lead.total_messages_received },
+                  { label: 'Emails Sent', value: lead.total_emails_sent },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">
+                    <span className="text-[13px] text-aurea-ink-3">{item.label}</span>
+                    <span className="font-mono text-[13px] tabular-nums text-aurea-ink">{item.value}</span>
+                  </div>
+                ))}
+                <div className="border-t border-aurea-border-strong py-3">
+                  <div className="flex items-center justify-between border-b border-aurea-border py-2.5 last:border-0">
+                    <span className="text-[13px] text-aurea-ink-3">Last Contact</span>
+                    <span className="font-mono text-[12px] tabular-nums text-aurea-ink">
+                      {lead.last_contacted_at
+                        ? formatDistanceToNow(new Date(lead.last_contacted_at), { addSuffix: true })
+                        : 'Never'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-2.5">
+                    <span className="text-[13px] text-aurea-ink-3">Last Response</span>
+                    <span className="font-mono text-[12px] tabular-nums text-aurea-ink">
+                      {lead.last_responded_at
+                        ? formatDistanceToNow(new Date(lead.last_responded_at), { addSuffix: true })
+                        : 'Never'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Source */}
+            <div className="aurea-card overflow-hidden">
+              <div className="border-b border-aurea-border px-5 py-4">
+                <h2 className="aurea-display text-[18px] text-aurea-ink">Source</h2>
+              </div>
+              <div className="px-5">
+                {[
+                  { label: 'Type', value: lead.source_type?.replace(/_/g, ' ') || '—', capitalize: true },
+                  ...(channelLabel(lead.campaign_attribution?.channel)
+                    ? [{ label: 'Channel', value: channelLabel(lead.campaign_attribution?.channel)!, capitalize: false }]
+                    : []),
+                  // Exact campaign resolved by DGS wins over the raw UTM value.
+                  ...(lead.campaign_attribution?.campaign_name || lead.utm_campaign
+                    ? [{ label: 'Campaign', value: lead.campaign_attribution?.campaign_name || lead.utm_campaign!, capitalize: false }]
+                    : []),
+                  ...(lead.campaign_attribution?.ad_group_name
+                    ? [{ label: 'Ad Group', value: lead.campaign_attribution.ad_group_name, capitalize: false }]
+                    : []),
+                  ...(lead.campaign_attribution?.keyword_text
+                    ? [{ label: 'Keyword', value: lead.campaign_attribution.keyword_text, capitalize: false }]
+                    : []),
+                  ...(lead.utm_source ? [{ label: 'UTM Source', value: lead.utm_source, capitalize: false }] : []),
+                  { label: 'Created', value: format(new Date(lead.created_at), 'MMM d, yyyy'), capitalize: false },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">
+                    <span className="text-[13px] text-aurea-ink-3">{item.label}</span>
+                    <span className={`font-mono text-[12px] text-aurea-ink ${item.capitalize ? 'capitalize' : ''}`}>
+                      {item.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Activity + full audit trail */}
+            <div className="aurea-card overflow-hidden">
+              <div className="border-b border-aurea-border px-5 py-4">
+                <h2 className="aurea-display text-[18px] text-aurea-ink">Activity</h2>
+              </div>
+              <div>
                 {activities.map((act, i) => (
                   <div
                     key={act.id}
@@ -398,201 +617,33 @@ export function LeadDetail({
                   </div>
                 ))}
               </div>
-
-              {/* Full audit trail — every action taken on this lead, by staff and by AI */}
-              <div>
-                <h3 className="aurea-display mb-2 text-[16px] text-aurea-ink">Audit trail</h3>
-                <AuditTimeline query={`resourceType=leads&resourceId=${lead.id}`} />
-              </div>
-            </TabsContent>
-          </Tabs>
-        </div>
-
-        {/* ── Right Column — Actions & Status ───────────── */}
-        <div className="space-y-4">
-          {/* Tags */}
-          <div className="aurea-card overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
-              <Tags className="h-[15px] w-[15px] text-aurea-ink-3" strokeWidth={1.75} />
-              <h2 className="aurea-display text-[18px] text-aurea-ink">Tags</h2>
             </div>
-            <div className="space-y-3 px-5 py-4">
-              {leadTags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {leadTags.map((tag) => (
-                    <TagBadge key={tag.id} tag={tag} onRemove={() => removeTag(tag.id)} />
-                  ))}
-                </div>
-              )}
-              <TagSelector
-                selectedTagIds={leadTags.map((t) => t.id)}
-                onTagsChange={(ids) => {
-                  // Find newly added tag IDs
-                  const current = new Set(leadTags.map((t) => t.id))
-                  const toAdd = ids.filter((id) => !current.has(id))
-                  const toRemove = [...current].filter((id) => !ids.includes(id))
-                  if (toAdd.length > 0) addTags(toAdd)
-                  if (toRemove.length > 0) toRemove.forEach(removeTag)
-                }}
-                className="w-full"
-                placeholder="Add tags..."
-              />
+
+            <div>
+              <h3 className="aurea-display mb-2 text-[16px] text-aurea-ink">Audit trail</h3>
+              <AuditTimeline query={`resourceType=leads&resourceId=${lead.id}`} />
             </div>
+
+            {/* Financing panel temporarily removed until live integrations are available */}
           </div>
-
-          {/* Patient AI Summary */}
-          <PatientSummaryCard leadId={lead.id} lead={lead} />
-
-          {/* Personality Profile */}
-          <PersonalityProfileCard
-            leadId={lead.id}
-            initialProfile={lead.personality_profile as any}
-          />
-
-          {/* AI Autopilot Control */}
-          <div className="aurea-card overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
-              <Brain className="h-[15px] w-[15px] text-aurea-primary" strokeWidth={1.75} />
-              <h2 className="aurea-display text-[18px] text-aurea-ink">AI Autopilot</h2>
-            </div>
-            <div className="px-5 py-4">
-              <LeadAIOverrideToggle
-                leadId={lead.id}
-                currentOverride={(lead.ai_autopilot_override as any) || 'default'}
-              />
-            </div>
-          </div>
-
-          {/* Pipeline Stage */}
-          <div className="aurea-card overflow-hidden">
-            <div className="border-b border-aurea-border px-5 py-4">
-              <h2 className="aurea-display text-[18px] text-aurea-ink">Pipeline Stage</h2>
-            </div>
-            <div className="px-5 py-4">
-              <Select
-                value={lead.stage_id || ''}
-                onValueChange={(v) => updateLead({ stage_id: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select stage">
-                    {(value) => stages.find((s) => s.id === value)?.name ?? 'Select stage'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {stages.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />
-                        {s.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Assigned To */}
-          <div className="aurea-card overflow-hidden">
-            <div className="border-b border-aurea-border px-5 py-4">
-              <h2 className="aurea-display text-[18px] text-aurea-ink">Assigned To</h2>
-            </div>
-            <div className="px-5 py-4">
-              <Select
-                value={lead.assigned_to || 'unassigned'}
-                onValueChange={(v) => updateLead({ assigned_to: v === 'unassigned' ? null : v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Unassigned">
-                    {(value) => teamMembers.find((m) => m.id === value)?.full_name ?? 'Unassigned'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {teamMembers.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Engagement Stats */}
-          <div className="aurea-card overflow-hidden">
-            <div className="border-b border-aurea-border px-5 py-4">
-              <h2 className="aurea-display text-[18px] text-aurea-ink">Engagement</h2>
-            </div>
-            <div className="px-5">
-              {[
-                { label: 'Messages Sent', value: lead.total_messages_sent },
-                { label: 'Messages Received', value: lead.total_messages_received },
-                { label: 'Emails Sent', value: lead.total_emails_sent },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">
-                  <span className="text-[13px] text-aurea-ink-3">{item.label}</span>
-                  <span className="font-mono text-[13px] tabular-nums text-aurea-ink">{item.value}</span>
-                </div>
-              ))}
-              <div className="border-t border-aurea-border-strong py-3">
-                <div className="flex items-center justify-between border-b border-aurea-border py-2.5 last:border-0">
-                  <span className="text-[13px] text-aurea-ink-3">Last Contact</span>
-                  <span className="font-mono text-[12px] tabular-nums text-aurea-ink">
-                    {lead.last_contacted_at
-                      ? formatDistanceToNow(new Date(lead.last_contacted_at), { addSuffix: true })
-                      : 'Never'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between py-2.5">
-                  <span className="text-[13px] text-aurea-ink-3">Last Response</span>
-                  <span className="font-mono text-[12px] tabular-nums text-aurea-ink">
-                    {lead.last_responded_at
-                      ? formatDistanceToNow(new Date(lead.last_responded_at), { addSuffix: true })
-                      : 'Never'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Financing panel temporarily removed until live integrations are available */}
-
-          {/* Source */}
-          <div className="aurea-card overflow-hidden">
-            <div className="border-b border-aurea-border px-5 py-4">
-              <h2 className="aurea-display text-[18px] text-aurea-ink">Source</h2>
-            </div>
-            <div className="px-5">
-              {[
-                { label: 'Type', value: lead.source_type?.replace(/_/g, ' ') || '—', capitalize: true },
-                ...(channelLabel(lead.campaign_attribution?.channel)
-                  ? [{ label: 'Channel', value: channelLabel(lead.campaign_attribution?.channel)!, capitalize: false }]
-                  : []),
-                // Exact campaign resolved by DGS wins over the raw UTM value.
-                ...(lead.campaign_attribution?.campaign_name || lead.utm_campaign
-                  ? [{ label: 'Campaign', value: lead.campaign_attribution?.campaign_name || lead.utm_campaign!, capitalize: false }]
-                  : []),
-                ...(lead.campaign_attribution?.ad_group_name
-                  ? [{ label: 'Ad Group', value: lead.campaign_attribution.ad_group_name, capitalize: false }]
-                  : []),
-                ...(lead.campaign_attribution?.keyword_text
-                  ? [{ label: 'Keyword', value: lead.campaign_attribution.keyword_text, capitalize: false }]
-                  : []),
-                ...(lead.utm_source ? [{ label: 'UTM Source', value: lead.utm_source, capitalize: false }] : []),
-                { label: 'Created', value: format(new Date(lead.created_at), 'MMM d, yyyy'), capitalize: false },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">
-                  <span className="text-[13px] text-aurea-ink-3">{item.label}</span>
-                  <span className={`font-mono text-[12px] text-aurea-ink ${item.capitalize ? 'capitalize' : ''}`}>
-                    {item.value}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+        </aside>
+      )}
     </div>
+  )
+}
+
+function ModeButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium transition-colors ${
+        active ? 'bg-aurea-ink text-aurea-canvas' : 'text-aurea-ink-3 hover:text-aurea-ink'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
   )
 }
