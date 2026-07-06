@@ -29,6 +29,7 @@ import {
 import { toast } from 'sonner'
 import type { Lead } from '@/types/database'
 import { LeadActions } from '@/components/crm/lead-actions'
+import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
 import { toTranscriptLines } from '@/lib/voice/transcript'
 
 // ═══════════════════════════════════════════════════════════════
@@ -521,14 +522,12 @@ function CallRow({
 
           {/* Recording */}
           {call.recording_url && (
-            <a
-              href={call.recording_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full border border-aurea-border bg-aurea-surface px-3 py-1.5 text-xs font-medium text-aurea-ink-2 transition-colors hover:bg-aurea-surface-2"
-            >
-              <Play className="h-3 w-3" strokeWidth={1.75} /> Play recording
-            </a>
+            <div>
+              <p className="aurea-eyebrow mb-2 flex items-center gap-1">
+                <Mic className="h-3 w-3" strokeWidth={1.75} /> Recording
+              </p>
+              <CallRecordingPlayer url={call.recording_url} />
+            </div>
           )}
         </div>
       )}

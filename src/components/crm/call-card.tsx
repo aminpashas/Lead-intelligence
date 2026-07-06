@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { Phone, PhoneIncoming, PhoneOutgoing, Bot, User, ChevronDown, ChevronRight, Play } from 'lucide-react'
+import { Phone, PhoneIncoming, PhoneOutgoing, Bot, User, ChevronDown, ChevronRight } from 'lucide-react'
 import type { VoiceCall } from '@/types/database'
+import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
 
 const AGENT_LABEL: Record<string, string> = { setter: 'Setter', closer: 'Closer' }
 
@@ -161,15 +162,9 @@ export function CallCard({ call }: { call: VoiceCall }) {
             )}
 
             {call.recording_url && (
-              <a
-                href={call.recording_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-aurea-border px-2.5 py-1 text-[11px] font-medium text-aurea-ink-2 transition-colors hover:bg-aurea-canvas"
-              >
-                <Play className="h-3 w-3" strokeWidth={1.75} />
-                Recording
-              </a>
+              <div className="mt-3">
+                <CallRecordingPlayer url={call.recording_url} size="compact" />
+              </div>
             )}
           </div>
         )}
