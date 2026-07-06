@@ -34,10 +34,11 @@ import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, reco
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
 import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/treatment/treatment-closing'
 import { getOrCreateFinancingShareLink } from '@/lib/financing/share-link'
+import { buildQualificationStatus, isDiscoveryComplete } from '@/lib/ai/agent-types'
 import { escapeHtml } from '@/lib/utils'
 import { executeStageTransition } from '@/lib/funnel/executor'
 import { ensureContractDraftForCase } from '@/lib/contracts/orchestrator'
-import type { LeadStatus } from '@/types/database'
+import type { Lead, LeadStatus } from '@/types/database'
 import type Anthropic from '@anthropic-ai/sdk'
 
 // ═══════════════════════════════════════════════════════════
@@ -1032,6 +1033,21 @@ async function executeSendFinancingLink(
   },
   treatmentValue?: number
 ): Promise<ToolResult> {
+  // Qualification gate: the Closer only reaches this tool because the lead sits
+  // in a closer-stage (STAGE_AGENT_MAP), but stage is set by external GHL sync
+  // and is not a reliable proxy for "we've actually qualified this patient."
+  // A mis-staged lead who never did discovery must NOT be pushed a financing
+  // application (the "I haven't filled any application" failure). Require a real
+  // qualification signal — goal + timeline + a financial signal — before we send.
+  const qualification = buildQualificationStatus(context.lead as Partial<Lead>)
+  if (!isDiscoveryComplete(qualification)) {
+    return {
+      success: false,
+      data: {},
+      message: 'This patient has not been qualified yet (we still need their goal, timeline, and a financing/credit signal), so do NOT send a financing link or tell them one was sent. Keep the conversation on understanding their situation, or have a team member follow up. Financing comes after qualification.',
+    }
+  }
+
   const phone = context.lead.phone_formatted
     ? (decryptField(context.lead.phone_formatted as string) || context.lead.phone_formatted)
     : null

@@ -17,7 +17,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildSafeLeadContext, checkResponseCompliance, logHIPAAEvent, scrubPHI } from './hipaa'
 import type { AgentContext, AgentResponse } from './agent-types'
-import { formatPatientPsychologyForPrompt } from './agent-types'
+import { formatPatientPsychologyForPrompt, buildQualificationStatus, isDiscoveryComplete } from './agent-types'
 import { buildPricingIntegrityBlock } from './pricing-integrity'
 import { buildCurrentDateBlock } from './datetime-context'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
@@ -628,15 +628,19 @@ export async function closerAgentRespond(
   // follow-ups and talks timelines constantly, and must not guess the day.
   const dateBlock = buildCurrentDateBlock(bookingSettings.data?.timezone as string | null | undefined)
 
-  // Pricing integrity: the closer is post-consult (discovery IS complete), but it
-  // must still never invent figures. It may cite real financing numbers when this
-  // lead has them, else fall back to the practice's configured range.
+  // Pricing integrity: the closer is normally post-consult (discovery complete),
+  // but stage — set by external GHL sync — is an unreliable proxy. Derive it from
+  // the lead's actual qualification signals rather than assuming true, so a
+  // mis-staged, unqualified lead tightens back to "no figures, no pushing money."
+  // It must still never invent figures. It may cite real financing numbers when
+  // this lead has them, else fall back to the practice's configured range.
   const fc = context.financing_context
   const hasRealFinancingData =
     !!fc && (fc.status === 'approved' || fc.status === 'partial' || typeof fc.monthly_payment === 'number')
+  const discoveryComplete = isDiscoveryComplete(buildQualificationStatus(context.lead))
   const pricingBlock = buildPricingIntegrityBlock({
     configuredRange: bookingSettings.data?.consult_price_range_text as string | null | undefined,
-    discoveryComplete: true,
+    discoveryComplete,
     hasRealFinancingData,
   })
 
