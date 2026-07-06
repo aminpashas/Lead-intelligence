@@ -40,8 +40,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Conversation, Message, Lead, AgentType, VoiceCall, ConversationAnalysis, PatientProfile } from '@/types/database'
-import { AgentIndicator, AgentMessageLabel } from './agent-indicator'
-import { STAGE_AGENT_MAP } from '@/lib/ai/agent-types'
+import { AgentMessageLabel } from './agent-indicator'
 import { AIModeToggle } from './ai-mode-toggle'
 import { LeadActions } from './lead-actions'
 import { LiveCallIndicator, LiveCallPanel } from './live-call-panel'
@@ -506,13 +505,6 @@ export function ConversationThread({
           {/* Call + DND live here; SMS/Email happen in the composer below, so
               suppress the modal buttons to keep everything in one surface. */}
           <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} showMessaging={false} />
-          <AgentIndicator
-            activeAgent={activeAgent}
-            conversationId={conversation.id}
-            handoffCount={conversation.agent_handoff_count}
-            onAgentChange={setActiveAgent}
-            stageAgent={STAGE_AGENT_MAP[lead.status as keyof typeof STAGE_AGENT_MAP]}
-          />
           <AIModeToggle
             conversationId={conversation.id}
             currentMode={conversation.ai_mode || 'off'}
