@@ -43,6 +43,11 @@ import { useLiveCall } from '@/lib/hooks/use-live-call'
 // visual group (single meta line, tight bubbles) instead of repeating labels.
 const GROUP_WINDOW_MS = 8 * 60 * 1000
 
+// Bounds for the drag-resizable composer (px). Min keeps ~2 lines visible; max
+// stops the input from swallowing the whole thread on short screens.
+const COMPOSER_MIN_H = 72
+const COMPOSER_MAX_H = 520
+
 type ThreadItem =
   | { type: 'day'; key: string; label: string }
   | { type: 'group'; key: string; messages: Message[] }
@@ -117,12 +122,16 @@ export function ConversationThread({
   messages: initialMessages,
   calls = [],
   prequalEnabled = false,
+  backHref = '/conversations',
 }: {
   lead: Lead
   conversation: Conversation
   messages: Message[]
   calls?: VoiceCall[]
   prequalEnabled?: boolean
+  /** Where the header back-arrow returns to. Defaults to the conversations
+   *  inbox; the lead surface passes '/leads' so the arrow retraces the click. */
+  backHref?: string
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
@@ -144,6 +153,40 @@ export function ConversationThread({
   const [techniquesUsed, setTechniquesUsed] = useState<Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>>([])
   const [leadAssessment, setLeadAssessment] = useState<{ engagement_temperature: number; resistance_level: number; buying_readiness: number; emotional_state: string } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Draggable composer height. Users writing long emails grab the grip above
+  // the input and drag up; the message list (flex-1) yields the space. The last
+  // size sticks across leads/sessions via localStorage.
+  const [composerHeight, setComposerHeight] = useState(96)
+
+  useEffect(() => {
+    const saved = Number(window.localStorage.getItem('li-composer-height'))
+    if (saved >= COMPOSER_MIN_H && saved <= COMPOSER_MAX_H) setComposerHeight(saved)
+  }, [])
+
+  function startComposerResize(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = composerHeight
+    let latest = startH
+    function onMove(ev: PointerEvent) {
+      // Dragging up (clientY shrinks) grows the box.
+      latest = Math.min(COMPOSER_MAX_H, Math.max(COMPOSER_MIN_H, startH + (startY - ev.clientY)))
+      setComposerHeight(latest)
+    }
+    function onUp() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.localStorage.setItem('li-composer-height', String(latest))
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  function resetComposerHeight() {
+    setComposerHeight(96)
+    window.localStorage.setItem('li-composer-height', '96')
+  }
 
   // Live phone-call state (ongoing-call indicator + streaming transcript).
   const live = useLiveCall(lead.id)
@@ -304,8 +347,8 @@ export function ConversationThread({
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-aurea-border px-4 py-3 lg:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <Link
-            href="/conversations"
-            aria-label="Back to conversations"
+            href={backHref}
+            aria-label="Back"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-aurea-border text-aurea-ink-3 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
           >
             <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
@@ -474,6 +517,18 @@ export function ConversationThread({
           )}
 
           {/* Message input */}
+          {/* Drag this grip up for more room (long emails); double-click to reset. */}
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Drag to resize the message box"
+            title="Drag to resize · double-click to reset"
+            onPointerDown={startComposerResize}
+            onDoubleClick={resetComposerHeight}
+            className="group -mb-1 flex h-4 cursor-row-resize touch-none items-center justify-center"
+          >
+            <div className="h-1 w-9 rounded-full bg-aurea-border-strong transition-colors group-hover:bg-aurea-ink-3" />
+          </div>
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -482,8 +537,8 @@ export function ConversationThread({
                 ? `Text ${lead.first_name || 'this lead'}...`
                 : `Email ${lead.first_name || 'this lead'}...`
             }
-            rows={3}
-            className="resize-none text-[13.5px]"
+            style={{ height: composerHeight }}
+            className="resize-none text-[13.5px] [field-sizing:fixed]"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 handleSend()
