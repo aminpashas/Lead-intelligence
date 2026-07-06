@@ -50,6 +50,23 @@ const GROUP_WINDOW_MS = 8 * 60 * 1000
 const COMPOSER_MIN_H = 72
 const COMPOSER_MAX_H = 520
 
+// Maps the server's structured block/failure `reason` (from /api/sms/send and
+// /api/email/send → sendSMSToLead/consent gate) to a human-readable toast. The
+// send is refused BEFORE Twilio/Resend, so these explain *why* nothing was sent
+// rather than a generic "failed". Keep in sync with ConsentDenyReason
+// (src/lib/consent/gate.ts) and the reasons returned in src/lib/messaging/twilio.ts.
+const SEND_BLOCK_MESSAGES: Record<string, string> = {
+  no_consent: 'Blocked: this lead hasn’t consented to messaging (TCPA). Capture consent before sending.',
+  opted_out: 'Blocked: this lead has opted out. You cannot message them.',
+  do_not_call: 'Blocked: this lead is marked Do Not Contact.',
+  quiet_hours: 'Blocked: outside TCPA quiet hours (8am–9pm in the lead’s timezone).',
+  compliance_blocked: 'Blocked: the message failed the compliance filter.',
+  compliance_review_required: 'Held for review: the message needs compliance approval before sending.',
+  us_sms_disabled: 'Blocked: US A2P 10DLC SMS is not enabled for this org.',
+  lead_not_found: 'Could not send: lead not found.',
+  lookup_failed: 'Could not send: lead lookup failed. Try again.',
+}
+
 type ThreadItem =
   | { type: 'day'; key: string; label: string }
   | { type: 'group'; key: string; messages: Message[] }
@@ -242,10 +259,21 @@ export function ConversationThread({
         body: JSON.stringify(payload),
       })
 
-      if (!res.ok) throw new Error('Failed to send')
+      const data = await res.json().catch(() => null)
 
-      const { message } = await res.json()
-      setMessages((prev) => [...prev, message])
+      if (!res.ok) {
+        // The API returns { error, reason } — surface the real cause (consent
+        // block, quiet hours, compliance, etc.) instead of a generic failure.
+        const reason = data?.reason as string | undefined
+        toast.error(
+          (reason && SEND_BLOCK_MESSAGES[reason]) ||
+            data?.error ||
+            'Failed to send message',
+        )
+        return
+      }
+
+      setMessages((prev) => [...prev, data.message])
       setDraft('')
       toast.success('Message sent')
     } catch {
