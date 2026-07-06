@@ -46,6 +46,28 @@ export default async function LeadDetailPage({
     .eq('lead_id', id)
     .order('last_message_at', { ascending: false })
 
+  // The most recently active conversation is the one the embedded chat opens on.
+  const primaryConversation = conversations?.[0] ?? null
+
+  // Full messages + finished calls for that thread, so the in-lead chat window
+  // (ConversationThread) has everything it needs to render and send.
+  const { data: threadMessages } = primaryConversation
+    ? await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', primaryConversation.id)
+        .order('created_at', { ascending: true })
+    : { data: [] }
+
+  const { data: threadCalls } = primaryConversation
+    ? await supabase
+        .from('voice_calls')
+        .select('*')
+        .eq('conversation_id', primaryConversation.id)
+        .not('ended_at', 'is', null)
+        .order('created_at', { ascending: true })
+    : { data: [] }
+
   // Fetch messages (all channels) for the unified timeline
   const { data: messages } = await supabase
     .from('messages')
@@ -108,6 +130,9 @@ export default async function LeadDetailPage({
       lead={lead}
       activities={activities || []}
       conversations={conversations || []}
+      primaryConversation={primaryConversation}
+      threadMessages={threadMessages || []}
+      threadCalls={threadCalls || []}
       timeline={timeline}
       patientProfile={patientProfile}
       latestAnalysis={latestAnalysis}
