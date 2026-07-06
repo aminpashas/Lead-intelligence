@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -15,6 +16,7 @@ import {
   Settings,
   Calendar,
   Target,
+  Flame,
   RefreshCw,
   X,
   Building2,
@@ -23,6 +25,8 @@ import {
   FolderHeart,
   FileSignature,
   ChevronsUpDown,
+  PanelLeftClose,
+  PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -51,6 +55,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
       { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
+      { name: 'In Closing', href: '/closing', icon: Flame },
       { name: 'Leads', href: '/leads', icon: Users },
       { name: 'Conversations', href: '/conversations', icon: MessageSquare },
       { name: 'Call Center', href: '/call-center', icon: Phone },
@@ -86,15 +91,40 @@ const SETTINGS_ITEM: NavItem = { name: 'Settings', href: '/settings', icon: Sett
 // their nav stays on today's work — they still reach a single patient by opening
 // it from a consult or conversation. These pages also hard-redirect focused
 // staff server-side, so this is the nav mirror of that guard, not the guard.
-const FOCUSED_STAFF_HIDDEN_HREFS = new Set(['/pipeline', '/leads'])
+const FOCUSED_STAFF_HIDDEN_HREFS = new Set(['/pipeline', '/closing', '/leads'])
+
+const SIDEBAR_COLLAPSED_KEY = 'li:sidebar-collapsed'
+
+// Persist the collapsed choice across route changes and reloads. We initialize
+// to `false` (expanded) so the server and first client render agree, then read
+// the stored preference in an effect — avoiding a hydration mismatch.
+function useSidebarCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(false)
+
+  useEffect(() => {
+    setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1')
+  }, [])
+
+  const toggle = () => {
+    setCollapsed((prev) => {
+      const next = !prev
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0')
+      return next
+    })
+  }
+
+  return [collapsed, toggle]
+}
 
 function NavLink({
   item,
   isActive,
+  collapsed,
   onNavigate,
 }: {
   item: NavItem
   isActive: boolean
+  collapsed?: boolean
   onNavigate?: () => void
 }) {
   return (
@@ -102,8 +132,10 @@ function NavLink({
       href={item.href}
       onClick={onNavigate}
       aria-current={isActive ? 'page' : undefined}
+      title={collapsed ? item.name : undefined}
       className={cn(
-        'group flex items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] transition-colors duration-150',
+        'group flex items-center gap-3 rounded-lg py-2 text-[13.5px] transition-colors duration-150',
+        collapsed ? 'justify-center px-2' : 'px-3',
         isActive
           ? 'bg-secondary font-semibold text-foreground'
           : 'font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
@@ -116,12 +148,20 @@ function NavLink({
         )}
         strokeWidth={2}
       />
-      {item.name}
+      {!collapsed && item.name}
     </Link>
   )
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarContent({
+  onNavigate,
+  collapsed = false,
+  onToggleCollapse,
+}: {
+  onNavigate?: () => void
+  collapsed?: boolean
+  onToggleCollapse?: () => void
+}) {
   const pathname = usePathname()
   const { userProfile } = useOrgStore()
   const role = (userProfile?.role || 'member') as PracticeRole
@@ -145,26 +185,68 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      {/* Logo */}
-      <div className="flex h-16 items-center gap-2.5 border-b border-border px-5 shrink-0">
-        <Target className="h-[18px] w-[18px] text-foreground" strokeWidth={2} />
-        <span className="text-[15px] font-medium tracking-tight text-foreground">Lead Intelligence</span>
-        <span className="aurea-eyebrow">Practice</span>
+      {/* Logo + collapse toggle */}
+      <div
+        className={cn(
+          'flex h-16 items-center border-b border-border shrink-0',
+          collapsed ? 'justify-center px-2' : 'gap-2.5 px-5'
+        )}
+      >
+        <Target className="h-[18px] w-[18px] shrink-0 text-foreground" strokeWidth={2} />
+        {!collapsed && (
+          <>
+            <span className="text-[15px] font-medium tracking-tight text-foreground">Lead Intelligence</span>
+            <span className="aurea-eyebrow">Practice</span>
+          </>
+        )}
+        {onToggleCollapse && !collapsed && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-auto h-7 w-7 text-muted-foreground"
+            onClick={onToggleCollapse}
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
+      {/* Expand button — only rendered in the collapsed rail */}
+      {onToggleCollapse && collapsed && (
+        <div className="flex justify-center px-2 pt-2 shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground"
+            onClick={onToggleCollapse}
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
       {/* Grouped navigation */}
-      <nav className="flex-1 overflow-y-auto p-3">
+      <nav className={cn('flex-1 overflow-y-auto', collapsed ? 'px-2 py-3' : 'p-3')}>
         {groups.map((group, i) => (
-          <div key={group.label} className={cn(i > 0 && 'mt-5')}>
-            <p className="px-3 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
-              {group.label}
-            </p>
+          <div key={group.label} className={cn(i > 0 && (collapsed ? 'mt-3' : 'mt-5'))}>
+            {collapsed ? (
+              i > 0 && <div className="mx-2 mb-2 border-t border-border/60" />
+            ) : (
+              <p className="px-3 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
+                {group.label}
+              </p>
+            )}
             <div className="space-y-0.5">
               {group.items.map((item) => (
                 <NavLink
                   key={item.href}
                   item={item}
                   isActive={isActive(item.href)}
+                  collapsed={collapsed}
                   onNavigate={onNavigate}
                 />
               ))}
@@ -174,11 +256,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       {/* Footer — pinned Settings + user card */}
-      <div className="border-t p-3 shrink-0 space-y-3">
+      <div className={cn('border-t shrink-0 space-y-3', collapsed ? 'px-2 py-3' : 'p-3')}>
         {canSeeSettings && (
           <NavLink
             item={SETTINGS_ITEM}
             isActive={isActive(SETTINGS_ITEM.href)}
+            collapsed={collapsed}
             onNavigate={onNavigate}
           />
         )}
@@ -186,32 +269,49 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           align="start"
           side="top"
           onNavigate={onNavigate}
-          triggerClassName="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-secondary/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          triggerClassName={cn(
+            'flex w-full items-center rounded-lg text-left hover:bg-secondary/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            collapsed ? 'justify-center p-1' : 'gap-2 px-1 py-1'
+          )}
         >
-          <span className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <span
+            className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"
+            title={collapsed ? userProfile?.full_name || 'Practice Dashboard' : undefined}
+          >
             <Building2 className="h-4 w-4 text-primary" />
           </span>
-          <span className="flex-1 min-w-0 flex flex-col items-start">
-            <span className="text-xs font-medium truncate max-w-full">{userProfile?.full_name || 'Practice Dashboard'}</span>
-            <Badge
-              variant="outline"
-              className={cn('text-[10px] px-1.5 py-0 h-4 font-medium', ROLE_COLORS[role])}
-            >
-              {ROLE_LABELS[role] || role}
-            </Badge>
-          </span>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+          {!collapsed && (
+            <>
+              <span className="flex-1 min-w-0 flex flex-col items-start">
+                <span className="text-xs font-medium truncate max-w-full">{userProfile?.full_name || 'Practice Dashboard'}</span>
+                <Badge
+                  variant="outline"
+                  className={cn('text-[10px] px-1.5 py-0 h-4 font-medium', ROLE_COLORS[role])}
+                >
+                  {ROLE_LABELS[role] || role}
+                </Badge>
+              </span>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+            </>
+          )}
         </AccountMenu>
       </div>
     </>
   )
 }
 
-// Desktop sidebar — always visible on lg+
+// Desktop sidebar — always visible on lg+, collapsible to an icon-only rail
 export function Sidebar() {
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed()
+
   return (
-    <aside className="hidden lg:flex h-full w-64 flex-col border-r bg-card">
-      <SidebarContent />
+    <aside
+      className={cn(
+        'hidden lg:flex h-full flex-col border-r bg-card transition-[width] duration-200 ease-in-out',
+        collapsed ? 'w-[68px]' : 'w-64'
+      )}
+    >
+      <SidebarContent collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
     </aside>
   )
 }

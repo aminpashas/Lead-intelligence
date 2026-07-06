@@ -78,6 +78,16 @@ export const SMS_ESTIMATE_CENTS_PER_SEGMENT = 1.1
  */
 export const VOICE_ESTIMATE_CENTS_PER_MINUTE = 8
 
+/**
+ * Resend email fallback estimate: blended ≈ $0.0004 per send (the $20 / 50k-email tier).
+ * Email has no per-message provider callback, so this estimate is what the ledger/live rollup use.
+ */
+export const EMAIL_ESTIMATE_CENTS_PER_SEND = 0.04
+
+export function estimateEmailCents(count: number): number {
+  return Math.max(0, count) * EMAIL_ESTIMATE_CENTS_PER_SEND
+}
+
 export function estimateSmsCents(segments: number): number {
   return Math.max(0, segments) * SMS_ESTIMATE_CENTS_PER_SEGMENT
 }

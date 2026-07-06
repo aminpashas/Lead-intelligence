@@ -51,12 +51,25 @@ export type FinancingApplication = {
   waterfall_config: WaterfallConfig
   consent_given_at: string
   consent_ip_address: string | null
+  /** True when a substitute applicant (not the patient) filled out the form. */
+  applied_on_behalf: boolean
+  /** Relationship of the substitute applicant to the patient; null when applied_on_behalf is false. */
+  applicant_relationship: ApplicantRelationship | null
   share_token: string | null
   expires_at: string
   completed_at: string | null
   created_at: string
   updated_at: string
 }
+
+/** How a substitute applicant (someone applying on the patient's behalf) relates to the patient. */
+export type ApplicantRelationship =
+  | 'spouse'
+  | 'parent'
+  | 'adult_child'
+  | 'other_family'
+  | 'friend'
+  | 'other'
 
 export type FinancingSubmission = {
   id: string

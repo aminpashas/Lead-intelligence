@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { processEncounter, extractFromTranscript } from '@/lib/ai/encounter-processor'
 import { verifyRetellWebhook } from '@/lib/voice/retell-client'
 import { decryptField, searchHash } from '@/lib/encryption'
+import { recordSmsEstimate } from '@/lib/billing/cost-events'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY || ''
@@ -399,14 +400,24 @@ async function sendPostCallFollowUps(
           process.env.TWILIO_ACCOUNT_SID,
           process.env.TWILIO_AUTH_TOKEN
         )
-        await client.messages.create({
+        const sent = await client.messages.create({
           body: messageBody,
           from: process.env.TWILIO_PHONE_NUMBER,
           to: phone,
         })
         console.log(`[Voice Events] Post-call SMS sent to ${leadId}`)
 
-        // Log the message to the conversation
+        // Cost capture. This is the one SMS path that sends via the Twilio client directly rather
+        // than through sendSMSToLead, so it must record the estimated cost_event itself — otherwise
+        // these post-call texts silently escape the billing ledger.
+        void recordSmsEstimate(supabase, {
+          organizationId: orgId,
+          sid: sent.sid,
+          body: messageBody,
+          leadId,
+        })
+
+        // Log the message to the conversation (external_id ties it to the Twilio SID for reconcile).
         const { data: conv } = await supabase
           .from('conversations')
           .select('id')
@@ -425,6 +436,7 @@ async function sendPostCallFollowUps(
             body: messageBody,
             sender_type: 'ai',
             status: 'sent',
+            external_id: sent.sid,
             ai_generated: true,
             metadata: { trigger: 'post_call_followup', retell_call_id: RETELL_API_KEY_FOR_FOLLOWUP },
           })

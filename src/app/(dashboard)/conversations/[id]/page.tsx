@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { ConversationThread } from '@/components/crm/conversation-thread'
 import { notFound } from 'next/navigation'
 import { decryptLeadPII } from '@/lib/encryption'
+import { isFlagEnabled } from '@/lib/org/flags'
 
 export default async function ConversationDetailPage({
   params,
@@ -41,12 +42,18 @@ export default async function ConversationDetailPage({
     .update({ unread_count: 0 })
     .eq('id', id)
 
+  // Account-level pre-qualification switch — gates the "Send Pre-Qual" action.
+  const prequalEnabled = conversation.organization_id
+    ? await isFlagEnabled(supabase, conversation.organization_id as string, 'financing_prequal_enabled')
+    : false
+
   return (
     <ConversationThread
       lead={decryptLeadPII(conversation.lead as Record<string, unknown>) as any}
       conversation={conversation}
       messages={messages || []}
       calls={calls || []}
+      prequalEnabled={prequalEnabled}
     />
   )
 }

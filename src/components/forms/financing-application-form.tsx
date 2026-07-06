@@ -2,7 +2,12 @@
 
 import { useState, useCallback } from 'react'
 
+type ApplicantType = '' | 'self' | 'on_behalf'
+type Relationship = '' | 'spouse' | 'parent' | 'adult_child' | 'other_family' | 'friend' | 'other'
+
 type FormData = {
+  applicant_type: ApplicantType
+  relationship: Relationship
   first_name: string
   last_name: string
   date_of_birth: string
@@ -29,10 +34,20 @@ type FormResult = {
 type StepConfig = { ok: (d: FormData) => boolean }
 
 const STEPS: StepConfig[] = [
+  { ok: (d) => d.applicant_type === 'self' || (d.applicant_type === 'on_behalf' && !!d.relationship) },
   { ok: (d) => !!d.first_name && !!d.last_name && !!d.email && d.email.includes('@') && !!d.phone && d.phone.replace(/\D/g, '').length >= 10 && !!d.date_of_birth },
   { ok: (d) => !!d.street_address && !!d.city && d.state.length === 2 && /^\d{5}$/.test(d.zip_code) },
   { ok: (d) => !!d.employment_status && !!d.annual_income && Number(d.annual_income) > 0 },
   { ok: (d) => d.ssn.replace(/\D/g, '').length === 9 && d.consent_given },
+]
+
+const RELATIONSHIPS: { value: Relationship; label: string }[] = [
+  { value: 'spouse', label: 'Spouse / partner' },
+  { value: 'parent', label: 'Parent' },
+  { value: 'adult_child', label: 'Adult child' },
+  { value: 'other_family', label: 'Other family member' },
+  { value: 'friend', label: 'Friend' },
+  { value: 'other', label: 'Other' },
 ]
 
 // ── Shared Components ─────────────────────────────────────────
@@ -95,13 +110,67 @@ function Bar({ c, t }: { c: number; t: number }) {
   )
 }
 
-// ── Step 1: Personal Info ──────────────────────────────────────
+// ── Intro Step: Who's applying? ────────────────────────────────
 
-function Step1({ d, u }: { d: FormData; u: (f: keyof FormData, v: string) => void }) {
+function StepWhoApplies({
+  d,
+  patientFirstName,
+  onSelfSelect,
+  onBehalfSelect,
+  setRelationship,
+}: {
+  d: FormData
+  patientFirstName: string
+  onSelfSelect: () => void
+  onBehalfSelect: () => void
+  setRelationship: (r: Relationship) => void
+}) {
+  const patient = patientFirstName || 'the patient'
   return (
     <div>
-      <H>Personal Information</H>
-      <P>We need a few basic details. Everything is encrypted and HIPAA compliant.</P>
+      <H>Who&apos;s applying?</H>
+      <P>You can apply yourself, or have a family member or friend with stronger credit apply on your behalf. Whoever applies is the person we check — this is a soft pull and won&apos;t affect their score.</P>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <Pill sel={d.applicant_type === 'self'} click={onSelfSelect}>
+          {`I'm ${patient} — I'm applying for myself`}
+        </Pill>
+        <Pill sel={d.applicant_type === 'on_behalf'} click={onBehalfSelect}>
+          {`I'm applying on ${patient}'s behalf`}
+        </Pill>
+      </div>
+
+      {d.applicant_type === 'on_behalf' && (
+        <div style={{ marginTop: '20px' }}>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 700, color: '#1f1a15', marginBottom: '10px' }}>
+            How are you related to {patient}? *
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {RELATIONSHIPS.map((r) => (
+              <Pill key={r.value} sel={d.relationship === r.value} click={() => setRelationship(r.value)}>
+                {r.label}
+              </Pill>
+            ))}
+          </div>
+          <p style={{ fontSize: '13px', color: '#78716c', marginTop: '12px', lineHeight: 1.5 }}>
+            On the next steps, enter <strong>your own</strong> information — you&apos;re the person being checked for financing.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Step 1: Personal Info ──────────────────────────────────────
+
+function Step1({ d, u, onBehalf, patientFirstName }: { d: FormData; u: (f: keyof FormData, v: string) => void; onBehalf: boolean; patientFirstName: string }) {
+  return (
+    <div>
+      <H>{onBehalf ? 'Your Information' : 'Personal Information'}</H>
+      <P>
+        {onBehalf
+          ? `Enter your own details — you're the person we'll check for financing on ${patientFirstName || 'the patient'}'s behalf. Everything is encrypted and HIPAA compliant.`
+          : 'We need a few basic details. Everything is encrypted and HIPAA compliant.'}
+      </P>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <InputField label="First Name" required value={d.first_name} onChange={(e) => u('first_name', e.target.value)} placeholder="First name" />
@@ -181,7 +250,7 @@ function Step3({ d, u }: { d: FormData; u: (f: keyof FormData, v: string) => voi
 
 // ── Step 4: SSN + Consent ──────────────────────────────────────
 
-function Step4({ d, u, uBool }: { d: FormData; u: (f: keyof FormData, v: string) => void; uBool: (f: keyof FormData, v: boolean) => void }) {
+function Step4({ d, u, uBool, onBehalf, patientFirstName }: { d: FormData; u: (f: keyof FormData, v: string) => void; uBool: (f: keyof FormData, v: boolean) => void; onBehalf: boolean; patientFirstName: string }) {
   function formatSSN(val: string): string {
     const digits = val.replace(/\D/g, '').slice(0, 9)
     if (digits.length <= 3) return digits
@@ -246,6 +315,9 @@ function Step4({ d, u, uBool }: { d: FormData; u: (f: keyof FormData, v: string)
             I consent to sharing my information with lending partners for the purpose of obtaining dental financing.
             I understand this will <strong>not affect my credit score</strong>.
             I have read and agree to the HIPAA authorization for sharing protected health information.
+            {onBehalf && (
+              <> I confirm I am applying to finance dental treatment for <strong>{patientFirstName || 'the patient'}</strong> and that the credit check is run on <strong>me</strong> as the applicant.</>
+            )}
           </span>
         </button>
       </div>
@@ -313,11 +385,13 @@ export function FinancingApplicationFormPublic({
   applicationId,
   shareToken,
   requestedAmount,
+  patientFirstName = '',
   prefill,
 }: {
   applicationId: string
   shareToken: string
   requestedAmount?: number | null
+  patientFirstName?: string
   prefill?: Partial<FormData>
 }) {
   const [step, setStep] = useState(1)
@@ -325,6 +399,8 @@ export function FinancingApplicationFormPublic({
   const [result, setResult] = useState<FormResult>(null)
   const [error, setError] = useState('')
   const [d, setD] = useState<FormData>({
+    applicant_type: '',
+    relationship: '',
     first_name: prefill?.first_name || '',
     last_name: prefill?.last_name || '',
     date_of_birth: '',
@@ -345,6 +421,30 @@ export function FinancingApplicationFormPublic({
   const u = useCallback((f: keyof FormData, v: string) => setD((p) => ({ ...p, [f]: v })), [])
   const uBool = useCallback((f: keyof FormData, v: boolean) => setD((p) => ({ ...p, [f]: v })), [])
 
+  // Patient applies for themselves → prefill their name. A substitute applicant
+  // enters their OWN identity, so clear the patient's prefilled name.
+  const selectSelf = useCallback(() => setD((p) => ({
+    ...p,
+    applicant_type: 'self',
+    relationship: '',
+    first_name: prefill?.first_name || '',
+    last_name: prefill?.last_name || '',
+  })), [prefill?.first_name, prefill?.last_name])
+  const selectOnBehalf = useCallback(() => setD((p) => ({
+    ...p,
+    applicant_type: 'on_behalf',
+    first_name: '',
+    last_name: '',
+  })), [])
+  const setRelationship = useCallback((r: Relationship) => setD((p) => ({ ...p, relationship: r })), [])
+
+  const onBehalf = d.applicant_type === 'on_behalf'
+  // Single source of truth for the patient's display name (leads are stored
+  // lower-cased in some sources) — passed to every step that references it.
+  const patientName = patientFirstName
+    ? patientFirstName.charAt(0).toUpperCase() + patientFirstName.slice(1)
+    : ''
+
   const cfg = STEPS[step - 1]
   const ok = cfg?.ok(d) ?? false
   const totalSteps = STEPS.length
@@ -354,6 +454,8 @@ export function FinancingApplicationFormPublic({
     setError('')
     try {
       const payload = {
+        applicant_type: d.applicant_type || 'self',
+        applicant_relationship: onBehalf && d.relationship ? d.relationship : undefined,
         first_name: d.first_name,
         last_name: d.last_name,
         date_of_birth: d.date_of_birth,
@@ -407,10 +509,19 @@ export function FinancingApplicationFormPublic({
       <Bar c={step} t={totalSteps} />
 
       <div style={{ minHeight: '360px' }}>
-        {step === 1 && <Step1 d={d} u={u} />}
-        {step === 2 && <Step2 d={d} u={u} />}
-        {step === 3 && <Step3 d={d} u={u} />}
-        {step === 4 && <Step4 d={d} u={u} uBool={uBool} />}
+        {step === 1 && (
+          <StepWhoApplies
+            d={d}
+            patientFirstName={patientName}
+            onSelfSelect={selectSelf}
+            onBehalfSelect={selectOnBehalf}
+            setRelationship={setRelationship}
+          />
+        )}
+        {step === 2 && <Step1 d={d} u={u} onBehalf={onBehalf} patientFirstName={patientName} />}
+        {step === 3 && <Step2 d={d} u={u} />}
+        {step === 4 && <Step3 d={d} u={u} />}
+        {step === 5 && <Step4 d={d} u={u} uBool={uBool} onBehalf={onBehalf} patientFirstName={patientName} />}
       </div>
 
       {error && (

@@ -107,6 +107,7 @@ export default async function FinancingPublicPage({
           applicationId={application.id}
           shareToken={shareToken}
           requestedAmount={application.requested_amount}
+          patientFirstName={lead?.first_name || ''}
           prefill={{
             first_name: lead?.first_name || '',
             last_name: lead?.last_name || '',

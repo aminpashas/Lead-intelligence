@@ -7,6 +7,7 @@ import { decryptField } from '@/lib/encryption'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { buildFinancingBreakdown } from '@/lib/financing/calculator'
 import { escapeHtml } from '@/lib/utils'
+import { getPublicAppUrl } from '@/lib/app-url'
 import { z } from 'zod'
 import crypto from 'crypto'
 
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
 
   const lowestMonthly = breakdown.recommendation.lowest_monthly
   const zeroInterest = breakdown.recommendation.zero_interest
-  const appUrl = `${process.env.NEXT_PUBLIC_APP_URL}/finance/${shareToken}`
+  const appUrl = `${getPublicAppUrl()}/finance/${shareToken}`
 
   // Build messages
   const firstName = lead.first_name || 'there'

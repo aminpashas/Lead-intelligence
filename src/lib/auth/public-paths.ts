@@ -21,8 +21,10 @@ export const PUBLIC_PREFIXES = [
   '/contract/',
   '/case/',   // patient treatment-plan portal (share-token gated in the API)
   '/preop/',  // patient pre-op instructions portal (share-token gated)
+  '/finance/', // patient / co-signer financing application portal (share-token gated)
   '/api/contracts/patient',
   '/api/consent',
+  '/api/financing/apply', // public financing submission (share-token gated; staff flow still self-auths)
   '/api/booking',
   '/api/webhooks',
   '/api/cron',

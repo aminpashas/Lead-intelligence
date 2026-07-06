@@ -13,8 +13,10 @@ import type { Lead, FinancialSignals } from '@/types/database'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { getPublicAppUrl } from '@/lib/app-url'
 import { escapeHtml } from '@/lib/utils'
 import { logger } from '@/lib/logger'
+import { isFlagEnabled } from '@/lib/org/flags'
 
 export type ReadinessAssessment = {
   score: number          // 0-100
@@ -216,6 +218,19 @@ export async function checkAndTriggerFinancing(
     return { triggered: false, assessment }
   }
 
+  // Autonomy leash. The readiness score is still computed and stored above (so
+  // the signal stays visible to staff), but the AI must NOT push a financing
+  // link on its own unless the org has explicitly armed auto-send. This flag is
+  // separate from `financing_prequal_enabled` and default-OFF: enabling the
+  // prequal feature (which lights up the manual "Send Pre-Qual" button) never by
+  // itself lets the AI start a financing conversation. While the practice's job
+  // is rapport → booked consult, this stays off and financing only goes out when
+  // a human clicks. See src/lib/org/flags.ts.
+  const autoSendArmed = await isFlagEnabled(supabase, organizationId, 'financing_auto_send_enabled')
+  if (!autoSendArmed) {
+    return { triggered: false, assessment }
+  }
+
   // Already has financing link sent recently — skip
   if (lead.financing_link_sent_at) {
     const daysSince = (Date.now() - new Date(lead.financing_link_sent_at).getTime()) / (1000 * 60 * 60 * 24)
@@ -290,9 +305,10 @@ async function sendFinancingLink(
     .limit(1)
     .single()
 
+  const appBase = getPublicAppUrl()
   const financeUrl = existingApp?.share_token
-    ? `${process.env.NEXT_PUBLIC_APP_URL}/finance/${existingApp.share_token}`
-    : `${process.env.NEXT_PUBLIC_APP_URL}/qualify/${organizationId}`
+    ? `${appBase}/finance/${existingApp.share_token}`
+    : `${appBase}/qualify/${organizationId}`
 
   // Personalize message based on financial signals
   const signals = (lead.financial_signals || {}) as Partial<FinancialSignals>

@@ -108,12 +108,20 @@ export async function POST(request: NextRequest) {
       const encrypted = encryptApplicantData(applicantData)
       const ssnHash = hashSSN(validation.data.ssn)
 
+      // Substitute applicant: a family member/friend applying on the patient's
+      // behalf (not the patient themselves). The applicant PII above is the
+      // borrower being credit-checked; lead_id still points to the patient.
+      const onBehalf = validation.data.applicant_type === 'on_behalf'
+      const relationship = onBehalf ? (validation.data.applicant_relationship ?? null) : null
+
       await serviceClient
         .from('financing_applications')
         .update({
           applicant_data_encrypted: encrypted,
           applicant_ssn_hash: ssnHash,
           requested_amount: validation.data.requested_amount,
+          applied_on_behalf: onBehalf,
+          applicant_relationship: relationship,
           consent_given_at: new Date().toISOString(),
           consent_ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || null,
           updated_at: new Date().toISOString(),
@@ -125,9 +133,35 @@ export async function POST(request: NextRequest) {
         { supabase: serviceClient, organizationId, actorType: 'system' },
         'financing_application',
         tokenData.id,
-        'Financing application submitted by patient via public form',
+        onBehalf
+          ? `Financing application submitted on the patient's behalf by a ${relationship} via public form`
+          : 'Financing application submitted by patient via public form',
         ['ssn', 'financial', 'name', 'dob', 'address', 'phone', 'email']
       )
+
+      // Surface it in the lead timeline so the closer sees who applied. Keep
+      // this PII-free — no applicant name (that's encrypted), just the relationship.
+      try {
+        await serviceClient
+          .from('lead_activities')
+          .insert({
+            organization_id: organizationId,
+            lead_id: leadId,
+            activity_type: 'financing_submitted',
+            title: onBehalf
+              ? `Financing application submitted on patient's behalf (${relationship})`
+              : 'Financing application submitted by patient',
+            description: onBehalf
+              ? `A ${relationship} applied on the patient's behalf via the secure link. The soft credit pull runs on the applicant.`
+              : 'Patient completed the financing application via the secure link.',
+            metadata: {
+              application_id: tokenData.id,
+              applied_on_behalf: onBehalf,
+              applicant_relationship: relationship,
+              requested_amount: validation.data.requested_amount,
+            },
+          })
+      } catch { /* Non-blocking */ }
 
       // PROD-2: Execute waterfall asynchronously — don't block the patient's response.
       // The waterfall iterates through lenders (potentially 30-60s), so we return
