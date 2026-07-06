@@ -21,16 +21,18 @@ import {
   Bot,
   Heart,
   Eye,
-  ChevronDown,
-  ChevronUp,
   ChevronLeft,
   Shield,
   AlertTriangle,
   MessageSquare,
   Mail,
+  PanelRightClose,
+  PanelRightOpen,
+  Zap,
+  TrendingUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Conversation, Message, Lead, AgentType, VoiceCall } from '@/types/database'
+import type { Conversation, Message, Lead, AgentType, VoiceCall, ConversationAnalysis, PatientProfile } from '@/types/database'
 import { AgentIndicator, AgentMessageLabel } from './agent-indicator'
 import { AIModeToggle } from './ai-mode-toggle'
 import { LeadActions } from './lead-actions'
@@ -123,6 +125,8 @@ export function ConversationThread({
   calls = [],
   prequalEnabled = false,
   backHref = '/conversations',
+  savedAnalysis = null,
+  patientProfile = null,
 }: {
   lead: Lead
   conversation: Conversation
@@ -132,6 +136,11 @@ export function ConversationThread({
   /** Where the header back-arrow returns to. Defaults to the conversations
    *  inbox; the lead surface passes '/leads' so the arrow retraces the click. */
   backHref?: string
+  /** Persisted analysis for this conversation (from `conversation_analyses`).
+   *  Seeds the side panel so insights survive reloads without re-analyzing. */
+  savedAnalysis?: ConversationAnalysis | null
+  /** Persisted patient psychology profile — powers the always-on Lead Summary. */
+  patientProfile?: PatientProfile | null
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
@@ -145,9 +154,19 @@ export function ConversationThread({
   const [aiMode, setAiMode] = useState<string>('education')
   const [analyzing, setAnalyzing] = useState(false)
   const [generatingFollowUp, setGeneratingFollowUp] = useState(false)
-  const [analysisResult, setAnalysisResult] = useState<Record<string, unknown> | null>(null)
+  // Seed from persisted rows so insights + summary show instantly on load. The
+  // API nests these under conversation_analysis / patient_profile, so the DB
+  // rows are shaped the same way here to keep one rendering path.
+  const [analysisResult, setAnalysisResult] = useState<Record<string, unknown> | null>(
+    savedAnalysis || patientProfile
+      ? { conversation_analysis: savedAnalysis, patient_profile: patientProfile }
+      : null
+  )
+  const [profile, setProfile] = useState<PatientProfile | null>(patientProfile)
   const [followUpResult, setFollowUpResult] = useState<Record<string, unknown> | null>(null)
-  const [showInsights, setShowInsights] = useState(false)
+  // Side panel open by default — the Lead Summary should always be at hand.
+  // Persisted per-user like the composer height below.
+  const [showPanel, setShowPanel] = useState(true)
   const [activeAgent, setActiveAgent] = useState<AgentType>(conversation.active_agent || 'setter')
   const [agentNotes, setAgentNotes] = useState<string | null>(null)
   const [techniquesUsed, setTechniquesUsed] = useState<Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>>([])
@@ -162,7 +181,17 @@ export function ConversationThread({
   useEffect(() => {
     const saved = Number(window.localStorage.getItem('li-composer-height'))
     if (saved >= COMPOSER_MIN_H && saved <= COMPOSER_MAX_H) setComposerHeight(saved)
+    const panel = window.localStorage.getItem('li-insights-panel')
+    if (panel === '0') setShowPanel(false)
   }, [])
+
+  function togglePanel() {
+    setShowPanel((v) => {
+      const next = !v
+      window.localStorage.setItem('li-insights-panel', next ? '1' : '0')
+      return next
+    })
+  }
 
   function startComposerResize(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault()
@@ -294,8 +323,11 @@ export function ConversationThread({
       if (!res.ok) throw new Error('Analysis failed')
       const data = await res.json()
       setAnalysisResult(data)
-      setShowInsights(true)
-      toast.success('Conversation analyzed — insights available')
+      // Refresh the always-on summary with the newly-written profile.
+      if (data.patient_profile) setProfile(data.patient_profile)
+      setShowPanel(true)
+      window.localStorage.setItem('li-insights-panel', '1')
+      toast.success('Conversation analyzed — insights saved')
     } catch {
       toast.error('Failed to analyze conversation')
     } finally {
@@ -328,7 +360,8 @@ export function ConversationThread({
       if (data.follow_up?.opening_message) {
         setDraft(data.follow_up.opening_message)
       }
-      setShowInsights(true)
+      setShowPanel(true)
+      window.localStorage.setItem('li-insights-panel', '1')
       toast.success('Follow-up plan generated')
     } catch {
       toast.error('Failed to generate follow-up plan')
@@ -342,7 +375,9 @@ export function ConversationThread({
   const smsSegments = Math.max(1, Math.ceil(draft.length / 160))
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-aurea-border bg-aurea-surface">
+    <div className="flex h-full overflow-hidden rounded-xl border border-aurea-border bg-aurea-surface">
+      {/* ── Chat column (header · messages · composer) ─────── */}
+      <div className="flex min-w-0 flex-1 flex-col">
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-aurea-border px-4 py-3 lg:px-5">
         <div className="flex min-w-0 items-center gap-3">
@@ -417,24 +452,21 @@ export function ConversationThread({
             {generatingFollowUp ? <Loader2 className="h-3 w-3 animate-spin" /> : <Heart className="h-3 w-3" strokeWidth={1.75} />}
             Smart Follow-Up
           </Button>
-          {(analysisResult || followUpResult) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowInsights(!showInsights)}
-              className="gap-1"
-            >
-              {showInsights ? <ChevronUp className="h-3 w-3" strokeWidth={1.75} /> : <ChevronDown className="h-3 w-3" strokeWidth={1.75} />}
-              Insights
-            </Button>
-          )}
+          <Button
+            variant={showPanel ? 'default' : 'ghost'}
+            size="sm"
+            onClick={togglePanel}
+            aria-pressed={showPanel}
+            className="gap-1.5"
+            title={showPanel ? 'Hide intelligence panel' : 'Show intelligence panel'}
+          >
+            {showPanel
+              ? <PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.75} />
+              : <PanelRightOpen className="h-3.5 w-3.5" strokeWidth={1.75} />}
+            Insights
+          </Button>
         </div>
       </div>
-
-      {/* AI Insights Panel */}
-      {showInsights && (analysisResult || followUpResult) && (
-        <InsightsPanel analysisResult={analysisResult} followUpResult={followUpResult} />
-      )}
 
       {/* ── Messages ───────────────────────────────────────── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto bg-aurea-canvas px-4 py-5 lg:px-6">
@@ -627,7 +659,125 @@ export function ConversationThread({
           </div>
         </div>
       </div>
+      </div>
+
+      {/* ── Intelligence side panel (collapsible) ──────────── */}
+      {showPanel && (
+        <aside className="flex w-[340px] shrink-0 flex-col border-l border-aurea-border bg-aurea-surface lg:w-[380px]">
+          <div className="flex items-center justify-between border-b border-aurea-border px-4 py-3">
+            <span className="aurea-eyebrow">Lead Intelligence</span>
+            <button
+              type="button"
+              onClick={togglePanel}
+              aria-label="Hide panel"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-aurea-ink-3 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
+            >
+              <PanelRightClose className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <LeadSummary lead={lead} profile={profile} />
+            {analysisResult || followUpResult ? (
+              <InsightsPanel analysisResult={analysisResult} followUpResult={followUpResult} />
+            ) : (
+              <div className="border-t border-aurea-border px-4 py-8 text-center">
+                <Eye className="mx-auto mb-2 h-5 w-5 text-aurea-ink-3" strokeWidth={1.5} />
+                <p className="text-[13px] font-medium text-aurea-ink">No analysis yet</p>
+                <p className="mx-auto mt-1 max-w-[240px] text-[12px] leading-relaxed text-aurea-ink-3">
+                  Analyze scores tone, engagement, HIPAA compliance and coaching for this conversation — and saves the result.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={analyzeConversation}
+                  disabled={analyzing || messages.length < 2}
+                  className="mt-3 gap-1.5"
+                >
+                  {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" strokeWidth={1.75} />}
+                  Analyze conversation
+                </Button>
+              </div>
+            )}
+          </div>
+        </aside>
+      )}
     </div>
+  )
+}
+
+// ── Lead Summary ────────────────────────────────────────────
+// Always-on read of "where things stand": qualification, the AI narrative, the
+// patient's current emotional read, and the next best action. Sourced entirely
+// from already-persisted rows (patient_profiles + lead), so it costs nothing to
+// render and refreshes whenever a new analysis is run.
+
+function LeadSummary({ lead, profile }: { lead: Lead; profile: PatientProfile | null }) {
+  const qualification = lead.ai_qualification || 'unscored'
+  const narrative = profile?.ai_summary || lead.ai_summary || null
+  const qualTone =
+    qualification === 'hot'
+      ? 'border-aurea-rose/20 bg-aurea-rose/10 text-aurea-rose'
+      : qualification === 'warm'
+        ? 'border-aurea-amber/20 bg-aurea-amber/10 text-aurea-amber'
+        : 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-2'
+
+  return (
+    <section className="space-y-3 px-4 py-4">
+      <div className="flex items-center gap-3">
+        <span className="aurea-eyebrow whitespace-nowrap">Lead Summary</span>
+        <div className="h-px flex-1 bg-aurea-border" />
+        <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold capitalize ${qualTone}`}>
+          <Brain className="h-3 w-3" strokeWidth={1.75} />
+          {lead.ai_score != null && <span className="font-mono tabular-nums">{lead.ai_score}</span>}
+          {qualification}
+        </span>
+      </div>
+
+      {narrative ? (
+        <p className="text-[12.5px] leading-relaxed text-aurea-ink-2">{narrative}</p>
+      ) : (
+        <p className="text-[12px] italic leading-relaxed text-aurea-ink-3">
+          No summary yet — run Analyze to build a picture of where this lead stands.
+        </p>
+      )}
+
+      {/* Current emotional read — a fast at-a-glance state */}
+      {profile && (profile.emotional_state || profile.personality_type) && (
+        <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
+          {profile.emotional_state && (
+            <span className="text-aurea-ink-3">
+              Feeling <span className="font-medium capitalize text-aurea-ink">{profile.emotional_state}</span>
+            </span>
+          )}
+          {profile.personality_type && (
+            <span className="inline-flex rounded border border-aurea-border bg-aurea-surface-2 px-1.5 py-0.5 font-medium capitalize text-aurea-ink-2">
+              {profile.personality_type}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Next best action — the whole point of "where things stand" */}
+      {profile?.next_best_action && (
+        <div className="rounded-lg border border-aurea-primary/20 bg-aurea-primary/10 px-3 py-2.5">
+          <div className="aurea-eyebrow mb-0.5 flex items-center gap-1.5 !text-aurea-primary">
+            <Zap className="h-3 w-3" strokeWidth={1.75} /> Pick Up From Here
+          </div>
+          <p className="text-[12.5px] leading-relaxed text-aurea-ink-2">{profile.next_best_action}</p>
+          {profile.recommended_tone && (
+            <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-aurea-primary">
+              <TrendingUp className="h-3 w-3" strokeWidth={1.75} /> Tone: {profile.recommended_tone}
+            </div>
+          )}
+        </div>
+      )}
+
+      {profile?.last_analyzed_at && (
+        <p className="text-[10.5px] text-aurea-ink-3">
+          Updated {format(new Date(profile.last_analyzed_at), 'MMM d, h:mm a')}
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -819,8 +969,8 @@ export function InsightsPanel({ analysisResult, followUpResult }: { analysisResu
   const fu = followUpResult?.follow_up
 
   return (
-    <div className="max-h-[min(480px,55vh)] overflow-y-auto border-b border-aurea-border bg-aurea-surface">
-      <div className="mx-auto w-full max-w-[720px] space-y-5 px-4 py-4 lg:px-0">
+    <div className="border-t border-aurea-border bg-aurea-surface">
+      <div className="w-full space-y-5 px-4 py-4">
         {ca && (
           <section className="space-y-3">
             <SectionHeading>Conversation Analysis</SectionHeading>
@@ -919,15 +1069,6 @@ export function InsightsPanel({ analysisResult, followUpResult }: { analysisResu
               <MeterRow label="Anxiety" value={pp.anxiety_level} invert />
               <MeterRow label="Motivation" value={pp.motivation_level} />
             </div>
-            {pp.ai_summary && (
-              <p className="text-[12.5px] leading-relaxed text-aurea-ink-2">{pp.ai_summary}</p>
-            )}
-            {pp.next_best_action && (
-              <div className="rounded-lg border border-aurea-primary/20 bg-aurea-primary/10 px-3 py-2.5">
-                <div className="aurea-eyebrow mb-0.5 !text-aurea-primary">Next Best Action</div>
-                <p className="text-[12.5px] leading-relaxed text-aurea-ink-2">{pp.next_best_action}</p>
-              </div>
-            )}
           </section>
         )}
 

@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { decryptLeadPII } from '@/lib/encryption'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { isFlagEnabled } from '@/lib/org/flags'
+import type { ConversationAnalysis, PatientProfile } from '@/types/database'
 
 export default async function ConversationDetailPage({
   params,
@@ -15,7 +16,7 @@ export default async function ConversationDetailPage({
 
   const { data: conversation } = await supabase
     .from('conversations')
-    .select('*, lead:leads(id, first_name, last_name, phone, email, ai_qualification, ai_score)')
+    .select('*, lead:leads(id, first_name, last_name, phone, email, ai_qualification, ai_score, ai_summary)')
     .eq('id', id)
     .single()
 
@@ -58,6 +59,24 @@ export default async function ConversationDetailPage({
     activities: activities || [],
   })
 
+  // Persisted intelligence — seeds the thread's side panel so insights + the
+  // lead summary render instantly without re-running (and re-paying for) the AI.
+  const { data: savedAnalysis } = await supabase
+    .from('conversation_analyses')
+    .select('*')
+    .eq('conversation_id', id)
+    .order('analyzed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const { data: patientProfile } = leadId
+    ? await supabase
+        .from('patient_profiles')
+        .select('*')
+        .eq('lead_id', leadId)
+        .maybeSingle()
+    : { data: null }
+
   // Account-level pre-qualification switch — gates the "Send Pre-Qual" action.
   const prequalEnabled = conversation.organization_id
     ? await isFlagEnabled(supabase, conversation.organization_id as string, 'financing_prequal_enabled')
@@ -71,6 +90,8 @@ export default async function ConversationDetailPage({
       calls={calls || []}
       timeline={timeline}
       prequalEnabled={prequalEnabled}
+      savedAnalysis={(savedAnalysis as ConversationAnalysis | null) ?? null}
+      patientProfile={(patientProfile as PatientProfile | null) ?? null}
     />
   )
 }

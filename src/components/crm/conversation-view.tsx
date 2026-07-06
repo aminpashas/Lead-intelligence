@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { MessagesSquare, GitBranch } from 'lucide-react'
 import { ConversationThread } from './conversation-thread'
 import { TimelineFeed } from './lead-timeline'
-import type { Conversation, Lead, Message, VoiceCall } from '@/types/database'
+import type { Conversation, Lead, Message, VoiceCall, ConversationAnalysis, PatientProfile } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
 
 type Mode = 'thread' | 'timeline'
@@ -23,6 +23,8 @@ export function ConversationView({
   calls,
   timeline,
   prequalEnabled = false,
+  savedAnalysis = null,
+  patientProfile = null,
 }: {
   lead: Lead
   conversation: Conversation
@@ -31,6 +33,9 @@ export function ConversationView({
   timeline: TimelineEntry[]
   /** Account financing pre-qualification switch, forwarded to the action bar. */
   prequalEnabled?: boolean
+  /** Persisted intelligence, forwarded to seed the thread's side panel. */
+  savedAnalysis?: ConversationAnalysis | null
+  patientProfile?: PatientProfile | null
 }) {
   const [mode, setMode] = useState<Mode>('thread')
 
@@ -45,7 +50,7 @@ export function ConversationView({
 
       {mode === 'thread' ? (
         <div className="min-h-0 flex-1">
-          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} />
+          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">

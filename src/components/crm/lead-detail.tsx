@@ -237,6 +237,8 @@ export function LeadDetail({
                 calls={threadCalls}
                 prequalEnabled={prequalEnabled}
                 backHref="/leads"
+                savedAnalysis={latestAnalysis}
+                patientProfile={patientProfile}
               />
             ) : (
               <div className="h-full overflow-y-auto px-5 py-6">
