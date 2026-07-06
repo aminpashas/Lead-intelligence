@@ -18,12 +18,13 @@ import { withCron } from '@/lib/cron/with-cron'
 import { getGhlConfig } from '@/lib/ghl/client'
 import { reconcileGhlStages } from '@/lib/ghl/reconcile'
 import type { ReconcileReport } from '@/lib/ghl/reconcile'
+import { promoteEngagedNewLeads, type UnstaleReport } from '@/lib/pipeline/unstale-new-stage'
 
 /** The reconcile sweep can take minutes; give the function room. */
 export const maxDuration = 300
 
 type OrgRunResult =
-  | ({ organization_id: string } & ReconcileReport)
+  | ({ organization_id: string; unstale?: UnstaleReport } & ReconcileReport)
   | { organization_id: string; status: 'skipped' | 'failed'; reason: string }
 
 export const POST = withCron('ghl-sync', async ({ supabase }) => {
@@ -52,7 +53,14 @@ export const POST = withCron('ghl-sync', async ({ supabase }) => {
     }
     try {
       const r = await reconcileGhlStages(supabase, org.organization_id, config)
-      results.push({ organization_id: org.organization_id, ...r })
+      // After GHL positions the funnel, promote any lead LI has engaged but that
+      // is still parked in New Lead — the reconcile guard prevents demotion but
+      // never advances these, and the send-paths don't move stage. LI-truth pass,
+      // so it also unsticks LI-only (e.g. WhatConverts) leads GHL never sees.
+      const unstale = await promoteEngagedNewLeads(supabase, org.organization_id)
+      const stageChanges =
+        r.stageChanges + unstale.toContacted + unstale.toConsultationScheduled + unstale.toConsultationCompleted
+      results.push({ organization_id: org.organization_id, ...r, stageChanges, unstale })
     } catch (err) {
       results.push({
         organization_id: org.organization_id,
