@@ -311,6 +311,10 @@ export function ConversationThread({
       return
     }
     setAnalyzing(true)
+    // Open the panel now so each result appears as it streams in.
+    setShowPanel(true)
+    window.localStorage.setItem('li-insights-panel', '1')
+    let gotResult = false
     try {
       const res = await fetch('/api/ai/analyze', {
         method: 'POST',
@@ -320,14 +324,39 @@ export function ConversationThread({
           lead_id: lead.id,
         }),
       })
-      if (!res.ok) throw new Error('Analysis failed')
-      const data = await res.json()
-      setAnalysisResult(data)
-      // Refresh the always-on summary with the newly-written profile.
-      if (data.patient_profile) setProfile(data.patient_profile)
-      setShowPanel(true)
-      window.localStorage.setItem('li-insights-panel', '1')
-      toast.success('Conversation analyzed — insights saved')
+      if (!res.ok || !res.body) throw new Error('Analysis failed')
+
+      // Read the newline-delimited JSON stream: each agent's result lands the
+      // moment it finishes, rather than waiting for both.
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        let nl: number
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim()
+          buffer = buffer.slice(nl + 1)
+          if (!line) continue
+          const msg = JSON.parse(line) as { type: string; data?: unknown; message?: string }
+          if (msg.type === 'conversation_analysis') {
+            gotResult = true
+            setAnalysisResult((prev) => ({ ...(prev ?? {}), conversation_analysis: msg.data }))
+          } else if (msg.type === 'patient_profile') {
+            gotResult = true
+            setAnalysisResult((prev) => ({ ...(prev ?? {}), patient_profile: msg.data }))
+            // Refresh the always-on summary with the newly-written profile.
+            setProfile(msg.data as PatientProfile)
+          } else if (msg.type === 'error') {
+            toast.error(msg.message || 'Part of the analysis failed')
+          }
+        }
+      }
+
+      if (gotResult) toast.success('Conversation analyzed — insights saved')
+      else throw new Error('No results')
     } catch {
       toast.error('Failed to analyze conversation')
     } finally {

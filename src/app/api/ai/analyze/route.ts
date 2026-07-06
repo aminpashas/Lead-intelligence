@@ -6,14 +6,25 @@ import { analyzePatientPsychology, getPatientProfile } from '@/lib/ai/patient-ps
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 
+// Both agents are heavyweight Sonnet generations; give the function room to finish.
+export const maxDuration = 120
+
 /**
  * POST /api/ai/analyze
  *
- * Triggers both AI agents on a conversation:
+ * Triggers both AI agents on a conversation and STREAMS each result as it
+ * finishes (newline-delimited JSON), so the UI can fill in progressively
+ * instead of blocking on the slower agent:
  * 1. Conversation Analyst — rates tone, engagement, sales quality
  * 2. Patient Psychology — updates the patient's psychological profile
  *
  * Body: { conversation_id: string, lead_id: string }
+ *
+ * Stream chunks (one JSON object per line):
+ *   { "type": "conversation_analysis", "data": {...} }
+ *   { "type": "patient_profile", "data": {...} }
+ *   { "type": "error", "agent": "conversation"|"psychology", "message": "..." }
+ *   { "type": "done" }
  */
 export async function POST(request: NextRequest) {
   const rlError = applyRateLimit(request, RATE_LIMITS.ai)
@@ -62,48 +73,61 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Need at least 2 messages to analyze' }, { status: 400 })
     }
 
-    // Run both agents in parallel — use allSettled so one failure doesn't kill both
     const existingProfile = await getPatientProfile(supabase, lead_id)
 
-    const [conversationResult, psychologyResult] = await Promise.allSettled([
-      analyzeConversation(supabase, {
-        organization_id: orgId,
-        lead_id,
-        conversation_id,
-        lead,
-        messages,
-      }),
-      analyzePatientPsychology(supabase, {
-        organization_id: orgId,
-        lead_id,
-        conversation_id,
-        lead,
-        messages,
-        existingProfile,
-      }),
-    ])
+    // Stream each agent's result the moment it settles. The two agents run
+    // concurrently, so the fast one reaches the client without waiting on the
+    // slow one — the UI panel fills in progressively.
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (obj: unknown) =>
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
 
-    const conversationAnalysis = conversationResult.status === 'fulfilled' ? conversationResult.value : null
-    const patientProfile = psychologyResult.status === 'fulfilled' ? psychologyResult.value : null
+        const conversationTask = analyzeConversation(supabase, {
+          organization_id: orgId,
+          lead_id,
+          conversation_id,
+          lead,
+          messages,
+        })
+          .then((data) => send({ type: 'conversation_analysis', data }))
+          .catch((e) =>
+            send({
+              type: 'error',
+              agent: 'conversation',
+              message: e instanceof Error ? e.message : 'Conversation analysis failed',
+            })
+          )
 
-    // Report partial failures
-    const errors: string[] = []
-    if (conversationResult.status === 'rejected') {
-      errors.push(`Conversation analysis failed: ${conversationResult.reason instanceof Error ? conversationResult.reason.message : 'Unknown error'}`)
-    }
-    if (psychologyResult.status === 'rejected') {
-      errors.push(`Psychology analysis failed: ${psychologyResult.reason instanceof Error ? psychologyResult.reason.message : 'Unknown error'}`)
-    }
+        const psychologyTask = analyzePatientPsychology(supabase, {
+          organization_id: orgId,
+          lead_id,
+          conversation_id,
+          lead,
+          messages,
+          existingProfile,
+        })
+          .then((data) => send({ type: 'patient_profile', data }))
+          .catch((e) =>
+            send({
+              type: 'error',
+              agent: 'psychology',
+              message: e instanceof Error ? e.message : 'Psychology analysis failed',
+            })
+          )
 
-    // If both failed, return error
-    if (!conversationAnalysis && !patientProfile) {
-      return NextResponse.json({ error: 'Both analyses failed', details: errors }, { status: 500 })
-    }
+        await Promise.allSettled([conversationTask, psychologyTask])
+        send({ type: 'done' })
+        controller.close()
+      },
+    })
 
-    return NextResponse.json({
-      conversation_analysis: conversationAnalysis,
-      patient_profile: patientProfile,
-      ...(errors.length > 0 ? { warnings: errors } : {}),
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+      },
     })
   } catch (error) {
     console.error('AI analyze error:', error)
