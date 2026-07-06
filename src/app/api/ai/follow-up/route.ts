@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateTailoredFollowUp, getPatientProfile } from '@/lib/ai/patient-psychology'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 
@@ -18,15 +19,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const supabase = await createClient()
+    const { orgId } = await resolveActiveOrg(supabase)
+    if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { data: userProfile } = await supabase
-      .from('user_profiles')
-      .select('organization_id')
-      .eq('id', user.id)
-      .single()
-    if (!userProfile) return NextResponse.json({ error: 'No profile' }, { status: 401 })
 
     const body = await request.json()
     const { lead_id, channel = 'sms', context } = body
@@ -40,7 +36,7 @@ export async function POST(request: NextRequest) {
       .from('leads')
       .select('*')
       .eq('id', lead_id)
-      .eq('organization_id', userProfile.organization_id)
+      .eq('organization_id', orgId)
       .single()
 
     if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
@@ -59,13 +55,13 @@ export async function POST(request: NextRequest) {
       .from('messages')
       .select('direction, body, sender_type, created_at')
       .eq('lead_id', lead_id)
-      .eq('organization_id', userProfile.organization_id)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(10)
 
     // Generate tailored follow-up
     const followUpPlan = await generateTailoredFollowUp(supabase, {
-      organization_id: userProfile.organization_id,
+      organization_id: orgId,
       lead_id,
       lead,
       profile: profile as unknown as Parameters<typeof generateTailoredFollowUp>[1]['profile'],
