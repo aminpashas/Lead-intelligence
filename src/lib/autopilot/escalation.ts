@@ -19,6 +19,9 @@ export type EscalationReason =
   | 'max_attempts_reached'
   | 'agent_failure'
   | 'sentiment_drop'
+  | 'medical_question_detected'
+
+export type EscalationPriority = 'low' | 'normal' | 'high' | 'urgent'
 
 export type CreateEscalationInput = {
   organization_id: string
@@ -29,6 +32,8 @@ export type CreateEscalationInput = {
   ai_draft_response?: string
   ai_confidence?: number
   agent_type?: string
+  /** Triage priority stamped on the escalation. Defaults to 'normal'. */
+  priority?: EscalationPriority
 }
 
 /**
@@ -49,6 +54,7 @@ export async function createEscalation(
       ai_draft_response: input.ai_draft_response || null,
       ai_confidence: input.ai_confidence || null,
       agent_type: input.agent_type || null,
+      priority: input.priority || 'normal',
       status: 'pending',
     })
     .select('id')
@@ -70,6 +76,7 @@ export async function createEscalation(
       escalation_id: data.id,
       reason: input.reason,
       confidence: input.ai_confidence,
+      priority: input.priority || 'normal',
     },
   })
 
@@ -110,6 +117,12 @@ async function notifyStaff(
     : 'Unknown patient'
 
   const reasonText = formatReason(input.reason)
+  const priority = input.priority || 'normal'
+  const isUrgent = priority === 'urgent' || priority === 'high'
+  // Medical/urgent escalations lead with a distinct marker so staff can triage
+  // at a glance from the notification alone.
+  const alertIcon = input.reason === 'medical_question_detected' ? '🩺' : '🚨'
+  const priorityTag = isUrgent ? `[${priority.toUpperCase()}] ` : ''
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.example.com'
 
   for (const admin of admins) {
@@ -119,7 +132,7 @@ async function notifyStaff(
         const phone = decryptField(admin.phone) || admin.phone
         await sendSMS(
           phone,
-          `🚨 AI Escalation: ${leadName} needs human attention. Reason: ${reasonText}. ` +
+          `${alertIcon} ${priorityTag}AI Escalation: ${leadName} needs human attention. Reason: ${reasonText}. ` +
           `Review: ${appUrl}/conversations/${input.conversation_id}`
         )
       } catch {
@@ -133,7 +146,7 @@ async function notifyStaff(
         const email = decryptField(admin.email) || admin.email
         await sendEmail({
           to: email,
-          subject: `🚨 AI Escalation: ${escapeHtml(leadName)} needs attention`,
+          subject: `${alertIcon} ${priorityTag}AI Escalation: ${escapeHtml(leadName)} needs attention`,
           html: `
             <div style="font-family: -apple-system, sans-serif; max-width: 600px; padding: 24px;">
               <h2 style="color: #dc2626;">AI Escalation Alert</h2>
@@ -141,6 +154,7 @@ async function notifyStaff(
               <div style="background: #fef2f2; padding: 16px; border-radius: 8px; margin: 16px 0;">
                 <p style="margin: 4px 0;"><strong>Patient:</strong> ${escapeHtml(leadName)}</p>
                 <p style="margin: 4px 0;"><strong>Reason:</strong> ${escapeHtml(reasonText)}</p>
+                <p style="margin: 4px 0;"><strong>Priority:</strong> ${escapeHtml(priority.toUpperCase())}</p>
                 ${input.ai_notes ? `<p style="margin: 4px 0;"><strong>AI Notes:</strong> ${escapeHtml(input.ai_notes)}</p>` : ''}
                 ${input.ai_confidence !== undefined ? `<p style="margin: 4px 0;"><strong>AI Confidence:</strong> ${Math.round(input.ai_confidence * 100)}%</p>` : ''}
               </div>
@@ -166,6 +180,7 @@ function formatReason(reason: EscalationReason): string {
     max_attempts_reached: 'Max follow-up attempts reached',
     agent_failure: 'AI agent error',
     sentiment_drop: 'Patient sentiment dropped sharply',
+    medical_question_detected: 'Specific medical question — needs clinical staff',
   }
   return map[reason] || reason
 }

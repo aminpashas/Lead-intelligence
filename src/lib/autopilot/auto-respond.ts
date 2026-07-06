@@ -34,6 +34,7 @@ import {
   type AutopilotConfig,
 } from './config'
 import { createEscalation } from './escalation'
+import { classifyMedicalQuestion, severityToPriority } from '@/lib/ai/medical-question-detector'
 import type { AgentContext, AgentResponse, ConversationMessage } from '@/lib/ai/agent-types'
 import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
 import { buildFinancingContext } from '@/lib/ai/financial-coach'
@@ -124,7 +125,21 @@ export async function processAutoResponse(
     history,
   })
 
-  // 6. Route to agent and get response
+  // 6. Route to agent and get response.
+  // Concurrently classify whether the inbound message is a SPECIFIC MEDICAL
+  // QUESTION. Those must never receive an autonomous AI answer — they get
+  // escalated to a human (see step 6b). Running the classifier in parallel with
+  // agent routing keeps it off the critical latency path. classifyMedicalQuestion
+  // never throws (it self-falls-back to a keyword screen on classifier failure),
+  // so this promise is always safe to await.
+  const recentContext = history
+    .slice(-5, -1)
+    .map((m) => `${m.role === 'user' ? 'Patient' : 'Us'}: ${m.content}`)
+    .join('\n')
+  const medicalCheckPromise = classifyMedicalQuestion(inbound_message, {
+    recentContext: recentContext || undefined,
+  })
+
   let agentResponse: AgentResponse
   try {
     agentResponse = await routeToAgent(supabase, agentContext)
@@ -140,6 +155,69 @@ export async function processAutoResponse(
     })
 
     return { action: 'escalated', reason: 'agent_failure' }
+  }
+
+  // 6b. Clinical-question safety gate. A specific medical question must go to a
+  // human — the AI's draft is HELD for staff review (never auto-sent), the
+  // escalation is stamped with a severity-derived priority, and the patient gets
+  // a non-clinical holding acknowledgment so they aren't left hanging.
+  const medical = await medicalCheckPromise
+  if (medical.isClinicalQuestion) {
+    const priority = severityToPriority(medical.severity)
+    const escalationId = await createEscalation(supabase, {
+      organization_id,
+      conversation_id,
+      lead_id,
+      reason: 'medical_question_detected',
+      ai_notes:
+        `Specific medical question detected (${medical.severity}, via ${medical.method}). ` +
+        `Categories: ${medical.categories.join(', ') || 'unspecified'}. ${medical.rationale} ` +
+        `— AI answer withheld; draft below is for staff review only.`,
+      ai_draft_response: agentResponse.message,
+      ai_confidence: agentResponse.confidence,
+      agent_type: agentResponse.agent,
+      priority,
+    })
+
+    // Holding acknowledgment (non-clinical). Best-effort — never blocks the
+    // escalation. Suppressed in shadow mode to avoid double-texting beside GHL.
+    if (!config.outreach_suppressed) {
+      await sendHoldingAcknowledgment(supabase, {
+        organization_id,
+        conversation_id,
+        lead_id,
+        channel,
+        sender_contact,
+      }).catch((err) =>
+        logger.warn('Medical holding acknowledgment failed', {
+          conversation_id,
+          channel,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      )
+    }
+
+    // HIPAA audit: record that an AI answer to a clinical question was withheld.
+    await logHIPAAEvent(supabase, {
+      organization_id,
+      event_type: 'ai_processing',
+      severity: medical.severity === 'urgent' ? 'warning' : 'info',
+      actor_type: 'ai_agent',
+      actor_id: 'medical_question_detector',
+      resource_type: 'conversation',
+      resource_id: conversation_id,
+      description: `Medical-question gate escalated to human (${medical.severity}); autonomous AI answer withheld.`,
+      metadata: { categories: medical.categories, method: medical.method, priority },
+    }).catch(() => { /* non-critical */ })
+
+    return {
+      action: 'escalated',
+      message: agentResponse.message,
+      confidence: agentResponse.confidence,
+      agent: agentResponse.agent,
+      escalation_id: escalationId,
+      reason: 'medical_question_detected',
+    }
   }
 
   // 7. Evaluate whether to auto-send.
@@ -465,6 +543,82 @@ async function sendAgentResponse(
     .from('leads')
     .update({ last_contacted_at: new Date().toISOString() })
     .eq('id', lead_id)
+}
+
+/**
+ * Fixed, non-clinical acknowledgment sent to a patient when their message is
+ * escalated to a human for a medical question. Deliberately contains NO clinical
+ * content — it only tells the patient a human is taking over.
+ */
+const MEDICAL_HOLDING_ACK =
+  "Thanks for reaching out — that's an important question, and I want to make sure you get an accurate answer. " +
+  "I'm looping in a member of our care team to help, and they'll follow up with you shortly."
+
+/**
+ * Send the non-clinical holding acknowledgment and record it on the thread.
+ * Throws if the send is blocked (consent/compliance) so the caller can log it;
+ * the caller treats delivery as best-effort and never fails the escalation.
+ */
+async function sendHoldingAcknowledgment(
+  supabase: SupabaseClient,
+  params: {
+    organization_id: string
+    conversation_id: string
+    lead_id: string
+    channel: 'sms' | 'email'
+    sender_contact: string
+  }
+): Promise<void> {
+  const { organization_id, conversation_id, lead_id, channel, sender_contact } = params
+  let externalId: string | undefined
+
+  if (channel === 'sms') {
+    const result = await sendSMSToLead({
+      supabase,
+      leadId: lead_id,
+      to: sender_contact,
+      body: MEDICAL_HOLDING_ACK,
+      caller: 'autopilot.medical_holding',
+      aiGenerated: true,
+      blockOnReview: true,
+    })
+    if (!result.sent) throw new Error(`Holding ack not sent: ${result.reason}`)
+    externalId = result.sid
+  } else {
+    const email = decryptField(sender_contact) || sender_contact
+    const result = await sendEmailToLead({
+      supabase,
+      leadId: lead_id,
+      to: email,
+      subject: 'We received your question',
+      html: `<div style="font-family: -apple-system, sans-serif; padding: 24px;">${MEDICAL_HOLDING_ACK}</div>`,
+      text: MEDICAL_HOLDING_ACK,
+      caller: 'autopilot.medical_holding',
+      aiGenerated: true,
+      blockOnReview: true,
+    })
+    if (!result.sent) throw new Error(`Holding ack not sent: ${result.reason}`)
+  }
+
+  // Record the acknowledgment on the thread so staff see it and rate limiting counts it.
+  await supabase.from('messages').insert({
+    organization_id,
+    conversation_id,
+    lead_id,
+    direction: 'outbound',
+    channel,
+    body: MEDICAL_HOLDING_ACK,
+    sender_type: 'ai',
+    status: 'sent',
+    external_id: externalId || null,
+    ai_generated: true,
+    metadata: { holding_ack: true, medical_escalation: true },
+  })
+
+  await supabase.rpc('increment_conversation_counters', {
+    p_conversation_id: conversation_id,
+    p_last_message_preview: MEDICAL_HOLDING_ACK.substring(0, 100),
+  })
 }
 
 /**

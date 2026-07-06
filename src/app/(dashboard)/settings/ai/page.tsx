@@ -59,9 +59,11 @@ export default async function AIControlPage() {
     .order('created_at', { ascending: false })
     .limit(20)
 
-  // Fetch pending escalations count
+  // Fetch pending escalations count. NOTE: the table is `escalations` (migration
+  // 015) — a prior `autopilot_escalations` reference here silently returned 0,
+  // hiding every pending escalation (including medical-question escalations).
   const { count: pendingEscalations } = await supabase
-    .from('autopilot_escalations')
+    .from('escalations')
     .select('id', { count: 'exact', head: true })
     .eq('organization_id', orgId)
     .eq('status', 'pending')

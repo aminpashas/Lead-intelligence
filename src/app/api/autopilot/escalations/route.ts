@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
       ai_draft_response,
       ai_confidence,
       agent_type,
+      priority,
       status,
       claimed_by,
       created_at,
@@ -70,6 +71,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // Surface urgent/high (clinical) escalations first, newest-first within a
+  // priority band. Ranked in JS because the column is text, not numeric — an
+  // alphabetical DB sort would misorder ('high' < 'low' < 'normal' < 'urgent').
+  const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
+  const sorted = (escalations || []).slice().sort((a, b) => {
+    const ra = PRIORITY_RANK[(a.priority as string) ?? 'normal'] ?? 2
+    const rb = PRIORITY_RANK[(b.priority as string) ?? 'normal'] ?? 2
+    return ra - rb // created_at desc is already the stable base order
+  })
+
   // Get count of pending escalations
   const { count } = await supabase
     .from('escalations')
@@ -78,7 +89,7 @@ export async function GET(request: NextRequest) {
     .eq('status', 'pending')
 
   return NextResponse.json({
-    escalations: escalations || [],
+    escalations: sorted,
     pending_count: count || 0,
   })
 }
