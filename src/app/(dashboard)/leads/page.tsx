@@ -95,10 +95,30 @@ export default async function LeadsPage({
   if (params.search) {
     // email/phone are encrypted at rest — ilike can't match ciphertext, so
     // exact-match those via their deterministic search hashes instead.
-    const hash = searchHash(params.search)
-    query = query.or(
-      `first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%,email_hash.eq.${hash},phone_hash.eq.${hash}`
-    )
+    const q = params.search.trim()
+    const hash = searchHash(q)
+    // Strip characters that have meaning in PostgREST's or()/and() grammar so
+    // a value like "O'Brien, Amin" can't break out of the filter expression.
+    const clean = (s: string) => s.replace(/[(),*%\\"]/g, '')
+    const tokens = q.split(/\s+/).map(clean).filter(Boolean)
+
+    // Names live in separate first_name/last_name columns, so the full string
+    // ("Amin Samadian") never matches either column on its own. Match the whole
+    // string (covers single-token + substring), plus require EACH token to
+    // appear across first/last name so a full name narrows instead of missing.
+    const conds = [
+      `first_name.ilike.%${clean(q)}%`,
+      `last_name.ilike.%${clean(q)}%`,
+      `email_hash.eq.${hash}`,
+      `phone_hash.eq.${hash}`,
+    ]
+    if (tokens.length > 1) {
+      const perToken = tokens
+        .map((t) => `or(first_name.ilike.%${t}%,last_name.ilike.%${t}%)`)
+        .join(',')
+      conds.push(`and(${perToken})`)
+    }
+    query = query.or(conds.join(','))
   }
 
   // Tag filtering — look up lead IDs with this tag
