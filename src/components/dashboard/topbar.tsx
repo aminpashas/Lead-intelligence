@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useOrgStore } from '@/lib/store/use-org'
 import { ROLE_LABELS, ROLE_COLORS, type PracticeRole } from '@/lib/auth/permissions'
@@ -18,6 +19,15 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter()
   const { userProfile, organization, actingAsClient } = useOrgStore()
   const role = (userProfile?.role || 'member') as PracticeRole
+  const [search, setSearch] = useState('')
+
+  function handleSearch() {
+    const q = search.trim()
+    if (!q) return
+    // Reuse the existing server-side leads search (?search=) rather than a
+    // second lookup path — see leads/page.tsx.
+    router.push(`/leads?search=${encodeURIComponent(q)}`)
+  }
 
   async function handleExitAccount() {
     await fetch('/api/agency/active-account', { method: 'DELETE' })
@@ -49,7 +59,10 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
         <div className="relative flex-1 hidden sm:block">
           <Search className="absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-aurea-ink-3" strokeWidth={1.75} />
           <Input
-            placeholder="Search leads, conversations..."
+            placeholder="Search leads by name, email, or phone..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             className="pl-9 bg-aurea-surface border-aurea-border text-aurea-ink placeholder:text-aurea-ink-3 focus-visible:ring-aurea-primary/30"
           />
         </div>

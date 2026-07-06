@@ -96,9 +96,25 @@ export default async function LeadsPage({
     // email/phone are encrypted at rest — ilike can't match ciphertext, so
     // exact-match those via their deterministic search hashes instead.
     const hash = searchHash(params.search)
-    query = query.or(
-      `first_name.ilike.%${params.search}%,last_name.ilike.%${params.search}%,email_hash.eq.${hash},phone_hash.eq.${hash}`
-    )
+    // Strip characters that would break out of the PostgREST .or() grammar
+    // (commas/parens separate filters; backslash escapes). Wildcards left as-is.
+    const safe = params.search.replace(/[(),\\]/g, ' ').trim()
+    const conds = [
+      `first_name.ilike.%${safe}%`,
+      `last_name.ilike.%${safe}%`,
+      `email_hash.eq.${hash}`,
+      `phone_hash.eq.${hash}`,
+    ]
+    // Multi-word queries ("Amin Samadian") never match a single column, so
+    // also match first+last across the space in either order.
+    const words = safe.split(/\s+/).filter(Boolean)
+    if (words.length > 1) {
+      const [first, ...rest] = words
+      const last = rest.join(' ')
+      conds.push(`and(first_name.ilike.%${first}%,last_name.ilike.%${last}%)`)
+      conds.push(`and(first_name.ilike.%${last}%,last_name.ilike.%${first}%)`)
+    }
+    query = query.or(conds.join(','))
   }
 
   // Tag filtering — look up lead IDs with this tag
