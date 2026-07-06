@@ -88,3 +88,31 @@ describe('buildPricingIntegrityBlock', () => {
     }
   })
 })
+
+import { executeAgentTool } from '@/lib/autopilot/agent-tools'
+
+describe('send_financing_link qualification gate (code-enforced)', () => {
+  // The Closer reaches this tool via stage routing, but stage is set by external
+  // GHL sync and can be wrong. The gate must refuse — in code, not just prompt —
+  // when the lead has not actually been qualified. The refusal path returns
+  // before any Supabase/SMS call, so a throwaway client is never touched.
+  const throwaway = {} as never
+  const baseContext = {
+    organization_id: 'org-1',
+    lead_id: 'lead-1',
+    conversation_id: 'conv-1',
+    channel: 'sms',
+    disclose_phi: true, // bypass the separate HIPAA identity gate to isolate this one
+  }
+
+  it('refuses to send when the lead is unqualified (the screenshot failure)', async () => {
+    const result = await executeAgentTool(throwaway, 'send_financing_link', {}, {
+      ...baseContext,
+      lead: { id: 'lead-1', organization_id: 'org-1', status: 'financing' }, // closer-stage, zero discovery
+    })
+    expect(result.success).toBe(false)
+    expect(result.data).not.toHaveProperty('financing_url')
+    // Must instruct the model NOT to claim a link was sent.
+    expect(result.message).toMatch(/do NOT send a financing link or tell them one was sent/i)
+  })
+})

@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { decryptLeadPII } from '@/lib/encryption'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { isFlagEnabled } from '@/lib/org/flags'
+import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 import type { ConversationAnalysis, PatientProfile } from '@/types/database'
 
 export default async function ConversationDetailPage({
@@ -16,7 +17,7 @@ export default async function ConversationDetailPage({
 
   const { data: conversation } = await supabase
     .from('conversations')
-    .select('*, lead:leads(id, first_name, last_name, phone, email, ai_qualification, ai_score, ai_summary)')
+    .select('*, lead:leads(id, first_name, last_name, phone, email, ai_qualification, ai_score, ai_summary, engagement_score, status, stage_id, pipeline_stage:pipeline_stages(id, name, color, position))')
     .eq('id', id)
     .single()
 
@@ -82,6 +83,10 @@ export default async function ConversationDetailPage({
     ? await isFlagEnabled(supabase, conversation.organization_id as string, 'financing_prequal_enabled')
     : false
 
+  // Render all thread timestamps in the practice timezone so SSR (UTC) agrees
+  // with the browser on day boundaries.
+  const timeZone = await resolvePracticeTimeZone(supabase, conversation.organization_id as string | null)
+
   return (
     <ConversationView
       lead={decryptLeadPII(conversation.lead as Record<string, unknown>) as any}
@@ -92,6 +97,7 @@ export default async function ConversationDetailPage({
       prequalEnabled={prequalEnabled}
       savedAnalysis={(savedAnalysis as ConversationAnalysis | null) ?? null}
       patientProfile={(patientProfile as PatientProfile | null) ?? null}
+      timeZone={timeZone}
     />
   )
 }

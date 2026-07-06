@@ -5,6 +5,7 @@ import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
 import { decryptLeadPII } from '@/lib/encryption'
 import { isFlagEnabled } from '@/lib/org/flags'
+import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 
 export default async function LeadDetailPage({
   params,
@@ -125,6 +126,10 @@ export default async function LeadDetailPage({
   // "Send Pre-Qual" action shows in the action bar.
   const prequalEnabled = await isFlagEnabled(supabase, lead.organization_id, 'financing_prequal_enabled')
 
+  // Thread timestamps render in the practice timezone so SSR (UTC) and the
+  // browser agree on day boundaries.
+  const timeZone = await resolvePracticeTimeZone(supabase, lead.organization_id)
+
   return (
     <LeadDetail
       lead={lead}
@@ -140,6 +145,7 @@ export default async function LeadDetailPage({
       stages={stages || []}
       teamMembers={teamMembers || []}
       prequalEnabled={prequalEnabled}
+      timeZone={timeZone}
     />
   )
 }

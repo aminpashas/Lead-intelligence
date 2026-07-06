@@ -67,6 +67,7 @@ export function LeadDetail({
   stages,
   teamMembers,
   prequalEnabled = false,
+  timeZone,
 }: {
   lead: Lead
   activities: LeadActivity[]
@@ -81,6 +82,8 @@ export function LeadDetail({
   stages: PipelineStage[]
   teamMembers: Pick<UserProfile, 'id' | 'full_name' | 'email' | 'role'>[]
   prequalEnabled?: boolean
+  /** Practice IANA timezone, forwarded so thread timestamps render zone-fixed. */
+  timeZone?: string
 }) {
   const [lead, setLead] = useState(initialLead)
   const [scoring, setScoring] = useState(false)
@@ -239,6 +242,7 @@ export function LeadDetail({
                 backHref="/leads"
                 savedAnalysis={latestAnalysis}
                 patientProfile={patientProfile}
+                timeZone={timeZone}
               />
             ) : (
               <div className="h-full overflow-y-auto px-5 py-6">
@@ -246,14 +250,14 @@ export function LeadDetail({
                   <p className="py-16 text-center text-sm text-aurea-ink-3">No calls, texts, or emails yet.</p>
                 ) : (
                   <div className="mx-auto max-w-[680px]">
-                    <TimelineFeed entries={timeline} variant="detailed" />
+                    <TimelineFeed entries={timeline} variant="detailed" timeZone={timeZone} />
                   </div>
                 )}
               </div>
             )
           ) : (
             <div className="h-full overflow-y-auto px-5 py-6">
-              <LeadTimeline lead={lead} entries={timeline} />
+              <LeadTimeline lead={lead} entries={timeline} timeZone={timeZone} />
             </div>
           )}
         </div>

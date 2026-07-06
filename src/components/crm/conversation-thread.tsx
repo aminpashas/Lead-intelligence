@@ -1,7 +1,13 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { format, isToday, isYesterday } from 'date-fns'
+import {
+  DEFAULT_PRACTICE_TIMEZONE,
+  zonedDayKey,
+  zonedDayDivider,
+  zonedTimeLabel,
+  zonedDateTimeLabel,
+} from '@/lib/time/zoned'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -22,6 +28,7 @@ import {
   Heart,
   Eye,
   ChevronLeft,
+  ChevronDown,
   Shield,
   AlertTriangle,
   MessageSquare,
@@ -34,11 +41,13 @@ import {
 import { toast } from 'sonner'
 import type { Conversation, Message, Lead, AgentType, VoiceCall, ConversationAnalysis, PatientProfile } from '@/types/database'
 import { AgentIndicator, AgentMessageLabel } from './agent-indicator'
+import { STAGE_AGENT_MAP } from '@/lib/ai/agent-types'
 import { AIModeToggle } from './ai-mode-toggle'
 import { LeadActions } from './lead-actions'
 import { LiveCallIndicator, LiveCallPanel } from './live-call-panel'
 import { CallCard } from './call-card'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
+import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
 
 // ── Thread shaping ──────────────────────────────────────────
 // Consecutive messages from the same sender within this window render as one
@@ -49,6 +58,12 @@ const GROUP_WINDOW_MS = 8 * 60 * 1000
 // stops the input from swallowing the whole thread on short screens.
 const COMPOSER_MIN_H = 72
 const COMPOSER_MAX_H = 520
+
+// Bounds for the drag-resizable intelligence panel (px). Min keeps the metrics
+// legible; max stops the panel from crowding out the thread on wide screens.
+const PANEL_MIN_W = 300
+const PANEL_MAX_W = 720
+const PANEL_DEFAULT_W = 380
 
 type ThreadItem =
   | { type: 'day'; key: string; label: string }
@@ -64,7 +79,7 @@ function callTime(call: VoiceCall): number {
   return new Date(call.ended_at || call.started_at || call.created_at).getTime()
 }
 
-function buildThread(messages: Message[], calls: VoiceCall[]): ThreadItem[] {
+function buildThread(messages: Message[], calls: VoiceCall[], timeZone: string): ThreadItem[] {
   // Interleave messages and finished calls into one time-ordered stream. Calls
   // are standalone cards, so they break any in-progress message group.
   type Ev = { t: number; msg?: Message; call?: VoiceCall }
@@ -86,13 +101,15 @@ function buildThread(messages: Message[], calls: VoiceCall[]): ThreadItem[] {
 
   for (const ev of events) {
     const d = new Date(ev.t)
-    const day = format(d, 'yyyy-MM-dd')
+    // Day boundaries are computed in the PRACTICE timezone, not the ambient one,
+    // so the server (UTC) and the browser agree on which day a message lands in.
+    const day = zonedDayKey(d, timeZone)
     if (day !== lastDay) {
       flush()
       items.push({
         type: 'day',
         key: day,
-        label: isToday(d) ? 'Today' : isYesterday(d) ? 'Yesterday' : format(d, 'EEEE, MMM d'),
+        label: zonedDayDivider(d, timeZone),
       })
       lastDay = day
     }
@@ -127,6 +144,7 @@ export function ConversationThread({
   backHref = '/conversations',
   savedAnalysis = null,
   patientProfile = null,
+  timeZone = DEFAULT_PRACTICE_TIMEZONE,
 }: {
   lead: Lead
   conversation: Conversation
@@ -136,6 +154,9 @@ export function ConversationThread({
   /** Where the header back-arrow returns to. Defaults to the conversations
    *  inbox; the lead surface passes '/leads' so the arrow retraces the click. */
   backHref?: string
+  /** Practice IANA timezone (from booking_settings). All thread timestamps
+   *  render in this zone so SSR (UTC on Vercel) and the browser agree. */
+  timeZone?: string
   /** Persisted analysis for this conversation (from `conversation_analyses`).
    *  Seeds the side panel so insights survive reloads without re-analyzing. */
   savedAnalysis?: ConversationAnalysis | null
@@ -177,12 +198,16 @@ export function ConversationThread({
   // the input and drag up; the message list (flex-1) yields the space. The last
   // size sticks across leads/sessions via localStorage.
   const [composerHeight, setComposerHeight] = useState(96)
+  // Draggable panel width — grip on the panel's left edge. Sticks per-user.
+  const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem('li-composer-height'))
     if (saved >= COMPOSER_MIN_H && saved <= COMPOSER_MAX_H) setComposerHeight(saved)
     const panel = window.localStorage.getItem('li-insights-panel')
     if (panel === '0') setShowPanel(false)
+    const w = Number(window.localStorage.getItem('li-insights-width'))
+    if (w >= PANEL_MIN_W && w <= PANEL_MAX_W) setPanelWidth(w)
   }, [])
 
   function togglePanel() {
@@ -217,6 +242,33 @@ export function ConversationThread({
     window.localStorage.setItem('li-composer-height', '96')
   }
 
+  function startPanelResize(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = panelWidth
+    let latest = startW
+    // Suppress text selection while dragging across the thread.
+    document.body.style.userSelect = 'none'
+    function onMove(ev: PointerEvent) {
+      // Dragging left (clientX shrinks) grows the panel.
+      latest = Math.min(PANEL_MAX_W, Math.max(PANEL_MIN_W, startW + (startX - ev.clientX)))
+      setPanelWidth(latest)
+    }
+    function onUp() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      document.body.style.userSelect = ''
+      window.localStorage.setItem('li-insights-width', String(latest))
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  function resetPanelWidth() {
+    setPanelWidth(PANEL_DEFAULT_W)
+    window.localStorage.setItem('li-insights-width', String(PANEL_DEFAULT_W))
+  }
+
   // Live phone-call state (ongoing-call indicator + streaming transcript).
   const live = useLiveCall(lead.id)
 
@@ -242,10 +294,16 @@ export function ConversationThread({
         body: JSON.stringify(payload),
       })
 
-      if (!res.ok) throw new Error('Failed to send')
+      const data = await res.json().catch(() => null)
 
-      const { message } = await res.json()
-      setMessages((prev) => [...prev, message])
+      if (!res.ok) {
+        // The API returns { error, reason } — surface the real cause (consent
+        // block, quiet hours, compliance, etc.) instead of a generic failure.
+        toast.error(sendBlockMessage(data, 'Failed to send message'))
+        return
+      }
+
+      setMessages((prev) => [...prev, data.message])
       setDraft('')
       toast.success('Message sent')
     } catch {
@@ -399,7 +457,7 @@ export function ConversationThread({
     }
   }
 
-  const thread = buildThread(messages, calls)
+  const thread = buildThread(messages, calls, timeZone)
   const initials = `${lead.first_name?.[0] ?? ''}${lead.last_name?.[0] ?? ''}`.toUpperCase() || '?'
   const smsSegments = Math.max(1, Math.ceil(draft.length / 160))
 
@@ -453,6 +511,7 @@ export function ConversationThread({
             conversationId={conversation.id}
             handoffCount={conversation.agent_handoff_count}
             onAgentChange={setActiveAgent}
+            stageAgent={STAGE_AGENT_MAP[lead.status as keyof typeof STAGE_AGENT_MAP]}
           />
           <AIModeToggle
             conversationId={conversation.id}
@@ -510,7 +569,7 @@ export function ConversationThread({
             ) : item.type === 'call' ? (
               <CallCard key={item.key} call={item.call} />
             ) : (
-              <MessageGroup key={item.key} messages={item.messages} lead={lead} />
+              <MessageGroup key={item.key} messages={item.messages} lead={lead} timeZone={timeZone} />
             )
           )}
 
@@ -692,7 +751,22 @@ export function ConversationThread({
 
       {/* ── Intelligence side panel (collapsible) ──────────── */}
       {showPanel && (
-        <aside className="flex w-[340px] shrink-0 flex-col border-l border-aurea-border bg-aurea-surface lg:w-[380px]">
+        <aside
+          className="relative flex shrink-0 flex-col border-l border-aurea-border bg-aurea-surface"
+          style={{ width: panelWidth }}
+        >
+          {/* Drag grip on the left edge — widen/narrow the panel; double-click resets. */}
+          <div
+            onPointerDown={startPanelResize}
+            onDoubleClick={resetPanelWidth}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize intelligence panel"
+            title="Drag to resize · double-click to reset"
+            className="group absolute left-0 top-0 z-20 h-full w-2.5 -translate-x-1/2 cursor-col-resize touch-none"
+          >
+            <div className="mx-auto h-full w-px bg-transparent transition-colors group-hover:bg-aurea-primary/60" />
+          </div>
           <div className="flex items-center justify-between border-b border-aurea-border px-4 py-3">
             <span className="aurea-eyebrow">Lead Intelligence</span>
             <button
@@ -705,7 +779,7 @@ export function ConversationThread({
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <LeadSummary lead={lead} profile={profile} />
+            <LeadSummary lead={lead} profile={profile} timeZone={timeZone} />
             {analysisResult || followUpResult ? (
               <InsightsPanel analysisResult={analysisResult} followUpResult={followUpResult} />
             ) : (
@@ -740,7 +814,7 @@ export function ConversationThread({
 // from already-persisted rows (patient_profiles + lead), so it costs nothing to
 // render and refreshes whenever a new analysis is run.
 
-function LeadSummary({ lead, profile }: { lead: Lead; profile: PatientProfile | null }) {
+function LeadSummary({ lead, profile, timeZone }: { lead: Lead; profile: PatientProfile | null; timeZone: string }) {
   const qualification = lead.ai_qualification || 'unscored'
   const narrative = profile?.ai_summary || lead.ai_summary || null
   const qualTone =
@@ -750,16 +824,51 @@ function LeadSummary({ lead, profile }: { lead: Lead; profile: PatientProfile | 
         ? 'border-aurea-amber/20 bg-aurea-amber/10 text-aurea-amber'
         : 'border-aurea-border bg-aurea-surface-2 text-aurea-ink-2'
 
+  // Where the lead sits in the funnel + how engaged they are. Stage prefers the
+  // joined pipeline_stage row; falls back to the raw status when it isn't loaded.
+  const stageName = lead.pipeline_stage?.name || lead.status?.replace(/_/g, ' ') || '—'
+  const stageColor = lead.pipeline_stage?.color || null
+  const engagement = Math.round(lead.engagement_score ?? 0)
+
   return (
-    <section className="space-y-3 px-4 py-4">
-      <div className="flex items-center gap-3">
-        <span className="aurea-eyebrow whitespace-nowrap">Lead Summary</span>
-        <div className="h-px flex-1 bg-aurea-border" />
+    <CollapsibleSection
+      title="Lead Summary"
+      className="px-4 py-4"
+      contentClassName="mt-3 space-y-3"
+      headerAccessory={
         <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold capitalize ${qualTone}`}>
           <Brain className="h-3 w-3" strokeWidth={1.75} />
           {lead.ai_score != null && <span className="font-mono tabular-nums">{lead.ai_score}</span>}
           {qualification}
         </span>
+      }
+    >
+      {/* Vitals: funnel stage · engagement · quality — the fast "who is this" read */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="border-l border-aurea-border-strong/60 pl-3">
+          <div className="text-[10px] uppercase tracking-[0.1em] text-aurea-ink-3">Stage</div>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            {stageColor && (
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stageColor }} />
+            )}
+            <span className="truncate text-[13px] font-medium capitalize text-aurea-ink" title={stageName}>
+              {stageName}
+            </span>
+          </div>
+        </div>
+        <div className="border-l border-aurea-border-strong/60 pl-3">
+          <div className="text-[10px] uppercase tracking-[0.1em] text-aurea-ink-3">Engagement</div>
+          <div className="mt-0.5 flex items-baseline gap-0.5">
+            <span className="aurea-display text-[15px] tabular-nums text-aurea-ink">{engagement}</span>
+            <span className="text-[10px] text-aurea-ink-3">/100</span>
+          </div>
+        </div>
+        <div className="border-l border-aurea-border-strong/60 pl-3">
+          <div className="text-[10px] uppercase tracking-[0.1em] text-aurea-ink-3">Quality</div>
+          <div className="mt-0.5 truncate text-[13px] font-medium capitalize text-aurea-ink" title={qualification}>
+            {qualification}
+          </div>
+        </div>
       </div>
 
       {narrative ? (
@@ -803,17 +912,17 @@ function LeadSummary({ lead, profile }: { lead: Lead; profile: PatientProfile | 
 
       {profile?.last_analyzed_at && (
         <p className="text-[10.5px] text-aurea-ink-3">
-          Updated {format(new Date(profile.last_analyzed_at), 'MMM d, h:mm a')}
+          Updated {zonedDateTimeLabel(new Date(profile.last_analyzed_at), timeZone)}
         </p>
       )}
-    </section>
+    </CollapsibleSection>
   )
 }
 
 // ── Message group ───────────────────────────────────────────
 // One meta line (sender · agent · time) above a tight stack of bubbles.
 
-function MessageGroup({ messages, lead }: { messages: Message[]; lead: Lead }) {
+function MessageGroup({ messages, lead, timeZone }: { messages: Message[]; lead: Lead; timeZone: string }) {
   const first = messages[0]
   const outbound = first.direction === 'outbound'
   const isAI = first.sender_type === 'ai'
@@ -841,7 +950,7 @@ function MessageGroup({ messages, lead }: { messages: Message[]; lead: Lead }) {
           <Sparkles className="h-3 w-3 text-aurea-primary" strokeWidth={1.75} aria-label="AI-drafted" />
         )}
         <span className="text-aurea-border-strong">·</span>
-        <span>{format(new Date(first.created_at), 'h:mm a')}</span>
+        <span>{zonedTimeLabel(new Date(first.created_at), timeZone)}</span>
       </div>
 
       {/* Bubbles */}
@@ -851,7 +960,7 @@ function MessageGroup({ messages, lead }: { messages: Message[]; lead: Lead }) {
           return (
             <div key={msg.id} className={`flex flex-col ${outbound ? 'items-end' : 'items-start'}`}>
               <div
-                title={format(new Date(msg.created_at), 'MMM d, h:mm a')}
+                title={zonedDateTimeLabel(new Date(msg.created_at), timeZone)}
                 className={`rounded-2xl px-3.5 py-2.5 ${
                   outbound
                     ? `bg-aurea-ink text-aurea-canvas ${last ? 'rounded-br-md' : ''}`
@@ -991,6 +1100,47 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ── Collapsible section ─────────────────────────────────────
+// The same eyebrow + hairline-rule header as SectionHeading, but the whole row is
+// a toggle: click to fold the module away. Optional `headerAccessory` renders just
+// left of the chevron (e.g. the Lead Summary qualification badge).
+function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  headerAccessory,
+  className,
+  contentClassName,
+  children,
+}: {
+  title: React.ReactNode
+  defaultOpen?: boolean
+  headerAccessory?: React.ReactNode
+  className?: string
+  contentClassName?: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section className={className}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="group flex w-full items-center gap-3 text-left"
+      >
+        <span className="aurea-eyebrow whitespace-nowrap">{title}</span>
+        <div className="h-px flex-1 bg-aurea-border" />
+        {headerAccessory}
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-aurea-ink-3 transition-transform duration-200 group-hover:text-aurea-ink ${open ? '' : '-rotate-90'}`}
+          strokeWidth={1.75}
+        />
+      </button>
+      {open && <div className={contentClassName ?? 'mt-3'}>{children}</div>}
+    </section>
+  )
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function InsightsPanel({ analysisResult, followUpResult }: { analysisResult: any; followUpResult: any }) {
   const ca = analysisResult?.conversation_analysis
@@ -1001,9 +1151,7 @@ export function InsightsPanel({ analysisResult, followUpResult }: { analysisResu
     <div className="border-t border-aurea-border bg-aurea-surface">
       <div className="w-full space-y-5 px-4 py-4">
         {ca && (
-          <section className="space-y-3">
-            <SectionHeading>Conversation Analysis</SectionHeading>
-
+          <CollapsibleSection title="Conversation Analysis" contentClassName="mt-3 space-y-3">
             {/* Metrics as two ruled columns: how the patient is responding vs how staff is performing */}
             <div className="grid gap-x-10 sm:grid-cols-2">
               <div className="divide-y divide-aurea-border/60">
@@ -1084,7 +1232,7 @@ export function InsightsPanel({ analysisResult, followUpResult }: { analysisResu
                 )}
               </div>
             )}
-          </section>
+          </CollapsibleSection>
         )}
 
         {pp && (

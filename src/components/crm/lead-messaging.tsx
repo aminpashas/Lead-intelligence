@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -111,7 +112,13 @@ export function LeadMessaging({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lead_id: lead.id, message: smsBody }),
         })
-        if (!res.ok) throw new Error('Send failed')
+        // Surface the server's real block reason (consent, quiet hours, etc.)
+        // instead of a generic failure.
+        if (!res.ok) {
+          const data = await res.json().catch(() => null)
+          toast.error(sendBlockMessage(data, 'Failed to send SMS'))
+          return
+        }
         toast.success('SMS sent!')
         setSmsBody('')
       } else {
@@ -121,7 +128,11 @@ export function LeadMessaging({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lead_id: lead.id, subject: emailSubject, body: emailBody }),
         })
-        if (!res.ok) throw new Error('Send failed')
+        if (!res.ok) {
+          const data = await res.json().catch(() => null)
+          toast.error(sendBlockMessage(data, 'Failed to send email'))
+          return
+        }
         toast.success('Email sent!')
         setEmailSubject('')
         setEmailBody('')

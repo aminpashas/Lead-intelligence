@@ -249,12 +249,46 @@ ${phiFindings.length > 0 ? JSON.stringify(phiFindings) : 'None detected by autom
     analysis.phi_details = [...analysis.phi_details, ...phiFindings]
   }
 
-  // Save to database
+  // Save to database. One row per conversation (unique conversation_id), updated
+  // in place on re-analyze. We map explicit columns rather than spreading the raw
+  // model output: a stray field the model invents would make the whole write fail
+  // and — because the panel renders the live-streamed result — the analysis would
+  // silently vanish on the next refresh. Scores are clamped to the 0-10 / 0-100
+  // CHECK bounds for the same reason.
+  const clampInt = (n: unknown, max: number): number | null =>
+    n == null ? null : Math.max(0, Math.min(max, Math.round(Number(n) || 0)))
+
   const { error } = await supabase.from('conversation_analyses').upsert({
     organization_id: config.organization_id,
     conversation_id: config.conversation_id,
     lead_id: config.lead_id,
-    ...analysis,
+    emotional_score: clampInt(analysis.emotional_score, 10),
+    engagement_score: clampInt(analysis.engagement_score, 10),
+    trust_score: clampInt(analysis.trust_score, 10),
+    urgency_score: clampInt(analysis.urgency_score, 10),
+    patient_tone: analysis.patient_tone ?? null,
+    staff_tone: analysis.staff_tone ?? null,
+    tone_alignment: analysis.tone_alignment ?? null,
+    sales_pressure_level: clampInt(analysis.sales_pressure_level, 10),
+    empathy_level: clampInt(analysis.empathy_level, 10),
+    active_listening_score: clampInt(analysis.active_listening_score, 10),
+    objection_handling_quality: clampInt(analysis.objection_handling_quality, 10),
+    rapport_building_score: clampInt(analysis.rapport_building_score, 10),
+    patient_openness: clampInt(analysis.patient_openness, 10),
+    patient_buying_signals: clampInt(analysis.patient_buying_signals, 10),
+    patient_resistance: clampInt(analysis.patient_resistance, 10),
+    response_enthusiasm: analysis.response_enthusiasm ?? null,
+    conversation_flow: analysis.conversation_flow ?? null,
+    turning_points: analysis.turning_points ?? [],
+    red_flags: analysis.red_flags ?? [],
+    opportunities: analysis.opportunities ?? [],
+    coaching_notes: analysis.coaching_notes ?? null,
+    improvement_areas: analysis.improvement_areas ?? [],
+    things_done_well: analysis.things_done_well ?? [],
+    phi_detected: analysis.phi_detected ?? false,
+    phi_details: analysis.phi_details ?? [],
+    compliance_score: clampInt(analysis.compliance_score, 100),
+    compliance_issues: analysis.compliance_issues ?? [],
     message_count: config.messages.length,
     avg_response_time_seconds: avgResponseTime,
     longest_message_by: longestMessageBy,
@@ -265,20 +299,12 @@ ${phiFindings.length > 0 ? JSON.stringify(phiFindings) : 'None detected by autom
     ignoreDuplicates: false,
   })
 
-  // The upsert might fail if there's no unique constraint on conversation_id
-  // Fall back to insert
-  if (error?.code === '42P10' || error?.message?.includes('unique')) {
-    await supabase.from('conversation_analyses').insert({
-      organization_id: config.organization_id,
-      conversation_id: config.conversation_id,
-      lead_id: config.lead_id,
-      ...analysis,
-      message_count: config.messages.length,
-      avg_response_time_seconds: avgResponseTime,
-      longest_message_by: longestMessageBy,
-      model_used: 'claude-sonnet-4-6',
-      analyzed_at: new Date().toISOString(),
-    })
+  // Surface persistence failures instead of swallowing them: a write that fails
+  // here would otherwise present as a phantom success (visible now, gone on
+  // reload). The route's stream turns this into a real error the user can see.
+  if (error) {
+    console.error('Failed to persist conversation analysis:', error)
+    throw new Error(`Failed to save conversation analysis: ${error.message}`)
   }
 
   // Log compliance issues to HIPAA audit

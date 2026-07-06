@@ -25,6 +25,7 @@ export function ConversationView({
   prequalEnabled = false,
   savedAnalysis = null,
   patientProfile = null,
+  timeZone,
 }: {
   lead: Lead
   conversation: Conversation
@@ -36,6 +37,8 @@ export function ConversationView({
   /** Persisted intelligence, forwarded to seed the thread's side panel. */
   savedAnalysis?: ConversationAnalysis | null
   patientProfile?: PatientProfile | null
+  /** Practice IANA timezone, forwarded so thread timestamps render zone-fixed. */
+  timeZone?: string
 }) {
   const [mode, setMode] = useState<Mode>('thread')
 
@@ -50,7 +53,7 @@ export function ConversationView({
 
       {mode === 'thread' ? (
         <div className="min-h-0 flex-1">
-          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} />
+          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
@@ -58,7 +61,7 @@ export function ConversationView({
             <p className="py-16 text-center text-sm text-aurea-ink-3">No calls, texts, or emails yet.</p>
           ) : (
             <div className="mx-auto max-w-[680px]">
-              <TimelineFeed entries={timeline} variant="detailed" />
+              <TimelineFeed entries={timeline} variant="detailed" timeZone={timeZone} />
             </div>
           )}
         </div>

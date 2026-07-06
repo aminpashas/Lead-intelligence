@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
+import { DEFAULT_PRACTICE_TIMEZONE, zonedDateLabel, zonedTimeLabel, zonedDateTimeLabel } from '@/lib/time/zoned'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { LeadMessaging } from './lead-messaging'
@@ -41,7 +42,7 @@ function IconFor({ entry }: { entry: TimelineEntry }) {
 
 type ViewMode = 'summary' | 'detailed'
 
-export function LeadTimeline({ lead, entries }: { lead: Lead; entries: TimelineEntry[] }) {
+export function LeadTimeline({ lead, entries, timeZone = DEFAULT_PRACTICE_TIMEZONE }: { lead: Lead; entries: TimelineEntry[]; timeZone?: string }) {
   const router = useRouter()
   // Default to the elevated view; the compact "Summary" stays one click away.
   const [view, setView] = useState<ViewMode>('detailed')
@@ -77,7 +78,7 @@ export function LeadTimeline({ lead, entries }: { lead: Lead; entries: TimelineE
           </CardContent>
         </Card>
       ) : (
-        <TimelineFeed entries={entries} variant={view} />
+        <TimelineFeed entries={entries} variant={view} timeZone={timeZone} />
       )}
     </div>
   )
@@ -85,8 +86,8 @@ export function LeadTimeline({ lead, entries }: { lead: Lead; entries: TimelineE
 
 /** Presentational feed — the Summary/Detailed renderings, no actions or state.
  *  Shared by the patient card (with a toggle) and the conversations page. */
-export function TimelineFeed({ entries, variant }: { entries: TimelineEntry[]; variant: ViewMode }) {
-  return variant === 'summary' ? <SummaryTimeline entries={entries} /> : <DetailedTimeline entries={entries} />
+export function TimelineFeed({ entries, variant, timeZone = DEFAULT_PRACTICE_TIMEZONE }: { entries: TimelineEntry[]; variant: ViewMode; timeZone?: string }) {
+  return variant === 'summary' ? <SummaryTimeline entries={entries} /> : <DetailedTimeline entries={entries} timeZone={timeZone} />
 }
 
 // ── View toggle ─────────────────────────────────────────────
@@ -166,7 +167,7 @@ function nodeTone(entry: TimelineEntry): string {
   return 'border-aurea-border text-aurea-ink-3'
 }
 
-function DetailedTimeline({ entries }: { entries: TimelineEntry[] }) {
+function DetailedTimeline({ entries, timeZone }: { entries: TimelineEntry[]; timeZone: string }) {
   return (
     <div className="relative pl-9">
       {/* The spine — one hairline the whole column hangs from. */}
@@ -194,8 +195,8 @@ function DetailedTimeline({ entries }: { entries: TimelineEntry[] }) {
                   <Sparkles className="h-2.5 w-2.5" strokeWidth={2} /> AI
                 </span>
               )}
-              <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3" title={format(new Date(entry.at), 'PPpp')}>
-                {format(new Date(entry.at), 'MMM d · h:mm a')}
+              <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3" title={zonedDateTimeLabel(new Date(entry.at), timeZone)}>
+                {zonedDateLabel(new Date(entry.at), timeZone)} · {zonedTimeLabel(new Date(entry.at), timeZone)}
               </span>
             </div>
 
