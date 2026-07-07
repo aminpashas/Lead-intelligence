@@ -21,15 +21,16 @@ import { resolveReconcileTarget, type LiStageSlug, type ReconcileTarget } from '
 import type { GhlConfig } from './types'
 
 /** Most-advanced-wins priority when a lead has multiple opportunities. */
-const PRIORITY: Record<LiStageSlug, number> = {
-  completed: 13,
-  'contract-signed': 12,
-  scheduled: 11,
-  financing: 10,
-  'treatment-presented': 9,
-  'consultation-completed': 8,
-  'consultation-scheduled': 7,
-  qualified: 6,
+export const PRIORITY: Record<LiStageSlug, number> = {
+  completed: 14,
+  'contract-signed': 13,
+  scheduled: 12,
+  financing: 11,
+  'treatment-presented': 10,
+  'consultation-completed': 9,
+  'consultation-scheduled': 8,
+  qualified: 7,
+  engaged: 6,
   contacted: 5,
   'no-communication': 4,
   'dnd-sms': 3,
@@ -37,8 +38,8 @@ const PRIORITY: Record<LiStageSlug, number> = {
   new: 1,
 }
 
-const NATIVE: LiStageSlug[] = [
-  'new', 'contacted', 'qualified', 'consultation-scheduled', 'consultation-completed',
+export const NATIVE: LiStageSlug[] = [
+  'new', 'contacted', 'engaged', 'qualified', 'consultation-scheduled', 'consultation-completed',
   'treatment-presented', 'financing', 'contract-signed', 'scheduled', 'completed', 'lost',
 ]
 
@@ -49,12 +50,16 @@ const PRESERVED: Array<{ slug: LiStageSlug; name: string }> = [
 ]
 
 /**
- * GHL stages that merely mean "not worked yet". They must never OVERRIDE a lead
- * LI has genuinely engaged: a GHL opp sitting in "No Communication" is stale the
- * moment LI sends the first text or places the first call. Won/lost/DND and real
- * funnel stages still apply — only these non-advancing buckets are guarded.
+ * GHL stages that merely mean "not worked yet" (or, for "contacted", mean
+ * "in cadence but no reply"). They must never OVERRIDE a lead LI has genuinely
+ * engaged: a GHL opp sitting in "No Communication"/"New" is stale the moment LI
+ * sends the first text, and a GHL opp still sitting in a "contacted"-family
+ * stage is stale the moment the lead actually replies (LI's 'engaged' stage
+ * ranks above 'contacted' in PRIORITY — see above). Won/lost/DND and the real
+ * funnel stages beyond contacted still apply — only these non-advancing
+ * buckets are guarded.
  */
-const DEMOTING_SLUGS: ReadonlySet<LiStageSlug> = new Set(['no-communication', 'new'])
+const DEMOTING_SLUGS: ReadonlySet<LiStageSlug> = new Set(['no-communication', 'new', 'contacted'])
 
 /** Engagement signals carried on the lead row (cheap — no join). */
 export type LeadEngagement = {

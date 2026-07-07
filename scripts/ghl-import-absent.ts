@@ -39,9 +39,9 @@ const CONCURRENCY = 10
 
 /** Most-advanced-wins when a person has several opportunities. */
 const PRIORITY: Record<LiStageSlug, number> = {
-  completed: 13, 'contract-signed': 12, scheduled: 11, financing: 10,
-  'treatment-presented': 9, 'consultation-completed': 8, 'consultation-scheduled': 7,
-  qualified: 6, contacted: 5, 'no-communication': 4, 'dnd-sms': 3, lost: 2, new: 1,
+  completed: 14, 'contract-signed': 13, scheduled: 12, financing: 11,
+  'treatment-presented': 10, 'consultation-completed': 9, 'consultation-scheduled': 8,
+  qualified: 7, engaged: 6, contacted: 5, 'no-communication': 4, 'dnd-sms': 3, lost: 2, new: 1,
 }
 
 function req(name: string): string {
