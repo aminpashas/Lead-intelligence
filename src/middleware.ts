@@ -121,8 +121,20 @@ export async function middleware(request: NextRequest) {
       }
     )
 
-    // Refresh session
-    await supabase.auth.getUser()
+    // Refresh session + auth backstop. `isPublicPath` has already let webhooks,
+    // cron, patient share-token portals, and service-key APIs (/api/v1, /api/voice)
+    // through above, so anything reaching here is a session-scoped route. Reject
+    // unauthenticated requests so a route that forgets its own `getUser()` check
+    // is not exposed to the anonymous internet (defense-in-depth; each route still
+    // authenticates itself). Requests bearing a share token or bearer/service key
+    // pass through to self-authenticate.
+    const { data: { user } } = await supabase.auth.getUser()
+    const carriesToken =
+      !!request.headers.get('x-share-token') || !!request.headers.get('authorization')
+    if (!user && !carriesToken) {
+      const res = NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return setCorsHeaders(res, origin)
+    }
     return setCorsHeaders(supabaseResponse, origin)
   }
 

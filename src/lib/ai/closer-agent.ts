@@ -16,6 +16,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildSafeLeadContext, checkResponseCompliance, logHIPAAEvent, scrubPHI } from './hipaa'
+import { wrapUserContent } from './prompt-guard'
 import type { AgentContext, AgentResponse } from './agent-types'
 import { formatPatientPsychologyForPrompt, buildQualificationStatus, isDiscoveryComplete } from './agent-types'
 import { buildPricingIntegrityBlock } from './pricing-integrity'
@@ -646,11 +647,17 @@ export async function closerAgentRespond(
 
   const systemPrompt = [composedPrompt, dateBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
-  // Scrub PHI from conversation history
-  const safeHistory = context.conversation_history.map((msg) => ({
-    role: msg.role as 'user' | 'assistant',
-    content: scrubPHI(msg.content),
-  }))
+  // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
+  // in delimiters. The autopilot's injection scan only neutralized the NEWEST
+  // inbound message; once it rolled into history it was replayed raw. Wrapping all
+  // prior user turns structurally separates them from instructions, so an
+  // injection payload buried in an earlier message can't masquerade as a command
+  // to the tool-calling agent.
+  const safeHistory = context.conversation_history.map((msg) => {
+    const role = msg.role as 'user' | 'assistant'
+    const scrubbed = scrubPHI(msg.content)
+    return { role, content: role === 'user' ? wrapUserContent(scrubbed) : scrubbed }
+  })
 
   // Proactive nurture touch: the patient didn't just message us, so add an
   // explicit instruction turn to give the model something to compose against.

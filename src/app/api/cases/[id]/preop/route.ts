@@ -6,6 +6,7 @@ import { defaultPreopContent, renderPreopHtml } from '@/lib/preop/template'
 import { getTreatmentClosingByCase, advanceStepByCase } from '@/lib/treatment/treatment-closing'
 import { sendEmail, sendEmailToLead } from '@/lib/messaging/resend'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
+import { searchHash } from '@/lib/encryption'
 
 /**
  * POST /api/cases/[id]/preop — Send pre-op instructions to the patient.
@@ -113,10 +114,30 @@ export async function POST(
         <p style="color:#bbb;font-size:12px;">This is a secure link intended only for you.</p>
       </div>`
 
-    if (caseRow.lead_id) {
+    // Resolve a lead so consent/opt-out is honored: prefer the linked lead,
+    // otherwise match the patient's email to a lead in this org. Only a truly
+    // standalone case (no matching lead) falls back to a transactional send —
+    // pre-op instructions for a scheduled surgery are relationship content, and
+    // sendEmail still honors the MESSAGING_DRY_RUN kill-switch.
+    let consentLeadId: string | null = caseRow.lead_id ?? null
+    if (!consentLeadId) {
+      const emailHash = searchHash(caseRow.patient_email.toLowerCase().trim())
+      if (emailHash) {
+        const { data: matchLead } = await supabase
+          .from('leads')
+          .select('id')
+          .eq('organization_id', orgId)
+          .eq('email_hash', emailHash)
+          .limit(1)
+          .maybeSingle()
+        consentLeadId = matchLead?.id ?? null
+      }
+    }
+
+    if (consentLeadId) {
       const result = await sendEmailToLead({
         supabase,
-        leadId: caseRow.lead_id,
+        leadId: consentLeadId,
         to: caseRow.patient_email,
         subject,
         html,

@@ -10,7 +10,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { processEncounter, extractFromTranscript } from '@/lib/ai/encounter-processor'
 import { verifyRetellWebhook } from '@/lib/voice/retell-client'
 import { decryptField, searchHash } from '@/lib/encryption'
-import { recordSmsEstimate } from '@/lib/billing/cost-events'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
+import { sendEmailToLead } from '@/lib/messaging/resend'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY || ''
@@ -332,8 +333,6 @@ export async function POST(req: NextRequest) {
 // and actions it automatically after the call ends.
 // ═══════════════════════════════════════════════════════════════
 
-const RETELL_API_KEY_FOR_FOLLOWUP = process.env.RETELL_API_KEY || ''
-
 async function sendPostCallFollowUps(
   supabase: SupabaseClient,
   params: {
@@ -367,7 +366,7 @@ async function sendPostCallFollowUps(
   // Get lead details
   const { data: lead } = await supabase
     .from('leads')
-    .select('first_name, last_name, phone, phone_formatted, email, sms_consent, sms_opt_out')
+    .select('first_name, phone, phone_formatted')
     .eq('id', leadId)
     .single()
 
@@ -376,25 +375,23 @@ async function sendPostCallFollowUps(
   // Get org details
   const { data: org } = await supabase
     .from('organizations')
-    .select('name, twilio_phone_number')
+    .select('name')
     .eq('id', orgId)
     .single()
 
   const practiceName = org?.name || 'our practice'
   const firstName = lead.first_name || 'there'
 
-  // Build the follow-up message
+  // Build the follow-up message. IMPORTANT: never invent pricing, financing, or
+  // insurance figures here — quoting numbers the practice hasn't set is a
+  // TILA/UDAAP exposure. Pricing is deferred to the consultation; the compliance
+  // filter (blockOnReview below) is the backstop if copy ever drifts.
   const lines: string[] = []
-  lines.push(`Hi ${firstName}! Thanks for calling ${practiceName}. Here's what we discussed: 🦷`)
+  lines.push(`Hi ${firstName}! Thanks for calling ${practiceName}. Here's a quick recap: 🦷`)
   lines.push('')
 
   if (wantsPricing) {
-    lines.push('📋 ALL-ON-4 INVESTMENT OVERVIEW:')
-    lines.push('• Single arch: $20,000–$30,000')
-    lines.push('• Full mouth: $40,000–$60,000')
-    lines.push('• Financing from ~$500–800/mo (60–84 months)')
-    lines.push('• Most insurance covers $1,500–$3,000')
-    lines.push('• HSA/FSA eligible (pre-tax savings!)')
+    lines.push(`We can walk you through pricing and financing options at your free consultation — every treatment plan is customized to you.`)
     lines.push('')
   }
 
@@ -410,35 +407,25 @@ async function sendPostCallFollowUps(
 
   const messageBody = lines.join('\n')
 
-  // Send SMS if requested and consent exists
-  if (wantsText && lead.sms_consent && !lead.sms_opt_out) {
-    // Stored values are encrypted — Twilio needs the plaintext E.164.
+  // Send SMS via the central gated primitive. sendSMSToLead enforces the
+  // MESSAGING_DRY_RUN / TEST_SEND_ALLOWLIST kill-switch, per-lead consent + opt-out,
+  // the AI compliance filter (aiGenerated), quiet hours, A2P, and cost capture —
+  // none of which the previous direct-Twilio-client path honored.
+  if (wantsText) {
+    // Stored values are encrypted — sendSMSToLead needs the plaintext E.164.
     const phone = decryptField(lead.phone_formatted) || decryptField(lead.phone)
     if (phone) {
-      try {
-        const twilio = await import('twilio')
-        const client = twilio.default(
-          process.env.TWILIO_ACCOUNT_SID,
-          process.env.TWILIO_AUTH_TOKEN
-        )
-        const sent = await client.messages.create({
-          body: messageBody,
-          from: process.env.TWILIO_PHONE_NUMBER,
-          to: phone,
-        })
+      const res = await sendSMSToLead({
+        supabase,
+        leadId,
+        to: phone,
+        body: messageBody,
+        caller: 'voice.post_call_followup',
+        aiGenerated: true,
+        blockOnReview: true,
+      })
+      if (res.sent) {
         console.log(`[Voice Events] Post-call SMS sent to ${leadId}`)
-
-        // Cost capture. This is the one SMS path that sends via the Twilio client directly rather
-        // than through sendSMSToLead, so it must record the estimated cost_event itself — otherwise
-        // these post-call texts silently escape the billing ledger.
-        void recordSmsEstimate(supabase, {
-          organizationId: orgId,
-          sid: sent.sid,
-          body: messageBody,
-          leadId,
-        })
-
-        // Log the message to the conversation (external_id ties it to the Twilio SID for reconcile).
         const { data: conv } = await supabase
           .from('conversations')
           .select('id')
@@ -457,79 +444,67 @@ async function sendPostCallFollowUps(
             body: messageBody,
             sender_type: 'ai',
             status: 'sent',
-            external_id: sent.sid,
+            external_id: res.sid,
             ai_generated: true,
-            metadata: { trigger: 'post_call_followup', retell_call_id: RETELL_API_KEY_FOR_FOLLOWUP },
+            metadata: { trigger: 'post_call_followup' },
           })
         }
-      } catch (smsErr) {
-        console.error('[Voice Events] Post-call SMS failed:', smsErr)
+      } else {
+        console.log(`[Voice Events] Post-call SMS not sent (${res.reason})`)
       }
     }
   }
 
-  // Send email follow-up via Resend
+  // Send email via the central gated primitive. sendEmailToLead enforces the
+  // kill-switch, per-lead EMAIL consent + opt-out (voice consent ≠ email consent),
+  // and the compliance filter — the previous raw fetch() honored none of these.
   if (wantsEmail && extracted && 'email' in extracted && extracted.email) {
     const toEmail = extracted.email as string
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'reconstruction@dionhealth.com'
-    const resendKey = process.env.RESEND_API_KEY
+    const htmlEmail = buildPostCallEmail({
+      firstName,
+      practiceName,
+      wantsPricing,
+      wantsAppointment,
+    })
 
-    if (resendKey && toEmail) {
-      try {
-        const htmlEmail = buildPostCallEmail({
-          firstName,
-          practiceName,
-          wantsPricing,
-          wantsAppointment,
+    const res = await sendEmailToLead({
+      supabase,
+      leadId,
+      to: toEmail,
+      subject: `Thanks for calling ${practiceName} — here's what we discussed`,
+      html: htmlEmail,
+      text: messageBody,
+      caller: 'voice.post_call_followup',
+      aiGenerated: true,
+      blockOnReview: true,
+    })
+
+    if (res.sent) {
+      console.log(`[Voice Events] Post-call email sent to lead ${leadId}`)
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (conv) {
+        await supabase.from('messages').insert({
+          organization_id: orgId,
+          conversation_id: conv.id,
+          lead_id: leadId,
+          direction: 'outbound',
+          channel: 'email',
+          body: `Post-call summary email sent to lead ${leadId}`,
+          sender_type: 'ai',
+          status: 'sent',
+          ai_generated: true,
+          metadata: { trigger: 'post_call_followup_email' },
         })
-
-        const emailRes = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${resendKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: `${practiceName} <${fromEmail}>`,
-            to: [toEmail],
-            subject: `Thanks for calling ${practiceName} — here's what we discussed`,
-            html: htmlEmail,
-          }),
-        })
-
-        if (emailRes.ok) {
-          console.log(`[Voice Events] Post-call email sent to ${toEmail}`)
-
-          // Log to conversation
-          const { data: conv } = await supabase
-            .from('conversations')
-            .select('id')
-            .eq('lead_id', leadId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single()
-
-          if (conv) {
-            await supabase.from('messages').insert({
-              organization_id: orgId,
-              conversation_id: conv.id,
-              lead_id: leadId,
-              direction: 'outbound',
-              channel: 'email',
-              body: `Post-call summary email sent to ${toEmail}`,
-              sender_type: 'ai',
-              status: 'sent',
-              ai_generated: true,
-              metadata: { trigger: 'post_call_followup_email', to_email: toEmail },
-            })
-          }
-        } else {
-          const err = await emailRes.text()
-          console.error('[Voice Events] Resend email failed:', emailRes.status, err)
-        }
-      } catch (emailErr) {
-        console.error('[Voice Events] Email send error:', emailErr)
       }
+    } else {
+      console.log(`[Voice Events] Post-call email not sent (${res.reason})`)
     }
   }
 }
@@ -546,16 +521,15 @@ function buildPostCallEmail(params: {
 }): string {
   const { firstName, practiceName, wantsPricing, wantsAppointment } = params
 
+  // No invented dollar figures — pricing/financing/insurance amounts are set per
+  // treatment plan at the consultation, not fabricated in an automated email
+  // (TILA/UDAAP). Point the patient to the consult instead.
   const pricingSection = wantsPricing ? `
     <div style="background:#f0f9ff;border-left:4px solid #0ea5e9;padding:20px 24px;margin:24px 0;border-radius:0 8px 8px 0;">
-      <h3 style="margin:0 0 12px;color:#0369a1;font-size:16px;font-weight:700;">📋 All-on-4 Investment Overview</h3>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• Single arch restoration</td><td style="padding:6px 0;color:#0369a1;font-weight:600;text-align:right;">$20,000 – $30,000</td></tr>
-        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• Full mouth (both arches)</td><td style="padding:6px 0;color:#0369a1;font-weight:600;text-align:right;">$40,000 – $60,000</td></tr>
-        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• Monthly financing options</td><td style="padding:6px 0;color:#0369a1;font-weight:600;text-align:right;">From ~$500–800/mo</td></tr>
-        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• Insurance benefit (typical)</td><td style="padding:6px 0;color:#0369a1;font-weight:600;text-align:right;">$1,500 – $3,000</td></tr>
-        <tr><td style="padding:6px 0;color:#374151;font-size:14px;">• HSA / FSA eligible</td><td style="padding:6px 0;color:#10b981;font-weight:600;text-align:right;">✓ Pre-tax savings</td></tr>
-      </table>
+      <h3 style="margin:0 0 12px;color:#0369a1;font-size:16px;font-weight:700;">💬 Pricing & Financing</h3>
+      <p style="margin:0;color:#374151;font-size:14px;line-height:1.6;">
+        Every treatment plan is customized, so your exact investment depends on your needs. We'll walk you through pricing, financing options, and how to use insurance or HSA/FSA benefits at your free consultation.
+      </p>
     </div>` : ''
 
   const appointmentSection = wantsAppointment ? `

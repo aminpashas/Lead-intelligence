@@ -28,7 +28,17 @@ export const PUBLIC_PREFIXES = [
   '/api/booking',
   '/api/webhooks',
   '/api/cron',
-  '/api/auth',
+  // Patient share-token portals (token is the capability; no session exists).
+  '/api/preop',         // pre-op instructions (share_token in path)
+  '/api/cases/patient', // treatment-plan view/accept (share_token in path)
+  // Self-authenticating machine callers — they verify a signature / service key
+  // rather than a session cookie, so the middleware auth backstop must not 401
+  // them (a legitimate caller never carries a session).
+  '/api/voice',         // Retell webhook signature / x-transfer-secret / bearer
+  '/api/v1',            // service key (verifyServiceKey + org allowlist)
+  // Email-link actions clicked from a mail client (no session). The handler
+  // authenticates the request via a signed token in the query string.
+  '/api/email/unsubscribe',
   '/_next',
   '/widget.js',
 ] as const

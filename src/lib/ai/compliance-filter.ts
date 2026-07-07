@@ -137,12 +137,19 @@ export function checkCompliance(body: string, ctx: ComplianceContext): Complianc
     reasons.push(`soft_profanity:${profanityHits.join(',')}`)
   }
 
-  // ── forbidden medical claims ──
+  // ── forbidden medical claims (absolute block) ──
+  // "cure", "guaranteed", "miracle", "FDA-approved", "100% safe" etc. are never
+  // legitimate in patient messaging regardless of caller. Previously these only
+  // flagged for review, so any path that didn't pass blockOnReview (campaign
+  // templates, content delivery, reminders) let them through to patients.
   for (const pattern of FORBIDDEN_CLAIMS) {
     const match = trimmed.match(pattern)
     if (match) {
-      reasons.push(`forbidden_claim:${match[0]}`)
-      requiresReview = true
+      return {
+        allowed: false,
+        reasons: [`forbidden_claim:${match[0].slice(0, 40)}`],
+        requiresReview: true,
+      }
     }
   }
 

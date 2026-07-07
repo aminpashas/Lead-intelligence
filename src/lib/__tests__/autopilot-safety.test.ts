@@ -59,7 +59,26 @@ describe('FIX 2 — compliance gate blocks forbidden content on AI sends (blockO
 
     expect(result.sent).toBe(false)
     if (!result.sent) {
-      expect(result.reason).toBe('compliance_review_required')
+      // Forbidden medical claims are now an ABSOLUTE block (compliance_blocked),
+      // not a soft review flag — they can never be sent regardless of caller.
+      expect(result.reason).toBe('compliance_blocked')
+    }
+  })
+
+  it('blocks a forbidden medical claim even without blockOnReview (absolute)', async () => {
+    const supabase = createConsentingSupabase()
+    const result = await sendSMSToLead({
+      supabase: supabase as never,
+      leadId: 'lead-1',
+      to: '+15555550123',
+      body: 'This is a miracle cure — guaranteed results!',
+      caller: 'test',
+      aiGenerated: true,
+      // NOTE: blockOnReview intentionally omitted — forbidden claims must still block.
+    })
+    expect(result.sent).toBe(false)
+    if (!result.sent) {
+      expect(result.reason).toBe('compliance_blocked')
     }
   })
 
