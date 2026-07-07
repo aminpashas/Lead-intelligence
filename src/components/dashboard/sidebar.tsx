@@ -17,6 +17,7 @@ import {
   Calendar,
   Target,
   Flame,
+  CircleCheckBig,
   RefreshCw,
   X,
   Building2,
@@ -74,6 +75,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Revenue',
     items: [
+      { name: 'Post-Close', href: '/post-close', icon: CircleCheckBig },
       { name: 'Cases', href: '/cases', icon: FolderHeart },
       { name: 'Contracts', href: '/contracts', icon: FileSignature },
     ],
@@ -93,7 +95,7 @@ const SETTINGS_ITEM: NavItem = { name: 'Settings', href: '/settings', icon: Sett
 // their nav stays on today's work — they still reach a single patient by opening
 // it from a consult or conversation. These pages also hard-redirect focused
 // staff server-side, so this is the nav mirror of that guard, not the guard.
-const FOCUSED_STAFF_HIDDEN_HREFS = new Set(['/pipeline', '/closing', '/leads'])
+const FOCUSED_STAFF_HIDDEN_HREFS = new Set(['/pipeline', '/closing', '/post-close', '/leads'])
 
 const SIDEBAR_COLLAPSED_KEY = 'li:sidebar-collapsed'
 

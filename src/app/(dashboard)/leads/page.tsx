@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
-import { SERVICE_KEYWORDS } from '@/lib/leads/service-line'
+import { serviceLineOrFilter } from '@/lib/leads/service-line'
 import { resolveLeadDateRange } from '@/lib/leads/date-range'
 
 // URL sort key → leads column, whitelisted so the param can't order by
@@ -78,19 +78,9 @@ export default async function LeadsPage({
     const v = params.campaign.replace(/["\\]/g, '')
     query = query.or(`campaign_attribution->>campaign_name.eq."${v}",utm_campaign.eq."${v}"`)
   }
-  if (params.service && SERVICE_KEYWORDS[params.service]) {
-    const conds: string[] = []
-    if (params.service === 'implants') conds.push('custom_fields->>treatment_interest.eq.implant')
-    if (params.service === 'tmj' || params.service === 'sleep_apnea') {
-      conds.push(`custom_fields->>treatment_interest.eq.${params.service}`)
-      conds.push(`tags.cs.{${params.service}}`)
-    }
-    for (const kw of SERVICE_KEYWORDS[params.service]) {
-      for (const field of ['utm_campaign', 'utm_source', 'campaign_attribution->>campaign_name']) {
-        conds.push(`${field}.ilike.%${kw}%`)
-      }
-    }
-    query = query.or(conds.join(','))
+  if (params.service) {
+    const or = serviceLineOrFilter(params.service)
+    if (or) query = query.or(or)
   }
   if (params.search) {
     // email/phone are encrypted at rest — ilike can't match ciphertext, so

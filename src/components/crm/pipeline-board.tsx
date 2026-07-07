@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
@@ -20,67 +20,57 @@ import { PipelineColumn } from './pipeline-column'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
-import { SERVICE_LINES, classifyLeadServiceLines } from '@/lib/leads/service-line'
+import { SERVICE_LINES } from '@/lib/leads/service-line'
 import { toast } from 'sonner'
 
 export function PipelineBoard({
   stages,
   leads: initialLeads,
   stageCounts,
+  totalLeadCount = 0,
+  serviceCounts = {},
+  activeService = null,
   probabilityByLead,
   suggestionByLead,
 }: {
   stages: PipelineStage[]
   leads: Lead[]
   /** True per-stage totals (stage_id → count), decoupled from the capped cards
-   *  actually rendered. Column headers show these instead of leads.length. */
+   *  actually rendered. Column headers show these instead of leads.length.
+   *  Treatment-filtered server-side when a service is active. */
   stageCounts?: Record<string, number>
+  /** Whole-book grand total for the "All" chip (unfiltered by treatment). */
+  totalLeadCount?: number
+  /** Whole-book per-service totals for the chips — computed server-side so the
+   *  chips reflect the real book, not the loaded card sample. */
+  serviceCounts?: Record<string, number>
+  /** Active treatment filter (service key) from the URL, or null for "All". */
+  activeService?: string | null
   probabilityByLead?: Record<string, number>
   suggestionByLead?: Record<string, StageSuggestion>
 }) {
   const [leads, setLeads] = useState(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
-  // null = "All" (no treatment filter). GHL splits treatments into separate
-  // pipelines; we keep one funnel and filter it down to a single service line.
-  const [serviceFilter, setServiceFilter] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => { setMounted(true) }, [])
 
-  // Classify each lead's service line(s) once. Recompute only when the lead set
-  // changes (drag updates stage_id, not attribution, so this stays cheap).
-  const serviceByLead = useMemo(() => {
-    const m: Record<string, string[]> = {}
-    for (const l of leads) m[l.id] = classifyLeadServiceLines(l)
-    return m
-  }, [leads])
+  // Drag optimism replaces server data locally, but a treatment switch is a
+  // navigation (see selectService) — so `leads` is always already scoped to the
+  // active service by the server. Render it as-is; no client-side filtering.
+  useEffect(() => { setLeads(initialLeads) }, [initialLeads])
 
-  // Per-service counts across the whole book — only offer a chip for services
-  // that actually have leads, so the row reflects this practice's mix.
-  const serviceCounts = useMemo(() => {
-    const c: Record<string, number> = {}
-    for (const lines of Object.values(serviceByLead)) {
-      for (const key of lines) c[key] = (c[key] ?? 0) + 1
-    }
-    return c
-  }, [serviceByLead])
-
-  // True grand total for the "All" chip — sum of the per-stage totals so it
-  // reflects the whole book, not the capped card sample (falls back to the
-  // loaded count if the server didn't supply stage totals).
-  const totalLeadCount = useMemo(
-    () => (stageCounts ? Object.values(stageCounts).reduce((a, b) => a + b, 0) : leads.length),
-    [stageCounts, leads.length]
-  )
-
-  // Leads shown on the board — all of them, or just the active treatment.
-  const visibleLeads = useMemo(
-    () =>
-      serviceFilter
-        ? leads.filter((l) => (serviceByLead[l.id] ?? []).includes(serviceFilter))
-        : leads,
-    [leads, serviceFilter, serviceByLead]
+  // Switching treatment is a server round-trip: the URL drives which service the
+  // board fetches (and counts), so clicking a chip shows that treatment's REAL
+  // leads across the funnel — not a filter of the ≤80/stage sample. Toggling the
+  // active chip (or "All") clears the filter.
+  const selectService = useCallback(
+    (key: string | null) => {
+      const next = key && key !== activeService ? `/pipeline?service=${key}` : '/pipeline'
+      router.push(next)
+    },
+    [activeService, router]
   )
 
   const sensors = useSensors(
@@ -148,25 +138,24 @@ export function PipelineBoard({
   )
 
   // Treatment filter chips — only services with leads get a chip. Mirrors GHL's
-  // "switch pipeline" but over one shared funnel. Rendered above the board.
+  // "switch pipeline" but over one shared funnel. Counts are whole-book totals
+  // computed server-side (serviceCounts), so the chips no longer disagree with
+  // the funnel. Clicking one re-scopes the board via the URL.
   const chipRow = (
     <div className="mb-4 flex flex-wrap items-center gap-2">
       <ServiceChip
         label="All"
         count={totalLeadCount}
-        active={serviceFilter === null}
-        onClick={() => setServiceFilter(null)}
+        active={activeService === null}
+        onClick={() => selectService(null)}
       />
-      {/* Per-service counts are over the loaded card sample (full-book service
-          classification isn't available server-side); the funnel columns show
-          true totals via stageCounts. */}
       {SERVICE_LINES.filter((s) => (serviceCounts[s.key] ?? 0) > 0).map((s) => (
         <ServiceChip
           key={s.key}
           label={s.label}
           count={serviceCounts[s.key]}
-          active={serviceFilter === s.key}
-          onClick={() => setServiceFilter((cur) => (cur === s.key ? null : s.key))}
+          active={activeService === s.key}
+          onClick={() => selectService(s.key)}
         />
       ))}
     </div>
@@ -179,9 +168,9 @@ export function PipelineBoard({
         {chipRow}
         <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-16rem)]">
           {stages.filter((s) => !s.is_lost).map((stage) => {
-            const stageLeads = visibleLeads.filter((l) => l.stage_id === stage.id)
+            const stageLeads = leads.filter((l) => l.stage_id === stage.id)
             return (
-              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={serviceFilter ? undefined : stageCounts?.[stage.id]} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
+              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={stageCounts?.[stage.id]} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
             )
           })}
         </div>
@@ -201,13 +190,13 @@ export function PipelineBoard({
         {stages
           .filter((s) => !s.is_lost)
           .map((stage) => {
-            const stageLeads = visibleLeads.filter((l) => l.stage_id === stage.id)
+            const stageLeads = leads.filter((l) => l.stage_id === stage.id)
             return (
               <PipelineColumn
                 key={stage.id}
                 stage={stage}
                 leads={stageLeads}
-                totalCount={serviceFilter ? undefined : stageCounts?.[stage.id]}
+                totalCount={stageCounts?.[stage.id]}
                 onLeadClick={(id) => router.push(`/leads/${id}`)}
                 probabilityByLead={probabilityByLead}
                 suggestionByLead={suggestionByLead}
