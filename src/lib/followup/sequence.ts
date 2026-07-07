@@ -8,11 +8,21 @@
 
 export type SequenceStep = { day: number; channel: 'email' | 'sms' }
 
-/** Default cadence: Day 0 email → Day 2 email nudge → Day 4 SMS (if reachable). */
+/**
+ * Default cadence: front-loaded 8 touches over ~14 days. Speed-to-lead — the
+ * bulk of the effort lands in the first 48 hours, then tapers to a Day-14
+ * breakup. Touches mix SMS and email to maximise reachability. The final
+ * Day-14 SMS is the "breakup" message.
+ */
 export const DEFAULT_FOLLOWUP_SEQUENCE: SequenceStep[] = [
-  { day: 0, channel: 'email' },
-  { day: 2, channel: 'email' },
-  { day: 4, channel: 'sms' },
+  { day: 0, channel: 'sms' },
+  { day: 1, channel: 'email' },
+  { day: 2, channel: 'sms' },
+  { day: 4, channel: 'email' },
+  { day: 7, channel: 'sms' },
+  { day: 10, channel: 'email' },
+  { day: 14, channel: 'email' },
+  { day: 14, channel: 'sms' },
 ]
 
 export type Enrollment = {
