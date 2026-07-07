@@ -37,6 +37,12 @@ export const smartListCriteriaSchema = z.object({
   states: z.array(z.string()).optional(),
   created_after: z.string().optional(),
   created_before: z.string().optional(),
+  /** Leads whose last contact is older than this ISO datetime OR who have never
+   *  been contacted (last_contacted_at is null — maximally stale). Powers the
+   *  "needs follow-up" segments used by the Pipeline recommendations engine. */
+  last_contacted_before: z.string().optional(),
+  /** Only leads that have never been contacted (last_contacted_at is null). */
+  never_contacted: z.boolean().optional(),
   has_phone: z.boolean().optional(),
   has_email: z.boolean().optional(),
   sms_consent: z.boolean().optional(),
