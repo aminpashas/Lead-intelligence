@@ -49,20 +49,24 @@ export const SERVICE_LINES: { key: string; label: string }[] = [
   { key: 'lanap', label: 'LANAP' },
 ]
 
+// Implants is the DEFAULT / residual service line for this practice. GHL modelled
+// each treatment as its own pipeline (AOX Nurturing Database, Full-Arch Leads, …);
+// the stage reconcile folds every pipeline onto LI's shared funnel and DROPS which
+// pipeline a lead came from, so the ~48k historical GHL/WhatConverts import lands
+// with no treatment attribute at all. This is a full-arch implant practice — the
+// niche book (TMJ/Sleep/Cosmetic/LANAP) is tiny (~1.7k) and precisely signalled —
+// so a lead is an implant lead when it carries an explicit implant signal OR
+// matches NO niche service. (Part 2 — serviceLineFromPipelineName + the reconcile
+// stamper — additionally writes an explicit implants/… tag going forward.)
+const NICHE_SERVICES = ['cosmetic', 'tmj', 'sleep_apnea', 'lanap'] as const
+
 /**
- * PostgREST `.or()` condition string that selects the leads of a single service
- * line, server-side, over the whole book. This is the SQL twin of
- * `classifyLeadServiceLines` — the client classifier reads a lead already in
- * hand, this one filters/counts the full table without loading it. Both the
- * /leads table filter and the pipeline board's treatment chips share this so
- * their numbers agree (the old board classified only the loaded card sample,
- * which is why "All 48044" sat next to "Implants 2").
- *
- * Returns null for an unknown service key. Mirrors the explicit-signal +
- * keyword-fallback structure of the classifier; note cosmetic/lanap have no
- * explicit tag/interest writer yet, so they match on keywords only.
+ * The positive PostgREST conditions that select a single service line's explicit
+ * signals: treatment_interest + real intake tags + campaign/UTM keywords. Shared
+ * by `serviceLineOrFilter` (which additionally builds the implants residual).
+ * Returns null for an unknown service key.
  */
-export function serviceLineOrFilter(service: string): string | null {
+function serviceConditions(service: string): string[] | null {
   const keywords = SERVICE_KEYWORDS[service]
   if (!keywords) return null
 
@@ -78,7 +82,60 @@ export function serviceLineOrFilter(service: string): string | null {
       conds.push(`${field}.ilike.%${kw}%`)
     }
   }
+  return conds
+}
+
+/**
+ * PostgREST `.or()` condition string that selects the leads of a single service
+ * line, server-side, over the whole book. This is the SQL twin of
+ * `classifyLeadServiceLines` — the client classifier reads a lead already in
+ * hand, this one filters/counts the full table without loading it. Both the
+ * /leads table filter and the pipeline board's treatment chips share this so
+ * their numbers agree (the old board classified only the loaded card sample,
+ * which is why "All 48044" sat next to "Implants 2").
+ *
+ * Implants is the residual line: its filter is `<explicit implant signals> OR
+ * <matches no niche signal>`. Niche services are their positive signals only.
+ * Returns null for an unknown service key.
+ */
+export function serviceLineOrFilter(service: string): string | null {
+  const conds = serviceConditions(service)
+  if (!conds) return null
+
+  if (service === 'implants') {
+    // Residual: a lead is implants unless it matches a niche service. Expressed
+    // as an AND of NULL-SAFE negations — a bare `not.or(ilike…)` is wrong because
+    // `ilike` on a NULL column yields NULL (not false), and `NOT(NULL)` is NULL,
+    // so every lead with null UTM fields (the ~48k historical book) would be
+    // silently dropped. Each keyword clause is `(field is null OR field not ilike
+    // …)` so a missing value reads as "not that niche".
+    return [...conds, nicheExclusionGroup()].join(',')
+  }
   return conds.join(',')
+}
+
+/**
+ * A PostgREST `and(…)` group that is TRUE for leads matching NO niche service,
+ * with explicit NULL handling on every keyword field. The SQL half of "implants
+ * is the residual"; kept in lockstep with SERVICE_KEYWORDS / SERVICE_TAGS so it
+ * negates exactly the same signals the niche filters select.
+ */
+function nicheExclusionGroup(): string {
+  const fields = ['utm_campaign', 'utm_source', 'campaign_attribution->>campaign_name']
+  const parts: string[] = []
+  // treatment_interest is a single value → "not any niche interest" (null-safe).
+  parts.push(
+    `or(custom_fields->>treatment_interest.is.null,custom_fields->>treatment_interest.not.in.(${NICHE_SERVICES.join(',')}))`
+  )
+  // tags never null (defaults to []): contains none of the niche intake tags.
+  const nicheTags = new Set(NICHE_SERVICES.flatMap((s) => SERVICE_TAGS[s] ?? []))
+  for (const t of nicheTags) parts.push(`tags.not.cs.{"${t}"}`)
+  // keyword fields are nullable → null OR not-matching counts as "not niche".
+  const nicheKeywords = new Set(NICHE_SERVICES.flatMap((s) => SERVICE_KEYWORDS[s] ?? []))
+  for (const kw of nicheKeywords) {
+    for (const field of fields) parts.push(`or(${field}.is.null,${field}.not.ilike.%${kw}%)`)
+  }
+  return `and(${parts.join(',')})`
 }
 
 /**
@@ -86,6 +143,9 @@ export function serviceLineOrFilter(service: string): string | null {
  * key — a lead can plausibly touch more than one (e.g. an "arch" campaign that
  * also mentions cosmetic). The client-side twin of `serviceLineOrFilter`; keep
  * the two in sync so the board filter and the table filter agree.
+ *
+ * Implants is the residual default: a lead with an explicit implant signal, OR
+ * with NO niche signal at all, is an implant lead (see NICHE_SERVICES above).
  */
 export function classifyLeadServiceLines(lead: Lead): string[] {
   const interest = String(
@@ -101,8 +161,7 @@ export function classifyLeadServiceLines(lead: Lead): string[] {
     .join(' ')
     .toLowerCase()
 
-  const matched: string[] = []
-  for (const { key } of SERVICE_LINES) {
+  const matches = (key: string): boolean => {
     // Explicit treatment_interest: implants store 'implant', the rest store the
     // service key verbatim (see the ingestion/onboarding writers).
     const explicit =
@@ -110,8 +169,56 @@ export function classifyLeadServiceLines(lead: Lead): string[] {
         ? interest === 'implant' || interest === 'implants'
         : interest === key
     const tagged = (SERVICE_TAGS[key] ?? []).some((t) => tags.includes(t))
-    const keyworded = SERVICE_KEYWORDS[key].some((kw) => haystack.includes(kw))
-    if (explicit || tagged || keyworded) matched.push(key)
+    const keyworded = (SERVICE_KEYWORDS[key] ?? []).some((kw) => haystack.includes(kw))
+    return explicit || tagged || keyworded
   }
+
+  // Niche first (order-preserving via SERVICE_LINES), then implants as either an
+  // explicit match or the residual when nothing niche matched.
+  const niche = SERVICE_LINES.map((s) => s.key)
+    .filter((k): k is (typeof NICHE_SERVICES)[number] =>
+      (NICHE_SERVICES as readonly string[]).includes(k)
+    )
+    .filter(matches)
+  const matched: string[] = []
+  if (matches('implants') || niche.length === 0) matched.push('implants')
+  matched.push(...niche)
   return matched
+}
+
+// GHL pipeline-name → service-line patterns. GHL carries the treatment as the
+// PIPELINE the opportunity lives in ("AOX Nurturing Database", "Full-Arch Leads",
+// "TMJ", …); the stage reconcile otherwise discards it. Niche patterns are checked
+// BEFORE implants so a dedicated niche pipeline wins, and implants stays the last
+// (broadest) known pattern — an unrecognised pipeline returns null so the reconcile
+// stamper never mislabels. Word-boundary anchored to avoid stray substring hits.
+const PIPELINE_SERVICE_PATTERNS: { service: string; test: RegExp }[] = [
+  { service: 'tmj', test: /\btmj\b/i },
+  { service: 'sleep_apnea', test: /\b(sleep|apnea)\b/i },
+  { service: 'lanap', test: /\blanap\b/i },
+  { service: 'cosmetic', test: /\b(veneers?|cosmetic|makeover)\b/i },
+  { service: 'implants', test: /\b(aox|ao4|all[-\s]?on[-\s]?\d?|full[-\s]?arch|implants?|arch)\b/i },
+]
+
+/**
+ * Derive the canonical service-line key from a GHL pipeline name, or null when
+ * the name matches no known treatment. Used by the reconcile stamper (Part 2) to
+ * write an explicit service tag onto each matched lead so the historical book
+ * gains precise treatment attribution going forward.
+ */
+export function serviceLineFromPipelineName(name: string | null | undefined): string | null {
+  if (!name) return null
+  for (const { service, test } of PIPELINE_SERVICE_PATTERNS) {
+    if (test.test(name)) return service
+  }
+  return null
+}
+
+/**
+ * The tag the reconcile stamper writes for a service line — the canonical key,
+ * which both `serviceConditions` (via SERVICE_TAGS) and `classifyLeadServiceLines`
+ * already recognise. Returns null for an unknown service.
+ */
+export function serviceLineTag(service: string): string | null {
+  return SERVICE_KEYWORDS[service] ? service : null
 }

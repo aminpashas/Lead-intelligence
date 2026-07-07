@@ -18,6 +18,7 @@ import { fetchPipelines, searchOpportunities } from './client'
 import { searchHash } from '@/lib/encryption'
 import { formatToE164 } from '@/lib/leads/phone'
 import { resolveReconcileTarget, type LiStageSlug, type ReconcileTarget } from './reconcile-map'
+import { serviceLineFromPipelineName, serviceLineTag } from '@/lib/leads/service-line'
 import type { GhlConfig } from './types'
 
 /** Most-advanced-wins priority when a lead has multiple opportunities. */
@@ -153,6 +154,8 @@ export type ReconcileReport = {
   stageChanges: number
   smsSuppressed: number
   allChannelSuppressed: number
+  /** Service-line tags stamped onto leads from their GHL pipeline name. */
+  serviceTagsStamped: number
   /** stage slug -> projected/applied count, for observability. */
   afterDistribution: Record<string, number>
 }
@@ -164,6 +167,7 @@ type LeadRow = {
   email_hash: string | null
   phone_hash: string | null
   consultation_date: string | null
+  tags: string[] | null
 } & LeadEngagement
 
 type LeadPlan = {
@@ -179,6 +183,10 @@ type LeadPlan = {
   realBooking: boolean
   /** LI lifecycle status — a terminal status outranks an unverified GHL consult claim. */
   liStatus: string | null
+  /** The lead's current tags — to append service tags idempotently. */
+  currentTags: string[]
+  /** Service-line tags derived from the lead's GHL pipeline(s), union across opps. */
+  serviceTags: Set<string>
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -240,12 +248,21 @@ export async function reconcileGhlStages(
     return {
       status: 'skipped', fetched: 0, mapped: 0, noContact: 0, unmapped: 0, matched: 0,
       unmatched: 0, leadsAffected: 0, stageChanges: 0, smsSuppressed: 0, allChannelSuppressed: 0,
-      afterDistribution: {},
+      serviceTagsStamped: 0, afterDistribution: {},
     }
   }
 
   // ---- Phase A: read every opportunity, key by contact hash ----
-  type OppRec = { emailHash: string | null; phoneHash: string | null; target: ReconcileTarget }
+  // Also capture the treatment (service line) the opp's PIPELINE encodes — GHL
+  // models each treatment as its own pipeline (AOX Nurturing Database, Full-Arch
+  // Leads, …). The stage map otherwise discards it; we stamp it as a tag so the
+  // historical book gains precise treatment attribution going forward.
+  type OppRec = {
+    emailHash: string | null
+    phoneHash: string | null
+    target: ReconcileTarget
+    serviceTag: string | null
+  }
   const oppRecs: OppRec[] = []
   let fetched = 0
   let noContact = 0
@@ -254,6 +271,9 @@ export async function reconcileGhlStages(
   for (const pipeline of targets) {
     const stageName = new Map<string, string>()
     for (const st of pipeline.stages ?? []) stageName.set(st.id, st.name)
+    // One derivation per pipeline: name -> service key -> canonical tag (or null).
+    const pipelineService = serviceLineFromPipelineName(pipeline.name)
+    const pipelineServiceTag = pipelineService ? serviceLineTag(pipelineService) : null
 
     let startAfter: string | undefined
     let startAfterId: string | undefined
@@ -269,7 +289,7 @@ export async function reconcileGhlStages(
         const emailHash = email ? searchHash(email) : null
         const phoneHash = phoneFormatted ? searchHash(phoneFormatted) : null
         if (!emailHash && !phoneHash) { noContact += 1; continue }
-        oppRecs.push({ emailHash, phoneHash, target })
+        oppRecs.push({ emailHash, phoneHash, target, serviceTag: pipelineServiceTag })
       }
       if (!page.nextStartAfter || !page.nextStartAfterId) break
       startAfter = page.nextStartAfter
@@ -282,7 +302,7 @@ export async function reconcileGhlStages(
   const byEmail = new Map<string, LeadRow>()
   const byPhone = new Map<string, LeadRow>()
   const SELECT =
-    'id, stage_id, sms_consent_status, email_hash, phone_hash, consultation_date, status, total_messages_sent, total_messages_received, last_contacted_at, last_responded_at'
+    'id, stage_id, sms_consent_status, email_hash, phone_hash, consultation_date, status, total_messages_sent, total_messages_received, last_contacted_at, last_responded_at, tags'
   const PAGE = 1000
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
@@ -337,6 +357,10 @@ export async function reconcileGhlStages(
     const allChannelDnd = Boolean(rec.target.allChannelDnd) || Boolean(existing?.allChannelDnd)
     let target = existing?.target ?? rec.target
     if (existing && PRIORITY[rec.target.stageSlug] > PRIORITY[existing.target.stageSlug]) target = rec.target
+    // Union the service tags across every opp for this person (a lead can sit in
+    // more than one treatment pipeline — e.g. AOX and TMJ — and belongs to both).
+    const serviceTags = existing?.serviceTags ?? new Set<string>()
+    if (rec.serviceTag) serviceTags.add(rec.serviceTag)
     plans.set(lead.id, {
       leadId: lead.id,
       currentStageId: lead.stage_id,
@@ -350,6 +374,8 @@ export async function reconcileGhlStages(
         hasFutureAppointment: leadsWithFutureAppt.has(lead.id),
       }),
       liStatus: lead.status,
+      currentTags: lead.tags ?? [],
+      serviceTags,
     })
   }
 
@@ -361,6 +387,7 @@ export async function reconcileGhlStages(
   let stageChanges = 0
   let smsSuppressed = 0
   let allChannelSuppressed = 0
+  let serviceTagsStamped = 0
 
   for (const plan of plans.values()) {
     // A stale GHL "No Communication"/"New" must not overwrite a lead LI has
@@ -395,6 +422,13 @@ export async function reconcileGhlStages(
       update.voice_consent_source = 'ghl_reconcile'
       allChannelSuppressed += 1
     }
+    // Idempotently stamp the treatment tag(s) the lead's GHL pipeline(s) encode.
+    // Only writes when a tag is genuinely missing, so re-runs are no-ops.
+    const missingTags = [...plan.serviceTags].filter((t) => !plan.currentTags.includes(t))
+    if (missingTags.length) {
+      update.tags = [...plan.currentTags, ...missingTags]
+      serviceTagsStamped += missingTags.length
+    }
     if (Object.keys(update).length === 0) continue
     ops.push({ leadId: plan.leadId, update, stageSlug })
     if (stageSlug) {
@@ -420,6 +454,7 @@ export async function reconcileGhlStages(
     stageChanges,
     smsSuppressed,
     allChannelSuppressed,
+    serviceTagsStamped,
     afterDistribution,
   }
   if (dryRun) return report
