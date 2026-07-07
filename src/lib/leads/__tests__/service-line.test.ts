@@ -1,0 +1,94 @@
+import { describe, it, expect } from 'vitest'
+import {
+  classifyLeadServiceLines,
+  serviceLineOrFilter,
+  serviceLineFromPipelineName,
+} from '@/lib/leads/service-line'
+import type { Lead } from '@/types/database'
+
+// Minimal Lead fixture — only the fields the classifier reads matter.
+const lead = (o: Partial<Lead>): Lead =>
+  ({
+    tags: [],
+    custom_fields: {},
+    utm_campaign: null,
+    utm_source: null,
+    campaign_attribution: null,
+    ...o,
+  }) as Lead
+
+describe('classifyLeadServiceLines — Implants is the residual default', () => {
+  it('classifies a lead with NO treatment signal as implants (the AOX/Full-Arch book)', () => {
+    // The ~48k historical GHL import lost its pipeline attribution on reconcile,
+    // so these carry nothing. For an implant-focused practice they are implants.
+    expect(classifyLeadServiceLines(lead({}))).toEqual(['implants'])
+  })
+
+  it('classifies an explicit implant signal as implants', () => {
+    expect(
+      classifyLeadServiceLines(lead({ custom_fields: { treatment_interest: 'implant' } }))
+    ).toEqual(['implants'])
+    expect(classifyLeadServiceLines(lead({ tags: ['full-arch-cold'] }))).toEqual(['implants'])
+  })
+
+  it('classifies a niche lead as ONLY that niche, not implants', () => {
+    expect(classifyLeadServiceLines(lead({ tags: ['src:tmj'] }))).toEqual(['tmj'])
+    expect(
+      classifyLeadServiceLines(lead({ custom_fields: { treatment_interest: 'cosmetic' } }))
+    ).toEqual(['cosmetic'])
+  })
+
+  it('classifies a lead with both implant and niche signals as both', () => {
+    const out = classifyLeadServiceLines(
+      lead({ custom_fields: { treatment_interest: 'implant' }, tags: ['src:tmj'] })
+    )
+    expect(out).toContain('implants')
+    expect(out).toContain('tmj')
+  })
+})
+
+describe('serviceLineOrFilter', () => {
+  it('niche filters are positive conditions only', () => {
+    const or = serviceLineOrFilter('tmj')
+    expect(or).toContain('tags.cs.{"src:tmj"}')
+    expect(or).not.toContain('not.or(')
+  })
+
+  it('implants filter adds a null-safe niche-exclusion residual clause', () => {
+    const or = serviceLineOrFilter('implants')!
+    // still carries the explicit implant signals
+    expect(or).toContain('tags.cs.{"full-arch-cold"}')
+    // …plus the residual: an AND of NULL-safe negations of every niche signal
+    expect(or).toContain('and(')
+    expect(or).toContain('tags.not.cs.{"src:tmj"}') // niche tag negated
+    expect(or).toContain('utm_campaign.is.null') // null-safe keyword guard
+    expect(or).toContain('utm_campaign.not.ilike.%tmj%')
+    expect(or).toContain('custom_fields->>treatment_interest.not.in.(cosmetic,tmj,sleep_apnea,lanap)')
+  })
+
+  it('returns null for an unknown service', () => {
+    expect(serviceLineOrFilter('nope')).toBeNull()
+  })
+})
+
+describe('serviceLineFromPipelineName (Part 2 — GHL pipeline → service)', () => {
+  it('maps implant pipelines', () => {
+    expect(serviceLineFromPipelineName('AOX Nurturing Database')).toBe('implants')
+    expect(serviceLineFromPipelineName('Full Arch Leads')).toBe('implants')
+    expect(serviceLineFromPipelineName('All-on-4 Consults')).toBe('implants')
+    expect(serviceLineFromPipelineName('Dental Implants')).toBe('implants')
+  })
+
+  it('maps niche pipelines to their service', () => {
+    expect(serviceLineFromPipelineName('TMJ Pipeline')).toBe('tmj')
+    expect(serviceLineFromPipelineName('Sleep Apnea')).toBe('sleep_apnea')
+    expect(serviceLineFromPipelineName('Veneers / Cosmetic')).toBe('cosmetic')
+    expect(serviceLineFromPipelineName('LANAP')).toBe('lanap')
+  })
+
+  it('returns null for an unrecognised / empty pipeline name', () => {
+    expect(serviceLineFromPipelineName('General Intake')).toBeNull()
+    expect(serviceLineFromPipelineName('')).toBeNull()
+    expect(serviceLineFromPipelineName(null)).toBeNull()
+  })
+})
