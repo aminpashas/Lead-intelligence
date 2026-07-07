@@ -32,6 +32,7 @@ import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
 import { deriveConsentFields } from '@/lib/consent/ingest'
 import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
 import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
+import { validateCustomFields } from '@/lib/webhooks/verify'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -72,6 +73,7 @@ interface DedupRow extends Partial<Record<AttrUtmCol, string | null>> {
   id: string
   external_ref: string | null
   campaign_attribution: Record<string, unknown> | null
+  custom_fields: Record<string, unknown> | null
 }
 
 interface IncomingAttribution extends Partial<Record<AttrUtmCol, string | null>> {
@@ -281,6 +283,16 @@ export async function POST(request: NextRequest) {
     utm_source, utm_medium, utm_campaign, utm_term, utm_content,
     gclid, fbclid, landing_page_url, referrer_url,
   }
+  // Arbitrary caller-supplied metadata (form answers, tags, quiz results). Kept as
+  // jsonb on the lead — previously silently dropped here. Object-only + size-capped
+  // via the shared validator so the column can't be used as a dumping ground.
+  const customFields =
+    b?.custom_fields && typeof b.custom_fields === 'object' && !Array.isArray(b.custom_fields)
+      ? (b.custom_fields as Record<string, unknown>)
+      : undefined
+  const cfError = validateCustomFields(customFields)
+  if (cfError) return cfError
+
   // Explicit DGS correlation id — preferred over regexing it out of notes for the
   // conversion writeback trigger. Accept either spelling.
   const external_ref = asStr(b?.external_ref) ?? asStr(b?.dgs_lead_id)
@@ -299,7 +311,7 @@ export async function POST(request: NextRequest) {
   const emailHash = email ? searchHash(email) : null
   const phoneHash = (phoneFormatted || phoneRaw) ? searchHash(phoneFormatted || phoneRaw) : null
   const DEDUP_COLS =
-    'id, external_ref, campaign_attribution, ' + ATTR_UTM_COLS.join(', ')
+    'id, external_ref, campaign_attribution, custom_fields, ' + ATTR_UTM_COLS.join(', ')
 
   // Dedup pass 0: exact correlation id. A re-POST with the same external_ref
   // is an update-intent call (DGS re-syncs attribution after its resolver
@@ -342,12 +354,25 @@ export async function POST(request: NextRequest) {
         .is('external_ref', null)
     }
     const attribution_updated = await mergeAttributionOnDedup(supabase, existing, incomingAttribution)
+
+    // Merge custom_fields per-key onto the existing lead — never clobber the whole
+    // object (a re-POST carrying only new answers must not wipe prior ones).
+    let custom_fields_updated = false
+    if (customFields && Object.keys(customFields).length > 0) {
+      const merged = { ...(existing.custom_fields ?? {}), ...customFields }
+      if (JSON.stringify(merged) !== JSON.stringify(existing.custom_fields ?? {})) {
+        const { error } = await supabase.from('leads').update({ custom_fields: merged }).eq('id', existing.id)
+        custom_fields_updated = !error
+      }
+    }
+
     return NextResponse.json(
       {
         id: existing.id,
         lead_id: existing.id,
         deduplicated: true,
         ...(attribution_updated ? { attribution_updated: true } : {}),
+        ...(custom_fields_updated ? { custom_fields_updated: true } : {}),
       },
       { status: 200 },
     )
@@ -398,6 +423,7 @@ export async function POST(request: NextRequest) {
     ...(referrer_url ? { referrer_url } : {}),
     ...(campaignAttribution ? { campaign_attribution: campaignAttribution } : {}),
     ...(external_ref ? { external_ref } : {}),
+    ...(customFields ? { custom_fields: customFields } : {}),
   })
 
   const { data: lead, error } = await supabase
