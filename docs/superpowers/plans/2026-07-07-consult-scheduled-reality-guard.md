@@ -50,17 +50,33 @@ Use `effectiveSlug` for `targetStageId` + the `stage_changed` activity. Net effe
 
 **Why map down to `contacted` and not "leave as-is":** leaving current-stage risks stranding leads in whatever stale stage they were in. `contacted` is the honest floor: "we've worked them, no confirmed consult."
 
-### 4. Backfill (one-time, read-only-then-write)
+### 3b. Terminal-status protection (added after prod check)
 
-After the guard ships, run the reconcile once in the normal cron path — it will pull the ~411 (minus any with a real booking) out of Consultation Scheduled into Contacted automatically. No separate migration needed; the guard makes the existing engine self-correcting. The **Bucket A cleanup** (`scripts/cleanup/bucket-a-consult-scheduled-reconcile.sql`, 17→Consultation Completed / 4→Lost) can then run and will stick, because those leads' GHL opps will reconcile to `contacted`/their status floor rather than back to `consultation-scheduled`.
+The DB check found **150 of the 411 have a terminal LI status** (133 `disqualified`, 17 `consultation_completed`). Flooring those to `contacted` would *reactivate* closed-out leads into the active column — a regression. So the guard is composed: `reconciledSlug(ghlSlug, realBooking, liStatus)`. When (and only when) the consult claim is unverified, a terminal LI status wins over the Contacted floor and routes to its own stage:
 
-## Sequencing (important)
+- `disqualified` / `lost` → **Lost**
+- `consultation_completed` → **Consultation Completed**
+- `completed` → **Completed**
 
-1. Ship the reality-guard (this plan).
-2. Let one reconcile pass run → Consultation Scheduled empties to only genuinely-booked leads (currently 0).
-3. Run the Bucket A cleanup script → the 21 attended-but-mislabeled leads settle into their correct terminal stage.
+A *real* booking still keeps even a previously-terminal lead in `consultation-scheduled` (they rebooked), and a genuine GHL advancement (`contract-signed`, `completed`, …) never routes through terminal protection, so it still wins.
 
-Running the cleanup **before** step 1 = reverted within hours.
+### 4. Self-healing backfill (no manual SQL)
+
+With terminal protection, the reconcile does the whole job on its next cron pass — no separate migration or cleanup script:
+
+- non-terminal + no booking → **Contacted**
+- `disqualified` → **Lost**
+- `consultation_completed` → **Consultation Completed**
+- real booking → stays **Consultation Scheduled**
+
+The earlier one-off `scripts/cleanup/bucket-a-consult-scheduled-reconcile.sql` (only handled the 21 Bucket A) is **superseded and removed** — the engine now corrects all 411 durably.
+
+## Sequencing
+
+1. Ship the terminal-aware reality-guard (this plan).
+2. Let one reconcile pass run → Consultation Scheduled self-corrects (empties to only genuinely-booked leads); disqualified/completed land in their terminal stages; the rest go to Contacted.
+
+No manual DB step required.
 
 ## Testing
 

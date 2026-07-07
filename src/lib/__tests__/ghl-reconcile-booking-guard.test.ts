@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hasRealBooking, bookingGuardedSlug, type BookingSignal } from '@/lib/ghl/reconcile'
+import { hasRealBooking, bookingGuardedSlug, reconciledSlug, type BookingSignal } from '@/lib/ghl/reconcile'
 
 const NOW = new Date('2026-07-07T12:00:00Z')
 const base: BookingSignal = { consultation_date: null, hasFutureAppointment: false }
@@ -37,5 +37,32 @@ describe('bookingGuardedSlug', () => {
     expect(bookingGuardedSlug('contract-signed', false)).toBe('contract-signed')
     expect(bookingGuardedSlug('lost', false)).toBe('lost')
     expect(bookingGuardedSlug('new', true)).toBe('new')
+  })
+})
+
+describe('reconciledSlug', () => {
+  it('floors an unverified consult claim to contacted for non-terminal leads', () => {
+    expect(reconciledSlug('consultation-scheduled', false, 'new')).toBe('contacted')
+    expect(reconciledSlug('consultation-scheduled', false, 'consultation_scheduled')).toBe('contacted')
+    expect(reconciledSlug('consultation-scheduled', false, null)).toBe('contacted')
+  })
+
+  it('routes a terminal-status lead to its own stage instead of reactivating to contacted', () => {
+    expect(reconciledSlug('consultation-scheduled', false, 'disqualified')).toBe('lost')
+    expect(reconciledSlug('consultation-scheduled', false, 'lost')).toBe('lost')
+    expect(reconciledSlug('consultation-scheduled', false, 'consultation_completed')).toBe('consultation-completed')
+    expect(reconciledSlug('consultation-scheduled', false, 'completed')).toBe('completed')
+  })
+
+  it('keeps a real booking in consultation-scheduled even for a previously-terminal lead (they rebooked)', () => {
+    expect(reconciledSlug('consultation-scheduled', true, 'disqualified')).toBe('consultation-scheduled')
+    expect(reconciledSlug('consultation-scheduled', true, 'new')).toBe('consultation-scheduled')
+  })
+
+  it('never routes a genuine GHL advancement through terminal protection', () => {
+    // Non-consult targets pass straight through regardless of LI status.
+    expect(reconciledSlug('contract-signed', false, 'disqualified')).toBe('contract-signed')
+    expect(reconciledSlug('completed', false, 'disqualified')).toBe('completed')
+    expect(reconciledSlug('contacted', false, 'consultation_completed')).toBe('contacted')
   })
 })
