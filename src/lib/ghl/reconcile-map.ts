@@ -24,6 +24,7 @@
 export type LiStageSlug =
   | 'new'
   | 'contacted'
+  | 'engaged'
   | 'qualified'
   | 'consultation-scheduled'
   | 'consultation-completed'
