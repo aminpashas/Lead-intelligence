@@ -47,6 +47,8 @@ export default async function PostClosePage() {
 
   const stageCounts: Record<string, number> = {}
   for (const p of perStage) stageCounts[p.stageId] = p.count
+  // Grand total for the "All" chip — sum of the fulfillment stages.
+  const totalLeadCount = perStage.reduce((sum, p) => sum + p.count, 0)
 
   const allLeads = decryptLeadsPII(perStage.flatMap((p) => p.rows))
 
@@ -59,7 +61,7 @@ export default async function PostClosePage() {
           Signed cases moving to treatment. Drag between stages to track fulfillment.
         </p>
       </header>
-      <PipelineBoard stages={allStages} leads={allLeads} stageCounts={stageCounts} />
+      <PipelineBoard stages={allStages} leads={allLeads} stageCounts={stageCounts} totalLeadCount={totalLeadCount} />
     </div>
   )
 }
