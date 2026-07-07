@@ -20,6 +20,7 @@ import { PipelineColumn } from './pipeline-column'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
+import type { TimelineEnrollment } from '@/lib/pipeline/contacted-state'
 import { SERVICE_LINES } from '@/lib/leads/service-line'
 import { toast } from 'sonner'
 
@@ -32,6 +33,7 @@ export function PipelineBoard({
   activeService = null,
   probabilityByLead,
   suggestionByLead,
+  enrollments,
 }: {
   stages: PipelineStage[]
   leads: Lead[]
@@ -48,6 +50,8 @@ export function PipelineBoard({
   activeService?: string | null
   probabilityByLead?: Record<string, number>
   suggestionByLead?: Record<string, StageSuggestion>
+  /** Follow-up cadence enrollment per lead (Following Up / Engaged stages only). */
+  enrollments?: Record<string, TimelineEnrollment>
 }) {
   const [leads, setLeads] = useState(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -170,7 +174,7 @@ export function PipelineBoard({
           {stages.filter((s) => !s.is_lost).map((stage) => {
             const stageLeads = leads.filter((l) => l.stage_id === stage.id)
             return (
-              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={stageCounts?.[stage.id]} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
+              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={stageCounts?.[stage.id]} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} enrollments={enrollments} />
             )
           })}
         </div>
@@ -201,6 +205,7 @@ export function PipelineBoard({
                 probabilityByLead={probabilityByLead}
                 suggestionByLead={suggestionByLead}
                 onApplySuggestion={handleApplySuggestion}
+                enrollments={enrollments}
               />
             )
           })}

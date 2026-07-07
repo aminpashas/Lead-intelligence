@@ -6,7 +6,7 @@ import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
 import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
-import { isPostCloseStage, isOperationalStage } from '@/lib/pipeline/stage-groups'
+import { isPostCloseStage, isOperationalStage, isActiveContactStage } from '@/lib/pipeline/stage-groups'
 import { SERVICE_LINES, serviceLineOrFilter } from '@/lib/leads/service-line'
 
 export default async function PipelinePage({
@@ -128,6 +128,37 @@ export default async function PipelinePage({
   // PII is encrypted at rest — decrypt server-side before rendering.
   const allLeads = decryptLeadsPII(perStage.flatMap((p) => p.rows))
   const nowMs = Date.now()
+
+  // Following Up / Engaged cards show a Day-N cadence badge sourced from the
+  // lead's follow_up_enrollments row. Scope the fetch to just those two
+  // stages' rendered leads — no need to touch enrollments for the rest of the
+  // board.
+  const activeContactStageIds = new Set(
+    allStages.filter((s) => isActiveContactStage(s.slug)).map((s) => s.id)
+  )
+  const activeContactLeadIds = allLeads
+    .filter((l) => l.stage_id && activeContactStageIds.has(l.stage_id))
+    .map((l) => l.id)
+
+  const enrollments: Record<
+    string,
+    { status: 'active' | 'completed' | 'stopped'; current_step: number; enrolled_at: string }
+  > = {}
+  if (activeContactLeadIds.length > 0) {
+    const { data: enr } = await supabase
+      .from('follow_up_enrollments')
+      .select('lead_id, status, current_step, enrolled_at')
+      .eq('organization_id', orgId)
+      .in('lead_id', activeContactLeadIds)
+    for (const e of enr || []) {
+      enrollments[e.lead_id] = {
+        status: e.status,
+        current_step: e.current_step,
+        enrolled_at: e.enrolled_at,
+      }
+    }
+  }
+
   const baseRate = computeCloseBaseRate(allLeads.map((l) => l.status))
   const probabilityByLead: Record<string, number> = {}
   const suggestionByLead: Record<string, StageSuggestion> = {}
@@ -156,6 +187,7 @@ export default async function PipelinePage({
         activeService={activeService}
         probabilityByLead={probabilityByLead}
         suggestionByLead={suggestionByLead}
+        enrollments={enrollments}
       />
     </div>
   )
