@@ -1,12 +1,15 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PipelineBoard } from '@/components/crm/pipeline-board'
+import { PipelineRecommendations } from '@/components/crm/pipeline-recommendations'
 import { decryptLeadsPII } from '@/lib/encryption'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
 import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
 import { isPostCloseStage, isOperationalStage } from '@/lib/pipeline/stage-groups'
+import { gatherPipelineSignals } from '@/lib/pipeline/pipeline-signals'
+import { buildRecommendations } from '@/lib/pipeline/recommendations'
 import { SERVICE_LINES, serviceLineOrFilter } from '@/lib/leads/service-line'
 
 export default async function PipelinePage({
@@ -128,6 +131,13 @@ export default async function PipelinePage({
   // PII is encrypted at rest — decrypt server-side before rendering.
   const allLeads = decryptLeadsPII(perStage.flatMap((p) => p.rows))
   const nowMs = Date.now()
+
+  // Board-level AI recommendations (Google/Meta-Ads-style band). Computed from
+  // cheap aggregate COUNT signals over the whole book — deliberately NOT the
+  // capped card sample above — so a suggestion like "142 cooling leads" reflects
+  // the real population, and its count matches what Apply will target.
+  const signals = await gatherPipelineSignals(supabase, orgId, allStages, serviceOr, nowMs)
+  const recommendations = buildRecommendations(signals)
   const baseRate = computeCloseBaseRate(allLeads.map((l) => l.status))
   const probabilityByLead: Record<string, number> = {}
   const suggestionByLead: Record<string, StageSuggestion> = {}
@@ -147,6 +157,7 @@ export default async function PipelinePage({
           Drag leads between stages to update their status
         </p>
       </header>
+      <PipelineRecommendations recommendations={recommendations} />
       <PipelineBoard
         stages={allStages}
         leads={allLeads}

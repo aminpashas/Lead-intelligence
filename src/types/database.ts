@@ -1025,6 +1025,11 @@ export type SmartListCriteria = {
   states?: string[]
   created_after?: string
   created_before?: string
+  /** Leads last contacted before this ISO datetime, OR never contacted (null).
+   *  Powers "needs follow-up" segments (Pipeline recommendations engine). */
+  last_contacted_before?: string
+  /** Only leads that have never been contacted (last_contacted_at is null). */
+  never_contacted?: boolean
   has_phone?: boolean
   has_email?: boolean
   sms_consent?: boolean

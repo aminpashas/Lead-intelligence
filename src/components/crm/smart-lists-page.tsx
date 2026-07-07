@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +27,17 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
   const [viewingList, setViewingList] = useState<SmartList | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  // Deep-link support: a Pipeline "Move to stage" recommendation lands here with
+  // ?list=<id> — auto-open that segment's detail (where the bulk stage-move
+  // action lives) so the user can review and apply the move.
+  useEffect(() => {
+    const listId = searchParams.get('list')
+    if (!listId) return
+    const match = initial.find((l) => l.id === listId)
+    if (match) setViewingList(match)
+  }, [searchParams, initial])
 
   async function refresh() {
     const res = await fetch('/api/smart-lists')

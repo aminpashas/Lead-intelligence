@@ -150,6 +150,19 @@ export function applySmartListCriteria(
     query = query.lte('created_at', criteria.created_before)
   }
 
+  // Contact recency (powers "needs follow-up" segments). A lead that has never
+  // been contacted (last_contacted_at IS NULL) is maximally stale, so the
+  // "before" filter deliberately includes nulls via an OR group. PostgREST ANDs
+  // this .or() group with every other filter above.
+  if (criteria.last_contacted_before) {
+    query = query.or(
+      `last_contacted_at.is.null,last_contacted_at.lt.${criteria.last_contacted_before}`
+    )
+  }
+  if (criteria.never_contacted === true) {
+    query = query.is('last_contacted_at', null)
+  }
+
   // Contact info requirements
   if (criteria.has_phone === true) {
     query = query.not('phone_formatted', 'is', null)
