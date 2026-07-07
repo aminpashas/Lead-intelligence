@@ -76,6 +76,38 @@ export function hasLiEngagement(lead: LeadEngagement): boolean {
   return Boolean(lead.last_contacted_at || lead.last_responded_at)
 }
 
+/** Evidence that a lead genuinely has a consult booked ahead — not just a GHL label. */
+export type BookingSignal = {
+  /** leads.consultation_date; only counts when in the future. */
+  consultation_date: string | null
+  /** A live appointment row with scheduled_at in the future and not canceled/no-show. */
+  hasFutureAppointment: boolean
+}
+
+/**
+ * True when LI can confirm a real, forward-looking booking. GHL's "appointment
+ * scheduled" opp asserts a consult, but the calendar of record is LI's — a claim
+ * with no future appointment row and no future consultation_date is unverified
+ * (e.g. the 411 SF leads whose only "consult date" is a years-old EHR visit).
+ * Pure so the reality-guard is unit-testable without DB I/O.
+ */
+export function hasRealBooking(signal: BookingSignal, now: Date = new Date()): boolean {
+  if (signal.hasFutureAppointment) return true
+  if (signal.consultation_date && new Date(signal.consultation_date) > now) return true
+  return false
+}
+
+/**
+ * Reality-guard for the reconcile target. A GHL "consultation-scheduled" claim only
+ * stands when a real booking backs it; otherwise it floors to "contacted" (worked,
+ * not booked) so the Consultation Scheduled column can't fill with phantom bookings.
+ * Every other target passes through untouched. Pure.
+ */
+export function bookingGuardedSlug(targetSlug: LiStageSlug, realBooking: boolean): LiStageSlug {
+  if (targetSlug === 'consultation-scheduled' && !realBooking) return 'contacted'
+  return targetSlug
+}
+
 export type ReconcileReport = {
   status: 'ok' | 'skipped'
   fetched: number
@@ -98,6 +130,7 @@ type LeadRow = {
   sms_consent_status: string | null
   email_hash: string | null
   phone_hash: string | null
+  consultation_date: string | null
 } & LeadEngagement
 
 type LeadPlan = {
@@ -109,6 +142,8 @@ type LeadPlan = {
   allChannelDnd: boolean
   /** LI has real activity — a stale GHL "No Communication"/"New" must not win. */
   engaged: boolean
+  /** LI can confirm a forward booking — an unverified GHL consult claim floors to contacted. */
+  realBooking: boolean
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -212,7 +247,7 @@ export async function reconcileGhlStages(
   const byEmail = new Map<string, LeadRow>()
   const byPhone = new Map<string, LeadRow>()
   const SELECT =
-    'id, stage_id, sms_consent_status, email_hash, phone_hash, status, total_messages_sent, total_messages_received, last_contacted_at, last_responded_at'
+    'id, stage_id, sms_consent_status, email_hash, phone_hash, consultation_date, status, total_messages_sent, total_messages_received, last_contacted_at, last_responded_at'
   const PAGE = 1000
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
@@ -228,6 +263,30 @@ export async function reconcileGhlStages(
       if (row.phone_hash && !byPhone.has(row.phone_hash)) byPhone.set(row.phone_hash, row)
     }
     if (rows.length < PAGE) break
+  }
+
+  // ---- Booking signal: which leads have a REAL forward appointment ----
+  // GHL only carries the label "appointment scheduled"; the calendar of record is
+  // LI's. A future, non-canceled appointment row is the ground truth that a consult
+  // is actually booked. Tiny table (bookings only land here via LI's own paths), so
+  // one indexed sweep keyed by lead_id is cheap.
+  const leadsWithFutureAppt = new Set<string>()
+  {
+    const nowIso = new Date().toISOString()
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('lead_id')
+        .eq('organization_id', organizationId)
+        .gt('scheduled_at', nowIso)
+        .not('status', 'in', '(canceled,no_show)')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1)
+      if (error) throw new Error(`appointment page error: ${error.message}`)
+      const rows = (data ?? []) as Array<{ lead_id: string | null }>
+      for (const r of rows) if (r.lead_id) leadsWithFutureAppt.add(r.lead_id)
+      if (rows.length < PAGE) break
+    }
   }
 
   // ---- Fold opportunities into one plan per lead (priority-resolved) ----
@@ -251,6 +310,10 @@ export async function reconcileGhlStages(
       smsDnd,
       allChannelDnd,
       engaged: hasLiEngagement(lead),
+      realBooking: hasRealBooking({
+        consultation_date: lead.consultation_date,
+        hasFutureAppointment: leadsWithFutureAppt.has(lead.id),
+      }),
     })
   }
 
@@ -267,13 +330,16 @@ export async function reconcileGhlStages(
     // A stale GHL "No Communication"/"New" must not overwrite a lead LI has
     // already engaged — LI activity wins. DND/consent writes below still apply.
     const demotesEngaged = DEMOTING_SLUGS.has(plan.target.stageSlug) && plan.engaged
-    afterDistribution[plan.target.stageSlug] = (afterDistribution[plan.target.stageSlug] ?? 0) + 1
-    const targetStageId = slugToId.get(plan.target.stageSlug)
+    // Reality-guard: a GHL "appointment scheduled" claim with no forward booking in
+    // LI floors to "contacted" so Consultation Scheduled only holds real bookings.
+    const effectiveSlug = bookingGuardedSlug(plan.target.stageSlug, plan.realBooking)
+    afterDistribution[effectiveSlug] = (afterDistribution[effectiveSlug] ?? 0) + 1
+    const targetStageId = slugToId.get(effectiveSlug)
     const update: Record<string, unknown> = {}
     let stageSlug: string | undefined
     if (targetStageId && targetStageId !== plan.currentStageId && !demotesEngaged) {
       update.stage_id = targetStageId
-      stageSlug = plan.target.stageSlug
+      stageSlug = effectiveSlug
       stageChanges += 1
     }
     if ((plan.smsDnd || plan.allChannelDnd) && plan.smsCurrent !== 'declined') {
