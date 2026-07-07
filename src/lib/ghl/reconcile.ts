@@ -108,6 +108,39 @@ export function bookingGuardedSlug(targetSlug: LiStageSlug, realBooking: boolean
   return targetSlug
 }
 
+/**
+ * LI statuses terminal enough to outrank an UNVERIFIED GHL consult claim. A GHL
+ * "appointment scheduled" label with no real booking must not reactivate a lead LI
+ * has already closed out — a disqualified/completed lead belongs in its own terminal
+ * stage, not pulled into Contacted. (A genuine GHL advancement — won/lost — is not
+ * routed through here, so it still wins.)
+ */
+const TERMINAL_STATUS_STAGE: Record<string, LiStageSlug> = {
+  disqualified: 'lost',
+  lost: 'lost',
+  consultation_completed: 'consultation-completed',
+  completed: 'completed',
+}
+
+/**
+ * Full reconcile destination for a GHL target: booking-guard first, then — only when
+ * the consult claim was unverified — let a terminal LI status win over the Contacted
+ * floor. A real forward booking (realBooking) always keeps the lead in
+ * consultation-scheduled, even if LI had previously marked them terminal (they rebooked).
+ * Pure so the whole decision is unit-testable without I/O.
+ */
+export function reconciledSlug(
+  ghlSlug: LiStageSlug,
+  realBooking: boolean,
+  liStatus: string | null,
+): LiStageSlug {
+  if (ghlSlug === 'consultation-scheduled' && !realBooking) {
+    const terminal = liStatus ? TERMINAL_STATUS_STAGE[liStatus] : undefined
+    if (terminal) return terminal
+  }
+  return bookingGuardedSlug(ghlSlug, realBooking)
+}
+
 export type ReconcileReport = {
   status: 'ok' | 'skipped'
   fetched: number
@@ -144,6 +177,8 @@ type LeadPlan = {
   engaged: boolean
   /** LI can confirm a forward booking — an unverified GHL consult claim floors to contacted. */
   realBooking: boolean
+  /** LI lifecycle status — a terminal status outranks an unverified GHL consult claim. */
+  liStatus: string | null
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -314,6 +349,7 @@ export async function reconcileGhlStages(
         consultation_date: lead.consultation_date,
         hasFutureAppointment: leadsWithFutureAppt.has(lead.id),
       }),
+      liStatus: lead.status,
     })
   }
 
@@ -331,8 +367,10 @@ export async function reconcileGhlStages(
     // already engaged — LI activity wins. DND/consent writes below still apply.
     const demotesEngaged = DEMOTING_SLUGS.has(plan.target.stageSlug) && plan.engaged
     // Reality-guard: a GHL "appointment scheduled" claim with no forward booking in
-    // LI floors to "contacted" so Consultation Scheduled only holds real bookings.
-    const effectiveSlug = bookingGuardedSlug(plan.target.stageSlug, plan.realBooking)
+    // LI floors to "contacted" so Consultation Scheduled only holds real bookings —
+    // and a terminal LI status (disqualified/completed) is routed to its own stage
+    // rather than reactivated into Contacted.
+    const effectiveSlug = reconciledSlug(plan.target.stageSlug, plan.realBooking, plan.liStatus)
     afterDistribution[effectiveSlug] = (afterDistribution[effectiveSlug] ?? 0) + 1
     const targetStageId = slugToId.get(effectiveSlug)
     const update: Record<string, unknown> = {}
