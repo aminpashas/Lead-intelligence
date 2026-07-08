@@ -33,6 +33,7 @@ export async function gatherPipelineSignals(
   nowMs: number
 ): Promise<PipelineSignals> {
   const staleCutoffIso = new Date(nowMs - STALE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  const nowIso = new Date(nowMs).toISOString()
 
   // One row of counts per stage. Each stage fires its counts in parallel; the
   // outer Promise.all fans out across stages too.
@@ -49,7 +50,7 @@ export async function gatherPipelineSignals(
         return q
       }
 
-      const [staleRes, hotRes, neverRes, readyRes] = await Promise.all([
+      const [staleRes, hotRes, neverRes, readyRes, deliberatingDueRes] = await Promise.all([
         // Stale & SMS-reachable: never contacted OR contacted before the cutoff.
         reachableSms(base()).or(
           `last_contacted_at.is.null,last_contacted_at.lt.${staleCutoffIso}`
@@ -61,6 +62,12 @@ export async function gatherPipelineSignals(
         // Flagged ready-to-book by the conversation-analysis sweep. Matches the
         // R5 stage-move criteria exactly ({stages:[id], conversation_intents}).
         base().eq('conversation_intent', 'ready_to_book'),
+        // Deliberating deals whose follow-up date has arrived, SMS-reachable.
+        // Matches the R0 criteria exactly (closing_temperatures + follow_up_before).
+        reachableSms(base())
+          .eq('closing_temperature', 'deliberating')
+          .not('closing_follow_up_at', 'is', null)
+          .lte('closing_follow_up_at', nowIso),
       ])
 
       return {
@@ -74,9 +81,10 @@ export async function gatherPipelineSignals(
         hotWarmReachableSms: hotRes.count ?? 0,
         neverContacted: neverRes.count ?? 0,
         readyToBook: readyRes.count ?? 0,
+        deliberatingDue: deliberatingDueRes.count ?? 0,
       }
     })
   )
 
-  return { stages: stageSignals, staleCutoffIso, staleDays: STALE_DAYS }
+  return { stages: stageSignals, staleCutoffIso, nowIso, staleDays: STALE_DAYS }
 }

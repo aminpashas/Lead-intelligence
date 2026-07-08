@@ -9,11 +9,12 @@ import {
 const sig = (o: Partial<StageSignal>): StageSignal => ({
   stageId: 'x', stageName: 'X', slug: 'x', position: 0, kind: 'sales',
   total: 0, staleReachableSms: 0, hotWarmReachableSms: 0, neverContacted: 0,
-  readyToBook: 0, ...o,
+  readyToBook: 0, deliberatingDue: 0, ...o,
 })
 
+const NOW_ISO = '2026-07-08T12:00:00.000Z'
 const signals = (stages: StageSignal[]): PipelineSignals => ({
-  stages, staleCutoffIso: '2026-07-01T00:00:00.000Z', staleDays: 7,
+  stages, staleCutoffIso: '2026-07-01T00:00:00.000Z', nowIso: NOW_ISO, staleDays: 7,
 })
 
 describe('buildRecommendations', () => {
@@ -75,5 +76,39 @@ describe('buildRecommendations', () => {
     )
     expect(recs[0].kind).toBe('strike_hot')
     expect(recs).toEqual([...recs].sort((x, y) => y.priority - x.priority))
+  })
+
+  it('surfaces deliberating deals that have come due, targeting the exact segment', () => {
+    const recs = buildRecommendations(
+      signals([sig({ stageId: 'tp', stageName: 'Treatment Presented', deliberatingDue: 9 })])
+    )
+    const due = recs.find((r) => r.kind === 'follow_up_deliberating')
+    expect(due).toBeDefined()
+    expect(due!.leadCount).toBe(9)
+    // Count == segment: same stage, deliberating, due at/ before now, SMS-reachable.
+    expect(due!.action).toMatchObject({
+      type: 'broadcast',
+      criteria: {
+        stages: ['tp'],
+        has_phone: true,
+        sms_consent: true,
+        closing_temperatures: ['deliberating'],
+        closing_follow_up_before: NOW_ISO,
+      },
+    })
+  })
+
+  it('stays silent below the deliberating-due threshold', () => {
+    const recs = buildRecommendations(
+      signals([sig({ deliberatingDue: CFG.minDeliberatingDue - 1 })])
+    )
+    expect(recs.some((r) => r.kind === 'follow_up_deliberating')).toBe(false)
+  })
+
+  it('ranks a due deliberating follow-up above strike-hot (highest lift)', () => {
+    const recs = buildRecommendations(
+      signals([sig({ stageId: 'tp', deliberatingDue: 6, hotWarmReachableSms: 40 })])
+    )
+    expect(recs[0].kind).toBe('follow_up_deliberating')
   })
 })

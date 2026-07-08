@@ -41,12 +41,17 @@ export type StageSignal = {
   /** Leads the conversation-analysis sweep flagged as ready to book — a real
    *  signal that they belong further down the funnel. */
   readyToBook: number
+  /** SMS-reachable deliberating deals whose follow-up date has ARRIVED (dated &
+   *  due). The closer agreed to circle back and today is the day. */
+  deliberatingDue: number
 }
 
 export type PipelineSignals = {
   stages: StageSignal[]
   /** ISO cutoff: leads last contacted before this are "stale". */
   staleCutoffIso: string
+  /** ISO "now" — the boundary for deliberating deals coming due. */
+  nowIso: string
   /** Human staleness window, e.g. 7, for copy ("7+ days"). */
   staleDays: number
 }
@@ -57,6 +62,7 @@ export type RecommendationKind =
   | 'strike_hot' // hot/warm leads sitting un-nudged → text now
   | 're_engage' // parked in Nurturing → win-back
   | 'advance_stage' // ready-to-book leads sitting too early → move forward
+  | 'follow_up_deliberating' // deliberating deals whose follow-up date has arrived
 
 /** What "Apply" does. All actions are review-first: they materialize a segment
  *  and hand off to an existing tool for the human to confirm. */
@@ -105,8 +111,11 @@ export const RECOMMENDATION_CONFIG = {
   minNeverContacted: 25,
   /** Don't surface an "advance stage" rec below this many ready-to-book leads. */
   minReadyToBook: 5,
+  /** Deliberating deals are precious and time-sensitive — surface even a few. */
+  minDeliberatingDue: 3,
   /** Base priority per kind before count/stage scaling. */
   basePriority: {
+    follow_up_deliberating: 78, // agreed follow-up coming due — a promise to keep, highest lift
     strike_hot: 70, // high intent, decaying fast — most urgent
     advance_stage: 60, // clear evidence they should move — act on it
     follow_up: 45,
@@ -158,6 +167,34 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
 
   for (const s of signals.stages) {
     const weight = stageWeight(s, maxPosition)
+
+    // R0 — Due follow-ups: deliberating deals whose agreed follow-up date has
+    // arrived. Highest lift of any rec — the patient chose to keep talking and
+    // today is the day, so a nudge lands on the warmest, most explicit intent
+    // we track. Fires only in sales stages (deliberating is a closing state).
+    if (s.kind === 'sales' && s.deliberatingDue >= cfg.minDeliberatingDue) {
+      recs.push({
+        id: `follow_up_deliberating:${s.stageId}`,
+        kind: 'follow_up_deliberating',
+        priority: clampPriority(
+          cfg.basePriority.follow_up_deliberating + Math.min(15, s.deliberatingDue / 2) * weight
+        ),
+        title: `Follow up with ${s.deliberatingDue.toLocaleString()} deliberating leads in ${s.stageName}`,
+        detail: `These deals were parked to circle back and the follow-up date has arrived. They saw the plan and asked for time — reaching out on the day you agreed is the highest-intent, best-timed touch you have.`,
+        leadCount: s.deliberatingDue,
+        cta: 'Reach out now',
+        action: {
+          type: 'broadcast',
+          channel: 'sms',
+          segmentName: `Due follow-up · ${s.stageName}`,
+          criteria: {
+            ...reachableSmsBase(s.stageId),
+            closing_temperatures: ['deliberating'],
+            closing_follow_up_before: signals.nowIso,
+          },
+        },
+      })
+    }
 
     // R1 — Strike while hot: high-intent leads in a sales stage that are
     // SMS-reachable and haven't been nudged. Most urgent because intent decays.

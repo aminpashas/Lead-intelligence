@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   Sparkles, Flame, MessageSquare, Send, RefreshCw, X,
-  ChevronDown, ChevronRight, Loader2, ArrowRight, MoveRight, Users,
+  ChevronDown, ChevronRight, Loader2, ArrowRight, MoveRight, Users, Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -30,6 +30,7 @@ function initials(name: string): string {
 }
 
 const KIND_ICON: Record<RecommendationKind, typeof Flame> = {
+  follow_up_deliberating: Clock,
   strike_hot: Flame,
   follow_up: MessageSquare,
   start_outreach: Send,

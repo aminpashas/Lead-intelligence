@@ -1034,6 +1034,12 @@ export type SmartListCriteria = {
   /** Leads last contacted before this ISO datetime, OR never contacted (null).
    *  Powers "needs follow-up" segments (Pipeline recommendations engine). */
   last_contacted_before?: string
+  /** Closer workflow temperature(s), e.g. ['deliberating']. Matches
+   *  leads.closing_temperature. */
+  closing_temperatures?: string[]
+  /** Deliberating deals whose follow-up date has arrived: closing_follow_up_at
+   *  IS NOT NULL AND <= this ISO datetime. Powers the "due follow-up" rec. */
+  closing_follow_up_before?: string
   /** Only leads that have never been contacted (last_contacted_at is null). */
   never_contacted?: boolean
   has_phone?: boolean
