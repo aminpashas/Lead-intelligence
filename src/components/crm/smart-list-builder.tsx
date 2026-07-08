@@ -61,6 +61,17 @@ const STATUS_OPTIONS = [
 
 const QUALIFICATION_OPTIONS = ['hot', 'warm', 'cold', 'unqualified']
 
+// value → trigger label maps (Base UI Select renders the raw value otherwise)
+const TAG_OPERATOR_LABELS: Record<string, string> = {
+  or: 'Any (OR)',
+  and: 'All (AND)',
+}
+
+const KEYWORD_MATCH_LABELS: Record<string, string> = {
+  any: 'Any',
+  all: 'All',
+}
+
 const SOURCE_TYPE_OPTIONS = [
   'google_ads', 'meta_ads', 'website_form', 'landing_page',
   'referral', 'walk_in', 'phone', 'email_campaign', 'sms_campaign', 'other',
@@ -296,7 +307,7 @@ export function SmartListBuilder({
                   className="flex-1"
                 />
                 {tagIds.length > 1 && (
-                  <Select value={tagOperator} onValueChange={(v) => setTagOperator(v as 'and' | 'or')}>
+                  <Select items={TAG_OPERATOR_LABELS} value={tagOperator} onValueChange={(v) => setTagOperator(v as 'and' | 'or')}>
                     <SelectTrigger className="w-24">
                       <SelectValue />
                     </SelectTrigger>
@@ -328,7 +339,7 @@ export function SmartListBuilder({
                   className="flex-1"
                 />
                 {keywordTerms.length > 1 && (
-                  <Select value={keywordMatch} onValueChange={(v) => setKeywordMatch(v as 'any' | 'all')}>
+                  <Select items={KEYWORD_MATCH_LABELS} value={keywordMatch} onValueChange={(v) => setKeywordMatch(v as 'any' | 'all')}>
                     <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="any">Any</SelectItem>

@@ -395,7 +395,7 @@ export function AIControlCenter({
                     {d.enabled ? (
                       <>
                         <div className="flex items-center gap-2 text-[13px]">
-                          <Select value={String(d.start)} onValueChange={(v) => v && updateDaySchedule(day.key, 'start', parseInt(v))}>
+                          <Select items={Object.fromEntries(Array.from({ length: 24 }, (_, i) => [String(i), `${i}:00`]))} value={String(d.start)} onValueChange={(v) => v && updateDaySchedule(day.key, 'start', parseInt(v))}>
                             <SelectTrigger className="w-20 h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
@@ -406,7 +406,7 @@ export function AIControlCenter({
                             </SelectContent>
                           </Select>
                           <span className="text-aurea-ink-3">to</span>
-                          <Select value={String(d.end)} onValueChange={(v) => v && updateDaySchedule(day.key, 'end', parseInt(v))}>
+                          <Select items={Object.fromEntries(Array.from({ length: 24 }, (_, i) => i + 1).map((i) => [String(i), `${i}:00`]))} value={String(d.end)} onValueChange={(v) => v && updateDaySchedule(day.key, 'end', parseInt(v))}>
                             <SelectTrigger className="w-20 h-8 text-xs">
                               <SelectValue />
                             </SelectTrigger>
@@ -417,7 +417,7 @@ export function AIControlCenter({
                             </SelectContent>
                           </Select>
                         </div>
-                        <Select value={d.mode || 'full'} onValueChange={(v) => v && updateDaySchedule(day.key, 'mode', v)}>
+                        <Select items={{ full: 'Full Auto', review_first: 'Review First', review_closers: 'Review Closers' }} value={d.mode || 'full'} onValueChange={(v) => v && updateDaySchedule(day.key, 'mode', v)}>
                           <SelectTrigger className="w-36 h-8 text-xs">
                             <SelectValue />
                           </SelectTrigger>

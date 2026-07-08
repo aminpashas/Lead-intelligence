@@ -22,6 +22,11 @@ type TargetRow = {
   direction: 'higher_is_better' | 'lower_is_better'
 }
 
+const DIRECTION_LABELS: Record<string, string> = {
+  higher_is_better: 'Higher',
+  lower_is_better: 'Lower',
+}
+
 export function AgentTargetsEditor({
   agentId,
   agentName,
@@ -152,6 +157,7 @@ export function AgentTargetsEditor({
                   </div>
                   <div className="col-span-2">
                     <Select
+                      items={DIRECTION_LABELS}
                       value={t.direction}
                       onValueChange={(v) => updateField(i, 'direction', v as TargetRow['direction'])}
                     >

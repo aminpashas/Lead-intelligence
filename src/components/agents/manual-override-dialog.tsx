@@ -9,6 +9,10 @@ import { type AgentGrade, STATUS_LABELS } from '@/lib/agents/grading'
 
 const GRADE_OPTIONS: AgentGrade[] = ['green', 'yellow', 'red', 'probation']
 
+const GRADE_LABELS: Record<string, string> = Object.fromEntries(
+  GRADE_OPTIONS.map((g) => [g, STATUS_LABELS[g]])
+)
+
 export function ManualOverrideDialog({
   agentId,
   agentName,
@@ -63,7 +67,7 @@ export function ManualOverrideDialog({
         <CardContent className="space-y-4">
           <div>
             <label className="text-xs font-medium uppercase text-muted-foreground">New status</label>
-            <Select value={grade} onValueChange={(v) => setGrade(v as AgentGrade)}>
+            <Select items={GRADE_LABELS} value={grade} onValueChange={(v) => setGrade(v as AgentGrade)}>
               <SelectTrigger className="mt-1">
                 <SelectValue />
               </SelectTrigger>

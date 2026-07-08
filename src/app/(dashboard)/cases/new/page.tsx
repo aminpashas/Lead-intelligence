@@ -45,6 +45,17 @@ const FILE_TYPE_OPTIONS: { value: CaseFileType; label: string; icon: React.Eleme
   { value: 'other', label: 'Other', icon: FileText },
 ]
 
+const FILE_TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  FILE_TYPE_OPTIONS.map((opt) => [opt.value, opt.label])
+)
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+  urgent: 'Urgent',
+}
+
 type PendingFile = {
   file: File
   fileType: CaseFileType
@@ -237,7 +248,7 @@ function NewCaseContent() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="priority">Priority</Label>
-                <Select value={form.priority} onValueChange={v => v && setForm({ ...form, priority: v })}>
+                <Select items={PRIORITY_LABELS} value={form.priority} onValueChange={v => v && setForm({ ...form, priority: v })}>
                   <SelectTrigger id="priority"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="low">Low</SelectItem>
@@ -357,7 +368,7 @@ function NewCaseContent() {
                         {(pf.file.size / 1024 / 1024).toFixed(1)} MB
                       </p>
                     </div>
-                    <Select value={pf.fileType} onValueChange={v => v && updateFileType(i, v as CaseFileType)}>
+                    <Select items={FILE_TYPE_LABELS} value={pf.fileType} onValueChange={v => v && updateFileType(i, v as CaseFileType)}>
                       <SelectTrigger className="w-[150px] h-8 text-xs">
                         <SelectValue />
                       </SelectTrigger>

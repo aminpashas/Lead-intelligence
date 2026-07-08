@@ -25,6 +25,47 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Plus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+// value → trigger label maps (Base UI Select renders the raw value otherwise)
+const DENTAL_CONDITION_LABELS: Record<string, string> = {
+  missing_all_upper: 'Missing All Upper Teeth',
+  missing_all_lower: 'Missing All Lower Teeth',
+  missing_all_both: 'Missing All Teeth (Both)',
+  missing_multiple: 'Missing Multiple Teeth',
+  failing_teeth: 'Failing/Decaying Teeth',
+  denture_problems: 'Denture Problems',
+  other: 'Other',
+}
+
+const FINANCING_INTEREST_LABELS: Record<string, string> = {
+  cash_pay: 'Cash Pay',
+  financing_needed: 'Needs Financing',
+  insurance_only: 'Insurance Only',
+  undecided: 'Undecided',
+}
+
+const BUDGET_RANGE_LABELS: Record<string, string> = {
+  under_10k: 'Under $10,000',
+  '10k_15k': '$10,000 - $15,000',
+  '15k_20k': '$15,000 - $20,000',
+  '20k_25k': '$20,000 - $25,000',
+  '25k_30k': '$25,000 - $30,000',
+  over_30k: 'Over $30,000',
+  unknown: 'Unknown',
+}
+
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  google_ads: 'Google Ads',
+  meta_ads: 'Meta / Facebook Ads',
+  website_form: 'Website Form',
+  landing_page: 'Landing Page',
+  referral: 'Patient Referral',
+  walk_in: 'Walk-In',
+  phone: 'Phone Call',
+  email_campaign: 'Email Campaign',
+  sms_campaign: 'SMS Campaign',
+  other: 'Other',
+}
+
 export function NewLeadDialog() {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -214,6 +255,7 @@ export function NewLeadDialog() {
               <div className="space-y-2">
                 <Label>Dental Condition</Label>
                 <Select
+                  items={DENTAL_CONDITION_LABELS}
                   value={form.dental_condition}
                   onValueChange={(v) => v && updateField('dental_condition', v)}
                 >
@@ -284,6 +326,7 @@ export function NewLeadDialog() {
               <div className="space-y-2">
                 <Label>Financing Interest</Label>
                 <Select
+                  items={FINANCING_INTEREST_LABELS}
                   value={form.financing_interest}
                   onValueChange={(v) => v && updateField('financing_interest', v)}
                 >
@@ -302,6 +345,7 @@ export function NewLeadDialog() {
               <div className="space-y-2">
                 <Label>Budget Range</Label>
                 <Select
+                  items={BUDGET_RANGE_LABELS}
                   value={form.budget_range}
                   onValueChange={(v) => v && updateField('budget_range', v)}
                 >
@@ -326,6 +370,7 @@ export function NewLeadDialog() {
               <div className="space-y-2">
                 <Label>Lead Source</Label>
                 <Select
+                  items={SOURCE_TYPE_LABELS}
                   value={form.source_type}
                   onValueChange={(v) => v && updateField('source_type', v)}
                 >

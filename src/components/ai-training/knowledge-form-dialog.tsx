@@ -119,7 +119,7 @@ export function KnowledgeFormDialog({ open, onOpenChange, article, onSave }: Kno
 
           <div>
             <Label htmlFor="article-category">Category</Label>
-            <Select value={category} onValueChange={(v) => v && setCategory(v as AIKnowledgeCategory)}>
+            <Select items={Object.fromEntries(CATEGORIES.map((c) => [c.value, c.label]))} value={category} onValueChange={(v) => v && setCategory(v as AIKnowledgeCategory)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>

@@ -211,7 +211,7 @@ export function ChatPlayground() {
       <div className="lg:col-span-3 flex flex-col">
         {/* Top Bar */}
         <div className="flex items-center gap-3 mb-3 flex-wrap">
-          <Select value={mode} onValueChange={(v) => v && setMode(v)}>
+          <Select items={Object.fromEntries(MODES.map((m) => [m.value, m.label]))} value={mode} onValueChange={(v) => v && setMode(v)}>
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="Select mode">
                 {MODES.find((m) => m.value === mode)?.label || mode}

@@ -106,6 +106,14 @@ const STEPS: Array<{ key: TreatmentClosingStep; label: string }> = [
   { key: 'records_confirmed', label: 'Records' },
 ]
 
+// Base UI's <SelectValue> renders the raw value, so map each value → trigger label.
+const FUNDING_TYPE_LABELS: Record<string, string> = {
+  loan: 'Lender loan',
+  cash: 'Cash / card',
+  in_house: 'In-house plan',
+  insurance: 'Insurance',
+}
+
 const RECORDS_LABELS: Record<keyof RecordsChecklist, string> = {
   medical_records: 'Medical records received',
   dental_records: 'Dental records received',
@@ -426,7 +434,7 @@ function FundingCard({ financing, closing, busy, onMarkFunded }: {
           <div className="flex items-end gap-2">
             <div className="flex-1 space-y-1">
               <Label className="text-[11px]">Payment method</Label>
-              <Select value={type} onValueChange={(v) => v && setType(v as typeof type)}>
+              <Select items={FUNDING_TYPE_LABELS} value={type} onValueChange={(v) => v && setType(v as typeof type)}>
                 <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="loan">Lender loan</SelectItem>

@@ -171,7 +171,7 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
       <div className="flex items-center justify-between">
         <p className="aurea-eyebrow">Choose a Scenario</p>
         <div className="flex items-center gap-2">
-          <Select value={agentFilter} onValueChange={(v) => v && setAgentFilter(v)}>
+          <Select items={{ all: 'All Agents', ...AGENT_LABELS }} value={agentFilter} onValueChange={(v) => v && setAgentFilter(v)}>
             <SelectTrigger className="h-8 w-[150px] text-xs">
               <SelectValue>
                 {agentFilter === 'all' ? 'All Agents' : AGENT_LABELS[agentFilter as RolePlayAgentTarget]}
@@ -263,7 +263,7 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Agent to Train</Label>
-                <Select value={customAgentTarget} onValueChange={(v) => v && setCustomAgentTarget(v as RolePlayAgentTarget)}>
+                <Select items={AGENT_LABELS} value={customAgentTarget} onValueChange={(v) => v && setCustomAgentTarget(v as RolePlayAgentTarget)}>
                   <SelectTrigger className="text-sm">
                     <SelectValue />
                   </SelectTrigger>
@@ -301,7 +301,7 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Personality</Label>
-                <Select value={customPersonality} onValueChange={(v) => v && setCustomPersonality(v)}>
+                <Select items={{ analytical: 'Analytical (data-driven)', driver: 'Driver (direct, results)', expressive: 'Expressive (emotional)', amiable: 'Amiable (warm, avoidant)', friendly: 'Friendly (open)', skeptical: 'Skeptical (distrusting)' }} value={customPersonality} onValueChange={(v) => v && setCustomPersonality(v)}>
                   <SelectTrigger className="text-sm">
                     <SelectValue />
                   </SelectTrigger>
@@ -329,7 +329,7 @@ export function RolePlayScenarioPicker({ onStart }: ScenarioPickerProps) {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Emotional State</Label>
-                <Select value={customEmotional} onValueChange={(v) => v && setCustomEmotional(v)}>
+                <Select items={{ curious: 'Curious', anxious: 'Anxious', frustrated: 'Frustrated', excited: 'Excited', skeptical: 'Skeptical', desperate: 'Desperate', indifferent: 'Indifferent' }} value={customEmotional} onValueChange={(v) => v && setCustomEmotional(v)}>
                   <SelectTrigger className="text-sm">
                     <SelectValue />
                   </SelectTrigger>

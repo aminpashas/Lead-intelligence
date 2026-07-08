@@ -55,6 +55,11 @@ const RANGE_PRESETS = [
   { label: 'Last 12 months', days: 365 },
 ] as const
 
+const RANGE_ITEMS: Record<string, string> = {
+  ...Object.fromEntries(RANGE_PRESETS.map((p) => [String(p.days), p.label])),
+  '0': 'Custom',
+}
+
 function defaultRange() {
   const end = new Date()
   const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -155,7 +160,7 @@ export function AgentScorecard() {
           >
             Protocols & discipline <ArrowRight className="h-3 w-3" />
           </Link>
-          <Select value={String(activePreset)} onValueChange={(v) => setPreset(Number(v))}>
+          <Select items={RANGE_ITEMS} value={String(activePreset)} onValueChange={(v) => setPreset(Number(v))}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="Range" />
             </SelectTrigger>

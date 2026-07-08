@@ -64,6 +64,14 @@ const PANEL_MIN_W = 300
 const PANEL_MAX_W = 720
 const PANEL_DEFAULT_W = 380
 
+// Base UI's <SelectValue> renders the raw value, so map each value → trigger label.
+const AI_MODE_LABELS: Record<string, string> = {
+  education: 'Educate',
+  objection_handling: 'Objections',
+  appointment_scheduling: 'Schedule',
+  follow_up: 'Follow Up',
+}
+
 type ThreadItem =
   | { type: 'day'; key: string; label: string }
   | { type: 'group'; key: string; messages: Message[] }
@@ -713,7 +721,7 @@ export function ConversationThread({
                 AI Agent Draft
               </Button>
               {/* Legacy mode selector as fallback */}
-              <Select value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
+              <Select items={AI_MODE_LABELS} value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
                 <SelectTrigger className="h-8 w-32 text-xs">
                   <SelectValue />
                 </SelectTrigger>

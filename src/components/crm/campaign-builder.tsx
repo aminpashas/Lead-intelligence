@@ -48,6 +48,15 @@ const DELAY_PRESETS = [
 
 const TEMPLATE_VARS = '{{first_name}}, {{practice_name}}, {{consultation_link}}'
 
+// Base UI's <SelectValue> renders the raw value, so map each value → trigger label.
+const TYPE_LABELS = {
+  drip: 'Drip (timed sequence)',
+  broadcast: 'Broadcast (one-time blast)',
+  trigger: 'Trigger (event-based)',
+}
+const CHANNEL_LABELS = { sms: 'SMS', email: 'Email' }
+const DELAY_LABELS = Object.fromEntries(DELAY_PRESETS.map((d) => [String(d.value), d.label]))
+
 export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmartListId?: string; autoOpen?: boolean } = {}) {
   const [open, setOpen] = useState(autoOpen ?? false)
   const [saving, setSaving] = useState(false)
@@ -175,7 +184,7 @@ export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmart
             </div>
             <div className="space-y-2">
               <Label>Type</Label>
-              <Select value={type} onValueChange={(v) => v && setType(v)}>
+              <Select items={TYPE_LABELS} value={type} onValueChange={(v) => v && setType(v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -271,6 +280,7 @@ export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmart
                       <div className="space-y-1.5">
                         <Label className="text-xs">Channel</Label>
                         <Select
+                          items={CHANNEL_LABELS}
                           value={step.channel}
                           onValueChange={(v) => v && updateStep(index, { channel: v as 'sms' | 'email' })}
                         >
@@ -297,6 +307,7 @@ export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmart
                           Delay
                         </Label>
                         <Select
+                          items={DELAY_LABELS}
                           value={String(step.delay_minutes)}
                           onValueChange={(v) => v && updateStep(index, { delay_minutes: parseInt(v) })}
                         >

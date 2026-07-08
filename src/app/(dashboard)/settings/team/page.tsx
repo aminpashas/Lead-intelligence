@@ -67,6 +67,10 @@ const ROLE_ICONS: Partial<Record<PracticeRole, React.ElementType>> = {
   admin: Shield,
 }
 
+const ROLE_ITEMS: Record<string, string> = Object.fromEntries(
+  ASSIGNABLE_ROLES.map((r) => [r, ROLE_LABELS[r]])
+)
+
 export default function TeamPage() {
   return (
     <RoleGuard requiredPermission="team:manage">
@@ -457,6 +461,7 @@ function InviteDialog({
         <div className="space-y-2">
           <Label htmlFor="invite-role">Role *</Label>
           <Select
+            items={ROLE_ITEMS}
             value={form.role}
             onValueChange={(val) => val && setForm({ ...form, role: val })}
             required
@@ -615,6 +620,7 @@ function EditMemberDialog({
           <div className="space-y-2">
             <Label htmlFor="edit-role">Role</Label>
             <Select
+              items={ROLE_ITEMS}
               value={form.role}
               onValueChange={(val) => val && setForm({ ...form, role: val })}
             >

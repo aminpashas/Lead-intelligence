@@ -40,6 +40,14 @@ const BUDGET_RANGES = [
   { value: 'unknown', label: 'Unknown' },
 ] as const
 
+// Base UI's <SelectValue> renders the raw value, so map each value → trigger label.
+const DIRECTION_LABELS = { outbound: 'Outbound', inbound: 'Inbound' }
+const OUTCOME_LABELS = Object.fromEntries(OUTCOMES.map((o) => [o.value, o.label]))
+const BUDGET_LABELS = {
+  [NO_CHANGE]: 'No change',
+  ...Object.fromEntries(BUDGET_RANGES.map((b) => [b.value, b.label])),
+}
+
 export function LogCallDialog({ leadId }: { leadId: string }) {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -147,7 +155,7 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
               <Label className="text-xs text-aurea-ink-3">Direction</Label>
-              <Select value={direction} onValueChange={(v) => v && setDirection(v as 'outbound' | 'inbound')}>
+              <Select items={DIRECTION_LABELS} value={direction} onValueChange={(v) => v && setDirection(v as 'outbound' | 'inbound')}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="outbound">Outbound</SelectItem>
@@ -163,7 +171,7 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
 
           <div className="space-y-1.5">
             <Label className="text-xs text-aurea-ink-3">Outcome</Label>
-            <Select value={outcome} onValueChange={(v) => v && setOutcome(v)}>
+            <Select items={OUTCOME_LABELS} value={outcome} onValueChange={(v) => v && setOutcome(v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {OUTCOMES.map((o) => (
@@ -175,7 +183,7 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
 
           <div className="space-y-1.5">
             <Label className="text-xs text-aurea-ink-3">Budget range</Label>
-            <Select value={budgetRange} onValueChange={(v) => v && setBudgetRange(v)}>
+            <Select items={BUDGET_LABELS} value={budgetRange} onValueChange={(v) => v && setBudgetRange(v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_CHANGE}>No change</SelectItem>

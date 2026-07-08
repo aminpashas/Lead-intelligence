@@ -45,6 +45,30 @@ const DELAY_PRESETS = [
   { label: '1 month', value: 43200 },
 ]
 
+// value → trigger label maps (Base UI Select renders the raw value otherwise)
+const DELAY_LABELS: Record<string, string> = Object.fromEntries(
+  DELAY_PRESETS.map((d) => [String(d.value), d.label])
+)
+
+const CHANNEL_LABELS: Record<string, string> = {
+  multi: 'Multi-Channel (SMS + Email)',
+  sms: 'SMS Only',
+  email: 'Email Only',
+}
+
+const OFFER_TYPE_LABELS: Record<string, string> = {
+  percentage_off: 'Percentage Off',
+  dollar_off: 'Dollar Amount Off',
+  free_addon: 'Free Add-On',
+  financing_special: 'Financing Special',
+  limited_time: 'Limited Time Offer',
+}
+
+const STEP_CHANNEL_LABELS: Record<string, string> = {
+  sms: 'SMS',
+  email: 'Email',
+}
+
 type StepDraft = {
   step_number: number
   name: string
@@ -390,7 +414,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                 </div>
                 <div className="space-y-2">
                   <Label>Channel</Label>
-                  <Select value={channel} onValueChange={v => v && setChannel(v as 'sms' | 'email' | 'multi')}>
+                  <Select items={CHANNEL_LABELS} value={channel} onValueChange={v => v && setChannel(v as 'sms' | 'email' | 'multi')}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="multi">Multi-Channel (SMS + Email)</SelectItem>
@@ -456,7 +480,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs">Type</Label>
-                        <Select value={offer.type} onValueChange={v => v && updateOffer(i, { type: v as ReactivationOfferType })}>
+                        <Select items={OFFER_TYPE_LABELS} value={offer.type} onValueChange={v => v && updateOffer(i, { type: v as ReactivationOfferType })}>
                           <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="percentage_off">Percentage Off</SelectItem>
@@ -629,7 +653,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                   <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs">Channel</Label>
-                      <Select value={step.channel} onValueChange={v => v && updateSequenceStep(i, { channel: v as 'sms' | 'email' })}>
+                      <Select items={STEP_CHANNEL_LABELS} value={step.channel} onValueChange={v => v && updateSequenceStep(i, { channel: v as 'sms' | 'email' })}>
                         <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="sms">
@@ -646,7 +670,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                         <Clock className="h-3 w-3 inline mr-1" />
                         Delay
                       </Label>
-                      <Select value={String(step.delay_minutes)} onValueChange={v => v && updateSequenceStep(i, { delay_minutes: parseInt(v) })}>
+                      <Select items={DELAY_LABELS} value={String(step.delay_minutes)} onValueChange={v => v && updateSequenceStep(i, { delay_minutes: parseInt(v) })}>
                         <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {DELAY_PRESETS.map(d => (
