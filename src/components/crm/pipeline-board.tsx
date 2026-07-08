@@ -20,7 +20,8 @@ import { PipelineColumn } from './pipeline-column'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
-import type { TimelineEnrollment } from '@/lib/pipeline/contacted-state'
+import { classifyContactedState, type TimelineEnrollment } from '@/lib/pipeline/contacted-state'
+import { isActiveContactStage } from '@/lib/pipeline/stage-groups'
 import { SERVICE_LINES } from '@/lib/leads/service-line'
 import { toast } from 'sonner'
 
@@ -84,6 +85,25 @@ export function PipelineBoard({
   )
 
   const activeLead = activeId ? leads.find((l) => l.id === activeId) : null
+  // Keep the Day-N cadence badge on the floating drag-preview card too, matching
+  // how PipelineColumn builds it, so the badge doesn't vanish mid-drag.
+  const activeStage = activeLead ? stages.find((s) => s.id === activeLead.stage_id) : null
+  const activeCadence =
+    activeLead && activeStage && isActiveContactStage(activeStage.slug)
+      ? {
+          enrollment: enrollments?.[activeLead.id] ?? null,
+          engaged:
+            activeStage.slug === 'engaged' ||
+            classifyContactedState(
+              {
+                last_contacted_at: activeLead.last_contacted_at ?? null,
+                last_responded_at: activeLead.last_responded_at ?? null,
+                total_messages_received: activeLead.total_messages_received ?? null,
+              },
+              Date.now()
+            ) === 'engaged',
+        }
+      : undefined
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string)
@@ -212,7 +232,7 @@ export function PipelineBoard({
       </div>
 
       <DragOverlay>
-        {activeLead && <LeadCard lead={activeLead} />}
+        {activeLead && <LeadCard lead={activeLead} cadence={activeCadence} />}
       </DragOverlay>
     </DndContext>
   )
