@@ -1,12 +1,21 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PipelineBoard } from '@/components/crm/pipeline-board'
+import { PipelineRecommendations } from '@/components/crm/pipeline-recommendations'
 import { decryptLeadsPII } from '@/lib/encryption'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
 import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
 import { isPostCloseStage, isOperationalStage, isActiveContactStage } from '@/lib/pipeline/stage-groups'
+import { gatherPipelineSignals } from '@/lib/pipeline/pipeline-signals'
+import { buildRecommendations } from '@/lib/pipeline/recommendations'
+import {
+  DERIVED_COLUMNS,
+  ACTIVE_COMMS_WINDOW_DAYS,
+  applyDerivedFilter,
+} from '@/lib/pipeline/derived-columns'
+import { PipelineSignalColumns } from '@/components/crm/pipeline-signal-columns'
 import { SERVICE_LINES, serviceLineOrFilter } from '@/lib/leads/service-line'
 
 export default async function PipelinePage({
@@ -159,6 +168,13 @@ export default async function PipelinePage({
     }
   }
 
+  // Board-level AI recommendations (Google/Meta-Ads-style band). Computed from
+  // cheap aggregate COUNT signals over the whole book — deliberately NOT the
+  // capped card sample above — so a suggestion like "142 cooling leads" reflects
+  // the real population, and its count matches what Apply will target.
+  const signals = await gatherPipelineSignals(supabase, orgId, allStages, serviceOr, nowMs)
+  const recommendations = buildRecommendations(signals)
+
   const baseRate = computeCloseBaseRate(allLeads.map((l) => l.status))
   const probabilityByLead: Record<string, number> = {}
   const suggestionByLead: Record<string, StageSuggestion> = {}
@@ -169,6 +185,51 @@ export default async function PipelinePage({
     if (s) suggestionByLead[l.id] = s
   }
 
+  // Derived "signal" columns — honest, read-only lenses computed from real lead
+  // activity (contacted-ness, reply recency, financial assessment) instead of the
+  // stale GHL stage label that makes "New Lead" read 10k. Each is one exact,
+  // whole-book, treatment-aware count plus a capped card slice, scoped to the
+  // board's (pre-close) stages. Cheap COUNT + a small card fetch per column.
+  const SIGNAL_CARD_CAP = 40
+  const signalCutoffIso = new Date(nowMs - ACTIVE_COMMS_WINDOW_DAYS * 86_400_000).toISOString()
+  const signalColumns = await Promise.all(
+    DERIVED_COLUMNS.map(async (col) => {
+      // Exact whole-book count for the header (head:true = count only, no rows).
+      let cq = supabase
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .in('stage_id', boardStageIds)
+      cq = applyDerivedFilter(cq, col.key, signalCutoffIso)
+      if (serviceOr) cq = cq.or(serviceOr)
+      const { count } = await cq
+
+      // Top cards by ai_score — same predicate, so cards ⊆ the counted set.
+      let dq = supabase
+        .from('leads')
+        .select('*')
+        .eq('organization_id', orgId)
+        .in('stage_id', boardStageIds)
+      dq = applyDerivedFilter(dq, col.key, signalCutoffIso)
+      if (serviceOr) dq = dq.or(serviceOr)
+      const { data } = await dq.order('ai_score', { ascending: false }).range(0, SIGNAL_CARD_CAP - 1)
+
+      // "View all" deep-links into /leads with the same signal filter (and the
+      // active treatment, so a filtered board's links stay filtered).
+      const linkParams = new URLSearchParams({ signal: col.key })
+      if (activeService) linkParams.set('service', activeService)
+
+      return {
+        key: col.key,
+        label: col.label,
+        description: col.description,
+        count: count ?? 0,
+        leads: decryptLeadsPII(data || []),
+        href: `/leads?${linkParams.toString()}`,
+      }
+    })
+  )
+
   return (
     <div className="h-full animate-in fade-in-0 duration-500">
       <header className="mb-6 border-b border-aurea-border pb-6">
@@ -178,6 +239,8 @@ export default async function PipelinePage({
           Drag leads between stages to update their status
         </p>
       </header>
+      <PipelineRecommendations recommendations={recommendations} />
+      <PipelineSignalColumns columns={signalColumns} />
       <PipelineBoard
         stages={allStages}
         leads={allLeads}
