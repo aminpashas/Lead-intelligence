@@ -7,6 +7,25 @@ export type StageSuggestionInput = {
   stage_id: string | null
   status: string
   consultation_date: string | null
+  /** Intent signals — used to decide whether a low probability is EVIDENCE of
+   *  low intent, or just missing data. Optional so callers can pass a full Lead. */
+  ai_qualification?: string | null
+  ai_score?: number | null
+  total_messages_sent?: number | null
+}
+
+/**
+ * True when we actually have something to score the lead on. A never-scored,
+ * never-messaged lead's low probability just reflects absent data — not a signal
+ * it belongs in nurture. Gating the nurture suggestion on this stops the board
+ * from proposing "move to Nurturing" for every untouched import.
+ */
+function hasIntentSignal(lead: StageSuggestionInput): boolean {
+  const scored =
+    (lead.ai_score ?? 0) > 0 ||
+    (lead.ai_qualification != null && lead.ai_qualification !== 'unscored')
+  const engaged = (lead.total_messages_sent ?? 0) > 0
+  return scored || engaged
 }
 
 function findStage(stages: PipelineStage[], re: RegExp): PipelineStage | undefined {
@@ -48,8 +67,10 @@ export function suggestStageMove(
     }
   }
 
-  // 3. Very low probability → move to a nurture/dormant stage.
-  if (probability <= 0.12) {
+  // 3. Very low probability → move to a nurture/dormant stage. Only when we
+  // have real evidence of low intent — otherwise a fresh import with no score
+  // and no messages would be blanket-nurtured on missing data alone.
+  if (probability <= 0.12 && hasIntentSignal(lead)) {
     const s = propose(findStage(stages, /dormant|nurtur|cold/i), 'Low close probability — nurture')
     if (s) return s
   }
