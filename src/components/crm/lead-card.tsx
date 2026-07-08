@@ -5,6 +5,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Phone, Mail, Brain, TrendingUp, ArrowRight } from 'lucide-react'
 import type { Lead } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
+import type { TimelineEnrollment } from '@/lib/pipeline/contacted-state'
+import { LeadCadenceBadge } from './lead-cadence-badge'
 
 // Lead qualification chips — hot=rose, warm=amber, cold=neutral ink
 const qualificationColors: Record<string, string> = {
@@ -21,12 +23,15 @@ export function LeadCard({
   closeProbability,
   suggestion,
   onApplySuggestion,
+  cadence,
 }: {
   lead: Lead
   onClick?: () => void
   closeProbability?: number
   suggestion?: StageSuggestion | null
   onApplySuggestion?: (leadId: string, toStageId: string) => void
+  /** Present only for Following Up / Engaged cards — drives the Day-N cadence badge. */
+  cadence?: { enrollment: TimelineEnrollment | null; engaged: boolean }
 }) {
   const initials = `${lead.first_name?.[0] || ''}${lead.last_name?.[0] || ''}`.toUpperCase() || '?'
 
@@ -81,6 +86,10 @@ export function LeadCard({
           <span className="max-w-[120px] truncate rounded-md bg-aurea-surface-2 px-2 py-0.5 text-[11px] text-aurea-ink-2 ring-1 ring-aurea-border">
             {lead.dental_condition.replace(/_/g, ' ')}
           </span>
+        )}
+
+        {cadence && (
+          <LeadCadenceBadge enrollment={cadence.enrollment} engaged={cadence.engaged} />
         )}
       </div>
 

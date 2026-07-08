@@ -39,14 +39,15 @@ const PAGE_LIMIT = 100
 
 /** Most-advanced-wins priority when a lead has multiple opportunities. */
 const PRIORITY: Record<LiStageSlug, number> = {
-  completed: 13,
-  'contract-signed': 12,
-  scheduled: 11,
-  financing: 10,
-  'treatment-presented': 9,
-  'consultation-completed': 8,
-  'consultation-scheduled': 7,
-  qualified: 6,
+  completed: 14,
+  'contract-signed': 13,
+  scheduled: 12,
+  financing: 11,
+  'treatment-presented': 10,
+  'consultation-completed': 9,
+  'consultation-scheduled': 8,
+  qualified: 7,
+  engaged: 6,
   contacted: 5,
   'no-communication': 4,
   'dnd-sms': 3,
@@ -122,9 +123,9 @@ async function main() {
   const slugToId = new Map<string, string>()
   for (const r of stageRows) slugToId.set(r.slug, r.id)
 
-  // The 11 native stages must already exist — never invent core pipeline stages.
+  // The 12 native stages must already exist — never invent core pipeline stages.
   const NATIVE: LiStageSlug[] = [
-    'new', 'contacted', 'qualified', 'consultation-scheduled', 'consultation-completed',
+    'new', 'contacted', 'engaged', 'qualified', 'consultation-scheduled', 'consultation-completed',
     'treatment-presented', 'financing', 'contract-signed', 'scheduled', 'completed', 'lost',
   ]
   const missingNative = NATIVE.filter((s) => !slugToId.has(s))

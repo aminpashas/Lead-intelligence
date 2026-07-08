@@ -13,6 +13,8 @@
  * Updates: leads (74+ fields), lead_activities, messages, conversations, ai_interactions
  */
 
+import { nextStageForEncounter } from '@/lib/pipeline/encounter-stage'
+
 type Channel = 'voice' | 'sms' | 'email'
 
 // ════════════════════════════════════════════════════════════════
@@ -785,16 +787,65 @@ async function updateLeadProfile(
   if (ext.state) update.state = ext.state
   if (ext.zipCode) update.zip_code = ext.zipCode
 
-  // Status
+  // Status + board stage.  `leads.status` drives internal logic; the pipeline
+  // board groups by `leads.stage_id`, so we must advance BOTH.  Fetch current
+  // status + stage_id once and reuse for both decisions.
+  const { data: currentLead } = await supabase
+    .from('leads').select('status, stage_id').eq('id', data.leadId).maybeSingle()
+
+  // Existing status behavior — unchanged.
   if (ext.appointmentBooked) {
     update.status = 'qualified'
     update.qualified_at = new Date().toISOString()
   } else if (data.channel === 'voice' && (data.durationSeconds || 0) > 60) {
     update.status = 'contacted'
   } else if ((data.channel === 'sms' || data.channel === 'email')) {
-    const { data: current } = await supabase
-      .from('leads').select('status').eq('id', data.leadId).single()
-    if (current?.status === 'new') update.status = 'contacted'
+    if (currentLead?.status === 'new') update.status = 'contacted'
+  }
+
+  // Pipeline stage advancement (New→Following Up→Engaged→Qualified), monotonic.
+  // "Engaged" means the patient has replied at all, so derive inbound from the
+  // EXISTENCE of any inbound messages.direction row for this conversation — not
+  // the latest message. Existence avoids an implicit ordering dependency on
+  // whether an outbound row was written before processEncounter runs.
+  let inbound = false
+  if ((data.channel === 'sms' || data.channel === 'email') && data.conversationId) {
+    const { data: inboundMsg } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', data.conversationId)
+      .eq('direction', 'inbound')
+      .limit(1)
+      .maybeSingle()
+    inbound = !!inboundMsg
+  }
+
+  // Resolve the lead's current stage slug from its stage_id.
+  let currentStageSlug: string | null = null
+  if (currentLead?.stage_id) {
+    const { data: curStage } = await supabase
+      .from('pipeline_stages')
+      .select('slug')
+      .eq('id', currentLead.stage_id)
+      .maybeSingle()
+    currentStageSlug = (curStage?.slug as string) ?? null
+  }
+
+  const targetSlug = nextStageForEncounter({
+    channel: data.channel,
+    inbound,
+    appointmentBooked: ext.appointmentBooked,
+    durationSeconds: data.durationSeconds ?? null,
+    currentStageSlug,
+  })
+  if (targetSlug) {
+    const { data: targetStage } = await supabase
+      .from('pipeline_stages')
+      .select('id')
+      .eq('organization_id', data.orgId)
+      .eq('slug', targetSlug)
+      .maybeSingle()
+    if (targetStage?.id) update.stage_id = targetStage.id
   }
 
   // First contact tracking
