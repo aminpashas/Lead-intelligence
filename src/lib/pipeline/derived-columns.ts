@@ -11,6 +11,7 @@
  *   - Untouched               → `first_contact_at IS NULL` (we've never reached out)
  *   - Active Communication    → `last_responded_at` within the recency window (a live two-way thread)
  *   - Financially Unqualified → assessed + lowest tier (money is the blocker)
+ *   - Financing Approved      → `financing_approved` but still pre-close (money-ready, hasn't signed)
  *
  * They are independent LENSES, not a partition: a lead can be both actively
  * talking and financially unqualified, so it may appear in two columns. They are
@@ -19,7 +20,11 @@
 
 import type { Lead } from '@/types/database'
 
-export type DerivedColumnKey = 'untouched' | 'active-comms' | 'financially-unqualified'
+export type DerivedColumnKey =
+  | 'untouched'
+  | 'active-comms'
+  | 'financially-unqualified'
+  | 'financing-approved'
 
 export interface DerivedColumnDef {
   key: DerivedColumnKey
@@ -43,6 +48,11 @@ export const DERIVED_COLUMNS: DerivedColumnDef[] = [
     key: 'financially-unqualified',
     label: 'Financially Unqualified',
     description: 'Assessed and unable to fund treatment at any tier.',
+  },
+  {
+    key: 'financing-approved',
+    label: 'Financing Approved',
+    description: 'Pre-approved for financing but hasn’t proceeded to close.',
   },
 ]
 
@@ -85,6 +95,12 @@ export function applyDerivedFilter<Q>(query: Q, key: DerivedColumnKey, cutoffIso
       return q
         .eq('financial_qualification_status', 'assessed')
         .eq('financial_qualification_tier', 'tier_d')
+    case 'financing-approved':
+      // Money-ready but not yet closed: `financing_approved` is set by the
+      // waterfall webhook and the manual-outcome writer. Post-close stages are
+      // already outside the board's scope, so a lead still visible here with an
+      // approval hasn't proceeded to sign — exactly "approved but stalled".
+      return q.is('financing_approved', true).not('status', 'in', '("disqualified","lost")')
   }
 }
 
@@ -109,5 +125,7 @@ export function matchesDerivedColumn(lead: Lead, key: DerivedColumnKey, cutoffMs
         lead.financial_qualification_status === 'assessed' &&
         lead.financial_qualification_tier === 'tier_d'
       )
+    case 'financing-approved':
+      return lead.financing_approved === true && !dead
   }
 }
