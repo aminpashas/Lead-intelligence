@@ -4,8 +4,12 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { FinancingWaterfallTracker } from './financing-waterfall-tracker'
-import { DollarSign, Send, RefreshCw, Copy, Check } from 'lucide-react'
+import { PrequalResults } from './prequal-results'
+import { DollarSign, Send, RefreshCw, Copy, Check, Layers } from 'lucide-react'
 import type { Lead } from '@/types/database'
+import type { LenderPrequalOffer, LenderSelection } from '@/lib/financing/prequal-types'
+
+type CheckoutSubApp = { lender_slug: string; lender_name: string; requested_amount: number; status: string; funded_amount: number }
 
 type FinancingAppData = {
   id: string
@@ -68,6 +72,12 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
   const [estimateAmount, setEstimateAmount] = useState(lead.treatment_value?.toString() || '20000')
+  const [prequalOffers, setPrequalOffers] = useState<LenderPrequalOffer[] | null>(null)
+  const [prequalAmount, setPrequalAmount] = useState<number>(0)
+  const [prequalLoading, setPrequalLoading] = useState(false)
+  const [checkoutToken, setCheckoutToken] = useState<string | null>(null)
+  const [checkoutSubApps, setCheckoutSubApps] = useState<CheckoutSubApp[]>([])
+  const [checkoutLinkCopied, setCheckoutLinkCopied] = useState(false)
 
   // Load existing financing application if one exists
   useEffect(() => {
@@ -100,6 +110,77 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
       }
     } catch { /* silent */ }
     finally { setLoading(false) }
+  }
+
+  async function runPrequal() {
+    const amount = Number(estimateAmount) || 20000
+    setPrequalLoading(true)
+    try {
+      const res = await fetch('/api/financing/prequal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_id: lead.id, amount }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setPrequalOffers(data.offers || [])
+        setPrequalAmount(amount)
+      }
+    } catch { /* silent */ }
+    finally { setPrequalLoading(false) }
+  }
+
+  async function loadCheckout(token: string) {
+    try {
+      const res = await fetch(`/api/financing/checkout/${token}`)
+      if (res.ok) {
+        const data = await res.json()
+        setCheckoutSubApps(data.sub_apps || [])
+      }
+    } catch { /* silent */ }
+  }
+
+  async function createCheckout({ treatmentTotal, selections }: { treatmentTotal: number; selections: LenderSelection[] }) {
+    try {
+      const res = await fetch('/api/financing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead_id: lead.id,
+          treatment_total: treatmentTotal,
+          selections: selections.map(s => ({
+            lender_slug: s.offer.lender_slug,
+            lender_name: s.offer.lender_name,
+            requested_amount: s.amount,
+            term: s.term,
+          })),
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCheckoutToken(data.resume_token)
+        loadCheckout(data.resume_token)
+      }
+    } catch { /* silent */ }
+  }
+
+  async function markFunded(lender_slug: string) {
+    if (!checkoutToken) return
+    try {
+      await fetch(`/api/financing/checkout/${checkoutToken}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lender_slug, status: 'funded', confirmed_by: 'staff' }),
+      })
+      loadCheckout(checkoutToken)
+    } catch { /* silent */ }
+  }
+
+  function copyResumeLink() {
+    if (!checkoutToken) return
+    navigator.clipboard.writeText(`${window.location.origin}/finance/checkout/${checkoutToken}`)
+    setCheckoutLinkCopied(true)
+    setTimeout(() => setCheckoutLinkCopied(false), 2000)
   }
 
   function copyFinancingLink() {
@@ -236,6 +317,50 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
           </div>
         )}
 
+        {/* Stacked prequalification results */}
+        {prequalOffers && prequalOffers.length > 0 && (
+          <PrequalResults
+            treatmentTotal={prequalAmount}
+            offers={prequalOffers}
+            onProceed={createCheckout}
+            proceedLabel="Create checkout plan →"
+          />
+        )}
+
+        {/* Checkout session — durable resume link + per-lender funding */}
+        {checkoutToken && (
+          <div className="rounded-lg border border-aurea-border bg-aurea-surface p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="aurea-eyebrow text-aurea-ink-3">Checkout — pick back up</p>
+              <button onClick={copyResumeLink} className="text-[11px] font-medium text-aurea-primary hover:underline">
+                {checkoutLinkCopied ? 'Copied!' : 'Copy resume link'}
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {checkoutSubApps.map(sa => (
+                <div key={sa.lender_slug} className="flex items-center justify-between rounded-lg border border-aurea-border bg-aurea-surface-2 px-3 py-2">
+                  <span className="text-[12px] text-aurea-ink">
+                    {sa.lender_name}{' '}
+                    <span className="text-aurea-ink-3">· {sa.status.replace(/_/g, ' ')}</span>
+                  </span>
+                  {sa.status !== 'funded' && sa.status !== 'declined' ? (
+                    <button onClick={() => markFunded(sa.lender_slug)} className="text-[11px] font-medium text-aurea-primary hover:underline">
+                      Mark funded
+                    </button>
+                  ) : (
+                    <span className="font-mono text-[11px] tabular-nums text-aurea-primary">${sa.funded_amount.toLocaleString()}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {prequalOffers && prequalOffers.length === 0 && (
+          <p className="text-[11px] leading-tight text-aurea-ink-3">
+            No lender offers returned — check that active lenders are configured for this org.
+          </p>
+        )}
+
         {/* Actions */}
         <div className="flex flex-col gap-2 pt-1">
           {!appData && (
@@ -260,6 +385,11 @@ export function LeadFinancingCard({ lead }: { lead: Lead }) {
           <Button variant="outline" size="sm" className="w-full" onClick={loadEstimates} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} strokeWidth={1.75} />
             {loading ? 'Loading…' : estimates.length > 0 ? 'Refresh Estimates' : 'Get Payment Estimates'}
+          </Button>
+
+          <Button variant="default" size="sm" className="w-full" onClick={runPrequal} disabled={prequalLoading}>
+            <Layers className={`h-3.5 w-3.5 mr-1.5 ${prequalLoading ? 'animate-pulse' : ''}`} strokeWidth={1.75} />
+            {prequalLoading ? 'Checking all lenders…' : prequalOffers ? 'Re-run Prequalification' : 'Run Prequalification'}
           </Button>
 
           {appData && (
