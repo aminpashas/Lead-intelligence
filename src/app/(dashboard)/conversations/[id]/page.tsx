@@ -98,6 +98,7 @@ export default async function ConversationDetailPage({
       savedAnalysis={(savedAnalysis as ConversationAnalysis | null) ?? null}
       patientProfile={(patientProfile as PatientProfile | null) ?? null}
       timeZone={timeZone}
+      embedded
     />
   )
 }

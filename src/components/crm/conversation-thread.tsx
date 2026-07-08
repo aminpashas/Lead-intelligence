@@ -144,6 +144,7 @@ export function ConversationThread({
   savedAnalysis = null,
   patientProfile = null,
   timeZone = DEFAULT_PRACTICE_TIMEZONE,
+  embedded = false,
 }: {
   lead: Lead
   conversation: Conversation
@@ -153,6 +154,9 @@ export function ConversationThread({
   /** Where the header back-arrow returns to. Defaults to the conversations
    *  inbox; the lead surface passes '/leads' so the arrow retraces the click. */
   backHref?: string
+  /** Embedded in the messenger shell — the inbox rail frames + navigates, so
+   *  drop this thread's own card border and header back arrow. */
+  embedded?: boolean
   /** Practice IANA timezone (from booking_settings). All thread timestamps
    *  render in this zone so SSR (UTC on Vercel) and the browser agree. */
   timeZone?: string
@@ -461,19 +465,25 @@ export function ConversationThread({
   const smsSegments = Math.max(1, Math.ceil(draft.length / 160))
 
   return (
-    <div className="flex h-full overflow-hidden rounded-xl border border-aurea-border bg-aurea-surface">
+    <div
+      className={`flex h-full overflow-hidden bg-aurea-surface ${
+        embedded ? '' : 'rounded-xl border border-aurea-border'
+      }`}
+    >
       {/* ── Chat column (header · messages · composer) ─────── */}
       <div className="flex min-w-0 flex-1 flex-col">
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-aurea-border px-4 py-3 lg:px-5">
         <div className="flex min-w-0 items-center gap-3">
-          <Link
-            href={backHref}
-            aria-label="Back"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-aurea-border text-aurea-ink-3 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
-          >
-            <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
-          </Link>
+          {!embedded && (
+            <Link
+              href={backHref}
+              aria-label="Back"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-aurea-border text-aurea-ink-3 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
+            >
+              <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
+            </Link>
+          )}
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-aurea-border bg-aurea-surface-2">
             <span className="aurea-display text-[14px] text-aurea-ink-2">{initials}</span>
           </div>
