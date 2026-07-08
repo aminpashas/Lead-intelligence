@@ -4,6 +4,12 @@
 
 begin;
 
+-- The leads table has a per-row audit trigger (audit_row_change), so the bulk
+-- stage_id backfill in step 3 fires one audit insert per row. On a large org
+-- (25k+ contacted leads) a single UPDATE exceeds the default statement_timeout,
+-- aborting (and rolling back) the whole migration. Raise it for this transaction.
+set local statement_timeout = '1200s';
+
 -- 1) Rename display name of the existing 'contacted' stage. Slug UNCHANGED so all
 --    existing leads and all GHL name->'contacted' mappings keep working untouched.
 update public.pipeline_stages set name = 'Following Up' where slug = 'contacted';
