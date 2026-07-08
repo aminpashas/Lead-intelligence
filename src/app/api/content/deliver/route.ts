@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createServerClient } from '@/lib/supabase/server'
+import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { getAssetById, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail } from '@/lib/content/delivery-templates'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
@@ -22,19 +24,30 @@ function getServiceClient() {
 }
 
 export async function POST(request: NextRequest) {
+  // Authenticate and derive the effective org from the session. This route was
+  // previously unauthenticated and trusted a body-supplied `organization_id`,
+  // letting anyone send content to any tenant's patient from our number. The org
+  // now comes only from the session (agency admins resolve to their entered
+  // client), and every query below is scoped to it.
+  const authed = await createServerClient()
+  const { orgId } = await resolveActiveOrg(authed)
+  if (!orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organization_id = orgId
+
   const body = await request.json()
 
   const {
-    organization_id,
     lead_id,
     conversation_id,
     content_asset_id,
     channel, // 'sms' | 'email'
   } = body
 
-  if (!organization_id || !lead_id || !content_asset_id || !channel) {
+  if (!lead_id || !content_asset_id || !channel) {
     return NextResponse.json(
-      { error: 'organization_id, lead_id, content_asset_id, and channel are required' },
+      { error: 'lead_id, content_asset_id, and channel are required' },
       { status: 400 }
     )
   }
@@ -45,9 +58,9 @@ export async function POST(request: NextRequest) {
 
   const supabase = getServiceClient()
 
-  // Get the content asset
+  // Get the content asset (scoped to the caller's org)
   const asset = await getAssetById(supabase, content_asset_id)
-  if (!asset) {
+  if (!asset || asset.organization_id !== organization_id) {
     return NextResponse.json({ error: 'Content asset not found' }, { status: 404 })
   }
 

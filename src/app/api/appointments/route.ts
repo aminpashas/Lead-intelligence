@@ -335,6 +335,31 @@ export async function PATCH(request: NextRequest) {
 
     if (feeSettings?.no_show_fee_enabled) {
       const feeCents = appt.no_show_fee_cents ?? feeSettings.no_show_fee_cents ?? 5000
+
+      // Atomically CLAIM the charge slot before touching Stripe. The gate above
+      // reads a stale row, so two concurrent no_show PATCHes could both pass it and
+      // both charge. This conditional UPDATE flips the status only if it is still
+      // chargeable (Postgres serializes concurrent UPDATEs on the same row), so
+      // exactly one request wins the claim; the loser gets no row back and skips.
+      // (The Stripe idempotency key is the second line of defense.)
+      const { data: claimed } = await supabase
+        .from('appointments')
+        .update({
+          no_show_fee_status: 'charged',
+          no_show_fee_cents: feeCents,
+          no_show_fee_charged_at: new Date().toISOString(),
+        })
+        .eq('id', appt.id)
+        .eq('organization_id', orgId)
+        .in('no_show_fee_status', ['none', 'pending', 'failed'])
+        .select('id')
+        .maybeSingle()
+
+      if (!claimed) {
+        // Another request already charged (or the fee was waived) — do nothing.
+        return NextResponse.json({ appointment })
+      }
+
       const result = await chargeNoShowFeeForAppointment(supabase, orgId, {
         id: appt.id,
         stripe_customer_id: appt.stripe_customer_id,
@@ -346,9 +371,6 @@ export async function PATCH(request: NextRequest) {
         await supabase
           .from('appointments')
           .update({
-            no_show_fee_status: 'charged',
-            no_show_fee_cents: feeCents,
-            no_show_fee_charged_at: new Date().toISOString(),
             no_show_fee_payment_intent_id: result.paymentIntentId,
           })
           .eq('id', appt.id)
