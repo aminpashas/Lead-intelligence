@@ -30,8 +30,14 @@ export type CloseProbabilityInput = Pick<
 /** Historical base conversion rate from a set of statuses (fallback 0.15). */
 export function computeCloseBaseRate(statuses: string[]): number {
   const total = statuses.length
-  if (total === 0) return 0.15
   const converted = statuses.filter((s) => CONVERTED_STATUSES.has(s)).length
+  // Degenerate sample → fall back to a sane prior. This fires on an empty set
+  // AND on a set with zero converted outcomes — e.g. the pre-close pipeline
+  // board, whose leads structurally can't have reached a won status yet (those
+  // live on the post-close board). A 0 base rate would zero out every lead's
+  // score in the multiplicative model below, painting the whole board 0% and
+  // making every lead look like a nurture candidate.
+  if (total === 0 || converted === 0) return 0.15
   return converted / total
 }
 

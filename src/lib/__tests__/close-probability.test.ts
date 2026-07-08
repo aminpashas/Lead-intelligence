@@ -24,6 +24,12 @@ describe('computeCloseBaseRate', () => {
     // contract_signed + completed = 2 converted of 4
     expect(computeCloseBaseRate(['new', 'contract_signed', 'completed', 'lost'])).toBe(0.5)
   })
+
+  it('falls back to 0.15 when the sample has zero converted leads', () => {
+    // The pre-close pipeline board: no lead has reached a won status yet. A 0
+    // base rate here would zero out every lead in the multiplicative scorer.
+    expect(computeCloseBaseRate(['new', 'contacted', 'lost', 'qualified'])).toBe(0.15)
+  })
 })
 
 describe('scoreCloseProbability', () => {

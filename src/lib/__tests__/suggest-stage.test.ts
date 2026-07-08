@@ -30,8 +30,15 @@ describe('suggestStageMove', () => {
       .toMatchObject({ toStageId: 'consult' })
   })
 
-  it('suggests a nurture stage for a very low probability lead', () => {
-    expect(suggestStageMove(lead(), 0.05, STAGES)).toMatchObject({ toStageId: 'nurture' })
+  it('suggests a nurture stage for a very low probability lead we have signal on', () => {
+    expect(suggestStageMove(lead({ ai_qualification: 'cold' }), 0.05, STAGES))
+      .toMatchObject({ toStageId: 'nurture' })
+  })
+
+  it('does NOT nurture a low-probability lead with no scoring or engagement signal', () => {
+    // A never-scored, never-messaged import: its low score is missing data, not
+    // low intent. Suggesting a move here is the "everything → Nurturing" bug.
+    expect(suggestStageMove(lead(), 0.05, STAGES)).toBeNull()
   })
 
   it('never suggests moving a lead already in a won stage', () => {
