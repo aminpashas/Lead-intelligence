@@ -26,6 +26,7 @@ export function ConversationView({
   savedAnalysis = null,
   patientProfile = null,
   timeZone,
+  embedded = false,
 }: {
   lead: Lead
   conversation: Conversation
@@ -39,6 +40,9 @@ export function ConversationView({
   patientProfile?: PatientProfile | null
   /** Practice IANA timezone, forwarded so thread timestamps render zone-fixed. */
   timeZone?: string
+  /** Rendered inside the messenger shell — drop the thread's standalone card
+   *  chrome + back arrow (the inbox rail already provides navigation). */
+  embedded?: boolean
 }) {
   const [mode, setMode] = useState<Mode>('thread')
 
@@ -53,7 +57,7 @@ export function ConversationView({
 
       {mode === 'thread' ? (
         <div className="min-h-0 flex-1">
-          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} />
+          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
