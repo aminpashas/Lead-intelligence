@@ -32,6 +32,7 @@ import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
 import { deriveConsentFields } from '@/lib/consent/ingest'
 import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
 import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
+import { routedIntakeStageSlug } from '@/lib/leads/intake-routing'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -374,6 +375,23 @@ export async function POST(request: NextRequest) {
     .eq('is_default', true)
     .maybeSingle()
 
+  // Paid-only intake routing: for opted-in orgs, a brand-new non-paid lead
+  // (organic / GMB / referral / imported nurturing DB) skips "New Lead" and
+  // lands in "Nurturing" so the board reflects only fresh Google/Meta ad
+  // demand. Paid ads, and every non-allowlisted org, keep the default stage.
+  let stageId = defaultStage?.id
+  const routeSlug = routedIntakeStageSlug(customerId, campaignAttribution?.channel)
+  if (routeSlug) {
+    const { data: nurtureStage } = await supabase
+      .from('pipeline_stages')
+      .select('id')
+      .eq('organization_id', customerId)
+      .eq('slug', routeSlug)
+      .maybeSingle()
+    // Fall back to the default stage if the org has no Nurturing stage.
+    if (nurtureStage?.id) stageId = nurtureStage.id
+  }
+
   const insertData = encryptLeadPII({
     organization_id: customerId,
     first_name,
@@ -381,7 +399,7 @@ export async function POST(request: NextRequest) {
     email,
     phone: phoneRaw || null,
     phone_formatted: phoneFormatted ?? undefined,
-    stage_id: defaultStage?.id,
+    stage_id: stageId,
     source_id,
     notes,
     source_type: sourceName,
