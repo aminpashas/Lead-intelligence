@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
 import type { Lead } from '@/types/database'
 import { LeadMessaging } from './lead-messaging'
+import { MarkDeliberating } from './mark-deliberating'
 import { useSoftphone } from '@/components/voice/softphone-provider'
 import { DND_CHANNELS, type DndChannel } from '@/lib/consent/capture'
 
@@ -285,6 +286,13 @@ export function LeadActions({
         onClick: sendPrequal,
         busy: sendingPrequal,
       })}
+
+      {/* Closer's "they're thinking about it" control — only in the full bar and
+          only once a plan has been presented (post-presentation stages). */}
+      {!compact &&
+        (['consultation_completed', 'treatment_presented', 'financing'] as const).includes(
+          lead.status as 'consultation_completed' | 'treatment_presented' | 'financing'
+        ) && <MarkDeliberating lead={lead} />}
 
       <DropdownMenu>
         <DropdownMenuTrigger

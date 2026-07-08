@@ -15,12 +15,25 @@ import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 
 const bodySchema = z
   .object({
-    temperature: z.enum(['hot', 'warm', 'cold', 'stalled']).nullable().optional(),
+    temperature: z.enum(['hot', 'warm', 'cold', 'stalled', 'deliberating']).nullable().optional(),
     nextStep: z.string().max(2000).nullable().optional(),
+    // When a deal is marked 'deliberating', the date the closer agreed to circle
+    // back. Mutes the deal from the live queue until then (see closingQueueState).
+    followUpAt: z.string().datetime().nullable().optional(),
+    // Why they paused — reuses the conversation-analysis objection vocabulary.
+    reason: z
+      .enum(['cost', 'financing', 'fear_anxiety', 'timing', 'trust', 'medical', 'logistics', 'spouse_approval', 'none', 'other'])
+      .nullable()
+      .optional(),
   })
-  .refine((b) => b.temperature !== undefined || b.nextStep !== undefined, {
-    message: 'Provide temperature and/or nextStep',
-  })
+  .refine(
+    (b) =>
+      b.temperature !== undefined ||
+      b.nextStep !== undefined ||
+      b.followUpAt !== undefined ||
+      b.reason !== undefined,
+    { message: 'Provide at least one field to update' }
+  )
 
 export async function PATCH(
   request: NextRequest,
@@ -57,13 +70,26 @@ export async function PATCH(
   const update: Record<string, unknown> = { closing_updated_at: new Date().toISOString() }
   if (parsed.data.temperature !== undefined) update.closing_temperature = parsed.data.temperature
   if (parsed.data.nextStep !== undefined) update.closing_next_step = parsed.data.nextStep
+  if (parsed.data.followUpAt !== undefined) update.closing_follow_up_at = parsed.data.followUpAt
+  if (parsed.data.reason !== undefined) update.primary_objection = parsed.data.reason
+
+  // Keep state coherent: a temperature moved AWAY from 'deliberating' (and not
+  // simultaneously setting a new date) clears the stale follow-up timer, so a
+  // reactivated deal doesn't stay muted from the live queue.
+  if (
+    parsed.data.temperature !== undefined &&
+    parsed.data.temperature !== 'deliberating' &&
+    parsed.data.followUpAt === undefined
+  ) {
+    update.closing_follow_up_at = null
+  }
 
   const { data: updated, error } = await supabase
     .from('leads')
     .update(update)
     .eq('id', id)
     .eq('organization_id', orgId)
-    .select('id, closing_temperature, closing_next_step, closing_updated_at')
+    .select('id, closing_temperature, closing_next_step, closing_updated_at, closing_follow_up_at, primary_objection')
     .single()
 
   if (error) {

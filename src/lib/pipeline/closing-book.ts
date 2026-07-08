@@ -61,6 +61,9 @@ export type ClosingRow = {
 export const TEMP_PROBABILITY: Record<ClosingTemperature, number> = {
   hot: 0.6,
   warm: 0.4,
+  // Engaged and deciding on a presented plan — better odds than a generic warm
+  // lead, but not yet committed.
+  deliberating: 0.45,
   cold: 0.15,
   stalled: 0.05,
 }

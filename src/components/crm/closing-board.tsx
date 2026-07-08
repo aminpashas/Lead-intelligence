@@ -30,10 +30,11 @@ type ClosingForecast = {
 const TEMP_STYLE: Record<ClosingTemperature, { dot: string; label: string; text: string }> = {
   hot: { dot: '#f43f5e', label: 'Hot', text: 'text-rose-600' },
   warm: { dot: '#f59e0b', label: 'Warm', text: 'text-amber-600' },
+  deliberating: { dot: '#8b5cf6', label: 'Deliberating', text: 'text-violet-600' },
   cold: { dot: '#38bdf8', label: 'Cold', text: 'text-sky-600' },
   stalled: { dot: '#94a3b8', label: 'Stalled', text: 'text-aurea-ink-3' },
 }
-const TEMP_ORDER: ClosingTemperature[] = ['hot', 'warm', 'cold', 'stalled']
+const TEMP_ORDER: ClosingTemperature[] = ['hot', 'warm', 'deliberating', 'cold', 'stalled']
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString()}`
 

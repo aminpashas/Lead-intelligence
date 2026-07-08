@@ -258,9 +258,13 @@ export type Lead = {
 
   // In-Closing workflow (/closing board). Manual temperature is an override of
   // the derived value (see src/lib/pipeline/closing.ts); null = use derived.
-  closing_temperature: 'hot' | 'warm' | 'cold' | 'stalled' | null
+  // 'deliberating' is manual-only: patient saw the plan and is actively deciding
+  // ("thinking / spouse / saving up"); closing_follow_up_at carries the date to
+  // circle back, so the deal is muted from the live queue until then.
+  closing_temperature: 'hot' | 'warm' | 'cold' | 'stalled' | 'deliberating' | null
   closing_next_step: string | null
   closing_updated_at: string | null
+  closing_follow_up_at: string | null
 
   // Metadata
   tags: string[]

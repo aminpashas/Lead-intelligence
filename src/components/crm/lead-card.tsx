@@ -1,11 +1,12 @@
 'use client'
 
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, format } from 'date-fns'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Phone, Mail, Brain, TrendingUp, ArrowRight } from 'lucide-react'
+import { Phone, Mail, Brain, TrendingUp, ArrowRight, Clock } from 'lucide-react'
 import type { Lead } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
 import type { TimelineEnrollment } from '@/lib/pipeline/contacted-state'
+import { closingQueueState } from '@/lib/pipeline/closing'
 import { LeadCadenceBadge } from './lead-cadence-badge'
 
 // Lead qualification chips — hot=rose, warm=amber, cold=neutral ink
@@ -34,6 +35,14 @@ export function LeadCard({
   cadence?: { enrollment: TimelineEnrollment | null; engaged: boolean }
 }) {
   const initials = `${lead.first_name?.[0] || ''}${lead.last_name?.[0] || ''}`.toUpperCase() || '?'
+
+  // Deliberating pill: a deal the closer parked to circle back. "waiting" (timer
+  // in the future) reads muted; "due" (timer arrived, or no timer) reads as an
+  // action cue. Non-deliberating deals render nothing here.
+  const deliberating =
+    lead.closing_temperature === 'deliberating'
+      ? closingQueueState(lead.closing_temperature, lead.closing_follow_up_at, Date.now())
+      : null
 
   return (
     <div
@@ -90,6 +99,28 @@ export function LeadCard({
 
         {cadence && (
           <LeadCadenceBadge enrollment={cadence.enrollment} engaged={cadence.engaged} />
+        )}
+
+        {deliberating && (
+          <span
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${
+              deliberating === 'due'
+                ? 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20'
+                : 'bg-violet-500/10 text-violet-600 border border-violet-500/20'
+            }`}
+            title={
+              lead.closing_follow_up_at
+                ? `Deliberating — follow up ${format(new Date(lead.closing_follow_up_at), 'MMM d, yyyy')}`
+                : 'Deliberating — no follow-up date set'
+            }
+          >
+            <Clock className="h-3 w-3" strokeWidth={1.75} />
+            {deliberating === 'due'
+              ? lead.closing_follow_up_at
+                ? `Due ${format(new Date(lead.closing_follow_up_at), 'MMM d')}`
+                : 'Follow up'
+              : `Deliberating · ${format(new Date(lead.closing_follow_up_at!), 'MMM d')}`}
+          </span>
         )}
       </div>
 
