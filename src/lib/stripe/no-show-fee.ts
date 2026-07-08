@@ -147,14 +147,24 @@ export type ChargeResult =
 
 /**
  * Charge the saved card off-session for a no-show. The caller is responsible for
- * idempotency (only call when no_show_fee_status !== 'charged') and for
+ * status idempotency (only call when no_show_fee_status !== 'charged') and for
  * persisting the result onto the appointment.
+ *
+ * Money-movement safety: the PaymentIntent is created with a deterministic
+ * `idempotencyKey` per appointment, so even if two callers (the inline PATCH path
+ * and the sweeper cron) race, or a caller retries after its status write failed,
+ * Stripe returns the SAME PaymentIntent instead of charging the card twice.
+ *
+ * On success this ALSO records the charge closed-loop (stripe_payments + events)
+ * so a no-show fee reaches the same Meta CAPI / Google Ads / DGS forwarders as any
+ * other payment — the off-session charge never produces a Stripe webhook we ingest.
  */
 export async function chargeNoShowFeeForAppointment(
   supabase: SupabaseClient,
   organizationId: string,
   appointment: {
     id: string
+    lead_id?: string | null
     stripe_customer_id: string | null
     stripe_payment_method_id: string | null
     no_show_fee_cents: number | null
@@ -171,23 +181,134 @@ export async function chargeNoShowFeeForAppointment(
 
   const stripe = getStripeClient(config)
   try {
-    const pi = await stripe.paymentIntents.create({
-      amount,
-      currency: 'usd',
-      customer: appointment.stripe_customer_id,
-      payment_method: appointment.stripe_payment_method_id,
-      off_session: true,
-      confirm: true,
-      metadata: {
-        purpose: 'no_show_fee',
-        organization_id: organizationId,
-        appointment_id: appointment.id,
+    const pi = await stripe.paymentIntents.create(
+      {
+        amount,
+        currency: 'usd',
+        customer: appointment.stripe_customer_id,
+        payment_method: appointment.stripe_payment_method_id,
+        off_session: true,
+        confirm: true,
+        metadata: {
+          purpose: 'no_show_fee',
+          organization_id: organizationId,
+          appointment_id: appointment.id,
+        },
       },
+      // One no-show fee per appointment — this key makes a duplicate create a
+      // no-op that returns the original PaymentIntent instead of a second charge.
+      { idempotencyKey: `no_show_fee_${appointment.id}` }
+    )
+
+    // Closed-loop record (best-effort; never masks a successful charge).
+    await recordNoShowCharge(supabase, organizationId, {
+      leadId: appointment.lead_id ?? null,
+      appointmentId: appointment.id,
+      paymentIntentId: pi.id,
+      amountCents: amount,
+      stripeCustomerId: appointment.stripe_customer_id,
     })
+
     return { ok: true, paymentIntentId: pi.id }
   } catch (err) {
     // Card declined / authentication_required / etc. surface as a failed status
-    // so staff can follow up; the webhook won't ingest anything for a failure.
+    // so staff can follow up; nothing is recorded closed-loop for a failure.
     return { ok: false, error: err instanceof Error ? err.message : 'charge_failed' }
+  }
+}
+
+/**
+ * Record a successful no-show charge into stripe_payments + events, mirroring the
+ * webhook's ingestPayment path so the charge is forwarded to Meta CAPI / Google
+ * Ads / DGS exactly like a webhook-ingested payment.
+ *
+ * Idempotent on two levels, matching the webhook:
+ *   1. stripe_payments upsert is keyed on (organization_id, stripe_event_id) with a
+ *      deterministic synthetic id `noshow_<paymentIntentId>` — re-runs never dup.
+ *   2. the events emit is guarded by the row's `forwarded` flag, so a re-run never
+ *      double-emits lead.payment.received.
+ *
+ * Never throws — a closed-loop bookkeeping failure must not fail the charge that
+ * already moved money.
+ */
+export async function recordNoShowCharge(
+  supabase: SupabaseClient,
+  organizationId: string,
+  params: {
+    leadId: string | null
+    appointmentId: string
+    paymentIntentId: string
+    amountCents: number
+    stripeCustomerId: string | null
+  }
+): Promise<void> {
+  try {
+    const occurredAt = new Date().toISOString()
+    // Synthetic event id — there is no real Stripe evt_* for an off-session charge
+    // we initiated. Deterministic per PaymentIntent preserves the onConflict guard.
+    const syntheticEventId = `noshow_${params.paymentIntentId}`
+
+    const { data: inserted, error } = await supabase
+      .from('stripe_payments')
+      .upsert(
+        {
+          organization_id: organizationId,
+          stripe_event_id: syntheticEventId,
+          stripe_object_id: params.paymentIntentId,
+          stripe_object_type: 'payment_intent',
+          stripe_customer_id: params.stripeCustomerId,
+          amount_cents: params.amountCents,
+          currency: 'USD',
+          lead_id: params.leadId,
+          // 'manual' = we attributed this payment to a known lead directly (the
+          // appointment carries lead_id), not via an email/phone hash match.
+          // ('no_show_fee' is not an allowed match_method value; the semantics
+          // live in metadata.purpose below.)
+          match_method: 'manual',
+          status: 'succeeded',
+          occurred_at: occurredAt,
+          metadata: { purpose: 'no_show_fee', appointment_id: params.appointmentId },
+        },
+        { onConflict: 'organization_id,stripe_event_id' }
+      )
+      .select('id, forwarded')
+      .single()
+
+    if (error || !inserted) {
+      logger.error('recordNoShowCharge: stripe_payments upsert failed', {
+        organizationId,
+        appointmentId: params.appointmentId,
+        err: error?.message,
+      })
+      return
+    }
+
+    // Emit lead.payment.received once per row (same guard as the webhook).
+    if (!inserted.forwarded) {
+      await supabase.from('events').insert({
+        organization_id: organizationId,
+        lead_id: params.leadId,
+        event_type: 'lead.payment.received',
+        payload: {
+          source: 'stripe',
+          value: params.amountCents / 100,
+          currency: 'USD',
+          purpose: 'no_show_fee',
+          appointment_id: params.appointmentId,
+          payment_intent_id: params.paymentIntentId,
+        },
+        occurred_at: occurredAt,
+      })
+      await supabase
+        .from('stripe_payments')
+        .update({ forwarded: true, forwarded_at: new Date().toISOString() })
+        .eq('id', inserted.id)
+    }
+  } catch (err) {
+    logger.error('recordNoShowCharge failed', {
+      organizationId,
+      appointmentId: params.appointmentId,
+      err: err instanceof Error ? err.message : 'unknown',
+    })
   }
 }

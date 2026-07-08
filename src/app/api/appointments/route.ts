@@ -234,6 +234,8 @@ export async function PATCH(request: NextRequest) {
   // Handle no-show
   if (status === 'no_show') {
     updateData.no_show_risk_score = 100
+    // Stamp when the no-show was recorded (analytics/KPI rollups COALESCE on this).
+    updateData.no_show_at = new Date().toISOString()
   }
 
   const { data: appointment, error } = await supabase
@@ -337,6 +339,7 @@ export async function PATCH(request: NextRequest) {
       const feeCents = appt.no_show_fee_cents ?? feeSettings.no_show_fee_cents ?? 5000
       const result = await chargeNoShowFeeForAppointment(supabase, orgId, {
         id: appt.id,
+        lead_id: appt.lead_id,
         stripe_customer_id: appt.stripe_customer_id,
         stripe_payment_method_id: appt.stripe_payment_method_id,
         no_show_fee_cents: feeCents,
