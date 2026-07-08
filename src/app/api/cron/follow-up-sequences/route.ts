@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServiceClient()
   const nowMs = Date.now()
-  const summary = { processed: 0, sent: 0, skipped: 0, stopped: 0, completed: 0 }
+  const summary = { processed: 0, sent: 0, skipped: 0, stopped: 0, completed: 0, errors: 0 }
 
   const { data: enrollments } = await supabase
     .from('follow_up_enrollments')
@@ -75,75 +75,81 @@ export async function GET(request: NextRequest) {
 
   for (const e of enrollments || []) {
     summary.processed++
-    const due = nextDueStep(
-      { current_step: e.current_step, enrolled_at: e.enrolled_at, status: 'active' } as Enrollment,
-      nowMs
-    )
-    if (!due) { summary.skipped++; continue }
-
-    const { data: lead } = await supabase
-      .from('leads')
-      .select('id, first_name, email, phone_formatted, last_responded_at, organization_id, stage_id, last_contacted_at, total_messages_received')
-      .eq('id', e.lead_id)
-      .single()
-    if (!lead) { summary.skipped++; continue }
-
-    // Stop-on-reply: the lead engaged after enrolling → halt the sequence.
-    if (lead.last_responded_at && new Date(lead.last_responded_at).getTime() > new Date(e.enrolled_at).getTime()) {
-      await supabase.from('follow_up_enrollments').update({ status: 'stopped', updated_at: new Date().toISOString() }).eq('id', e.id)
-      summary.stopped++; continue
-    }
-
-    const channel = due.step.channel
-    const recipient = (channel === 'email'
-      ? decryptField(lead.email) || lead.email
-      : decryptField(lead.phone_formatted) || lead.phone_formatted) || ''
-    if (!recipient || !isSendAllowed(recipient)) { summary.skipped++; continue }
-
-    const copy = STEP_COPY[channel]
-    const body = copy.body.replace('{first}', lead.first_name || 'there')
-    if (channel === 'email') {
-      const r = await sendEmailToLead({ supabase, leadId: lead.id, to: recipient, subject: copy.subject ?? 'Following up', html: `<p>${body}</p>`, text: body, aiGenerated: true, caller: 'cron.follow-up-sequences' })
-      if (r.sent) summary.sent++
-    } else {
-      const r = await sendSMSToLead({ supabase, leadId: lead.id, to: recipient, body, aiGenerated: true, caller: 'cron.follow-up-sequences' })
-      if (r.sent) summary.sent++
-    }
-
-    // Advance regardless of send outcome (avoid retry storms); complete on last step.
-    const nextStep = e.current_step + 1
-    const complete = nextStep >= DEFAULT_FOLLOWUP_SEQUENCE.length
-    await supabase
-      .from('follow_up_enrollments')
-      .update({ current_step: nextStep, status: complete ? 'completed' : 'active', last_step_sent_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .eq('id', e.id)
-    if (complete) {
-      summary.completed++
-
-      // Cadence exhausted with no reply → drop from Following Up to Nurturing.
-      // Stage-move only: no send, unaffected by MESSAGING_DRY_RUN.
-      const state = classifyContactedState(
-        {
-          last_contacted_at: lead.last_contacted_at ?? null,
-          last_responded_at: lead.last_responded_at ?? null,
-          total_messages_received: lead.total_messages_received ?? null,
-        },
+    try {
+      const due = nextDueStep(
+        { current_step: e.current_step, enrolled_at: e.enrolled_at, status: 'active' } as Enrollment,
         nowMs
       )
-      if (state !== 'engaged') {
-        const { data: contactedStage } = await supabase
-          .from('pipeline_stages')
-          .select('id')
-          .eq('organization_id', lead.organization_id)
-          .eq('slug', 'contacted')
-          .maybeSingle()
-        if (contactedStage?.id && lead.stage_id === contactedStage.id) {
-          const nurturingStageId = await ensureNurturingStageId(supabase, lead.organization_id)
-          if (nurturingStageId) {
-            await supabase.from('leads').update({ stage_id: nurturingStageId }).eq('id', lead.id)
+      if (!due) { summary.skipped++; continue }
+
+      const { data: lead } = await supabase
+        .from('leads')
+        .select('id, first_name, email, phone_formatted, last_responded_at, organization_id, stage_id, last_contacted_at, total_messages_received')
+        .eq('id', e.lead_id)
+        .single()
+      if (!lead) { summary.skipped++; continue }
+
+      // Stop-on-reply: the lead engaged after enrolling → halt the sequence.
+      if (lead.last_responded_at && new Date(lead.last_responded_at).getTime() > new Date(e.enrolled_at).getTime()) {
+        await supabase.from('follow_up_enrollments').update({ status: 'stopped', updated_at: new Date().toISOString() }).eq('id', e.id)
+        summary.stopped++; continue
+      }
+
+      const channel = due.step.channel
+      const recipient = (channel === 'email'
+        ? decryptField(lead.email) || lead.email
+        : decryptField(lead.phone_formatted) || lead.phone_formatted) || ''
+      if (!recipient || !isSendAllowed(recipient)) { summary.skipped++; continue }
+
+      const copy = STEP_COPY[channel]
+      const body = copy.body.replace('{first}', lead.first_name || 'there')
+      if (channel === 'email') {
+        const r = await sendEmailToLead({ supabase, leadId: lead.id, to: recipient, subject: copy.subject ?? 'Following up', html: `<p>${body}</p>`, text: body, aiGenerated: true, caller: 'cron.follow-up-sequences' })
+        if (r.sent) summary.sent++
+      } else {
+        const r = await sendSMSToLead({ supabase, leadId: lead.id, to: recipient, body, aiGenerated: true, caller: 'cron.follow-up-sequences' })
+        if (r.sent) summary.sent++
+      }
+
+      // Advance regardless of send outcome (avoid retry storms); complete on last step.
+      const nextStep = e.current_step + 1
+      const complete = nextStep >= DEFAULT_FOLLOWUP_SEQUENCE.length
+      await supabase
+        .from('follow_up_enrollments')
+        .update({ current_step: nextStep, status: complete ? 'completed' : 'active', last_step_sent_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', e.id)
+      if (complete) {
+        summary.completed++
+
+        // Cadence exhausted with no reply → drop from Following Up to Nurturing.
+        // Stage-move only: no send, unaffected by MESSAGING_DRY_RUN.
+        const state = classifyContactedState(
+          {
+            last_contacted_at: lead.last_contacted_at ?? null,
+            last_responded_at: lead.last_responded_at ?? null,
+            total_messages_received: lead.total_messages_received ?? null,
+          },
+          nowMs
+        )
+        if (state !== 'engaged') {
+          const { data: contactedStage } = await supabase
+            .from('pipeline_stages')
+            .select('id')
+            .eq('organization_id', lead.organization_id)
+            .eq('slug', 'contacted')
+            .maybeSingle()
+          if (contactedStage?.id && lead.stage_id === contactedStage.id) {
+            const nurturingStageId = await ensureNurturingStageId(supabase, lead.organization_id)
+            if (nurturingStageId) {
+              await supabase.from('leads').update({ stage_id: nurturingStageId }).eq('id', lead.id)
+            }
           }
         }
       }
+    } catch (err) {
+      // Isolate per-enrollment failures — one bad lead must not abort the batch.
+      summary.errors++
+      console.warn('[follow-up-sequences] enrollment failed', e.id, err instanceof Error ? err.message : err)
     }
   }
 
