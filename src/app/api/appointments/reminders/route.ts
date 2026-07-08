@@ -134,7 +134,10 @@ export async function POST(request: NextRequest) {
   // Send email reminder
   if ((!channel || channel === 'email') && lead.email) {
     try {
-      const { sendEmail } = await import('@/lib/messaging/resend')
+      // Route through sendEmailToLead (consent + opt-out + kill-switch), matching
+      // the SMS sibling above. The raw sendEmail path skipped every gate, so a lead
+      // who unsubscribed still received reminder emails.
+      const { sendEmailToLead } = await import('@/lib/messaging/resend')
       const { generate24hEmailTemplate, getConfirmationUrl, getRescheduleUrl } = await import('@/lib/campaigns/reminder-templates')
 
       const template = generate24hEmailTemplate({
@@ -147,25 +150,32 @@ export async function POST(request: NextRequest) {
         rescheduleUrl: getRescheduleUrl(appointment_id, orgId),
       })
 
-      const result = await sendEmail({
+      const sendRes = await sendEmailToLead({
+        supabase,
+        leadId: lead.id,
         to: lead.email,
         subject: template.subject,
         html: template.html,
         text: template.text,
+        caller: 'appointments.reminders',
       })
 
-      await supabase.from('appointment_reminders').insert({
-        organization_id: orgId,
-        appointment_id,
-        lead_id: lead.id,
-        channel: 'email',
-        reminder_type: 'manual',
-        status: 'sent',
-        sent_at: new Date().toISOString(),
-        external_id: result.id,
-      })
+      if (!sendRes.sent) {
+        results.push({ channel: 'email', status: 'skipped', detail: `consent:${sendRes.reason}` })
+      } else {
+        await supabase.from('appointment_reminders').insert({
+          organization_id: orgId,
+          appointment_id,
+          lead_id: lead.id,
+          channel: 'email',
+          reminder_type: 'manual',
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          external_id: sendRes.id,
+        })
 
-      results.push({ channel: 'email', status: 'sent' })
+        results.push({ channel: 'email', status: 'sent' })
+      }
     } catch (err) {
       results.push({ channel: 'email', status: 'error', detail: err instanceof Error ? err.message : 'unknown' })
     }

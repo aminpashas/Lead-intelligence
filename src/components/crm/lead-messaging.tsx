@@ -33,6 +33,19 @@ import { toast } from 'sonner'
 import type { ReactNode } from 'react'
 import type { Lead } from '@/types/database'
 
+// AI draft intents. `label` is what the operator reads; `subject` seeds the
+// email subject line when the draft comes back and the field is still empty.
+const AI_MODES = [
+  { value: 'education', label: 'Educate about All-on-4', subject: 'Transform Your Smile with All-on-4 Dental Implants' },
+  { value: 'objection_handling', label: 'Handle objections', subject: 'Addressing Your Questions About Dental Implants' },
+  { value: 'appointment_scheduling', label: 'Schedule consultation', subject: 'Your Free Consultation Awaits' },
+  { value: 'follow_up', label: 'Follow up', subject: 'Just Checking In' },
+] as const
+
+// value → label map for Base UI's <Select.Value> (it renders the raw value
+// otherwise, which is why the trigger used to read "education").
+const AI_MODE_LABELS = Object.fromEntries(AI_MODES.map((m) => [m.value, m.label]))
+
 export function LeadMessaging({
   lead,
   defaultChannel,
@@ -86,12 +99,8 @@ export function LeadMessaging({
       } else {
         setEmailBody(message)
         if (!emailSubject) {
-          setEmailSubject(
-            aiMode === 'education' ? 'Transform Your Smile with All-on-4 Dental Implants' :
-            aiMode === 'appointment_scheduling' ? 'Your Free Consultation Awaits' :
-            aiMode === 'follow_up' ? 'Just Checking In' :
-            'Addressing Your Questions About Dental Implants'
-          )
+          const mode = AI_MODES.find((m) => m.value === aiMode)
+          setEmailSubject(mode?.subject ?? AI_MODES[0].subject)
         }
       }
       toast.success('AI draft generated — review and send')
@@ -165,9 +174,12 @@ export function LeadMessaging({
           <DialogTitle className="aurea-display text-[22px] text-aurea-ink">
             Message {lead.first_name} {lead.last_name}
           </DialogTitle>
+          <p className="text-[13px] text-aurea-ink-3">
+            Consent and quiet-hours are enforced automatically before anything sends.
+          </p>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => v && setTab(v)} className="mt-2">
+        <Tabs value={tab} onValueChange={(v) => v && setTab(v)} className="mt-1">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="sms" disabled={!lead.phone}>
               <MessageSquare className="mr-1.5 h-4 w-4" strokeWidth={1.75} /> SMS
@@ -177,50 +189,61 @@ export function LeadMessaging({
             </TabsTrigger>
           </TabsList>
 
-          {/* AI Generate */}
-          <div className="mt-4 flex items-center gap-2">
-            <Select value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
-              <SelectTrigger className="flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="education">Educate about All-on-4</SelectItem>
-                <SelectItem value="objection_handling">Handle Objections</SelectItem>
-                <SelectItem value="appointment_scheduling">Schedule Consultation</SelectItem>
-                <SelectItem value="follow_up">Follow Up</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={generateAI}
-              disabled={generating}
-              className="shrink-0 gap-1.5"
-            >
-              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" strokeWidth={1.75} />}
-              AI Draft
-            </Button>
+          {/* AI assist band — pick an intent, generate a draft to edit before sending. */}
+          <div className="mt-4 rounded-xl border border-aurea-border bg-aurea-surface-2/50 p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-aurea-ink-2">
+              <Brain className="h-3.5 w-3.5 text-aurea-primary" strokeWidth={1.75} />
+              <span className="aurea-eyebrow">AI draft</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select items={AI_MODE_LABELS} value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
+                <SelectTrigger className="h-9 flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {AI_MODES.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={generateAI}
+                disabled={generating}
+                className="h-9 shrink-0 gap-1.5"
+              >
+                {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" strokeWidth={1.75} />}
+                {generating ? 'Drafting…' : 'Generate'}
+              </Button>
+            </div>
           </div>
 
-          <TabsContent value="sms" className="mt-3 space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-aurea-ink-3">To: {lead.phone}</Label>
-              <Textarea
-                value={smsBody}
-                onChange={(e) => setSmsBody(e.target.value)}
-                placeholder="Type your SMS message..."
-                rows={4}
-              />
-              <p className="text-right text-xs text-aurea-ink-3">
-                {smsBody.length}/160 characters
-                {smsBody.length > 160 && ` (${Math.ceil(smsBody.length / 160)} segments)`}
-              </p>
+          <TabsContent value="sms" className="mt-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-aurea-ink-3">To</Label>
+              <span className="font-mono text-xs text-aurea-ink-2">{lead.phone}</span>
             </div>
+            <Textarea
+              value={smsBody}
+              onChange={(e) => setSmsBody(e.target.value)}
+              placeholder="Type your SMS message…"
+              rows={5}
+            />
+            <p className="text-right font-mono text-[11px] tabular-nums text-aurea-ink-3">
+              {smsBody.length}/160
+              {smsBody.length > 160 && ` · ${Math.ceil(smsBody.length / 160)} segments`}
+            </p>
           </TabsContent>
 
-          <TabsContent value="email" className="mt-3 space-y-3">
+          <TabsContent value="email" className="mt-4 space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs text-aurea-ink-3">To: {lead.email}</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-aurea-ink-3">To</Label>
+                <span className="font-mono text-xs text-aurea-ink-2">{lead.email}</span>
+              </div>
               <Input
                 placeholder="Subject line"
                 value={emailSubject}
@@ -230,13 +253,13 @@ export function LeadMessaging({
             <Textarea
               value={emailBody}
               onChange={(e) => setEmailBody(e.target.value)}
-              placeholder="Compose your email..."
-              rows={8}
+              placeholder="Compose your email…"
+              rows={9}
             />
           </TabsContent>
         </Tabs>
 
-        <div className="mt-2 flex justify-end gap-2">
+        <div className="mt-2 flex justify-end gap-2 border-t border-aurea-border pt-4">
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button onClick={sendMessage} disabled={sending} className="gap-1.5">
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" strokeWidth={1.75} />}

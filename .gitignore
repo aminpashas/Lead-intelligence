@@ -50,3 +50,6 @@ supabase/.temp/
 
 # Playwright MCP scratch state
 .playwright-mcp/
+
+# Brainstorming visual companion (superpowers)
+.superpowers/

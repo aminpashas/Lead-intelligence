@@ -215,7 +215,11 @@ ${safeHistory.map((m, i) => `[${m.role === 'user' ? 'PATIENT' : 'STAFF'}] ${m.co
 
   const profile: PatientProfile = JSON.parse(jsonMatch[0])
 
-  // Save to database
+  // Save to database. onConflict:'lead_id' REQUIRES a unique constraint on
+  // patient_profiles(lead_id) — added in migration 20260707_*. Without it the
+  // upsert errors at the DB and (previously) that error was only console.error'd,
+  // so every psychology profile write silently failed and zero rows persisted
+  // (the same class of bug fixed for conversation_analyses). Surface it loudly.
   const { error } = await supabase.from('patient_profiles').upsert({
     organization_id: config.organization_id,
     lead_id: config.lead_id,
@@ -228,7 +232,11 @@ ${safeHistory.map((m, i) => `[${m.role === 'user' ? 'PATIENT' : 'STAFF'}] ${m.co
   })
 
   if (error) {
-    console.error('Error saving patient profile:', error)
+    // Throw rather than swallow: a persistent failure here means the AI's
+    // accumulated understanding of the patient is never saved. Better to fail
+    // visibly (and let the caller's error handling/alerting catch it) than to
+    // return success while writing nothing.
+    throw new Error(`patient_profiles upsert failed (needs unique(lead_id)): ${error.message}`)
   }
 
   // Log to ai_interactions

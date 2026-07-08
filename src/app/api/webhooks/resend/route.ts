@@ -84,9 +84,14 @@ export async function POST(request: NextRequest) {
 
   const rawBody = await request.text()
 
-  // Verify signature (skip in development if no secret configured)
+  // Verify signature — fail-closed in production. A missing secret must never
+  // bypass verification: unsigned bounce/complaint events would let anyone set
+  // email_opt_out on arbitrary leads (deliverability DoS + forged metrics). In
+  // production we always require a valid signature (verifyResendSignature returns
+  // false when no secret is configured); the skip is a dev-only convenience.
+  const isProd = process.env.NODE_ENV === 'production'
   const hasSecret = !!(process.env.RESEND_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET)
-  if (hasSecret && !verifyResendSignature(rawBody, request.headers)) {
+  if ((isProd || hasSecret) && !verifyResendSignature(rawBody, request.headers)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
