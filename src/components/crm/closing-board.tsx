@@ -3,26 +3,22 @@
 /**
  * ClosingBoard — the In-Closing deals surface (`/closing`).
  *
- * A read-mostly lens on leads already in the treatment-presented + financing
- * stages: case value, days since contact, and AI close probability all come
- * straight from the pipeline. The only writes are the two fields the old "Case
- * Follow ups" spreadsheet carried — a closing temperature override and a
- * next-step note — PATCHed to /api/leads/[id]/closing.
+ * Renders the `closing_book` table: the curated "Case Follow ups" deals the
+ * practice is working to close, seeded from its spreadsheet (NOT a pipeline
+ * stage query — those stages are full of stale GHL labels). Case value, status,
+ * strategy and gut-feel temperature all come from the sheet. The only writes are
+ * the two inline-editable fields — a closing-temperature override and a
+ * next-step note — PATCHed to /api/closing/[id].
+ *
+ * A row links to a CRM lead (for Call/SMS/Email + the lead detail page) only
+ * when the sheet name matched exactly one lead; otherwise it shows read-only.
  */
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Lead } from '@/types/database'
 import { LeadActions } from './lead-actions'
 import type { ClosingTemperature } from '@/lib/pipeline/closing'
-
-export type ClosingMeta = {
-  closeProbability: number
-  daysSinceContact: number | null
-  serviceLines: string[]
-  stageName: string
-  derivedTemperature: ClosingTemperature
-}
+import type { ClosingRow } from '@/lib/pipeline/closing-book'
 
 type ClosingForecast = {
   count: number
@@ -52,27 +48,25 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
 }
 
 export function ClosingBoard({
-  leads,
-  meta,
+  rows,
   forecast,
 }: {
-  leads: Lead[]
-  meta: Record<string, ClosingMeta>
+  rows: ClosingRow[]
   forecast: ClosingForecast
 }) {
   const router = useRouter()
   // Local override state so edits reflect instantly (optimistic).
   const [temps, setTemps] = useState<Record<string, ClosingTemperature | null>>(
-    () => Object.fromEntries(leads.map((l) => [l.id, l.closing_temperature ?? null]))
+    () => Object.fromEntries(rows.map((r) => [r.id, r.temperature ?? null]))
   )
   const [steps, setSteps] = useState<Record<string, string>>(
-    () => Object.fromEntries(leads.map((l) => [l.id, l.closing_next_step ?? '']))
+    () => Object.fromEntries(rows.map((r) => [r.id, r.nextStep ?? '']))
   )
   const [editingStep, setEditingStep] = useState<string | null>(null)
 
   async function save(id: string, body: { temperature?: ClosingTemperature | null; nextStep?: string | null }) {
     try {
-      await fetch(`/api/leads/${id}/closing`, {
+      await fetch(`/api/closing/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -82,12 +76,12 @@ export function ClosingBoard({
     }
   }
 
-  if (leads.length === 0) {
+  if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-aurea-border bg-aurea-card px-6 py-16 text-center">
-        <p className="text-[15px] font-medium text-aurea-ink">No deals in closing right now</p>
+        <p className="text-[15px] font-medium text-aurea-ink">No deals in the closing book yet</p>
         <p className="mt-1 text-[13px] text-aurea-ink-2">
-          Deals appear here once they reach the Treatment Presented or Financing stage.
+          This board is your curated closing list. Deals are added here as they’re worked to close.
         </p>
       </div>
     )
@@ -116,7 +110,7 @@ export function ClosingBoard({
               <th className="px-4 py-3 font-medium">Patient</th>
               <th className="px-4 py-3 font-medium">Service</th>
               <th className="px-4 py-3 text-right font-medium">Case value</th>
-              <th className="px-4 py-3 font-medium">Stage</th>
+              <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 text-right font-medium">Last contact</th>
               <th className="px-4 py-3 text-right font-medium">Close&nbsp;%</th>
               <th className="px-4 py-3 font-medium">Temperature</th>
@@ -125,34 +119,47 @@ export function ClosingBoard({
             </tr>
           </thead>
           <tbody>
-            {leads.map((lead) => {
-              const m = meta[lead.id]
-              const temp = temps[lead.id] ?? m.derivedTemperature
+            {rows.map((row) => {
+              const temp = temps[row.id] ?? row.derivedTemperature
               const style = TEMP_STYLE[temp]
-              const isOverride = temps[lead.id] != null
-              const days = m.daysSinceContact
+              const isOverride = temps[row.id] != null
+              const days = row.daysSinceContact
+              const name = `${row.firstName} ${row.lastName}`.trim() || 'Unnamed'
               return (
-                <tr key={lead.id} className="border-b border-aurea-border/60 last:border-0 hover:bg-aurea-surface-2/40">
+                <tr key={row.id} className="border-b border-aurea-border/60 last:border-0 hover:bg-aurea-surface-2/40">
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => router.push(`/leads/${lead.id}`)}
-                      className="font-medium text-aurea-ink hover:text-aurea-primary"
-                    >
-                      {lead.first_name} {lead.last_name}
-                    </button>
+                    {row.leadId ? (
+                      <button
+                        onClick={() => router.push(`/leads/${row.leadId}`)}
+                        className="font-medium text-aurea-ink hover:text-aurea-primary"
+                      >
+                        {name}
+                      </button>
+                    ) : (
+                      <span className="font-medium text-aurea-ink" title="No matching CRM lead — add contact info to enable call/text/email">
+                        {name}
+                      </span>
+                    )}
+                    {row.won ? (
+                      <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
+                        Closed
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-aurea-ink-2 capitalize">
-                    {m.serviceLines.length ? m.serviceLines.join(', ').replace(/_/g, ' ') : '—'}
+                    {row.service?.trim() ? row.service.trim() : '—'}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-aurea-ink">
-                    {lead.treatment_value ? usd(lead.treatment_value) : '—'}
+                    {row.caseValue ? usd(row.caseValue) : '—'}
                   </td>
-                  <td className="px-4 py-3 text-aurea-ink-2">{m.stageName}</td>
+                  <td className="px-4 py-3 text-aurea-ink-2">
+                    {row.statusRaw?.trim() ? row.statusRaw.trim() : '—'}
+                  </td>
                   <td className="px-4 py-3 text-right text-aurea-ink-2">
                     {days === null ? 'never' : days === 0 ? 'today' : `${days}d ago`}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-aurea-ink">
-                    {Math.round(m.closeProbability * 100)}%
+                    {Math.round(row.closeProbability * 100)}%
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -161,8 +168,8 @@ export function ClosingBoard({
                         value={temp}
                         onChange={(e) => {
                           const val = e.target.value as ClosingTemperature
-                          setTemps((s) => ({ ...s, [lead.id]: val }))
-                          save(lead.id, { temperature: val })
+                          setTemps((s) => ({ ...s, [row.id]: val }))
+                          save(row.id, { temperature: val })
                         }}
                         className={`bg-transparent text-[12px] font-medium ${style.text} focus:outline-none`}
                       >
@@ -176,15 +183,15 @@ export function ClosingBoard({
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    {editingStep === lead.id ? (
+                    {editingStep === row.id ? (
                       <input
                         autoFocus
-                        defaultValue={steps[lead.id]}
+                        defaultValue={steps[row.id]}
                         onBlur={(e) => {
                           const v = e.target.value
-                          setSteps((s) => ({ ...s, [lead.id]: v }))
+                          setSteps((s) => ({ ...s, [row.id]: v }))
                           setEditingStep(null)
-                          save(lead.id, { nextStep: v || null })
+                          save(row.id, { nextStep: v || null })
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
@@ -195,15 +202,19 @@ export function ClosingBoard({
                       />
                     ) : (
                       <button
-                        onClick={() => setEditingStep(lead.id)}
+                        onClick={() => setEditingStep(row.id)}
                         className="max-w-[240px] truncate text-left text-[12px] text-aurea-ink-2 hover:text-aurea-ink"
                       >
-                        {steps[lead.id] || <span className="text-aurea-ink-3">Add next step…</span>}
+                        {steps[row.id] || <span className="text-aurea-ink-3">Add next step…</span>}
                       </button>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <LeadActions lead={lead} variant="compact" />
+                    {row.lead ? (
+                      <LeadActions lead={row.lead} variant="compact" />
+                    ) : (
+                      <span className="text-[11px] text-aurea-ink-3">No linked contact</span>
+                    )}
                   </td>
                 </tr>
               )

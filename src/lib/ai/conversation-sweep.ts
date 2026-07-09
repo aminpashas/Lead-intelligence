@@ -37,7 +37,12 @@ export type CompactConversationAnalysis = {
   primary_objection: PrimaryObjection
   red_flag: boolean
   red_flag_reason: string | null
+  /** One-sentence, PHI-free recap of where the patient stands. */
+  summary: string | null
 }
+
+/** Hard cap on the stored summary so a runaway model reply can't bloat the row. */
+const MAX_SUMMARY_LEN = 280
 
 const SWEEP_PROMPT = `You classify dental-implant practice patient conversations for CRM segmentation. Read the conversation and output ONLY a JSON object with these fields:
 
@@ -51,6 +56,7 @@ const SWEEP_PROMPT = `You classify dental-implant practice patient conversations
 - "primary_objection": the single biggest obstacle the patient expressed — "cost" | "financing" | "fear_anxiety" | "timing" | "trust" | "medical" | "logistics" | "spouse_approval" | "none" | "other". Use "none" if no obstacle was expressed.
 - "red_flag": true ONLY for serious issues — explicit complaints, threats of bad reviews or legal action, signs the patient feels misled or pressured, or clear do-not-contact requests that weren't honored
 - "red_flag_reason": one short sentence when red_flag is true, otherwise null
+- "summary": ONE plain-English sentence (max 40 words) telling a staff member where this patient stands and the single most useful next step. NO names, phone numbers, addresses, or other identifying details — refer to "the patient". Example: "Wants full-arch pricing and is comparing two practices; send the financing breakdown and offer a consult slot this week."
 
 Base everything on what the patient actually said, not what staff said. Output only the JSON object.`
 
@@ -120,6 +126,8 @@ ${safeHistory.map((m) => `[${m.role === 'user' ? 'PATIENT' : 'STAFF'}] ${m.conte
     red_flag: raw.red_flag === true,
     red_flag_reason: raw.red_flag === true && typeof raw.red_flag_reason === 'string'
       ? raw.red_flag_reason.slice(0, 300) : null,
+    summary: typeof raw.summary === 'string' && raw.summary.trim().length > 0
+      ? raw.summary.trim().slice(0, MAX_SUMMARY_LEN) : null,
   }
 
   const { error } = await supabase
@@ -129,6 +137,7 @@ ${safeHistory.map((m) => `[${m.role === 'user' ? 'PATIENT' : 'STAFF'}] ${m.conte
       conversation_sentiment: analysis.sentiment,
       primary_objection: analysis.primary_objection,
       conversation_red_flag: analysis.red_flag,
+      conversation_summary: analysis.summary,
       conversation_analyzed_at: new Date().toISOString(),
     })
     .eq('id', config.lead_id)

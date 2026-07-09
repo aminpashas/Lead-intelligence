@@ -33,6 +33,7 @@ import { deriveConsentFields } from '@/lib/consent/ingest'
 import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
 import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
 import { isJunkCallerContact } from '@/lib/leads/junk-contact'
+import { routedIntakeStageSlug } from '@/lib/leads/intake-routing'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -384,7 +385,7 @@ export async function POST(request: NextRequest) {
     .from('pipeline_stages')
     .select('id, slug, is_default')
     .eq('organization_id', customerId)
-    .or('is_default.eq.true,slug.in.(existing-patient,junk)')
+    .or('is_default.eq.true,slug.in.(existing-patient,junk,nurturing)')
   const stageBySlug = new Map((stageRows ?? []).map((s) => [s.slug as string, s.id as string]))
   const defaultStageId =
     (stageRows ?? []).find((s) => s.is_default)?.id ?? stageBySlug.get('new') ?? undefined
@@ -407,12 +408,22 @@ export async function POST(request: NextRequest) {
     : isJunk
       ? 'junk'
       : 'lead'
-  const routedStageId =
-    route === 'existing_patient'
-      ? stageBySlug.get('existing-patient') ?? defaultStageId
-      : route === 'junk'
-        ? stageBySlug.get('junk') ?? defaultStageId
-        : defaultStageId
+  // Final stage: off-funnel routing (existing-patient / junk) takes precedence —
+  // an existing patient or a junk call must never sit in the sales funnel, paid
+  // gate or not. A GENUINE lead then flows through the paid-only intake gate:
+  // for opted-in orgs a brand-new non-paid lead (organic / GMB / referral /
+  // imported nurturing DB) skips "New Lead" and lands in "Nurturing", so the
+  // board reflects only fresh Google/Meta ad demand. All lookups come from the
+  // single stageRows fetch above (nurturing included) — no extra round-trip.
+  let stageId: string | undefined
+  if (route === 'existing_patient') {
+    stageId = stageBySlug.get('existing-patient') ?? defaultStageId
+  } else if (route === 'junk') {
+    stageId = stageBySlug.get('junk') ?? defaultStageId
+  } else {
+    const routeSlug = routedIntakeStageSlug(customerId, campaignAttribution?.channel)
+    stageId = (routeSlug && stageBySlug.get(routeSlug)) || defaultStageId
+  }
 
   const insertData = encryptLeadPII({
     organization_id: customerId,
@@ -421,7 +432,7 @@ export async function POST(request: NextRequest) {
     email,
     phone: phoneRaw || null,
     phone_formatted: phoneFormatted ?? undefined,
-    stage_id: routedStageId,
+    stage_id: stageId,
     ...(route === 'existing_patient' && patientMatch
       ? { is_existing_patient: true, matched_patient_id: patientMatch.patientId }
       : {}),

@@ -82,10 +82,19 @@ export function PipelineRecommendations({
     })
   }
 
-  async function apply(rec: Recommendation) {
+  async function apply(rec: Recommendation, autoApply = false) {
+    const a = rec.action
+
+    // Auto-apply moves leads with no review step — confirm before mutating.
+    if (autoApply) {
+      const ok = window.confirm(
+        `Move ${rec.leadCount.toLocaleString()} leads now? This changes their pipeline stage immediately — there's no review step.`
+      )
+      if (!ok) return
+    }
+
     setApplyingId(rec.id)
     try {
-      const a = rec.action
       const res = await fetch('/api/pipeline/recommendations/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -95,12 +104,28 @@ export function PipelineRecommendations({
           channel: a.type === 'broadcast' ? a.channel : undefined,
           toStageSlug: a.type === 'bulk_stage' ? a.toStageSlug : undefined,
           criteria: a.criteria,
+          autoApply: autoApply && a.type === 'bulk_stage' ? true : undefined,
         }),
       })
       const data = await res.json()
-      if (!res.ok || !data.redirect) {
+      if (!res.ok) {
         throw new Error(data.error || 'Could not prepare this recommendation')
       }
+
+      // Auto-applied stage move: nothing to redirect to — refresh the board so
+      // the moved leads leave this stage and the recommendation recomputes.
+      if (data.autoApplied) {
+        const capped = data.capped
+          ? ` (capped — ${(data.total ?? 0).toLocaleString()} matched, move the rest again)`
+          : ''
+        toast.success(`Moved ${(data.moved ?? 0).toLocaleString()} leads to ${data.toStageName}${capped}.`)
+        dismiss(rec.id)
+        router.refresh()
+        setApplyingId(null)
+        return
+      }
+
+      if (!data.redirect) throw new Error('Could not prepare this recommendation')
       toast.success(`Segment ready — ${(data.leadCount ?? 0).toLocaleString()} leads. Review before sending.`)
       router.push(data.redirect)
     } catch (e) {
@@ -184,11 +209,23 @@ export function PipelineRecommendations({
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <>
-                      {rec.cta}
+                      {rec.action.type === 'bulk_stage' ? 'Review & move' : rec.cta}
                       <ArrowRight className="h-3.5 w-3.5" />
                     </>
                   )}
                 </Button>
+
+                {/* Stage moves can be applied directly — a stage change sends
+                    nothing, so it skips the review hand-off (still confirmed). */}
+                {rec.action.type === 'bulk_stage' && (
+                  <button
+                    onClick={() => apply(rec, true)}
+                    disabled={busy}
+                    className="mt-1.5 w-full text-center text-[11px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink disabled:opacity-50"
+                  >
+                    Move {rec.leadCount.toLocaleString()} now, skip review
+                  </button>
+                )}
               </article>
             )
           })}
