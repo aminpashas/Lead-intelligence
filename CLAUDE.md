@@ -40,3 +40,14 @@
 - `npm run dev` — Start dev server
 - `npm run build` — Production build
 - Environment: Copy `.env.local.example` to `.env.local` and fill in API keys
+
+
+## Dion Suite context — READ FIRST
+
+This repo is one app in the Dion portfolio (Adobe-Creative-Cloud model: many
+independent products, one Dion umbrella). Before building any cross-cutting
+feature (comms, voice, payments, CRM, scheduling, analytics, auth, events),
+read **[./ECOSYSTEM.md](./ECOSYSTEM.md)** — it lists every app and the
+workflow-ownership matrix that says which product owns what. Do not duplicate a
+workflow another app owns; integrate via `@dion/contracts` events +
+`@dion/master-records`.
