@@ -40,6 +40,20 @@ describe('isJunkCallerContact', () => {
     expect(isJunkCallerContact(wc({ first_name: 'Kaiser', last_name: 'Permanente' }))).toBe(true)
   })
 
+  it('flags DDS/DMD professional callers and WhatConverts-clipped suffixes', () => {
+    expect(isJunkCallerContact(wc({ first_name: 'Brattesani', last_name: 'Dds' }))).toBe(true)
+    expect(isJunkCallerContact(wc({ first_name: 'Tim', last_name: 'Choy Dmd' }))).toBe(true)
+    // Names clipped to ~15 chars: "Lake Merced Dental" → "Lake Merced Den", "… DDS" → "… Dd".
+    expect(isJunkCallerContact(wc({ first_name: 'Lake', last_name: 'Merced Den' }))).toBe(true)
+    expect(isJunkCallerContact(wc({ first_name: 'Lum', last_name: 'Darwin F Dd', phone_valid: null }))).toBe(true)
+  })
+
+  it('clip match is a trailing token, not a substring — real surnames survive', () => {
+    expect(isJunkCallerContact(wc({ first_name: 'John', last_name: 'Borden' }))).toBe(false) // ends "borden", not " den"
+    expect(isJunkCallerContact(wc({ first_name: 'Chris', last_name: 'Braden' }))).toBe(false)
+    expect(isJunkCallerContact(wc({ first_name: 'Sarah', last_name: 'Todd' }))).toBe(false) // ends "todd", not " dd"
+  })
+
   it('flags carrier / telco placeholder names even when phone validity is unknown', () => {
     expect(isJunkCallerContact(wc({ first_name: 'Wireless', last_name: 'Caller', phone_valid: null }))).toBe(true)
     expect(isJunkCallerContact(wc({ first_name: 'Unknown', last_name: null, phone_valid: null }))).toBe(true)

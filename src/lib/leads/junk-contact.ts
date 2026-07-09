@@ -38,7 +38,13 @@ const US_STATE_CODES = new Set([
 // bare "kaiser" is a real surname ("Syed Kaiser"). Same care with any token that
 // doubles as a name: prefer the unambiguous multi-word form.
 const BUSINESS_KEYWORDS =
-  /\b(dental|dentist|dentistry|orthodont\w*|endodont\w*|periodont\w*|prosthodont\w*|invisalign|pharmacy|clinic|hospital|medical|medicaid|medicare|insurance|kaiser permanen\w*|aetna|cigna|metlife|humana|anthem|delta ?dental|unitedhealth\w*|healthplan|health plan|llc|\binc\b)\b/
+  /\b(dental|dentist|dentistry|orthodont\w*|endodont\w*|periodont\w*|prosthodont\w*|invisalign|pharmacy|clinic|hospital|medical|medicaid|medicare|insurance|kaiser permanen\w*|aetna|cigna|metlife|humana|anthem|delta ?dental|unitedhealth\w*|healthplan|health plan|dds|dmd|llc|\binc\b)\b/
+
+/** WhatConverts truncates the caller-ID name to ~15 chars, so a dental office or
+ *  professional lands clipped: "Lake Merced Dental" → "Lake Merced Den",
+ *  "… DDS" → "… Dd". A trailing " den" / " dd" token is that clipped professional
+ *  suffix, never a real surname (a real "Den"/"Dd" surname does not exist). */
+const BUSINESS_TRUNCATIONS = / (den|dd)$/
 
 /** Carrier / telco placeholder names a caller ID returns when there's no name. */
 const PLACEHOLDER_NAMES = new Set([
@@ -116,8 +122,9 @@ export function isJunkCallerContact(input: JunkContactInput): boolean {
   }
 
   // 4d) Business / insurer / other-practice name (vendor or insurer call, not a
-  //     prospect). Whole-word match so a real surname is never clipped.
-  if (BUSINESS_KEYWORDS.test(full)) return true
+  //     prospect). Whole-word match so a real surname is never clipped, plus the
+  //     WhatConverts truncated professional suffix (" den" / " dd").
+  if (BUSINESS_KEYWORDS.test(full) || BUSINESS_TRUNCATIONS.test(full)) return true
 
   return false
 }
