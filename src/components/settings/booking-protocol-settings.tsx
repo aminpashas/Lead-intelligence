@@ -12,6 +12,7 @@ type ProtocolSettings = {
   require_call_before_booking: boolean
   no_show_fee_enabled: boolean
   no_show_fee_cents: number
+  card_on_file_required: boolean
   youtube_testimonial_url: string | null
   consult_price_range_text: string | null
   discovery_script: string | null
@@ -21,6 +22,7 @@ const DEFAULTS: ProtocolSettings = {
   require_call_before_booking: false,
   no_show_fee_enabled: false,
   no_show_fee_cents: 5000,
+  card_on_file_required: false,
   youtube_testimonial_url: null,
   consult_price_range_text: null,
   discovery_script: null,
@@ -28,6 +30,7 @@ const DEFAULTS: ProtocolSettings = {
 
 export function BookingProtocolSettings() {
   const [settings, setSettings] = useState<ProtocolSettings>(DEFAULTS)
+  const [canEditCardRequired, setCanEditCardRequired] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -36,7 +39,10 @@ export function BookingProtocolSettings() {
   useEffect(() => {
     fetch('/api/settings/booking-protocol')
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setSettings({ ...DEFAULTS, ...d.settings }))
+      .then((d) => {
+        setSettings({ ...DEFAULTS, ...d.settings })
+        setCanEditCardRequired(!!d.can_edit_card_required)
+      })
       .catch(() => setError('Failed to load booking protocol settings'))
       .finally(() => setLoading(false))
   }, [])
@@ -57,6 +63,8 @@ export function BookingProtocolSettings() {
           require_call_before_booking: settings.require_call_before_booking,
           no_show_fee_enabled: settings.no_show_fee_enabled,
           no_show_fee_cents: settings.no_show_fee_cents,
+          // Server ignores this from non-agency-admins; sending it is harmless.
+          card_on_file_required: settings.card_on_file_required,
           youtube_testimonial_url: settings.youtube_testimonial_url || '',
           consult_price_range_text: settings.consult_price_range_text || '',
           discovery_script: settings.discovery_script || '',
@@ -118,17 +126,40 @@ export function BookingProtocolSettings() {
       </div>
 
       {settings.no_show_fee_enabled && (
-        <div className="space-y-2 pl-1">
-          <Label className="aurea-eyebrow">No-show fee amount (USD)</Label>
-          <div className="flex items-center gap-2">
-            <span className="text-aurea-ink-2">$</span>
-            <Input
-              type="number"
-              min={0}
-              max={1000}
-              value={feeDollars}
-              onChange={(e) => update('no_show_fee_cents', Math.max(0, Math.round(Number(e.target.value) || 0)) * 100)}
-              className="w-28"
+        <div className="space-y-4 pl-1">
+          <div className="space-y-2">
+            <Label className="aurea-eyebrow">No-show fee amount (USD)</Label>
+            <div className="flex items-center gap-2">
+              <span className="text-aurea-ink-2">$</span>
+              <Input
+                type="number"
+                min={0}
+                max={1000}
+                value={feeDollars}
+                onChange={(e) => update('no_show_fee_cents', Math.max(0, Math.round(Number(e.target.value) || 0)) * 100)}
+                className="w-28"
+              />
+            </div>
+          </div>
+
+          {/* Mandatory card-on-file — Super-Admin (agency) controlled. Practice
+              admins see it read-only. When on, a consultation is only a held slot
+              until the patient saves a card; it confirms automatically then. */}
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-aurea-border bg-aurea-surface-2/40 px-3 py-3">
+            <div className="space-y-1">
+              <Label className="text-[14px] text-aurea-ink">Require a card before confirming (mandatory)</Label>
+              <p className="text-[13px] leading-relaxed text-aurea-ink-2">
+                Booking a consultation holds the slot and texts the card link. The appointment only
+                confirms once the card is saved. A manager can override for phone-read cards.
+              </p>
+              {!canEditCardRequired && (
+                <p className="text-[12px] text-aurea-ink-3">Controlled by your agency administrator.</p>
+              )}
+            </div>
+            <Switch
+              checked={settings.card_on_file_required}
+              disabled={!canEditCardRequired}
+              onCheckedChange={(v) => update('card_on_file_required', v)}
             />
           </div>
         </div>

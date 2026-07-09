@@ -354,6 +354,16 @@ async function storeCardOnFile(
     .eq('id', appointmentId)
     .eq('organization_id', organizationId)
 
+  // Mandatory card-on-file: a held slot (`pending_card`) becomes a confirmed
+  // booking the moment the card is saved. Scoped to status='pending_card' so we
+  // never downgrade an appointment that already moved further along.
+  await supabase
+    .from('appointments')
+    .update({ status: 'scheduled' })
+    .eq('id', appointmentId)
+    .eq('organization_id', organizationId)
+    .eq('status', 'pending_card')
+
   const { data: appt } = await supabase
     .from('appointments')
     .select('lead_id')

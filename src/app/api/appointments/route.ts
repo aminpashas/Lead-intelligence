@@ -4,6 +4,7 @@ import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { isCallGateEnabled, hasQualifyingCall } from '@/lib/booking/call-gate'
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
+import { isAdminRole } from '@/lib/auth/permissions'
 import { decryptField, decryptLeadPII } from '@/lib/encryption'
 import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
 import { seedPostConsultNurture } from '@/lib/campaigns/post-consult-nurture'
@@ -26,6 +27,11 @@ const createAppointmentSchema = z.object({
   // Phone-first soft gate: staff may book without a logged call by supplying a
   // reason, which is recorded as an override on the appointment.
   override_reason: z.string().min(1).max(500).optional(),
+  // No-show card-on-file: rep's per-booking choice to text the card link. Only
+  // consulted in the optional mode (fee on, not required); ignored when the
+  // practice requires a card (always sent) or the fee is off (never sent).
+  // Defaults true so the link goes out unless the rep unchecks it.
+  send_card_link: z.boolean().optional().default(true),
 })
 
 // GET /api/appointments
@@ -100,13 +106,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Lead not found or unauthorized' }, { status: 404 })
   }
 
-  const { override_reason, ...appointmentFields } = parsed.data
+  const { override_reason, send_card_link: sendCardLink, ...appointmentFields } = parsed.data
   const isConsultation = appointmentFields.type === 'consultation'
 
   // Load the practice's booking protocol config once (gate + no-show fee).
   const { data: bookingSettings } = await supabase
     .from('booking_settings')
-    .select('require_call_before_booking, no_show_fee_enabled, no_show_fee_cents')
+    .select('require_call_before_booking, no_show_fee_enabled, no_show_fee_cents, card_on_file_required')
     .eq('organization_id', orgId)
     .maybeSingle()
 
@@ -133,6 +139,14 @@ export async function POST(request: NextRequest) {
   const feeEnabled = isConsultation && bookingSettings?.no_show_fee_enabled === true
   const feeCents = feeEnabled ? (bookingSettings?.no_show_fee_cents ?? 5000) : null
 
+  // Mandatory card-on-file: the appointment is held as `pending_card` (not a
+  // confirmed booking) until the Stripe webhook records the saved card. Only
+  // meaningful when the no-show fee is enabled.
+  const cardRequired = feeEnabled && bookingSettings?.card_on_file_required === true
+  // Whether to text the card link now: always in required mode; in optional mode
+  // only if the rep left the box checked.
+  const shouldSendCardLink = feeEnabled && (cardRequired || sendCardLink !== false)
+
   const { data: appointment, error } = await supabase
     .from('appointments')
     .insert({
@@ -140,6 +154,7 @@ export async function POST(request: NextRequest) {
       organization_id: orgId,
       assigned_to: appointmentFields.assigned_to || profile.id,
       booked_via: 'staff',
+      status: cardRequired ? 'pending_card' : 'scheduled',
       call_gate_overridden: gateOverridden,
       override_reason: gateOverridden ? override_reason : null,
       override_by: gateOverridden ? profile.id : null,
@@ -176,7 +191,8 @@ export async function POST(request: NextRequest) {
   })
 
   // No-show fee: text the patient a card-on-file link (charged only on no-show).
-  if (feeEnabled) {
+  let cardLinkSent = false
+  if (shouldSendCardLink) {
     const { data: leadRow } = await supabase
       .from('leads')
       .select('phone_formatted')
@@ -184,7 +200,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
     const phone = leadRow?.phone_formatted ? (decryptField(leadRow.phone_formatted as string) || null) : null
     const { data: orgRow } = await supabase.from('organizations').select('name').eq('id', orgId).maybeSingle()
-    await sendCardCaptureLink(supabase, orgId, {
+    cardLinkSent = await sendCardCaptureLink(supabase, orgId, {
       appointmentId: appointment.id,
       leadId: parsed.data.lead_id,
       feeCents: feeCents ?? 5000,
@@ -193,22 +209,30 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  return NextResponse.json({ appointment }, { status: 201 })
+  // `held` tells the UI this slot isn't confirmed yet (waiting on the card);
+  // `card_link_sent` drives the booking toast.
+  return NextResponse.json(
+    { appointment, card_link_sent: cardLinkSent, held: cardRequired },
+    { status: 201 }
+  )
 }
 
 // PATCH /api/appointments
 export async function PATCH(request: NextRequest) {
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
 
-  const { appointment_id, status, notes } = body
+  const { appointment_id, status, notes, card_override_reason } = body
 
   if (!appointment_id || !status) {
     return NextResponse.json({ error: 'appointment_id and status are required' }, { status: 400 })
   }
 
+  // `pending_card` is a held slot, not a manually-settable status: only the
+  // booking POST creates it and only the Stripe webhook (or the admin override
+  // below) clears it. Reps therefore can't set it here.
   const validStatuses = ['scheduled', 'confirmed', 'completed', 'no_show', 'canceled', 'rescheduled']
   if (!validStatuses.includes(status)) {
     return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` }, { status: 400 })
@@ -218,6 +242,34 @@ export async function PATCH(request: NextRequest) {
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Guard the held slot: an appointment awaiting a card-on-file may only be
+  // confirmed by an admin (the manual override — e.g. card read over the phone),
+  // never by a rep flipping the status. Cancel/reschedule stay open so a held
+  // slot can always be released. The webhook path never comes through here.
+  const { data: current } = await supabase
+    .from('appointments')
+    .select('status, card_on_file')
+    .eq('id', appointment_id)
+    .eq('organization_id', orgId)
+    .maybeSingle()
+
+  let cardGateOverridden = false
+  if (current?.status === 'pending_card' && current.card_on_file !== true) {
+    const confirmingStatuses = ['scheduled', 'confirmed', 'completed']
+    if (confirmingStatuses.includes(status)) {
+      if (!isAdminRole(role ?? '')) {
+        return NextResponse.json(
+          {
+            error: 'A card on file is required before this appointment can be confirmed. Resend the card link, or ask a manager to override.',
+            code: 'card_required',
+          },
+          { status: 409 }
+        )
+      }
+      cardGateOverridden = true
+    }
   }
 
   const updateData: Record<string, unknown> = { status }
@@ -313,9 +365,12 @@ export async function PATCH(request: NextRequest) {
       organization_id: orgId,
       lead_id: lead.id,
       user_id: profile.id,
-      activity_type: `appointment_${status}`,
-      title: `Appointment marked as ${status.replace('_', ' ')}`,
-      metadata: { appointment_id, status },
+      activity_type: cardGateOverridden ? 'appointment_confirmed_card_override' : `appointment_${status}`,
+      title: cardGateOverridden
+        ? 'Appointment confirmed without a card on file (manager override)'
+        : `Appointment marked as ${status.replace('_', ' ')}`,
+      description: cardGateOverridden ? (card_override_reason || null) : null,
+      metadata: { appointment_id, status, card_gate_overridden: cardGateOverridden },
     })
   }
 

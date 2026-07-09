@@ -148,6 +148,7 @@ export function ConversationThread({
   messages: initialMessages,
   calls = [],
   prequalEnabled = false,
+  noShowFeeEnabled = false,
   backHref = '/conversations',
   savedAnalysis = null,
   patientProfile = null,
@@ -159,6 +160,7 @@ export function ConversationThread({
   messages: Message[]
   calls?: VoiceCall[]
   prequalEnabled?: boolean
+  noShowFeeEnabled?: boolean
   /** Where the header back-arrow returns to. Defaults to the conversations
    *  inbox; the lead surface passes '/leads' so the arrow retraces the click. */
   backHref?: string
@@ -522,7 +524,7 @@ export function ConversationThread({
           <LiveCallIndicator live={live} />
           {/* Call + DND live here; SMS/Email happen in the composer below, so
               suppress the modal buttons to keep everything in one surface. */}
-          <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} showMessaging={false} />
+          <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} showMessaging={false} />
           <AIModeToggle
             conversationId={conversation.id}
             currentMode={conversation.ai_mode || 'off'}

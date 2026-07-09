@@ -144,3 +144,14 @@ confirm in-repo; add a CHECK/enum value only if one is enforced. Update
 - Lead-level card capture with no appointment (explicitly rejected).
 - Email delivery of the card link (SMS only, matching existing flow).
 - Charging anything at capture time (setup-mode only).
+
+## Known limitation / follow-up
+
+- **AI autopilot booking does not enforce the mandatory hold.** The autopilot
+  `book_appointment` tool (`src/lib/autopilot/agent-tools.ts`) still books a
+  confirmed appointment and texts a "Confirmed!" message, then sends the card
+  link when the fee is enabled — it does **not** create a `pending_card` held
+  slot when `card_on_file_required` is on. This is acceptable for now because
+  autopilot booking is gated off in production (messaging hard-stop + autopilot
+  scoping). If autopilot booking is turned on with mandatory card-on-file, this
+  path needs the same held-slot treatment and a reworded confirmation.

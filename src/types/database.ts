@@ -479,7 +479,10 @@ export type Appointment = {
   lead_id: string
   assigned_to: string | null
   type: 'consultation' | 'follow_up' | 'treatment' | 'scan' | 'other'
-  status: 'scheduled' | 'confirmed' | 'completed' | 'no_show' | 'canceled' | 'rescheduled'
+  // 'pending_card' is a held slot awaiting a card-on-file (card_on_file_required
+  // mode) — NOT a confirmed booking. The Stripe webhook flips it to 'scheduled'
+  // once the card lands. Excluded from confirmed views, reminders, and counts.
+  status: 'scheduled' | 'confirmed' | 'completed' | 'no_show' | 'canceled' | 'rescheduled' | 'pending_card'
   scheduled_at: string
   duration_minutes: number
   location: string | null

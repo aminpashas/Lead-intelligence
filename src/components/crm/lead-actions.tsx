@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Phone, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone, HandCoins } from 'lucide-react'
+import { Phone, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone, HandCoins, CreditCard } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
@@ -54,6 +54,7 @@ export function LeadActions({
   lead,
   variant = 'bar',
   prequalEnabled = false,
+  noShowFeeEnabled = false,
   showMessaging = true,
 }: {
   lead: Lead
@@ -65,6 +66,13 @@ export function LeadActions({
    * gate the /api/leads/[id]/prequal route enforces server-side.
    */
   prequalEnabled?: boolean
+  /**
+   * Practice-level no-show fee switch (booking_settings.no_show_fee_enabled).
+   * When true the "Card link" button is shown, letting staff text/resend the
+   * card-on-file link for the lead's upcoming appointment. The
+   * /api/leads/[id]/card-on-file route enforces the same gate server-side.
+   */
+  noShowFeeEnabled?: boolean
   /**
    * When false, the SMS + Email buttons (which open the LeadMessaging modal)
    * are hidden. Used where an inline composer already handles text/email, so
@@ -79,6 +87,7 @@ export function LeadActions({
   const [pending, setPending] = useState<DndChannel | 'all' | null>(null)
   const [calling, setCalling] = useState(false)
   const [sendingPrequal, setSendingPrequal] = useState(false)
+  const [sendingCard, setSendingCard] = useState(false)
   const [msgOpen, setMsgOpen] = useState(false)
   const [msgChannel, setMsgChannel] = useState<'sms' | 'email'>('sms')
 
@@ -205,6 +214,30 @@ export function LeadActions({
     }
   }
 
+  // Manual send/resend of the no-show card-on-file link. Appointment-scoped
+  // server-side: a 409 means there's no upcoming appointment to attach it to.
+  async function sendCardLink() {
+    if (smsBlock || sendingCard) return
+    setSendingCard(true)
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/card-on-file`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (data?.code === 'no_upcoming_appointment') {
+          toast.error('Book an appointment first, then send the card link.')
+          return
+        }
+        throw new Error(data?.error || 'Could not send the card link')
+      }
+      toast.success(`Card-on-file link texted to ${lead.first_name || 'lead'}.`)
+      router.refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not send the card link')
+    } finally {
+      setSendingCard(false)
+    }
+  }
+
   const allOn = DND_CHANNELS.every((c) => dnd[c])
   const anyOn = DND_CHANNELS.some((c) => dnd[c])
 
@@ -285,6 +318,16 @@ export function LeadActions({
         block: prequalBlock,
         onClick: sendPrequal,
         busy: sendingPrequal,
+      })}
+
+      {/* Only rendered when the practice charges a no-show fee. Texts/resends the
+          card-on-file link for the lead's upcoming appointment. */}
+      {noShowFeeEnabled && action({
+        label: 'Card link',
+        icon: <CreditCard className={iconSize} strokeWidth={1.75} />,
+        block: smsBlock,
+        onClick: sendCardLink,
+        busy: sendingCard,
       })}
 
       {/* Closer's "they're thinking about it" control — only in the full bar and
