@@ -59,14 +59,17 @@ const PAID = new Set<string>(PAID_AD_CHANNELS)
  *
  * @param channel resolved `campaign_attribution.channel` (DGS-authoritative or
  *                the utm fallback), or null/unknown when it could not be resolved.
+ *                Accepts `number` because `campaign_attribution` is a loose
+ *                `Record<string, string | number>` at the bridge boundary; a
+ *                numeric value simply never matches a paid channel code.
  */
 export function routedIntakeStageSlug(
   orgId: string,
-  channel: string | null | undefined,
+  channel: string | number | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): typeof NURTURE_STAGE_SLUG | null {
   if (!isPaidOnlyIntakeOrg(orgId, env)) return null
-  const c = (channel ?? '').trim().toLowerCase()
+  const c = String(channel ?? '').trim().toLowerCase()
   // Paid Google/Meta stays on New Lead; everything else (organic, GMB, social,
   // referral, direct, and unresolved/null) is nurture intake.
   return PAID.has(c) ? null : NURTURE_STAGE_SLUG
