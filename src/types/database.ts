@@ -227,6 +227,8 @@ export type Lead = {
   primary_objection: PrimaryObjection | null
   conversation_red_flag: boolean
   conversation_analyzed_at: string | null
+  /** One-line plain-English recap of the latest conversation (sweep-written). */
+  conversation_summary: string | null
 
   // Engagement
   total_messages_sent: number
