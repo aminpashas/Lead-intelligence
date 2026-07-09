@@ -20,6 +20,26 @@ describe('isJunkCallerContact', () => {
     expect(isJunkCallerContact(wc({ first_name: 'Jane', last_name: 'Oh', phone_valid: true }))).toBe(false)
   })
 
+  it('flags business / insurer / other-practice caller names (whole-word)', () => {
+    expect(isJunkCallerContact(wc({ first_name: 'Delta', last_name: 'Dental', phone_valid: null }))).toBe(true)
+    expect(isJunkCallerContact(wc({ first_name: 'Kaiser', last_name: 'Permanente', phone_valid: null }))).toBe(true)
+    expect(isJunkCallerContact(wc({ first_name: 'Parkside', last_name: 'Dental' }))).toBe(true)
+    expect(isJunkCallerContact(wc({ first_name: 'Aetna', last_name: null }))).toBe(true)
+    expect(isJunkCallerContact(wc({ first_name: 'Ranch', last_name: 'Pharmacy' }))).toBe(true)
+    expect(isJunkCallerContact(wc({ first_name: 'Flexteem', last_name: 'Llc' }))).toBe(true)
+  })
+
+  it('business-name matching is whole-word and does not clip real surnames', () => {
+    // "Vince" contains "inc", "Clinton" contains "clin" — must NOT match.
+    expect(isJunkCallerContact(wc({ first_name: 'Vince', last_name: 'Carter' }))).toBe(false)
+    expect(isJunkCallerContact(wc({ first_name: 'Hillary', last_name: 'Clinton' }))).toBe(false)
+    // A reachable business caller is still kept (valid phone is the hard keep).
+    expect(isJunkCallerContact(wc({ first_name: 'Parkside', last_name: 'Dental', phone_valid: true }))).toBe(false)
+    // "Kaiser" is a real surname — only the insurer phrase "Kaiser Permanente" is junk.
+    expect(isJunkCallerContact(wc({ first_name: 'Syed', last_name: 'Kaiser' }))).toBe(false)
+    expect(isJunkCallerContact(wc({ first_name: 'Kaiser', last_name: 'Permanente' }))).toBe(true)
+  })
+
   it('flags carrier / telco placeholder names even when phone validity is unknown', () => {
     expect(isJunkCallerContact(wc({ first_name: 'Wireless', last_name: 'Caller', phone_valid: null }))).toBe(true)
     expect(isJunkCallerContact(wc({ first_name: 'Unknown', last_name: null, phone_valid: null }))).toBe(true)

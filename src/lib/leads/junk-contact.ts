@@ -29,6 +29,17 @@ const US_STATE_CODES = new Set([
   'wi','wy','dc','pr','vi','gu','as','mp',
 ])
 
+/** Business / insurer / other-practice caller-ID names. A person is never named
+ *  "Delta Dental" or "Kaiser Permanente" — these are vendors, insurers, or other
+ *  dental offices calling the practice, not prospects. Matched as whole words so
+ *  a real surname is never clipped. High-precision (prod sample: all orgs). This
+ *  is the tunable list — add insurers / chains as they show up. */
+// NOTE: "kaiser" is required as the phrase "kaiser permanen*" (the insurer) — a
+// bare "kaiser" is a real surname ("Syed Kaiser"). Same care with any token that
+// doubles as a name: prefer the unambiguous multi-word form.
+const BUSINESS_KEYWORDS =
+  /\b(dental|dentist|dentistry|orthodont\w*|endodont\w*|periodont\w*|prosthodont\w*|invisalign|pharmacy|clinic|hospital|medical|medicaid|medicare|insurance|kaiser permanen\w*|aetna|cigna|metlife|humana|anthem|delta ?dental|unitedhealth\w*|healthplan|health plan|llc|\binc\b)\b/
+
 /** Carrier / telco placeholder names a caller ID returns when there's no name. */
 const PLACEHOLDER_NAMES = new Set([
   'unknown','anonymous','restricted','private','unavailable','no name',
@@ -103,6 +114,10 @@ export function isJunkCallerContact(input: JunkContactInput): boolean {
   if (tokens.length >= 2 && tokens.length <= 3 && US_STATE_CODES.has(tokens[tokens.length - 1])) {
     return true
   }
+
+  // 4d) Business / insurer / other-practice name (vendor or insurer call, not a
+  //     prospect). Whole-word match so a real surname is never clipped.
+  if (BUSINESS_KEYWORDS.test(full)) return true
 
   return false
 }
