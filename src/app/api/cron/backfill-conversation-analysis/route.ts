@@ -27,10 +27,12 @@ import { analyzeConversationCompact } from '@/lib/ai/conversation-sweep'
 export const maxDuration = 300
 
 /** Leads to classify per org per tick — bounds cost and stays inside maxDuration. */
-const MAX_LEADS_PER_ORG = 40
+const MAX_LEADS_PER_ORG = 150
 /** Candidate leads to pull per org (we analyze up to MAX_LEADS_PER_ORG of them). */
-const CANDIDATE_FETCH = 200
+const CANDIDATE_FETCH = 300
 const MAX_MESSAGES_PER_CONVERSATION = 60
+/** Leads classified concurrently within a tick (bounded to stay under API rate limits). */
+const TICK_CONCURRENCY = 6
 
 type CandidateLead = Record<string, unknown> & { id: string }
 
@@ -111,9 +113,9 @@ export const POST = withCron('backfill-conversation-analysis', async ({ request,
     let redFlags = 0
     let errors = 0
 
-    for (const lead of list.slice(0, MAX_LEADS_PER_ORG)) {
-      if (Date.now() - startedAt > (maxDuration - 30) * 1000) break
-
+    // Classify one lead's latest conversation. Returns an outcome tag so the
+    // concurrent driver below can tally without shared mutable counters.
+    const processLead = async (lead: CandidateLead): Promise<'analyzed' | 'analyzed_red' | 'skipped' | 'error'> => {
       try {
         // The lead's most recent conversation (mirror of the hourly sweep, but
         // with no time window — we want the whole history).
@@ -147,7 +149,7 @@ export const POST = withCron('backfill-conversation-analysis', async ({ request,
             .update({ conversation_analyzed_at: new Date().toISOString() })
             .eq('id', lead.id)
             .eq('organization_id', org.id)
-          continue
+          return 'skipped'
         }
 
         const result = await analyzeConversationCompact(supabase, {
@@ -163,11 +165,24 @@ export const POST = withCron('backfill-conversation-analysis', async ({ request,
           })),
         })
 
-        analyzed++
-        if (result.red_flag) redFlags++
+        return result.red_flag ? 'analyzed_red' : 'analyzed'
       } catch (err) {
-        errors++
         console.error(`[backfill-conversation-analysis] lead ${lead.id}:`, err instanceof Error ? err.message : err)
+        return 'error'
+      }
+    }
+
+    // Process the tick's leads in bounded-concurrency chunks — the per-lead work
+    // is I/O + a single LLM call, so a small pool cuts wall-clock ~TICK_CONCURRENCY×
+    // without risking API rate limits. Timeout guard checked between chunks.
+    const toProcess = list.slice(0, MAX_LEADS_PER_ORG)
+    for (let i = 0; i < toProcess.length; i += TICK_CONCURRENCY) {
+      if (Date.now() - startedAt > (maxDuration - 30) * 1000) break
+      const outcomes = await Promise.all(toProcess.slice(i, i + TICK_CONCURRENCY).map(processLead))
+      for (const o of outcomes) {
+        if (o === 'analyzed' || o === 'analyzed_red') analyzed++
+        if (o === 'analyzed_red') redFlags++
+        if (o === 'error') errors++
       }
     }
 
