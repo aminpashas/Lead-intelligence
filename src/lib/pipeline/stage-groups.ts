@@ -22,6 +22,29 @@
 export const POST_CLOSE_STAGE_SLUGS = ['contract-signed', 'scheduled', 'completed'] as const
 
 /**
+ * OFF-FUNNEL parking stages — records that are NOT sales leads and must never
+ * appear on the sales /pipeline or in the default /leads view:
+ *
+ *   - `existing-patient`: an inbound contact matching the CareStack patient
+ *     mirror (an existing patient calling a tracked number). Owned by Dion Desk
+ *     per the ecosystem matrix; parked here (not dropped) until Desk can receive
+ *     it, and mirrored to Desk via the dion_desk_outbox.
+ *   - `junk`: caller-ID noise (city/state strings, carrier placeholders) with no
+ *     reachable contact — see lib/leads/junk-contact.ts.
+ *
+ * These are the buckets the ingestion reorder routes non-leads into instead of
+ * the default "New Lead" stage.
+ */
+export const OFF_FUNNEL_STAGE_SLUGS = ['existing-patient', 'junk'] as const
+
+const OFF_FUNNEL = new Set<string>(OFF_FUNNEL_STAGE_SLUGS)
+
+/** True for parking stages that hold non-leads (existing patients / junk calls). */
+export function isOffFunnelStage(slug: string | null | undefined): boolean {
+  return !!slug && OFF_FUNNEL.has(slug)
+}
+
+/**
  * Work-queue columns whose population is orthogonal to sales status. Their
  * column counts reflect the TRUE stage population (no disqualified/lost filter).
  */
