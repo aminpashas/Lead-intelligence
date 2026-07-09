@@ -7,7 +7,7 @@ import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
 import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
-import { isPostCloseStage, isOperationalStage } from '@/lib/pipeline/stage-groups'
+import { isPostCloseStage, isOperationalStage, isOffFunnelStage } from '@/lib/pipeline/stage-groups'
 import { gatherPipelineSignals } from '@/lib/pipeline/pipeline-signals'
 import { buildRecommendations } from '@/lib/pipeline/recommendations'
 import { SERVICE_LINES, serviceLineOrFilter } from '@/lib/leads/service-line'
@@ -45,8 +45,11 @@ export default async function PipelinePage({
 
   // The sales Pipeline is the PRE-close funnel only. Post-close fulfillment
   // stages (Contract Signed → Scheduled for Treatment → Completed) are their own
-  // board at /post-close, so they don't clutter the sales funnel here.
-  const allStages = (stages || []).filter((s) => !isPostCloseStage(s.slug))
+  // board at /post-close, and off-funnel parking stages (Existing Patient, Junk)
+  // hold non-leads — neither belongs on the sales funnel.
+  const allStages = (stages || []).filter(
+    (s) => !isPostCloseStage(s.slug) && !isOffFunnelStage(s.slug),
+  )
 
   // A whole practice book is tens of thousands of leads — you can neither render
   // that many cards nor trust a single capped fetch (PostgREST's default row cap
