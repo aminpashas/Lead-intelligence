@@ -365,7 +365,11 @@ export async function GET(request: NextRequest) {
       scheduled: scheduledAppts,
       completed: completedAppts,
       noShow: noShowAppts,
-      showRate: (scheduledAppts + completedAppts + noShowAppts) > 0
+      // Show rate is completed / (completed + no-show). Guard the ACTUAL
+      // denominator — guarding on `scheduled + …` let an org with only
+      // upcoming appts (completed = no_show = 0) reach 0/0 = NaN, which
+      // JSON-serializes to null and crashed the client's `.toFixed()`.
+      showRate: (completedAppts + noShowAppts) > 0
         ? (completedAppts / (completedAppts + noShowAppts) * 100) : 0,
     },
     financingBreakdown: Object.entries(financingMap).map(([type, count]) => ({ type, count })),
