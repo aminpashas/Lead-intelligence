@@ -42,7 +42,7 @@ export type DionEmitResult = {
   error?: string
 }
 
-function getConfig(): { base: string; secret: string } | null {
+function getConfig(): { base: string; secret: string; bypass: string | null } | null {
   const base = process.env.DION_CLINICAL_URL?.replace(/\/$/, '')
   const secret = process.env.DION_BUS_SECRET
   if (!base || !secret) return null
@@ -55,7 +55,19 @@ function getConfig(): { base: string; secret: string } | null {
   } catch {
     return null
   }
-  return { base, secret }
+  // dion-clinical sits behind Vercel Deployment Protection; a Protection-Bypass
+  // for-Automation token lets these server-to-server calls through while the app
+  // stays protected for humans. Set to VERCEL_AUTOMATION_BYPASS_SECRET from dion-clinical.
+  const bypass = process.env.DION_CLINICAL_BYPASS?.trim() || null
+  return { base, secret, bypass }
+}
+
+/** Headers common to every call: the shared bus secret + optional Vercel
+ * protection-bypass so the request survives Deployment Protection. */
+function dionHeaders(config: { secret: string; bypass: string | null }, extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { 'x-forward-secret': config.secret, ...extra }
+  if (config.bypass) headers['x-vercel-protection-bypass'] = config.bypass
+  return headers
 }
 
 async function emitWith(event: unknown, schema: z.ZodTypeAny): Promise<DionEmitResult> {
@@ -77,7 +89,7 @@ async function emitWith(event: unknown, schema: z.ZodTypeAny): Promise<DionEmitR
   try {
     const res = await fetch(`${config.base}/api/bus/receive`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-forward-secret': config.secret },
+      headers: dionHeaders(config, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(event),
       signal: AbortSignal.timeout(10_000),
     })
@@ -198,7 +210,7 @@ export async function fetchCaseSurgeryStatus(p: {
       `${config.base}/api/cases/${encodeURIComponent(p.caseId)}/status` +
       `?dionPracticeId=${encodeURIComponent(p.dionPracticeId)}`
     const res = await fetch(url, {
-      headers: { 'x-forward-secret': config.secret },
+      headers: dionHeaders(config),
       signal: AbortSignal.timeout(10_000),
     })
     if (res.status === 404) return { ok: true, found: false }

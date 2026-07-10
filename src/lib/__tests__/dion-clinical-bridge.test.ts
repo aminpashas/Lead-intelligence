@@ -224,6 +224,16 @@ describe('fetchCaseSurgeryStatus (read-back)', () => {
     expect((calls[0].init?.headers as Record<string, string>)['x-forward-secret']).toBe('s3cret')
   })
 
+  it('sends the Vercel protection-bypass header when DION_CLINICAL_BYPASS is set', async () => {
+    configureBridge()
+    vi.stubEnv('DION_CLINICAL_BYPASS', 'bypass-tok')
+    const { calls } = installJsonMock(200, { found: true, surgeryStatus: 'open', surgeryDate: null })
+    await fetchCaseSurgeryStatus({ caseId: 'case-1', dionPracticeId: 'prac1' })
+    const headers = calls[0].init?.headers as Record<string, string>
+    expect(headers['x-forward-secret']).toBe('s3cret')
+    expect(headers['x-vercel-protection-bypass']).toBe('bypass-tok')
+  })
+
   it('treats 404 as a clean not-found (no work item for this case)', async () => {
     configureBridge()
     installJsonMock(404, { found: false })
