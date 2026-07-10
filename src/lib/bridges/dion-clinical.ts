@@ -165,6 +165,59 @@ export function emitCaseTreatmentAgreed(p: {
   return emitWith(event, dionCaseSchema)
 }
 
+export type DionSurgeryStatusResult = {
+  ok: boolean
+  /** true when the bridge isn't configured or we lack a practice id — a no-op. */
+  skipped?: boolean
+  /** false when Dion Clinical has no work item for this case. */
+  found?: boolean
+  surgeryStatus?: 'open' | 'scheduled' | 'dismissed' | 'completed' | null
+  surgeryDate?: string | null
+  status?: number
+  error?: string
+}
+
+/**
+ * Read back a surgery hand-off's status from Dion Clinical — the return half of
+ * emitCaseTreatmentAgreed. Dion Clinical owns the surgery; this reflects whether
+ * the front desk scheduled it. GET is the loop-closer (LI has no inbound bus
+ * receiver, and an echo event would need hub `@dion/contracts` coordination).
+ * Never throws; a federation hiccup must not break the case view.
+ */
+export async function fetchCaseSurgeryStatus(p: {
+  caseId: string
+  dionPracticeId?: string | null
+}): Promise<DionSurgeryStatusResult> {
+  const config = getConfig()
+  if (!config) return { ok: true, skipped: true }
+  // Dion Clinical scopes the read by practice — without it we can't ask.
+  if (!p.dionPracticeId) return { ok: true, skipped: true }
+
+  try {
+    const url =
+      `${config.base}/api/cases/${encodeURIComponent(p.caseId)}/status` +
+      `?dionPracticeId=${encodeURIComponent(p.dionPracticeId)}`
+    const res = await fetch(url, {
+      headers: { 'x-forward-secret': config.secret },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (res.status === 404) return { ok: true, found: false }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return { ok: false, status: res.status, error: `dion-clinical ${res.status}: ${text.slice(0, 200)}` }
+    }
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    return {
+      ok: true,
+      found: json.found === true,
+      surgeryStatus: (json.surgeryStatus as DionSurgeryStatusResult['surgeryStatus']) ?? null,
+      surgeryDate: (json.surgeryDate as string | null) ?? null,
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'fetch failed' }
+  }
+}
+
 export function emitAppointmentCancelled(p: {
   appointmentId: string
   reasonCode?: string

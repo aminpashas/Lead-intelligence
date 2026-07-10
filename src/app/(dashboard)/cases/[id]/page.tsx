@@ -35,6 +35,7 @@ import {
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { CaseClosingPanel } from '@/components/crm/case-closing-panel'
+import { RoutingSection } from '@/components/crm/case-routing'
 import type { ClinicalCase, CaseTreatmentItem } from '@/types/database'
 
 const STATUS_LABELS: Record<string, { label: string; dot: string; text: string }> = {
@@ -67,6 +68,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   const canDiagnose = hasPermission(role, 'cases:diagnose')
 
   const [caseData, setCaseData] = useState<ClinicalCase | null>(null)
+  const [sdlWebBase, setSdlWebBase] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchCase = useCallback(async () => {
@@ -74,6 +76,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       const res = await fetch(`/api/cases/${id}`)
       const data = await res.json()
       if (data.case) setCaseData(data.case)
+      setSdlWebBase(data.sdl_web_base ?? null)
     } catch {
       toast.error('Failed to load case')
     } finally {
@@ -303,6 +306,9 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       {(CLOSING_STATUSES.includes(caseData.status) || caseData.status === 'patient_review' || caseData.patient_accepted_at) && (
         <CaseClosingPanel caseId={id} onChanged={fetchCase} />
       )}
+
+      {/* Cross-app routing: live lab (Smile Design Lab) + surgery (Dion Clinical) status */}
+      <RoutingSection caseId={id} caseData={caseData} sdlWebBase={sdlWebBase} onSynced={fetchCase} />
 
       {/* Surgery done → complete the case */}
       {caseData.status === 'ready_for_surgery' && canDiagnose && (

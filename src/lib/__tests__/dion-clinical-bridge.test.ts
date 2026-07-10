@@ -4,6 +4,7 @@ import {
   emitAppointmentBooked,
   emitAppointmentCancelled,
   emitCaseTreatmentAgreed,
+  fetchCaseSurgeryStatus,
 } from '@/lib/bridges/dion-clinical'
 import { dionAppointmentSchema } from '@/lib/bridges/dion/appointment'
 import { dionCaseSchema } from '@/lib/bridges/dion/case'
@@ -177,5 +178,64 @@ describe('Dion Clinical bridge', () => {
   it('vendored schema rejects a malformed event', () => {
     const bad = { type: 'appointment.booked', source: 'lead-intelligence', envelopeVersion: 1, id: 'x', occurredAt: 'x', dionPracticeId: null, data: { dionPatientId: null } }
     expect(dionAppointmentSchema.safeParse(bad).success).toBe(false)
+  })
+})
+
+describe('fetchCaseSurgeryStatus (read-back)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  function installJsonMock(status: number, body: unknown) {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const mock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      return new Response(JSON.stringify(body), { status })
+    })
+    vi.stubGlobal('fetch', mock)
+    return { mock, calls }
+  }
+
+  it('is a no-op (skipped) when the bridge is unconfigured', async () => {
+    const { mock } = installJsonMock(200, {})
+    const res = await fetchCaseSurgeryStatus({ caseId: 'c1', dionPracticeId: 'prac1' })
+    expect(res).toEqual({ ok: true, skipped: true })
+    expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op (skipped) without a practice id — Dion scopes the read by practice', async () => {
+    configureBridge()
+    const { mock } = installJsonMock(200, {})
+    const res = await fetchCaseSurgeryStatus({ caseId: 'c1', dionPracticeId: null })
+    expect(res).toEqual({ ok: true, skipped: true })
+    expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('GETs the status endpoint with the shared secret and maps the response', async () => {
+    configureBridge()
+    const { calls } = installJsonMock(200, { found: true, surgeryStatus: 'scheduled', surgeryDate: '2026-08-15' })
+    const res = await fetchCaseSurgeryStatus({ caseId: 'case-1', dionPracticeId: 'prac1' })
+
+    expect(res).toEqual({ ok: true, found: true, surgeryStatus: 'scheduled', surgeryDate: '2026-08-15' })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('https://dion-clinical.example.com/api/cases/case-1/status?dionPracticeId=prac1')
+    expect(calls[0].init?.method ?? 'GET').toBe('GET')
+    expect((calls[0].init?.headers as Record<string, string>)['x-forward-secret']).toBe('s3cret')
+  })
+
+  it('treats 404 as a clean not-found (no work item for this case)', async () => {
+    configureBridge()
+    installJsonMock(404, { found: false })
+    const res = await fetchCaseSurgeryStatus({ caseId: 'case-x', dionPracticeId: 'prac1' })
+    expect(res).toEqual({ ok: true, found: false })
+  })
+
+  it('reports a non-404 error without throwing', async () => {
+    configureBridge()
+    installJsonMock(500, { error: 'boom' })
+    const res = await fetchCaseSurgeryStatus({ caseId: 'case-1', dionPracticeId: 'prac1' })
+    expect(res.ok).toBe(false)
+    expect(res.status).toBe(500)
   })
 })

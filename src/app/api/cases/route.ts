@@ -41,7 +41,12 @@ export async function GET(request: NextRequest) {
         id, current_step, steps_completed, contract_signed_at, contract_amount,
         financing_type, financing_funded_at, consent_signed_at,
         preop_instructions_sent_at, surgery_date, surgery_time,
-        records_checklist, records_confirmed_at
+        records_checklist, records_confirmed_at,
+        dion_handoff_at, dion_surgery_status, dion_surgery_date, dion_synced_at
+      ),
+      lab_orders!lab_orders_clinical_case_id_fkey (
+        id, lab_provider, status, external_case_id, external_case_number,
+        submitted_at, updated_at
       )
     `)
     .eq('organization_id', orgId)
@@ -54,13 +59,42 @@ export async function GET(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // The case↔closing link is 1:1 (unique partial index), but PostgREST embeds it
-  // as an array — flatten to a single `closing` object for the client.
+  // as an array — flatten to a single `closing` object for the client. Lab orders
+  // are 1:many (one active + historical cancelled/error rows), so pick the most
+  // relevant: the newest non-terminal order, else the newest of any status.
+  const TERMINAL_LAB = new Set(['cancelled', 'error'])
   const normalized = (cases || []).map((c) => {
-    const { treatment_closings, ...rest } = c as typeof c & { treatment_closings?: unknown[] }
-    return { ...rest, closing: Array.isArray(treatment_closings) ? treatment_closings[0] ?? null : treatment_closings ?? null }
+    const { treatment_closings, lab_orders, ...rest } = c as typeof c & {
+      treatment_closings?: unknown[]
+      lab_orders?: Array<{ status: string; submitted_at: string | null; updated_at: string; created_at?: string }>
+    }
+    const orders = Array.isArray(lab_orders) ? lab_orders : []
+    const byRecency = [...orders].sort((a, b) =>
+      (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
+    const labOrder = byRecency.find((o) => !TERMINAL_LAB.has(o.status)) ?? byRecency[0] ?? null
+    return {
+      ...rest,
+      closing: Array.isArray(treatment_closings) ? treatment_closings[0] ?? null : treatment_closings ?? null,
+      lab_order: labOrder,
+    }
   })
 
-  return NextResponse.json({ cases: normalized })
+  // SDL app origin (for deep-linking a lab order into SDL's doctor view). The
+  // connector's api_url is the SDL app origin — the client (sdl-client) posts to
+  // `${api_url}/api/v1/cases`, and the doctor page lives at `${api_url}/doctor/cases/:id`.
+  let sdlWebBase: string | null = null
+  const { data: sdlConfig } = await supabase
+    .from('connector_configs')
+    .select('enabled, credentials')
+    .eq('organization_id', orgId)
+    .eq('connector_type', 'smile_design_lab')
+    .maybeSingle()
+  if (sdlConfig?.enabled) {
+    const apiUrl = ((sdlConfig.credentials ?? {}) as Record<string, string>).api_url
+    if (apiUrl) sdlWebBase = apiUrl.replace(/\/$/, '')
+  }
+
+  return NextResponse.json({ cases: normalized, sdl_web_base: sdlWebBase })
 }
 
 export async function POST(request: NextRequest) {
