@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { decryptLeadPII } from '@/lib/encryption'
 import { PowerDialer, type DialerLead } from '@/components/voice/power-dialer'
+import { ManualDialPad } from '@/components/voice/manual-dial-pad'
 
 /**
  * Power dialer — walk a queue of callable leads back-to-back through the browser
@@ -48,5 +49,10 @@ export default async function DialerPage() {
     }
   })
 
-  return <PowerDialer initialLeads={leads} />
+  return (
+    <div className="mx-auto max-w-2xl">
+      <ManualDialPad />
+      <PowerDialer initialLeads={leads} />
+    </div>
+  )
 }

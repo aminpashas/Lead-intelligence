@@ -25,6 +25,14 @@ import type { Lead } from '@/types/database'
  */
 export type DialableLead = Pick<Lead, 'id' | 'first_name' | 'last_name'>
 
+/** Pretty-print a typed number for the widget: +14155551234 → (415) 555-1234. */
+function formatDialedNumber(raw: string): string {
+  const d = raw.replace(/\D/g, '')
+  const ten = d.length === 11 && d.startsWith('1') ? d.slice(1) : d
+  if (ten.length === 10) return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`
+  return raw
+}
+
 export type SoftphoneStatus =
   | 'offline' // Device not ready (not configured, or still registering)
   | 'idle' // Ready, no active call
@@ -44,6 +52,8 @@ type SoftphoneContextValue = {
   /** The just-ended call awaiting a disposition (null once dispositioned/cleared). */
   endedCall: EndedCall | null
   startCall: (lead: DialableLead) => Promise<void>
+  /** Dial an arbitrary typed number (dial-any-number keypad). */
+  startCallToNumber: (number: string) => Promise<void>
   hangup: () => void
   toggleMute: () => void
   sendDigit: (digit: string) => void
@@ -183,8 +193,10 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
     [resetCallState, stopTimer]
   )
 
-  const startCall = useCallback(
-    async (lead: DialableLead) => {
+  // Shared dial path for both a known lead and a typed number. `display` is what the
+  // widget shows; `prepareBody` is what /api/voice/prepare gates on (lead_id | to).
+  const dial = useCallback(
+    async (display: DialableLead, prepareBody: { lead_id: string } | { to: string }) => {
       if (status !== 'idle' && status !== 'offline') {
         toast.error('A call is already in progress')
         return
@@ -197,8 +209,8 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
       }
 
       setStatus('connecting')
-      setActiveLead(lead)
-      activeLeadRef.current = lead
+      setActiveLead(display)
+      activeLeadRef.current = display
       setEndedCall(null)
 
       // 1. Authenticated prepare — compliance gate + mint the one-time dial token.
@@ -207,7 +219,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch('/api/voice/prepare', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lead_id: lead.id }),
+          body: JSON.stringify(prepareBody),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data?.error || 'Could not place call')
@@ -232,6 +244,25 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [status, ensureDevice, attachCallListeners, resetCallState]
+  )
+
+  const startCall = useCallback(
+    (lead: DialableLead) => dial(lead, { lead_id: lead.id }),
+    [dial]
+  )
+
+  const startCallToNumber = useCallback(
+    (number: string) => {
+      // Synthesize a display "lead" so the widget + disposition prompt render the
+      // dialed number as the contact. The server never trusts this — it gates on `to`.
+      const display: DialableLead = {
+        id: `manual:${number}`,
+        first_name: formatDialedNumber(number),
+        last_name: null,
+      }
+      return dial(display, { to: number })
+    },
+    [dial]
   )
 
   const hangup = useCallback(() => {
@@ -263,6 +294,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         callSeconds,
         endedCall,
         startCall,
+        startCallToNumber,
         hangup,
         toggleMute,
         sendDigit,

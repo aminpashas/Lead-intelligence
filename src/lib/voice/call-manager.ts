@@ -19,6 +19,7 @@ import {
   type RetellCallConfig,
 } from './retell-client'
 import { decryptField, searchHash } from '@/lib/encryption'
+import { formatToE164 } from '@/lib/leads/phone'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
@@ -219,6 +220,117 @@ export async function prepareStaffCallIntent(
     phone: check.phone!,
     fromNumber,
     recording: !!org?.voice_recording_enabled,
+  }
+}
+
+/**
+ * Setup for a human-placed outbound call to an ARBITRARY typed number (the
+ * dial-any-number keypad). Unlike prepareStaffCallIntent this has no lead to run
+ * the full consent gate against, so it runs a reduced-but-real gate:
+ *
+ *   1. E.164 validation of the typed number.
+ *   2. DNC safety — look the number up by phone_hash; if it matches a lead in this
+ *      org who is do_not_call / voice_opt_out, REFUSE. (A human manually dialing a
+ *      single number is outside the autodialer-consent regime, but we must never
+ *      re-dial someone who explicitly opted out.) If it matches a callable lead we
+ *      thread the call into that lead's history; otherwise lead_id stays null.
+ *   3. org voice_enabled (kill switch), caller ID, and the same hourly rate limit
+ *      every outbound path shares.
+ *
+ * Mints the same one-time dial_token shape, so the browser + public TwiML route are
+ * identical to the lead path from here on.
+ */
+export async function prepareManualCallIntent(
+  supabase: SupabaseClient,
+  params: {
+    organizationId: string
+    staffUserId: string
+    toNumber: string
+  }
+): Promise<StaffCallIntent | { error: string; status: number }> {
+  const phone = formatToE164(params.toNumber)
+  if (!phone) {
+    return { error: 'Enter a valid phone number', status: 400 }
+  }
+
+  // DNC safety + optional history threading: does this number belong to a lead?
+  let matchedLeadId: string | null = null
+  const phoneHash = searchHash(phone)
+  if (phoneHash) {
+    const { data: match } = await supabase
+      .from('leads')
+      .select('id, do_not_call, voice_opt_out')
+      .eq('organization_id', params.organizationId)
+      .eq('phone_hash', phoneHash)
+      .limit(1)
+      .maybeSingle()
+    if (match) {
+      if (match.do_not_call || match.voice_opt_out) {
+        return { error: 'This number belongs to a lead who opted out of calls', status: 422 }
+      }
+      matchedLeadId = match.id as string
+    }
+  }
+
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('voice_enabled, voice_max_outbound_per_hour, voice_outbound_caller_id, voice_recording_enabled')
+    .eq('id', params.organizationId)
+    .single()
+
+  if (!org?.voice_enabled) {
+    return { error: 'Voice calling is not enabled for this organization', status: 422 }
+  }
+
+  const fromNumber = org.voice_outbound_caller_id || process.env.TWILIO_PHONE_NUMBER
+  if (!fromNumber) {
+    return { error: 'No outbound caller ID configured', status: 422 }
+  }
+
+  // Same hourly rate limit as the lead path (preCallCheck), applied org-wide.
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const { count } = await supabase
+    .from('voice_calls')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', params.organizationId)
+    .eq('direction', 'outbound')
+    .gte('created_at', oneHourAgo)
+  if ((count || 0) >= (org.voice_max_outbound_per_hour || 20)) {
+    return { error: 'Hourly call limit reached', status: 429 }
+  }
+
+  const dialToken = randomUUID()
+  const { data: callRecord, error } = await supabase
+    .from('voice_calls')
+    .insert({
+      organization_id: params.organizationId,
+      lead_id: matchedLeadId,
+      direction: 'outbound',
+      status: 'initiated',
+      call_mode: 'browser',
+      agent_type: 'none',
+      staff_user_id: params.staffUserId,
+      from_number: fromNumber,
+      to_number: phone,
+      dial_token: dialToken,
+      consent_verified: !!matchedLeadId,
+      tcpa_compliant: true,
+      recording_disclosure_given: !!org.voice_recording_enabled,
+    })
+    .select('id')
+    .single()
+
+  if (error || !callRecord) {
+    logger.error('Failed to create manual call record', { org_id: params.organizationId }, error ? new Error(error.message) : undefined)
+    return { error: 'Failed to prepare call', status: 500 }
+  }
+
+  return {
+    dialToken,
+    callId: callRecord.id,
+    phone,
+    fromNumber,
+    recording: !!org.voice_recording_enabled,
   }
 }
 
