@@ -118,9 +118,10 @@ export function LeadsTable({
 
   /**
    * One filter dropdown. Base UI's <Select.Value> renders the raw value, so we
-   * feed it an `items` map (value → trigger text); the 'all' entry maps to the
-   * category name, so an idle filter reads "Source" / "Status" rather than the
-   * bare "all" it used to. A set filter gets an accent-tinted trigger.
+   * feed it an `items` map (value → trigger text). The category name is always
+   * shown so you can tell what the filter does at a glance: idle reads "Source"
+   * / "Status", and a set filter reads "Status: New" rather than a bare "New"
+   * that gives no clue which column it narrows. A set filter is accent-tinted.
    */
   function FilterSelect({
     paramKey,
@@ -138,7 +139,13 @@ export function LeadsTable({
     const current = searchParams.get(paramKey) || 'all'
     const active = current !== 'all'
     const items: Record<string, ReactNode> = { all: label }
-    for (const o of options) items[o.value] = o.text
+    for (const o of options) {
+      items[o.value] = (
+        <span className="truncate">
+          <span className="text-aurea-ink-3">{label}:</span> {o.text}
+        </span>
+      )
+    }
     return (
       <Select items={items} value={current} onValueChange={(v) => updateFilters(paramKey, v)}>
         <SelectTrigger
