@@ -33,6 +33,7 @@ import {
   FlaskConical,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { RoutingPills } from '@/components/crm/case-routing'
 import type { ClinicalCase, CaseStatus, RecordsChecklist } from '@/types/database'
 
 const STATUS_CONFIG: Record<CaseStatus, {
@@ -58,10 +59,21 @@ const PRIORITY_COLORS: Record<string, string> = {
   urgent: 'bg-aurea-rose/10 text-aurea-rose border-aurea-rose/20',
 }
 
-// Board columns in two visual groups: clinical workflow, then closing → surgery
-const STAGE_GROUPS: Array<{ title: string; statuses: CaseStatus[] }> = [
-  { title: 'Clinical', statuses: ['intake', 'diagnosis', 'treatment_planning', 'patient_review'] },
-  { title: 'Closing → Surgery', statuses: ['accepted', 'closing', 'surgery_scheduled', 'ready_for_surgery', 'completed'] },
+// Two lanes: the funnel Lead Intelligence owns ("In Practice"), then the
+// cross-app hand-off stages ("Routing") where each case is routed out to
+// Smile Design Lab (records/design) and Dion Clinical (surgery). The routing
+// status itself lives on every card via <RoutingPills>.
+const STAGE_GROUPS: Array<{ title: string; caption: string; statuses: CaseStatus[] }> = [
+  {
+    title: 'In Practice',
+    caption: 'Owned in Lead Intelligence',
+    statuses: ['intake', 'diagnosis', 'treatment_planning', 'patient_review'],
+  },
+  {
+    title: 'Routing',
+    caption: 'Routed to Smile Design Lab + Dion Clinical',
+    statuses: ['accepted', 'closing', 'surgery_scheduled', 'ready_for_surgery', 'completed'],
+  },
 ]
 
 export default function CasesPage() {
@@ -76,6 +88,7 @@ function CasesContent() {
   const router = useRouter()
   const { userProfile } = useOrgStore()
   const [cases, setCases] = useState<ClinicalCase[]>([])
+  const [sdlWebBase, setSdlWebBase] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board')
   const [filterDoctor, setFilterDoctor] = useState<string>('all')
@@ -85,6 +98,7 @@ function CasesContent() {
       const res = await fetch('/api/cases')
       const data = await res.json()
       if (data.cases) setCases(data.cases)
+      setSdlWebBase(data.sdl_web_base ?? null)
     } catch {
       console.error('Failed to fetch cases')
     } finally {
@@ -115,7 +129,9 @@ function CasesContent() {
           <p className="aurea-eyebrow mb-3">Clinical Workflow</p>
           <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[48px]">Clinical Cases</h1>
           <p className="mt-4 max-w-xl text-[16px] leading-relaxed text-aurea-ink-2">
-            Manage patient cases from intake through treatment delivery.
+            From intake through acceptance here — then routed out to{' '}
+            <span className="text-aurea-ink">Smile Design Lab</span> for records &amp; design and{' '}
+            <span className="text-aurea-ink">Dion Clinical</span> for surgery.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -155,7 +171,7 @@ function CasesContent() {
           <Loader2 className="h-6 w-6 animate-spin text-aurea-ink-3" />
         </div>
       ) : viewMode === 'board' ? (
-        <KanbanBoard cases={filteredCases} onCaseClick={(id) => router.push(`/cases/${id}`)} />
+        <KanbanBoard cases={filteredCases} sdlWebBase={sdlWebBase} onCaseClick={(id) => router.push(`/cases/${id}`)} />
       ) : (
         <ListView cases={filteredCases} onCaseClick={(id) => router.push(`/cases/${id}`)} />
       )}
@@ -165,7 +181,7 @@ function CasesContent() {
 
 // ── Kanban Board ────────────────────────────────────────────────
 
-function KanbanBoard({ cases, onCaseClick }: { cases: ClinicalCase[]; onCaseClick: (id: string) => void }) {
+function KanbanBoard({ cases, sdlWebBase, onCaseClick }: { cases: ClinicalCase[]; sdlWebBase: string | null; onCaseClick: (id: string) => void }) {
   return (
     <div className="flex gap-6 overflow-x-auto pb-4">
       {STAGE_GROUPS.map((group, groupIdx) => (
@@ -176,7 +192,10 @@ function KanbanBoard({ cases, onCaseClick }: { cases: ClinicalCase[]; onCaseClic
             groupIdx > 0 && 'border-l border-aurea-border pl-6'
           )}
         >
-          <p className="aurea-eyebrow mb-4 px-1">{group.title}</p>
+          <div className="mb-4 px-1">
+            <p className="aurea-eyebrow">{group.title}</p>
+            <p className="mt-0.5 text-[11px] text-aurea-ink-3">{group.caption}</p>
+          </div>
           <div className="flex gap-4">
             {group.statuses.map((status) => {
               const config = STATUS_CONFIG[status]
@@ -196,7 +215,7 @@ function KanbanBoard({ cases, onCaseClick }: { cases: ClinicalCase[]; onCaseClic
                   </div>
                   <div className="space-y-2">
                     {columnCases.map((c) => (
-                      <CaseCard key={c.id} caseData={c} onClick={() => onCaseClick(c.id)} />
+                      <CaseCard key={c.id} caseData={c} sdlWebBase={sdlWebBase} onClick={() => onCaseClick(c.id)} />
                     ))}
                     {columnCases.length === 0 && (
                       <div className="rounded-lg border border-dashed border-aurea-border p-4 text-center text-[12px] text-aurea-ink-3">
@@ -216,7 +235,7 @@ function KanbanBoard({ cases, onCaseClick }: { cases: ClinicalCase[]; onCaseClic
 
 // ── Case Card ───────────────────────────────────────────────────
 
-function CaseCard({ caseData, onClick }: { caseData: ClinicalCase; onClick: () => void }) {
+function CaseCard({ caseData, sdlWebBase, onClick }: { caseData: ClinicalCase; sdlWebBase: string | null; onClick: () => void }) {
   const fileCount = caseData.files?.length || 0
   const initials = caseData.patient_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   const timeAgo = getTimeAgo(caseData.created_at)
@@ -262,6 +281,8 @@ function CaseCard({ caseData, onClick }: { caseData: ClinicalCase; onClick: () =
 
       {caseData.closing && <ClosingChips closing={caseData.closing} />}
 
+      <RoutingPills caseData={caseData} sdlWebBase={sdlWebBase} />
+
       {caseData.assigned_doctor && (
         <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-aurea-border">
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-aurea-surface-2 text-[8px] font-semibold text-aurea-ink-3 ring-1 ring-aurea-border">
@@ -304,13 +325,6 @@ function ClosingChips({ closing }: { closing: NonNullable<ClinicalCase['closing'
     <div className="mt-2 flex flex-wrap gap-1 border-t border-aurea-border pt-2">
       {chip(!!closing.contract_signed_at, FileSignature, 'Signed')}
       {chip(!!closing.financing_funded_at, Banknote, 'Funded')}
-      {chip(
-        !!closing.surgery_date,
-        CalendarCheck,
-        closing.surgery_date
-          ? new Date(`${closing.surgery_date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-          : 'Surgery'
-      )}
       {chip(records.done === records.total, FlaskConical, `Records ${records.done}/${records.total}`)}
     </div>
   )

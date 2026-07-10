@@ -97,13 +97,22 @@ export async function POST(
             .map((i) => i?.cdt_code)
             .filter((c): c is string => typeof c === 'string' && c.length > 0)
         : []
-      await emitCaseTreatmentAgreed({
+      const res = await emitCaseTreatmentAgreed({
         caseId: caseData.id,
         treatmentPlanId: plan?.id ?? null,
         agreementConfirmedAt: new Date().toISOString(),
         proceduresCdt: cdtCodes,
         dionPracticeId: org?.dion_practice_id ?? null,
       })
+      // Record the hand-off only when it was actually delivered — a skipped bridge
+      // (Dion Clinical not configured for this org) is not a real hand-off, so the
+      // CRM must not show a "routed to clinical team" badge for it.
+      if (res.ok && !res.skipped) {
+        await supabase
+          .from('treatment_closings')
+          .update({ dion_handoff_at: new Date().toISOString() })
+          .eq('clinical_case_id', caseData.id)
+      }
     })()
   }
 

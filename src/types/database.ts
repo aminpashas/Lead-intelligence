@@ -1467,6 +1467,13 @@ export type TreatmentClosing = {
   // FMR pre-surgical intake (feeds the contract's merge variables)
   intake: FmrIntake
 
+  // Dion Clinical surgery hand-off (federation). Dion Clinical owns the surgery;
+  // these are a hand-off receipt + cached read-back for display only.
+  dion_handoff_at: string | null
+  dion_surgery_status: string | null
+  dion_surgery_date: string | null
+  dion_synced_at: string | null
+
   // Metadata
   notes: string | null
   created_at: string
@@ -1519,6 +1526,12 @@ export type ClinicalCase = {
     | 'financing_type' | 'financing_funded_at' | 'consent_signed_at'
     | 'preop_instructions_sent_at' | 'surgery_date' | 'surgery_time'
     | 'records_checklist' | 'records_confirmed_at'
+    | 'dion_handoff_at' | 'dion_surgery_status' | 'dion_surgery_date' | 'dion_synced_at'
+  > | null
+  /** Most relevant lab order (newest non-terminal, else newest). Joined by /api/cases. */
+  lab_order?: Pick<LabOrder,
+    'id' | 'lab_provider' | 'status' | 'external_case_id' | 'external_case_number'
+    | 'submitted_at' | 'updated_at'
   > | null
 }
 
