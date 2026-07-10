@@ -95,6 +95,13 @@ export async function sendSMSToLead(params: {
    * replies (e.g. a staff member answering a conversation) — NOT automated outreach.
    */
   bypassQuietHours?: boolean
+  /**
+   * Staff member who initiated this send, for audit attribution. When set (and the
+   * caller is not an autopilot path), the `sms.sent` audit row is stamped as a `user`
+   * action with this id/name instead of the generic `system` actor. Automated paths
+   * (crons, campaigns, autopilot) leave this unset and remain `system`/`ai_agent`.
+   */
+  actor?: { id?: string | null; label?: string | null }
 }): Promise<SendSMSToLeadResult> {
   const decision = await assertConsent(params.supabase, params.leadId, 'sms')
   if (!decision.allowed) {
@@ -197,20 +204,34 @@ export async function sendSMSToLead(params: {
 
   // Audit trail: record the send, distinguishing autonomous autopilot sends from
   // system/staff sends. Fire-and-forget and never throws — must not affect the send.
+  //
+  // A `blocked` status means a send-clamp (MESSAGING_DRY_RUN or TEST_SEND_ALLOWLIST)
+  // suppressed the message — nothing physically left the system — so it is logged as
+  // `sms.suppressed`, not `sms.sent`, so the audit trail never claims a message went
+  // out when the hard-stop ate it. The blocking clamp is recorded in metadata.
   const isAutopilot = (params.caller ?? '').startsWith('autopilot.')
+  const suppressed = result.status === 'blocked'
+  const clamp =
+    result.sid === 'dry-run' ? 'messaging_dry_run'
+    : result.sid === 'blocked-by-test-allowlist' ? 'test_allowlist'
+    : suppressed ? 'unknown' : null
+  const actor = isAutopilot
+    ? { actorType: 'ai_agent' as const, actorId: null, actorLabel: 'AI Autopilot' }
+    : params.actor && (params.actor.id || params.actor.label)
+      ? { actorType: 'user' as const, actorId: params.actor.id ?? null, actorLabel: params.actor.label ?? null }
+      : { actorType: 'system' as const, actorId: null, actorLabel: null }
   void recordAudit(params.supabase, {
     organizationId: decision.lead.organization_id,
-    action: 'sms.sent',
-    actor: isAutopilot
-      ? { actorType: 'ai_agent', actorId: null, actorLabel: 'AI Autopilot' }
-      : { actorType: 'system', actorId: null, actorLabel: null },
+    action: suppressed ? 'sms.suppressed' : 'sms.sent',
+    actor,
     source: 'api_route',
     resourceType: 'lead',
     resourceId: params.leadId,
     ai: isAutopilot
       ? { autonomous: true, agent_role: 'autopilot', gate: 'autopilot' }
       : null,
-    metadata: { caller: params.caller ?? null },
+    severity: suppressed ? 'warning' : 'info',
+    metadata: { caller: params.caller ?? null, ...(suppressed ? { suppressed_by: clamp } : {}) },
   })
 
   return { sent: true, sid: result.sid, status: result.status }

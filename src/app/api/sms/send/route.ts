@@ -112,6 +112,8 @@ export async function POST(request: NextRequest) {
         // Human-authored 1:1 reply from the dashboard — exempt from quiet-hours
         // (still consent-gated). Automated paths do NOT set this.
         bypassQuietHours: !parsed.data.ai_generated,
+        // Attribute the audit row to the staff member, not the generic `system` actor.
+        actor: { id: profile.id, label: profile.full_name },
       }),
       RETRY_CONFIGS.twilio
     )

@@ -59,7 +59,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const r = await sendEmailToLead({ supabase, leadId: id, to: recipient, subject: subject || 'Following up', html, text: message, aiGenerated: true, caller: 'api.follow-up-send' })
     if (r.sent) { sent = true; externalId = r.id } else { reason = r.reason }
   } else {
-    const r = await sendSMSToLead({ supabase, leadId: id, to: recipient, body: message, aiGenerated: true, caller: 'api.follow-up-send' })
+    const r = await sendSMSToLead({ supabase, leadId: id, to: recipient, body: message, aiGenerated: true, caller: 'api.follow-up-send', actor: { id: profile.id, label: profile.full_name } })
     if (r.sent) { sent = true; externalId = r.sid } else { reason = r.reason }
   }
 
