@@ -7,12 +7,12 @@ import {
 
 const SF = 'fa64e53c-3d9b-493e-b904-59580cb3f29c' // SF Dentistry
 const OTHER = '11111111-1111-1111-1111-111111111111'
-const on = { NEW_LEAD_PAID_ONLY_ORG_IDS: SF } as NodeJS.ProcessEnv
+const on = { NEW_LEAD_PAID_ONLY_ORG_IDS: SF } as unknown as NodeJS.ProcessEnv
 const off = {} as NodeJS.ProcessEnv
 
 describe('paidOnlyIntakeOrgIds', () => {
   it('parses, trims, lower-cases, and drops blanks', () => {
-    const env = { NEW_LEAD_PAID_ONLY_ORG_IDS: ` ${SF.toUpperCase()} , , ${OTHER} ` } as NodeJS.ProcessEnv
+    const env = { NEW_LEAD_PAID_ONLY_ORG_IDS: ` ${SF.toUpperCase()} , , ${OTHER} ` } as unknown as NodeJS.ProcessEnv
     expect(paidOnlyIntakeOrgIds(env)).toEqual(new Set([SF, OTHER]))
   })
   it('is empty when unset', () => {

@@ -89,6 +89,14 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/forward-desk-outbox",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/existing-patient-rematch",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/cron/a2p-status",
       "schedule": "0 */6 * * *"
     },

@@ -277,7 +277,7 @@ export function AnalyticsDashboard() {
         <KPICard icon={DollarSign} label="Pipeline Value" value={formatCurrency(kpis.totalPipeline)} iconClass="text-aurea-primary" />
         <KPICard icon={DollarSign} label="Revenue" value={formatCurrency(kpis.totalRevenue)} iconClass="text-aurea-primary" />
         <KPICard icon={Brain} label="Avg AI Engagement" value={kpis.avgScore} iconClass="text-aurea-primary" subtitle="out of 100" />
-        <KPICard icon={Calendar} label="Appointments" value={data.appointments.scheduled + data.appointments.completed} iconClass="text-aurea-amber" subtitle={`${data.appointments.showRate.toFixed(0)}% show rate`} />
+        <KPICard icon={Calendar} label="Appointments" value={data.appointments.scheduled + data.appointments.completed} iconClass="text-aurea-amber" subtitle={`${(data.appointments.showRate ?? 0).toFixed(0)}% show rate`} />
       </div>
 
       {/* Lead Trend + Message Activity */}
@@ -618,7 +618,7 @@ export function AnalyticsDashboard() {
               </div>
               <div className="rounded-lg border p-3 text-center">
                 <p className="text-xs text-muted-foreground mb-1">Show Rate</p>
-                <p className="text-2xl font-bold">{data.appointments.showRate.toFixed(0)}%</p>
+                <p className="text-2xl font-bold">{(data.appointments.showRate ?? 0).toFixed(0)}%</p>
               </div>
             </div>
           </CardContent>

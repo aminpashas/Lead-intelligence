@@ -32,6 +32,7 @@ import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
 import { deriveConsentFields } from '@/lib/consent/ingest'
 import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
 import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
+import { isJunkCallerContact } from '@/lib/leads/junk-contact'
 import { routedIntakeStageSlug } from '@/lib/leads/intake-routing'
 
 function asBool(v: unknown): boolean | undefined {
@@ -367,29 +368,61 @@ export async function POST(request: NextRequest) {
     source_id = src?.id ?? null
   }
 
-  // Default pipeline stage for the org.
-  const { data: defaultStage } = await supabase
+  // Routing: is this a real sales lead, or a non-lead that must NOT land in the
+  // "New Lead" funnel? Two non-lead cases are resolved BEFORE insert so the
+  // record is BORN in the right place (the old after()-block flag left existing
+  // patients in "New Lead" until a later pass demoted them):
+  //   • existing-patient — matches the CareStack patient mirror (deterministic
+  //     hash join, no EHR call). Owned by Dion Desk; parked in the off-funnel
+  //     'existing-patient' stage and mirrored to Desk via the outbox (after()).
+  //   • junk — caller-ID noise with no reachable contact (see junk-contact.ts).
+  //     At ingestion phone validity is unknown, so only placeholder/empty names
+  //     are caught here; "City ST" noise is swept later once enrichment sets
+  //     phone_valid (see the existing-patient-rematch cron).
+  // Stage slugs are resolved in one round-trip; missing parking stages fall back
+  // to the default so ingestion never breaks if the migration hasn't run.
+  const { data: stageRows } = await supabase
     .from('pipeline_stages')
-    .select('id')
+    .select('id, slug, is_default')
     .eq('organization_id', customerId)
-    .eq('is_default', true)
-    .maybeSingle()
+    .or('is_default.eq.true,slug.in.(existing-patient,junk,nurturing)')
+  const stageBySlug = new Map((stageRows ?? []).map((s) => [s.slug as string, s.id as string]))
+  const defaultStageId =
+    (stageRows ?? []).find((s) => s.is_default)?.id ?? stageBySlug.get('new') ?? undefined
 
-  // Paid-only intake routing: for opted-in orgs, a brand-new non-paid lead
-  // (organic / GMB / referral / imported nurturing DB) skips "New Lead" and
-  // lands in "Nurturing" so the board reflects only fresh Google/Meta ad
-  // demand. Paid ads, and every non-allowlisted org, keep the default stage.
-  let stageId = defaultStage?.id
-  const routeSlug = routedIntakeStageSlug(customerId, campaignAttribution?.channel)
-  if (routeSlug) {
-    const { data: nurtureStage } = await supabase
-      .from('pipeline_stages')
-      .select('id')
-      .eq('organization_id', customerId)
-      .eq('slug', routeSlug)
-      .maybeSingle()
-    // Fall back to the default stage if the org has no Nurturing stage.
-    if (nurtureStage?.id) stageId = nurtureStage.id
+  let patientMatch: Awaited<ReturnType<typeof findExistingPatientByHash>> = null
+  try {
+    patientMatch = await findExistingPatientByHash(supabase, customerId, { emailHash, phoneHash })
+  } catch {
+    // Non-fatal: reconciliation must never block ingestion — fall through as a lead.
+  }
+  const isJunk = isJunkCallerContact({
+    first_name,
+    last_name,
+    email,
+    phone_valid: null, // unknown at ingestion; enrichment/cron catches location-shaped noise later
+    source_type: sourceName,
+  })
+  const route: 'existing_patient' | 'junk' | 'lead' = patientMatch
+    ? 'existing_patient'
+    : isJunk
+      ? 'junk'
+      : 'lead'
+  // Final stage: off-funnel routing (existing-patient / junk) takes precedence —
+  // an existing patient or a junk call must never sit in the sales funnel, paid
+  // gate or not. A GENUINE lead then flows through the paid-only intake gate:
+  // for opted-in orgs a brand-new non-paid lead (organic / GMB / referral /
+  // imported nurturing DB) skips "New Lead" and lands in "Nurturing", so the
+  // board reflects only fresh Google/Meta ad demand. All lookups come from the
+  // single stageRows fetch above (nurturing included) — no extra round-trip.
+  let stageId: string | undefined
+  if (route === 'existing_patient') {
+    stageId = stageBySlug.get('existing-patient') ?? defaultStageId
+  } else if (route === 'junk') {
+    stageId = stageBySlug.get('junk') ?? defaultStageId
+  } else {
+    const routeSlug = routedIntakeStageSlug(customerId, campaignAttribution?.channel)
+    stageId = (routeSlug && stageBySlug.get(routeSlug)) || defaultStageId
   }
 
   const insertData = encryptLeadPII({
@@ -400,6 +433,10 @@ export async function POST(request: NextRequest) {
     phone: phoneRaw || null,
     phone_formatted: phoneFormatted ?? undefined,
     stage_id: stageId,
+    ...(route === 'existing_patient' && patientMatch
+      ? { is_existing_patient: true, matched_patient_id: patientMatch.patientId }
+      : {}),
+    ...(route === 'junk' ? { status: 'disqualified' } : {}),
     source_id,
     notes,
     source_type: sourceName,
@@ -463,6 +500,36 @@ export async function POST(request: NextRequest) {
   // autopilot is switched on (post-Twilio approval). Runs after the response
   // so the bridge call never blocks on the LLM/first-message generation.
   after(async () => {
+    // Non-leads (existing patients, junk calls) are NOT financially qualified and
+    // NOT auto-outreached. An existing patient is instead linked to its patient
+    // record and mirrored to Dion Desk (the owner of the front-desk workflow).
+    if (route !== 'lead') {
+      if (route === 'existing_patient' && patientMatch) {
+        try {
+          // Backfill the patient→lead link (leads-side flags were set at insert).
+          await markLeadAsExistingPatient(supabase, String(lead.id), customerId, patientMatch.patientId)
+        } catch {
+          // Non-fatal.
+        }
+        try {
+          // Durable hand-off to Dion Desk. Buffers in dion_desk_outbox until Desk
+          // is provisioned + DION_DESK_URL is set — no-op forwarder until then, so
+          // nothing is lost and nothing is required for ingestion to succeed.
+          const { enqueueDeskExistingPatientContact } = await import('@/lib/bridges/dion-desk')
+          await enqueueDeskExistingPatientContact(supabase, {
+            organizationId: customerId,
+            leadId: String(lead.id),
+            patientId: patientMatch.patientId,
+            matchMethod: patientMatch.matchMethod,
+            sourceType: sourceName,
+          })
+        } catch {
+          // Non-fatal: the outbox row is best-effort; a failure never breaks ingest.
+        }
+      }
+      return
+    }
+
     // Soft financial pre-qualification from any free-text the source carried.
     // The DGS/GHL bridge pushes the contact's form message as `notes`, so we run
     // the regex-only qualifier over it (NO LLM cost — safe even on bulk
@@ -492,20 +559,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Existing-patient reconciliation: an inbound contact that already exists
-    // as a synced EHR patient is NOT a net-new sales lead (e.g. an existing
-    // patient calling a WhatConverts tracked number). Flag it — this drops the
-    // lead out of the new-lead smart lists and short-circuits speed-to-lead
-    // below. Runs before triggerSpeedToLead so the flag is set first.
-    try {
-      const match = await findExistingPatientByHash(supabase, customerId, { emailHash, phoneHash })
-      if (match) {
-        await markLeadAsExistingPatient(supabase, String(lead.id), customerId, match.patientId)
-      }
-    } catch {
-      // Non-fatal: reconciliation must never affect ingestion.
-    }
-
+    // (Existing-patient reconciliation now runs BEFORE insert — see routing above.)
     try {
       await triggerSpeedToLead(supabase, String(lead.id), customerId)
     } catch {

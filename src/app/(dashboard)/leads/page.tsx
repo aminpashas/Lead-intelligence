@@ -14,6 +14,7 @@ import {
   isDerivedColumnKey,
   ACTIVE_COMMS_WINDOW_DAYS,
 } from '@/lib/pipeline/derived-columns'
+import { OFF_FUNNEL_STAGE_SLUGS } from '@/lib/pipeline/stage-groups'
 
 // URL sort key → leads column, whitelisted so the param can't order by
 // arbitrary (e.g. encrypted) columns.
@@ -56,6 +57,21 @@ export default async function LeadsPage({
     .select('*, pipeline_stage:pipeline_stages(*), source:lead_sources(*)', { count: 'exact' })
     .eq('organization_id', orgId)
     .order(sortCol, { ascending, nullsFirst: false })
+
+  // Off-funnel parking stages (existing patients, junk caller-ID calls) are NOT
+  // sales leads — hide them from the default leads view so inbound-call noise
+  // stops polluting the list. `?include=all` reveals them for triage/audit.
+  if (params.include !== 'all') {
+    const { data: offStages } = await supabase
+      .from('pipeline_stages')
+      .select('id')
+      .eq('organization_id', orgId)
+      .in('slug', OFF_FUNNEL_STAGE_SLUGS as unknown as string[])
+    const offIds = (offStages ?? []).map((s) => s.id as string)
+    if (offIds.length > 0) {
+      query = query.not('stage_id', 'in', `(${offIds.join(',')})`)
+    }
+  }
 
   if (params.status) {
     query = query.in('status', params.status.split(','))
