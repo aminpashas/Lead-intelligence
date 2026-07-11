@@ -12,6 +12,8 @@ import { sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { escapeHtml } from '@/lib/utils'
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
+import { getBrandingForOrg } from '@/lib/branding/store'
+import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
 
 const bookingSchema = z.object({
   slot_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -148,14 +150,6 @@ export async function POST(
     return NextResponse.json({ error: 'This time slot is no longer available. Please select another time.' }, { status: 409 })
   }
 
-  // Get org info
-  const { data: org } = await supabase
-    .from('organizations')
-    .select('name')
-    .eq('id', orgId)
-    .single()
-  const orgName = org?.name || 'Our Practice'
-
   // Find or create lead
   let leadId: string
   // leads.email is encrypted at rest — match on the deterministic hash.
@@ -261,8 +255,24 @@ export async function POST(
   const timeDisplay = formatTimeDisplay(slot_time)
   const dateDisplay = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: settings.timezone })
 
+  // Resolve the org's brand + logistics for this lead (brand name replaces the
+  // bare org name so a TMJ lead hears the TMJ brand, an implant lead Dion Health).
+  const { branding, orgName: orgDisplayName } = await getBrandingForOrg(supabase, orgId)
+
+  const { data: brandLead } = await supabase
+    .from('leads')
+    .select('tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
+    .eq('id', leadId)
+    .maybeSingle()
+  const brand = resolveBrandForContext(branding, orgDisplayName, { lead: (brandLead as never) ?? null })
+  const orgName = brand.practiceName
+
+  const logisticsLine = [brand.logistics.parkingText, brand.logistics.transitText]
+    .filter((s) => s && s.trim())
+    .join(' ')
+
   try {
-    await sendSMS(phone, `Hi ${first_name}! Your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}. We look forward to seeing you! Reply STOP to opt out.`)
+    await sendSMS(phone, `Hi ${first_name}! Your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}.${logisticsLine ? ` ${logisticsLine}` : ''} We look forward to seeing you! Reply STOP to opt out.`)
   } catch (err) {
     // Log SMS failure for visibility
     await supabase.from('lead_activities').insert({
@@ -290,13 +300,20 @@ export async function POST(
             <p style="margin: 4px 0;"><strong>Duration:</strong> ${settings.slot_duration_minutes} minutes</p>
             ${settings.location ? `<p style="margin: 4px 0;"><strong>Location:</strong> ${escapeHtml(settings.location)}</p>` : ''}
           </div>
+          ${(brand.logistics.addressText || brand.logistics.parkingText || brand.logistics.transitText) ? `
+          <div style="background: #f4f8ff; padding: 16px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0 0 8px; font-weight: 600;">Getting here</p>
+            ${brand.logistics.addressText ? `<p style="margin: 4px 0;">${escapeHtml(brand.logistics.addressText)}</p>` : ''}
+            ${brand.logistics.parkingText ? `<p style="margin: 4px 0;"><strong>Parking:</strong> ${escapeHtml(brand.logistics.parkingText)}</p>` : ''}
+            ${brand.logistics.transitText ? `<p style="margin: 4px 0;"><strong>Transit:</strong> ${escapeHtml(brand.logistics.transitText)}</p>` : ''}
+          </div>` : ''}
           <p>${escapeHtml(settings.booking_message || 'We look forward to seeing you!')}</p>
           <p style="color: #666; font-size: 12px; margin-top: 24px;">
             Need to reschedule? Reply to this email or call us.
           </p>
         </div>
       `,
-      text: `Hi ${first_name}, your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}. ${settings.location ? `Location: ${settings.location}. ` : ''}We look forward to seeing you!`,
+      text: `Hi ${first_name}, your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}. ${settings.location ? `Location: ${settings.location}. ` : ''}${logisticsLine ? `${logisticsLine} ` : ''}We look forward to seeing you!`,
     })
   } catch (err) {
     // Log email failure for visibility
