@@ -9,6 +9,7 @@
 import { Section, Text } from '@react-email/components'
 import * as React from 'react'
 import { Layout, styles } from './_shared/Layout'
+import type { BrandLogistics } from '@/lib/branding/schema'
 
 export type BookingReminderProps = {
   leadId: string
@@ -23,7 +24,11 @@ export type BookingReminderProps = {
   /** Which reminder window we're sending — affects subject line + opening. */
   window: '24h' | '2h'
   rescheduleUrl?: string
+  /** Address / by-car / BART / what-to-expect — same directions given at booking. */
+  logistics?: BrandLogistics
 }
+
+const has = (s: string | undefined): s is string => Boolean(s && s.trim())
 
 export function BookingReminder(props: BookingReminderProps) {
   const formatted = formatScheduledAt(props.scheduledAt, props.timezone)
@@ -59,6 +64,8 @@ export function BookingReminder(props: BookingReminderProps) {
         ) : null}
       </Section>
 
+      {props.logistics ? <VisitLogistics logistics={props.logistics} /> : null}
+
       <Text style={styles.paragraph}>
         If anything has changed, reply to this email and we&apos;ll sort it out.
         {props.rescheduleUrl ? (
@@ -71,6 +78,46 @@ export function BookingReminder(props: BookingReminderProps) {
 
       <Text style={styles.paragraph}>See you soon — {props.orgName}</Text>
     </Layout>
+  )
+}
+
+/** "Getting here" + "What to expect" section — mirrors renderVisitLogistics(),
+ *  built with React Email primitives so the 24h reminder matches the booking
+ *  confirmation. Renders nothing if no logistics are entered. */
+function VisitLogistics({ logistics }: { logistics: BrandLogistics }) {
+  const { addressText, drivingText, parkingText, transitText, whatToExpectText } = logistics
+  const hasGettingHere = has(addressText) || has(drivingText) || has(parkingText) || has(transitText)
+
+  return (
+    <>
+      {hasGettingHere ? (
+        <Section style={gettingHereCard}>
+          <Text style={sectionHeading}>Getting here</Text>
+          {has(addressText) ? <Text style={styles.detailRow}>{addressText}</Text> : null}
+          {has(drivingText) ? (
+            <Text style={styles.detailRow}>
+              <span style={styles.detailLabel}>By car:</span> {drivingText}
+            </Text>
+          ) : null}
+          {has(parkingText) ? (
+            <Text style={styles.detailRow}>
+              <span style={styles.detailLabel}>Parking:</span> {parkingText}
+            </Text>
+          ) : null}
+          {has(transitText) ? (
+            <Text style={styles.detailRow}>
+              <span style={styles.detailLabel}>By BART / transit:</span> {transitText}
+            </Text>
+          ) : null}
+        </Section>
+      ) : null}
+      {has(whatToExpectText) ? (
+        <Section style={detailCard}>
+          <Text style={sectionHeading}>What to expect</Text>
+          <Text style={{ ...styles.detailRow, whiteSpace: 'pre-line' }}>{whatToExpectText}</Text>
+        </Section>
+      ) : null}
+    </>
   )
 }
 
@@ -96,6 +143,18 @@ const detailCard: React.CSSProperties = {
   borderRadius: '6px',
   padding: '16px 20px',
   margin: '0 0 16px 0',
+}
+
+const gettingHereCard: React.CSSProperties = {
+  backgroundColor: '#f4f8ff',
+  borderRadius: '6px',
+  padding: '16px 20px',
+  margin: '0 0 16px 0',
+}
+
+const sectionHeading: React.CSSProperties = {
+  fontWeight: 600,
+  margin: '0 0 8px 0',
 }
 
 export default BookingReminder

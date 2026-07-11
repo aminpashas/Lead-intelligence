@@ -30,6 +30,8 @@ import {
   getRescheduleUrl,
 } from './reminder-templates'
 import { renderEmail } from '@/emails/render'
+import { parseBranding, type BrandLogistics } from '@/lib/branding/schema'
+import { renderVisitLogistics } from '@/lib/branding/visit-logistics'
 import { BookingReminder } from '@/emails/BookingReminder'
 import { logger } from '@/lib/logger'
 import { decryptLeadPII } from '@/lib/encryption'
@@ -96,21 +98,26 @@ export async function sendAppointmentReminders(
   const now = new Date()
   const results: ReminderResult[] = []
 
-  // Get org name for templates
+  // Get org name + branding for templates. Logistics (address / by-car / BART /
+  // what-to-expect) is org-shared, so we render it once and attach it to the
+  // reminder emails — same directions patients got at booking, so they still
+  // know where to go days later.
   const { data: org } = await supabase
     .from('organizations')
-    .select('name')
+    .select('name, settings')
     .eq('id', orgId)
     .single()
 
   const practiceName = org?.name || 'our office'
+  const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
+  const brandLogistics = branding.logistics
 
   // ─── 72-HOUR REMINDERS (Email) ──────────────────────────────
-  const r72h = await send72hReminders(supabase, orgId, practiceName, now)
+  const r72h = await send72hReminders(supabase, orgId, practiceName, now, brandLogistics)
   results.push(...r72h)
 
   // ─── 24-HOUR REMINDERS (SMS + Email) ────────────────────────
-  const r24h = await send24hReminders(supabase, orgId, practiceName, now)
+  const r24h = await send24hReminders(supabase, orgId, practiceName, now, brandLogistics)
   results.push(...r24h)
 
   // ─── 2-HOUR CONFIRMATION CALLS (Voice) ──────────────────────
@@ -132,9 +139,11 @@ async function send72hReminders(
   supabase: SupabaseClient,
   orgId: string,
   practiceName: string,
-  now: Date
+  now: Date,
+  brandLogistics: BrandLogistics
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
+  const logistics = renderVisitLogistics({ logistics: brandLogistics })
 
   // Window: 70-74 hours from now
   const from = new Date(now.getTime() + 70 * 60 * 60 * 1000)
@@ -169,6 +178,8 @@ async function send72hReminders(
       practiceName,
       confirmUrl,
       rescheduleUrl,
+      logisticsHtml: logistics.emailHtml,
+      logisticsText: logistics.emailText,
     })
 
     try {
@@ -225,7 +236,8 @@ async function send24hReminders(
   supabase: SupabaseClient,
   orgId: string,
   practiceName: string,
-  now: Date
+  now: Date,
+  brandLogistics: BrandLogistics
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
 
@@ -309,6 +321,7 @@ async function send24hReminders(
           location: apt.location || undefined,
           window: '24h',
           rescheduleUrl,
+          logistics: brandLogistics,
         })
       )
       // confirmUrl is collected via the SMS reply / email-click webhook; we keep the var

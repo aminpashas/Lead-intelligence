@@ -1,7 +1,7 @@
 # Per-Service-Line Branding & Brand-Aware Outreach — Design
 
 - **Date:** 2026-07-11
-- **Status:** Approved (design), pending spec review
+- **Status:** Approved (spec reviewed 2026-07-11; Phase 4 in scope)
 - **Branch:** feat/pipeline-stage-restructure
 - **Org this targets first:** Dion Health / SF Dentistry (`fa64e53c-3d9b-493e-b904-59580cb3f29c`)
 

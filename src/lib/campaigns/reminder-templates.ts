@@ -64,8 +64,11 @@ export function generate72hEmailTemplate(params: {
   practiceName: string
   confirmUrl: string
   rescheduleUrl: string
+  /** Shared "Getting here / What to expect" blocks from renderVisitLogistics(). */
+  logisticsHtml?: string
+  logisticsText?: string
 }): { subject: string; html: string; text: string } {
-  const { firstName, appointmentType, dateTime, location, practiceName, confirmUrl, rescheduleUrl } = params
+  const { firstName, appointmentType, dateTime, location, practiceName, confirmUrl, rescheduleUrl, logisticsHtml, logisticsText } = params
 
   const subject = `Your ${appointmentType} at ${practiceName} — Confirm Your Appointment`
 
@@ -100,6 +103,8 @@ export function generate72hEmailTemplate(params: {
       </div>
       ` : ''}
     </div>
+
+    ${logisticsHtml || ''}
 
     <div style="text-align: center; margin: 28px 0;">
       <a href="${confirmUrl}" style="${emailStyles.confirmBtn}">✅ Confirm Appointment</a>
@@ -143,7 +148,7 @@ Your ${appointmentType} at ${practiceName} is coming up!
 
 📅 Date & Time: ${dateTime}
 ${location ? `📍 Location: ${location}` : ''}
-
+${logisticsText ? `\n${logisticsText}\n` : ''}
 Please confirm by visiting: ${confirmUrl}
 Need to reschedule? ${rescheduleUrl}
 
@@ -172,8 +177,11 @@ export function generate24hEmailTemplate(params: {
   practiceName: string
   confirmUrl: string
   rescheduleUrl: string
+  /** Shared "Getting here / What to expect" blocks from renderVisitLogistics(). */
+  logisticsHtml?: string
+  logisticsText?: string
 }): { subject: string; html: string; text: string } {
-  const { firstName, appointmentType, dateTime, location, practiceName, confirmUrl, rescheduleUrl } = params
+  const { firstName, appointmentType, dateTime, location, practiceName, confirmUrl, rescheduleUrl, logisticsHtml, logisticsText } = params
 
   const subject = `⏰ Tomorrow: Your ${appointmentType} at ${practiceName}`
 
@@ -208,6 +216,8 @@ export function generate24hEmailTemplate(params: {
       ` : ''}
     </div>
 
+    ${logisticsHtml || ''}
+
     <div style="text-align: center; margin: 28px 0;">
       <a href="${confirmUrl}" style="${emailStyles.confirmBtn}">✅ Yes, I'll Be There!</a>
       <br style="display: block; margin: 4px 0;" />
@@ -232,7 +242,7 @@ Quick reminder — your ${appointmentType} at ${practiceName} is TOMORROW!
 
 📅 ${dateTime}
 ${location ? `📍 ${location}` : ''}
-
+${logisticsText ? `\n${logisticsText}\n` : ''}
 Please confirm: ${confirmUrl}
 Need to reschedule? ${rescheduleUrl}
 
