@@ -170,6 +170,10 @@ export type StaffCallIntent = {
   phone: string // decrypted lead number to dial
   fromNumber: string // org caller ID the lead sees
   recording: boolean
+  // The lead this call is threaded onto, or null for a manual dial to a number that
+  // matched no lead. The softphone uses this to decide whether to offer a
+  // capture-the-contact form when the call ends.
+  matchedLeadId: string | null
 }
 
 /**
@@ -237,6 +241,7 @@ export async function prepareStaffCallIntent(
     phone: check.phone!,
     fromNumber,
     recording: !!org?.voice_recording_enabled,
+    matchedLeadId: params.leadId,
   }
 }
 
@@ -350,6 +355,7 @@ export async function prepareManualCallIntent(
     phone,
     fromNumber,
     recording: !!org.voice_recording_enabled,
+    matchedLeadId,
   }
 }
 

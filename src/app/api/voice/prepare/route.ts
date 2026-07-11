@@ -88,5 +88,9 @@ export async function POST(request: NextRequest) {
     dial_token: intent.dialToken,
     call_id: intent.callId,
     to_last4: intent.phone.replace(/[^0-9]/g, '').slice(-4),
+    // Whether this call is already threaded onto a lead. When false (a manual dial
+    // to an unknown number), the softphone offers a capture-the-contact form so the
+    // staffer can turn the call into a real lead as they talk.
+    matched_lead: !!intent.matchedLeadId,
   })
 }

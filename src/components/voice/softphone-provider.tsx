@@ -41,7 +41,17 @@ export type SoftphoneStatus =
   | 'in_call' // connected
   | 'ended' // call over, awaiting disposition
 
-type EndedCall = { callId: string; lead: DialableLead; durationSeconds: number }
+type EndedCall = {
+  callId: string
+  lead: DialableLead
+  durationSeconds: number
+  /** True when the call was picked up (reached `in_call`) — drives the auto-summary. */
+  answered: boolean
+  /** True for a manual dial to a number that matched no lead — offer a contact form. */
+  needsContact: boolean
+  /** The dialed E.164/number, used to label + (server-side) hash-match the new lead. */
+  toNumber: string | null
+}
 
 type SoftphoneContextValue = {
   status: SoftphoneStatus
@@ -52,6 +62,8 @@ type SoftphoneContextValue = {
   callSeconds: number
   /** The just-ended call awaiting a disposition (null once dispositioned/cleared). */
   endedCall: EndedCall | null
+  /** Live-call flag: a manual dial to an unknown number → offer a contact form. */
+  needsContact: boolean
   startCall: (lead: DialableLead) => Promise<void>
   /** Dial an arbitrary typed number (dial-any-number keypad). */
   startCallToNumber: (number: string) => Promise<void>
@@ -83,10 +95,19 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
   const [held, setHeld] = useState(false)
   const [callSeconds, setCallSeconds] = useState(0)
   const [endedCall, setEndedCall] = useState<EndedCall | null>(null)
+  const [needsContact, setNeedsContact] = useState(false)
 
   // Keep the active call id (from prepare) around for disposition after hangup.
   const activeCallIdRef = useRef<string | null>(null)
   const activeLeadRef = useRef<DialableLead | null>(null)
+  // Was the current call picked up? Set on `accept`, read on end for the auto-summary.
+  const answeredRef = useRef(false)
+  // Manual dial to a number with no matching lead → the widget offers a contact form.
+  const needsContactRef = useRef(false)
+  const activeToNumberRef = useRef<string | null>(null)
+  // Mirror of callSeconds so `onEnd` can read the final duration without reaching
+  // into a state updater (which can double-run in dev StrictMode).
+  const callSecondsRef = useRef(0)
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -100,8 +121,10 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
     callRef.current = null
     setActiveLead(null)
     activeLeadRef.current = null
+    answeredRef.current = false
     setMuted(false)
     setHeld(false)
+    callSecondsRef.current = 0
     setCallSeconds(0)
     setStatus(deviceRef.current ? 'idle' : 'offline')
   }, [stopTimer])
@@ -165,23 +188,55 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
     }
   }, [ensureDevice, stopTimer])
 
+  // Fire-and-forget: write a factual call-history summary the instant an answered
+  // call ends. Carries no outcome — the staffer's disposition (if any) enriches the
+  // same voice_calls row afterwards. Failures are non-fatal (best-effort logging).
+  const autoLogSummary = useCallback(async (callId: string, durationSeconds: number) => {
+    try {
+      await fetch(`/api/voice/calls/${callId}/disposition`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration_seconds: durationSeconds }),
+      })
+    } catch {
+      /* best-effort */
+    }
+  }, [])
+
   const attachCallListeners = useCallback(
     (call: TwilioCall) => {
       call.on('ringing', () => setStatus('ringing'))
       call.on('accept', () => {
         setStatus('in_call')
+        answeredRef.current = true
+        callSecondsRef.current = 0
         setCallSeconds(0)
         stopTimer()
-        timerRef.current = setInterval(() => setCallSeconds((n) => n + 1), 1000)
+        timerRef.current = setInterval(() => {
+          callSecondsRef.current += 1
+          setCallSeconds(callSecondsRef.current)
+        }, 1000)
       })
       const onEnd = () => {
         // Snapshot for the disposition prompt before we clear live state.
         const lead = activeLeadRef.current
         const callId = activeCallIdRef.current
-        setCallSeconds((secs) => {
-          if (lead && callId) setEndedCall({ callId, lead, durationSeconds: secs })
-          return secs
-        })
+        const answered = answeredRef.current
+        const secs = callSecondsRef.current
+        if (lead && callId) {
+          setEndedCall({
+            callId,
+            lead,
+            durationSeconds: secs,
+            answered,
+            needsContact: needsContactRef.current,
+            toNumber: activeToNumberRef.current,
+          })
+          // Answered calls (and voicemails, which also connect) are logged to call
+          // history right away, so nothing is lost if the staffer closes the widget
+          // before dispositioning. A later disposition enriches this same row.
+          if (answered) void autoLogSummary(callId, secs)
+        }
         resetCallState()
       }
       call.on('disconnect', onEnd)
@@ -194,13 +249,17 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         onEnd()
       })
     },
-    [resetCallState, stopTimer]
+    [resetCallState, stopTimer, autoLogSummary]
   )
 
   // Shared dial path for both a known lead and a typed number. `display` is what the
   // widget shows; `prepareBody` is what /api/voice/prepare gates on (lead_id | to).
   const dial = useCallback(
-    async (display: DialableLead, prepareBody: { lead_id: string } | { to: string }) => {
+    async (
+      display: DialableLead,
+      prepareBody: { lead_id: string } | { to: string },
+      opts?: { isManual?: boolean }
+    ) => {
       if (status !== 'idle' && status !== 'offline') {
         toast.error('A call is already in progress')
         return
@@ -215,6 +274,10 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
       setStatus('connecting')
       setActiveLead(display)
       activeLeadRef.current = display
+      answeredRef.current = false
+      needsContactRef.current = false
+      setNeedsContact(false)
+      activeToNumberRef.current = 'to' in prepareBody ? prepareBody.to : null
       setEndedCall(null)
 
       // 1. Authenticated prepare — compliance gate + mint the one-time dial token.
@@ -229,6 +292,10 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         if (!res.ok) throw new Error(data?.error || 'Could not place call')
         dialToken = data.dial_token
         activeCallIdRef.current = data.call_id
+        // A manual dial to a number that matched no existing lead is the one case
+        // where we invite the staffer to capture the contact as they talk.
+        needsContactRef.current = !!opts?.isManual && data.matched_lead === false
+        setNeedsContact(needsContactRef.current)
       } catch (e) {
         toast.error(e instanceof Error ? e.message : 'Could not place call')
         resetCallState()
@@ -264,7 +331,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         first_name: formatDialedNumber(number),
         last_name: null,
       }
-      return dial(display, { to: number })
+      return dial(display, { to: number }, { isManual: true })
     },
     [dial]
   )
@@ -334,6 +401,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         held,
         callSeconds,
         endedCall,
+        needsContact,
         startCall,
         startCallToNumber,
         hangup,

@@ -61,7 +61,9 @@ export function CallCard({ call }: { call: VoiceCall }) {
   const [open, setOpen] = useState(false)
 
   const outbound = call.direction === 'outbound'
-  const agentName = AGENT_LABEL[call.agent_type || ''] || 'AI'
+  // A browser/bridge call is placed by a human; only an actual AI leg is labelled "AI".
+  const human = call.call_mode === 'browser' || call.call_mode === 'bridge'
+  const agentName = AGENT_LABEL[call.agent_type || ''] || (human ? 'Staff' : 'AI')
   const duration = fmtDuration(call.duration_seconds)
   const when = call.ended_at || call.started_at || call.created_at
   const outcome = call.outcome ? OUTCOME_LABEL[call.outcome] || call.outcome.replace(/_/g, ' ') : null
@@ -75,6 +77,9 @@ export function CallCard({ call }: { call: VoiceCall }) {
             .join('\n')
         : ''
   const lines = transcriptText ? parseTranscript(transcriptText) : []
+  // Human calls carry no AI transcript — the composed summary (and the staffer's
+  // notes it folds in) is the content, so the card must still expand to reveal it.
+  const expandable = lines.length > 0 || !!call.transcript_summary
 
   return (
     <div className="mx-auto w-full max-w-[540px]">
@@ -82,8 +87,9 @@ export function CallCard({ call }: { call: VoiceCall }) {
         {/* Summary row (click to expand) */}
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-aurea-canvas"
+          onClick={() => expandable && setOpen((v) => !v)}
+          disabled={!expandable}
+          className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors enabled:hover:bg-aurea-canvas disabled:cursor-default"
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-aurea-border bg-aurea-canvas">
             {outbound ? (
@@ -113,7 +119,7 @@ export function CallCard({ call }: { call: VoiceCall }) {
               )}
             </div>
           </div>
-          {lines.length > 0 &&
+          {expandable &&
             (open ? (
               <ChevronDown className="h-4 w-4 shrink-0 text-aurea-ink-3" strokeWidth={1.75} />
             ) : (
@@ -131,7 +137,9 @@ export function CallCard({ call }: { call: VoiceCall }) {
             )}
 
             {lines.length === 0 ? (
-              <p className="text-[12px] italic text-aurea-ink-3">No transcript captured for this call.</p>
+              call.transcript_summary ? null : (
+                <p className="text-[12px] italic text-aurea-ink-3">No transcript captured for this call.</p>
+              )
             ) : (
               <div className="flex flex-col gap-2">
                 {lines.map((l, i) => {
