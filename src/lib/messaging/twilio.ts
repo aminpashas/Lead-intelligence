@@ -1,6 +1,6 @@
 import twilio from 'twilio'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/lib/consent/gate'
+import { assertConsent, logConsentViolation, smsCampaignGate, type ConsentDenyReason } from '@/lib/consent/gate'
 import { checkCompliance } from '@/lib/ai/compliance-filter'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { isFlagEnabled } from '@/lib/org/flags'
@@ -102,18 +102,41 @@ export async function sendSMSToLead(params: {
    * (crons, campaigns, autopilot) leave this unset and remain `system`/`ai_agent`.
    */
   actor?: { id?: string | null; label?: string | null }
+  /**
+   * Re-permission override for MANUAL bulk SMS only (see smsCampaignGate). Lets a
+   * consent-UNKNOWN lead through; opted-out and declined leads are still refused.
+   * Off by default — automated/1:1 paths never set it, so they keep the strict
+   * assertConsent gate. ⚠️ TCPA risk lives with the org owner who enabled it.
+   */
+  allowUnconsented?: boolean
 }): Promise<SendSMSToLeadResult> {
   const decision = await assertConsent(params.supabase, params.leadId, 'sms')
   if (!decision.allowed) {
-    await logConsentViolation(params.supabase, {
-      organizationId: decision.lead?.organization_id ?? '',
-      leadId: params.leadId,
-      channel: 'sms',
-      reason: decision.reason,
-      bodyPreview: params.body,
-      caller: params.caller,
-    })
-    return { sent: false, reason: decision.reason }
+    // With the re-permission override, re-evaluate through smsCampaignGate — it
+    // (unlike assertConsent) distinguishes a 'declined' lead from a never-asked
+    // one, so a hard "no" is never overridden. Only consent-unknown passes.
+    const override =
+      params.allowUnconsented && decision.lead
+        ? smsCampaignGate(decision.lead, { allowUnconsented: true })
+        : null
+    if (!override?.allowed) {
+      await logConsentViolation(params.supabase, {
+        organizationId: decision.lead?.organization_id ?? '',
+        leadId: params.leadId,
+        channel: 'sms',
+        reason: decision.reason,
+        bodyPreview: params.body,
+        caller: params.caller,
+      })
+      return { sent: false, reason: decision.reason }
+    }
+  }
+
+  // Past the gate (consented, or an allowed re-permission override) the lead row is
+  // always present; bind a non-null reference for the rest of the function.
+  const gatedLead = decision.lead
+  if (!gatedLead) {
+    return { sent: false, reason: 'lead_not_found' }
   }
 
   // Compliance filter: only run when explicitly requested (AI-generated content).
@@ -146,7 +169,7 @@ export async function sendSMSToLead(params: {
     const { data: org } = await params.supabase
       .from('organizations')
       .select('timezone')
-      .eq('id', decision.lead.organization_id)
+      .eq('id', gatedLead.organization_id)
       .single()
     const tz = (org?.timezone as string) || 'America/New_York'
     const window = checkSendWindow({
@@ -157,7 +180,7 @@ export async function sendSMSToLead(params: {
     })
     if (!window.allowed) {
       await logConsentViolation(params.supabase, {
-        organizationId: decision.lead.organization_id,
+        organizationId: gatedLead.organization_id,
         leadId: params.leadId,
         channel: 'sms',
         reason: 'opted_out', // closest existing audit reason; payload notes quiet_hours via caller
@@ -174,10 +197,10 @@ export async function sendSMSToLead(params: {
   // carrier error 30034 + TCPA exposure. Defense-in-depth — blocks the send path
   // itself, not just autopilot. Non-US numbers and system sends (sendSMS) are exempt.
   if (params.to.replace(/[\s\-()]/g, '').startsWith('+1')) {
-    const usEnabled = await isFlagEnabled(params.supabase, decision.lead.organization_id, 'us_sms_enabled')
+    const usEnabled = await isFlagEnabled(params.supabase, gatedLead.organization_id, 'us_sms_enabled')
     if (!usEnabled) {
       await logConsentViolation(params.supabase, {
-        organizationId: decision.lead.organization_id,
+        organizationId: gatedLead.organization_id,
         leadId: params.leadId,
         channel: 'sms',
         reason: 'opted_out', // closest existing audit reason; caller notes the real cause
@@ -195,7 +218,7 @@ export async function sendSMSToLead(params: {
   // real send occurred, so there is no cost). Fire-and-forget — never blocks the send.
   if (result.status !== 'blocked') {
     void recordSmsEstimate(params.supabase, {
-      organizationId: decision.lead.organization_id,
+      organizationId: gatedLead.organization_id,
       sid: result.sid,
       body: params.body,
       leadId: params.leadId,
@@ -221,7 +244,7 @@ export async function sendSMSToLead(params: {
       ? { actorType: 'user' as const, actorId: params.actor.id ?? null, actorLabel: params.actor.label ?? null }
       : { actorType: 'system' as const, actorId: null, actorLabel: null }
   void recordAudit(params.supabase, {
-    organizationId: decision.lead.organization_id,
+    organizationId: gatedLead.organization_id,
     action: suppressed ? 'sms.suppressed' : 'sms.sent',
     actor,
     source: 'api_route',

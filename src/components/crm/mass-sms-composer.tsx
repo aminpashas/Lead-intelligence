@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -85,6 +86,8 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
   const [previewCount, setPreviewCount] = useState<number | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [usSmsBlocked, setUsSmsBlocked] = useState(false)
+  // Re-permission override: include consent-unknown leads (opted-out still excluded).
+  const [allowUnconsented, setAllowUnconsented] = useState(false)
   const [eligibility, setEligibility] = useState<null | {
     sms: { total: number; eligible: number; no_consent: number; opted_out: number; no_contact: number }
     list_total: number
@@ -189,6 +192,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
           smart_list_id: selectedListId,
           message_template: message,
           broadcast_name: broadcastName || undefined,
+          allow_unconsented: allowUnconsented,
         }),
       })
 
@@ -371,6 +375,29 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
                   </div>
                 </div>
               )}
+
+              {/* Re-permission override — include consent-unknown leads. Opted-out
+                  and declined leads stay excluded. ⚠️ Unlike email, SMS has no TCPA
+                  re-permission safe harbor; the warning copy makes that explicit. */}
+              {eligibility && eligibility.sms.no_consent > 0 && (
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-aurea-rose/40 bg-aurea-rose/5">
+                  <Switch
+                    checked={allowUnconsented}
+                    onCheckedChange={setAllowUnconsented}
+                    className="mt-0.5"
+                  />
+                  <div className="flex-1">
+                    <p className="text-[12px] font-medium text-aurea-ink">
+                      Include {eligibility.sms.no_consent.toLocaleString()} leads without SMS consent
+                    </p>
+                    <p className="text-[11px] text-aurea-ink-3 mt-0.5">
+                      Opted-out and declined leads are always excluded. Note: TCPA requires prior
+                      express consent to text — texting non-consented numbers carries legal risk
+                      ($500–$1,500 per message). Use only for numbers you have a lawful basis to contact.
+                    </p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -545,7 +572,9 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
             </div>
             <div className="flex items-center gap-2 p-2 rounded-lg bg-aurea-amber/10 border border-aurea-amber/20 text-aurea-amber text-[11px]">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-              Opted-out leads will be automatically skipped.
+              {allowUnconsented
+                ? 'Re-permission ON — non-consented leads included (TCPA risk); opted-out/declined still skipped.'
+                : 'Opted-out leads will be automatically skipped.'}
             </div>
           </div>
           <DialogFooter>

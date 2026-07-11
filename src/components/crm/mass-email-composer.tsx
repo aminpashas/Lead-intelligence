@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -144,6 +145,8 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
     capped: boolean
   }>(null)
   const [activeField, setActiveField] = useState<'subject' | 'body'>('body')
+  // Re-permission override: include consent-unknown leads (opted-out still excluded).
+  const [allowUnconsented, setAllowUnconsented] = useState(false)
 
   useEffect(() => { fetchSmartLists() }, [])
 
@@ -217,6 +220,7 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
           subject_template: subject,
           body_template: body,
           broadcast_name: broadcastName || undefined,
+          allow_unconsented_email: allowUnconsented,
         }),
       })
 
@@ -373,6 +377,28 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
                         {eligibility.capped && <>{' · '}sampled from {eligibility.list_total.toLocaleString()}</>}
                       </p>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Re-permission override — include consent-unknown leads (CAN-SPAM
+                  lawful: opted-out/declined stay excluded, footer + unsubscribe
+                  are auto-added server-side). */}
+              {eligibility && eligibility.email.no_consent > 0 && (
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-aurea-amber/30 bg-aurea-amber/5">
+                  <Switch
+                    checked={allowUnconsented}
+                    onCheckedChange={setAllowUnconsented}
+                    className="mt-0.5"
+                  />
+                  <div className="flex-1">
+                    <p className="text-[12px] font-medium text-aurea-ink">
+                      Include {eligibility.email.no_consent.toLocaleString()} leads without recorded consent
+                    </p>
+                    <p className="text-[11px] text-aurea-ink-3 mt-0.5">
+                      Re-permission send. Opted-out and declined leads are always excluded; a
+                      CAN-SPAM footer and one-click unsubscribe are added automatically.
+                    </p>
                   </div>
                 </div>
               )}
@@ -564,7 +590,9 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
             </div>
             <div className="flex items-center gap-2 p-2 rounded-lg bg-aurea-amber/10 border border-aurea-amber/20 text-aurea-amber text-[11px]">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-              Opted-out leads will be automatically skipped.
+              {allowUnconsented
+                ? 'Re-permission ON — consent-unknown leads included; opted-out/declined still skipped.'
+                : 'Opted-out leads will be automatically skipped.'}
             </div>
           </div>
           <DialogFooter>
