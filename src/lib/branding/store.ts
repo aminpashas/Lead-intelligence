@@ -26,12 +26,16 @@ export async function upsertBranding(
   orgId: string,
   patch: BrandingPatch
 ): Promise<{ branding: Branding } | { error: string }> {
-  const { data: current } = await supabase
+  // Load current settings first. If the read fails, bail — otherwise `existing`
+  // would collapse to DEFAULT_BRANDING and the UPDATE below would silently
+  // clobber any real stored branding with defaults-plus-patch.
+  const { data: current, error: readError } = await supabase
     .from('organizations')
     .select('settings')
     .eq('id', orgId)
     .single()
-  const settings = (current?.settings ?? {}) as Record<string, unknown>
+  if (readError || !current) return { error: readError?.message ?? 'Organization not found' }
+  const settings = (current.settings ?? {}) as Record<string, unknown>
   const existing = parseBranding(settings.branding)
 
   const mergedBrands = { ...existing.brands }
@@ -50,10 +54,12 @@ export async function upsertBranding(
     logistics: { ...existing.logistics, ...(patch.logistics ?? {}) },
   }
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from('organizations')
     .update({ settings: { ...settings, branding: mergedBranding } })
     .eq('id', orgId)
+    .select('id')
   if (error) return { error: error.message }
+  if (!updated || updated.length === 0) return { error: 'Organization not found' }
   return { branding: mergedBranding }
 }
