@@ -115,22 +115,26 @@ export async function POST(request: NextRequest) {
 
   const convoId = conversation.id as string
 
-  // Store inbound message
-  await supabase.from('messages').insert({
-    organization_id: orgId,
-    conversation_id: convoId,
-    lead_id: leadId,
-    direction: 'inbound',
-    channel: 'email',
-    body: emailBody,
-    html_body: html_body || null,
-    subject: subject || null,
-    sender_type: 'lead',
-    sender_name: from,
-    status: 'delivered',
-    external_id: message_id || null,
-    metadata: { in_reply_to },
-  })
+  // Store inbound message (id captured for the D3 response-SLA row)
+  const { data: inboundMessage } = await supabase
+    .from('messages')
+    .insert({
+      organization_id: orgId,
+      conversation_id: convoId,
+      lead_id: leadId,
+      direction: 'inbound',
+      channel: 'email',
+      body: emailBody,
+      html_body: html_body || null,
+      subject: subject || null,
+      sender_type: 'lead',
+      sender_name: from,
+      status: 'delivered',
+      external_id: message_id || null,
+      metadata: { in_reply_to },
+    })
+    .select('id')
+    .single()
 
   // Update lead engagement stats (atomic increment to prevent race conditions)
   await supabase.rpc('increment_lead_messages_received', { p_lead_id: leadId })
@@ -158,7 +162,7 @@ export async function POST(request: NextRequest) {
   if (conversation.ai_enabled) {
     const { processAutoResponse } = await import('@/lib/autopilot/auto-respond')
 
-    await processAutoResponse(supabase, {
+    const result = await processAutoResponse(supabase, {
       organization_id: orgId,
       conversation_id: convoId,
       lead_id: leadId,
@@ -168,6 +172,46 @@ export async function POST(request: NextRequest) {
       channel: 'email',
       sender_contact: senderEmail,
     })
+
+    // ── D3: response-SLA bookkeeping ──
+    // 'hold' → open the takeover timer (the sla-takeover cron enforces it);
+    // AI sent → stamp the first-response metrics row. Best-effort: SLA writes
+    // must never fail the webhook response.
+    try {
+      const { openResponseSla, recordImmediateAiResponse } = await import('@/lib/automation/sla')
+      if (
+        result.action === 'held_for_human' &&
+        result.allocation?.owner === 'hold' &&
+        result.allocation.slaSeconds
+      ) {
+        await openResponseSla(supabase, {
+          organizationId: orgId,
+          conversationId: convoId,
+          leadId,
+          inboundMessageId: inboundMessage?.id ?? null,
+          slaSeconds: result.allocation.slaSeconds,
+          takeoverPayload: {
+            organization_id: orgId,
+            conversation_id: convoId,
+            lead_id: leadId,
+            inbound_message: emailBody,
+            channel: 'email',
+            sender_contact: senderEmail,
+          },
+        })
+        // TODO(D5: notifyInboundMessage): alert the assignee pool that a lead
+        // is waiting on a human reply with an SLA running.
+      } else if (result.action === 'sent') {
+        await recordImmediateAiResponse(supabase, {
+          organizationId: orgId,
+          conversationId: convoId,
+          leadId,
+          inboundMessageId: inboundMessage?.id ?? null,
+        })
+      }
+    } catch {
+      /* SLA bookkeeping is best-effort — never fail the webhook */
+    }
   }
 
   return NextResponse.json({ ok: true, conversation_id: convoId })

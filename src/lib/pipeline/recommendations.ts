@@ -20,6 +20,33 @@ import type { SmartListCriteria } from '@/types/database'
  * gathered in `pipeline-signals.ts`.
  */
 
+/** Dollar-ranked expected value for one stage+signal segment, from the
+ *  `pipeline_segment_ev` RPC (Workstream C1). `expectedValueUsd` is
+ *  Σ close_probability × treatment_value over the segment (with org-level
+ *  fallbacks for unstamped/unlinked leads); `leadCount` is the RPC's own count
+ *  of the same segment (may drift slightly from the head-count if leads moved
+ *  between the two queries — the head-count stays authoritative for copy). */
+export type SegmentEv = {
+  leadCount: number
+  expectedValueUsd: number
+  avgCloseProbability: number
+}
+
+/** The StageSignal count fields that can carry an EV annotation. */
+export type SignalEvKey =
+  | 'staleReachableSms'
+  | 'hotWarmReachableSms'
+  | 'neverContacted'
+  | 'readyToBook'
+  | 'deliberatingDue'
+
+/** A single explainability fact attached to a recommendation. */
+export type RecommendationEvidence = {
+  metric: string
+  value: number | string
+  source: string
+}
+
 /** Aggregate signals for one pipeline stage, computed server-side. */
 export type StageSignal = {
   stageId: string
@@ -44,6 +71,10 @@ export type StageSignal = {
   /** SMS-reachable deliberating deals whose follow-up date has ARRIVED (dated &
    *  due). The closer agreed to circle back and today is the day. */
   deliberatingDue: number
+  /** Optional dollar layer per signal (from `pipeline_segment_ev`). Absent or
+   *  null when the RPC isn't available / failed / a service chip is active —
+   *  the engine then behaves exactly as the counts-only version. */
+  ev?: Partial<Record<SignalEvKey, SegmentEv | null>>
 }
 
 export type PipelineSignals = {
@@ -95,6 +126,14 @@ export type Recommendation = {
   /** Button label, e.g. "Send follow-up text". */
   cta: string
   action: RecommendationAction
+  /** Σ close_probability × treatment_value over the segment (org fallbacks for
+   *  missing values). Null when EV wasn't fetched — counts-only behavior. */
+  expectedValueUsd: number | null
+  /** Mean (fallback-filled) close probability across the segment, 0..1. */
+  avgCloseProbability: number | null
+  /** Deterministic explainability facts: the count that fired the rule plus,
+   *  when present, the dollar expected value backing the priority boost. */
+  evidence: RecommendationEvidence[]
 }
 
 /**
@@ -126,6 +165,9 @@ export const RECOMMENDATION_CONFIG = {
   nurtureSlugs: ['nurturing', 'dormant', 'cold'],
   /** Slug of the never-contacted work queue. */
   noCommunicationSlug: 'no-communication',
+  /** Max extra priority points a recommendation can earn from expected value.
+   *  See applyEvBoost for the formula. */
+  evBoostMax: 15,
 } as const
 
 /** Clamp to 0–100 and round for a stable sort/display. */
@@ -154,6 +196,85 @@ function nextSalesStage(s: StageSignal, stages: StageSignal[]): StageSignal | un
     .sort((a, b) => a.position - b.position)[0]
 }
 
+/** True when the stage is the win-back / nurture bucket (shared by R4 and the
+ *  EV-eligibility pre-pass so they can't drift apart). */
+function isNurtureStage(slug: string | null): boolean {
+  return !!slug && RECOMMENDATION_CONFIG.nurtureSlugs.some((n) => slug.includes(n))
+}
+
+/**
+ * Which of a stage's signals would actually fire a rule at current counts —
+ * i.e. the only stage/signal pairs worth an EV RPC round-trip. Mirrors the rule
+ * guards in buildRecommendations (kind/slug gate + min-count threshold) so the
+ * signal gatherer never queries EV for a segment that can't surface. Kept here
+ * (not in pipeline-signals.ts) so thresholds and eligibility live in one file.
+ * Note: readyToBook slightly over-fetches when no next sales stage exists —
+ * acceptable; the topology check needs the full stage list.
+ */
+export function evEligibleSignals(s: StageSignal): SignalEvKey[] {
+  const cfg = RECOMMENDATION_CONFIG
+  const keys: SignalEvKey[] = []
+  if (s.kind === 'sales' && s.deliberatingDue >= cfg.minDeliberatingDue) keys.push('deliberatingDue')
+  if (s.kind === 'sales' && s.hotWarmReachableSms >= cfg.minHotLeads) keys.push('hotWarmReachableSms')
+  if (
+    (s.kind === 'sales' || isNurtureStage(s.slug)) &&
+    s.staleReachableSms >= cfg.minStaleLeads
+  ) {
+    keys.push('staleReachableSms')
+  }
+  if (s.slug === cfg.noCommunicationSlug && s.neverContacted >= cfg.minNeverContacted) {
+    keys.push('neverContacted')
+  }
+  if (s.kind === 'sales' && s.readyToBook >= cfg.minReadyToBook) keys.push('readyToBook')
+  return keys
+}
+
+/** The primary count fact plus, when EV was fetched, the dollar facts. */
+function buildEvidence(
+  primary: RecommendationEvidence,
+  ev: SegmentEv | null
+): RecommendationEvidence[] {
+  if (!ev) return [primary]
+  return [
+    primary,
+    {
+      metric: 'expected_value_usd',
+      value: Math.round(ev.expectedValueUsd),
+      source: 'pipeline_segment_ev · Σ close_probability × treatment_value',
+    },
+    {
+      metric: 'avg_close_probability',
+      value: ev.avgCloseProbability,
+      source: 'pipeline_segment_ev · mean calibrated close probability',
+    },
+  ]
+}
+
+/**
+ * EV boost (Workstream C1): recommendations that carry a dollar expected value
+ * earn up to `evBoostMax` (+15) extra priority points, scaled LINEARLY by
+ * magnitude relative to the batch's largest EV:
+ *
+ *     boost(rec) = evBoostMax × (rec.expectedValueUsd / max EV in batch)
+ *
+ * So the highest-EV recommendation gets the full +15, the rest a proportional
+ * share, and null/zero-EV recommendations get 0 — when no EV was fetched the
+ * engine is bit-identical to the counts-only version. Counts stay authoritative
+ * in title/detail; EV reorders and is displayed alongside. Mutates in place
+ * (recs are freshly built by the caller).
+ */
+function applyEvBoost(recs: Recommendation[]): void {
+  const maxEv = recs.reduce((m, r) => Math.max(m, r.expectedValueUsd ?? 0), 0)
+  if (maxEv <= 0) return
+  for (const r of recs) {
+    if (r.expectedValueUsd != null && r.expectedValueUsd > 0) {
+      r.priority = clampPriority(
+        r.priority + RECOMMENDATION_CONFIG.evBoostMax * (r.expectedValueUsd / maxEv)
+      )
+    }
+  }
+}
+
 /**
  * Turn stage signals into a prioritized, de-duplicated recommendation list.
  * Pure function — deterministic given the same signals.
@@ -162,8 +283,6 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
   const cfg = RECOMMENDATION_CONFIG
   const recs: Recommendation[] = []
   const maxPosition = signals.stages.reduce((m, s) => Math.max(m, s.position), 0)
-  const isNurture = (slug: string | null) =>
-    !!slug && cfg.nurtureSlugs.some((n) => slug.includes(n))
 
   for (const s of signals.stages) {
     const weight = stageWeight(s, maxPosition)
@@ -173,11 +292,22 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // today is the day, so a nudge lands on the warmest, most explicit intent
     // we track. Fires only in sales stages (deliberating is a closing state).
     if (s.kind === 'sales' && s.deliberatingDue >= cfg.minDeliberatingDue) {
+      const ev = s.ev?.deliberatingDue ?? null
       recs.push({
         id: `follow_up_deliberating:${s.stageId}`,
         kind: 'follow_up_deliberating',
         priority: clampPriority(
           cfg.basePriority.follow_up_deliberating + Math.min(15, s.deliberatingDue / 2) * weight
+        ),
+        expectedValueUsd: ev?.expectedValueUsd ?? null,
+        avgCloseProbability: ev?.avgCloseProbability ?? null,
+        evidence: buildEvidence(
+          {
+            metric: 'deliberating_due',
+            value: s.deliberatingDue,
+            source: 'closing_temperature = deliberating AND closing_follow_up_at <= now',
+          },
+          ev
         ),
         title: `Follow up with ${s.deliberatingDue.toLocaleString()} deliberating leads in ${s.stageName}`,
         detail: `These deals were parked to circle back and the follow-up date has arrived. They saw the plan and asked for time — reaching out on the day you agreed is the highest-intent, best-timed touch you have.`,
@@ -199,11 +329,22 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // R1 — Strike while hot: high-intent leads in a sales stage that are
     // SMS-reachable and haven't been nudged. Most urgent because intent decays.
     if (s.kind === 'sales' && s.hotWarmReachableSms >= cfg.minHotLeads) {
+      const ev = s.ev?.hotWarmReachableSms ?? null
       recs.push({
         id: `strike_hot:${s.stageId}`,
         kind: 'strike_hot',
         priority: clampPriority(
           cfg.basePriority.strike_hot + Math.min(20, s.hotWarmReachableSms / 5) * weight
+        ),
+        expectedValueUsd: ev?.expectedValueUsd ?? null,
+        avgCloseProbability: ev?.avgCloseProbability ?? null,
+        evidence: buildEvidence(
+          {
+            metric: 'hot_warm_reachable_sms',
+            value: s.hotWarmReachableSms,
+            source: "ai_qualification in ('hot','warm') AND SMS-reachable",
+          },
+          ev
         ),
         title: `Text ${s.hotWarmReachableSms.toLocaleString()} hot & warm leads in ${s.stageName}`,
         detail: `High-intent leads that are SMS-reachable and haven't been nudged. Reaching out while intent is fresh has the highest close lift.`,
@@ -221,11 +362,22 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // R2 — Follow up the stale: SMS-reachable leads in an active sales stage
     // with no contact in the staleness window.
     if (s.kind === 'sales' && s.staleReachableSms >= cfg.minStaleLeads) {
+      const ev = s.ev?.staleReachableSms ?? null
       recs.push({
         id: `follow_up:${s.stageId}`,
         kind: 'follow_up',
         priority: clampPriority(
           cfg.basePriority.follow_up + Math.min(25, s.staleReachableSms / 20) * weight
+        ),
+        expectedValueUsd: ev?.expectedValueUsd ?? null,
+        avgCloseProbability: ev?.avgCloseProbability ?? null,
+        evidence: buildEvidence(
+          {
+            metric: 'stale_reachable_sms',
+            value: s.staleReachableSms,
+            source: `no contact since ${signals.staleCutoffIso} (${signals.staleDays}d window) AND SMS-reachable`,
+          },
+          ev
         ),
         title: `Follow up with ${s.staleReachableSms.toLocaleString()} cooling leads in ${s.stageName}`,
         detail: `No contact in ${signals.staleDays}+ days. A single well-timed follow-up text recovers a meaningful share of stalled deals before they go cold.`,
@@ -246,11 +398,22 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // R3 — Start outreach: the never-contacted work queue is the single biggest
     // recoverable pool. First touch beats everything.
     if (s.slug === cfg.noCommunicationSlug && s.neverContacted >= cfg.minNeverContacted) {
+      const ev = s.ev?.neverContacted ?? null
       recs.push({
         id: `start_outreach:${s.stageId}`,
         kind: 'start_outreach',
         priority: clampPriority(
           cfg.basePriority.start_outreach + Math.min(30, s.neverContacted / 50)
+        ),
+        expectedValueUsd: ev?.expectedValueUsd ?? null,
+        avgCloseProbability: ev?.avgCloseProbability ?? null,
+        evidence: buildEvidence(
+          {
+            metric: 'never_contacted',
+            value: s.neverContacted,
+            source: 'last_contacted_at IS NULL AND SMS-reachable',
+          },
+          ev
         ),
         title: `Reach out to ${s.neverContacted.toLocaleString()} never-contacted leads`,
         detail: `These leads have never received a single message. Speed-to-lead is the highest-leverage lever you have — a first text today converts far better than one next week.`,
@@ -272,11 +435,22 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     if (s.kind === 'sales' && s.readyToBook >= cfg.minReadyToBook) {
       const next = nextSalesStage(s, signals.stages)
       if (next?.slug) {
+        const ev = s.ev?.readyToBook ?? null
         recs.push({
           id: `advance_stage:${s.stageId}`,
           kind: 'advance_stage',
           priority: clampPriority(
             cfg.basePriority.advance_stage + Math.min(20, s.readyToBook / 3) * weight
+          ),
+          expectedValueUsd: ev?.expectedValueUsd ?? null,
+          avgCloseProbability: ev?.avgCloseProbability ?? null,
+          evidence: buildEvidence(
+            {
+              metric: 'ready_to_book',
+              value: s.readyToBook,
+              source: "conversation_intent = 'ready_to_book'",
+            },
+            ev
           ),
           title: `Advance ${s.readyToBook.toLocaleString()} ready-to-book leads to ${next.stageName}`,
           detail: `These leads signalled they're ready to book but are still in ${s.stageName}. Moving them to ${next.stageName} keeps the funnel honest and puts them in front of your closers.`,
@@ -293,12 +467,23 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     }
 
     // R4 — Win back: a parked Nurturing/dormant bucket worth re-engaging.
-    if (isNurture(s.slug) && s.staleReachableSms >= cfg.minStaleLeads) {
+    if (isNurtureStage(s.slug) && s.staleReachableSms >= cfg.minStaleLeads) {
+      const ev = s.ev?.staleReachableSms ?? null
       recs.push({
         id: `re_engage:${s.stageId}`,
         kind: 're_engage',
         priority: clampPriority(
           cfg.basePriority.re_engage + Math.min(15, s.staleReachableSms / 40)
+        ),
+        expectedValueUsd: ev?.expectedValueUsd ?? null,
+        avgCloseProbability: ev?.avgCloseProbability ?? null,
+        evidence: buildEvidence(
+          {
+            metric: 'stale_reachable_sms',
+            value: s.staleReachableSms,
+            source: `nurture bucket, no contact since ${signals.staleCutoffIso} (${signals.staleDays}d window) AND SMS-reachable`,
+          },
+          ev
         ),
         title: `Re-engage ${s.staleReachableSms.toLocaleString()} nurture leads in ${s.stageName}`,
         detail: `Parked and quiet for ${signals.staleDays}+ days. A win-back message revives the ones still in-market — cheaper than buying new leads.`,
@@ -317,5 +502,11 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     }
   }
 
-  return recs.sort((a, b) => b.priority - a.priority)
+  // Dollar layer: nudge priorities by expected value (no-op when EV absent),
+  // then sort. EV desc breaks priority ties so ranking stays deterministic.
+  applyEvBoost(recs)
+  return recs.sort(
+    (a, b) =>
+      b.priority - a.priority || (b.expectedValueUsd ?? 0) - (a.expectedValueUsd ?? 0)
+  )
 }

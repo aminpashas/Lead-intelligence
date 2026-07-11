@@ -34,6 +34,7 @@ import {
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
 import { AIModeToggle } from './ai-mode-toggle'
+import { WorkflowSequences } from './workflow-sequences'
 import type { AIMode } from '@/types/database'
 import { DEFAULT_SCHEDULE, type WeekSchedule } from '@/lib/autopilot/config'
 
@@ -65,6 +66,7 @@ export function AIControlCenter({
   const [schedule, setSchedule] = useState<WeekSchedule>(
     (settings.autopilot_schedule as WeekSchedule) || DEFAULT_SCHEDULE
   )
+  const [tab, setTab] = useState<'controls' | 'workflows'>('controls')
 
   const isEnabled = settings.autopilot_enabled ?? false
   const isPaused = settings.autopilot_paused ?? false
@@ -183,6 +185,30 @@ export function AIControlCenter({
         )}
       </header>
 
+      {/* ── Controls / Workflows tabs ─────────────────────── */}
+      <div className="flex items-center gap-1 border-b border-aurea-border">
+        {([
+          { key: 'controls', label: 'Controls' },
+          { key: 'workflows', label: 'Workflows' },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`-mb-px border-b-2 px-4 py-2.5 text-[13.5px] font-medium transition-colors ${
+              tab === t.key
+                ? 'border-aurea-primary text-aurea-ink'
+                : 'border-transparent text-aurea-ink-3 hover:text-aurea-ink-2'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'workflows' && <WorkflowSequences isAdmin={isAdmin} />}
+
+      {tab === 'controls' && (<>
       {/* ══════════════════════════════════════════════════════
           A. MASTER CONTROLS
           ══════════════════════════════════════════════════════ */}
@@ -449,6 +475,64 @@ export function AIControlCenter({
               })}
             </div>
           </>
+        )}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════
+          B2. HUMAN RESPONSE WINDOW (D3 SLA takeover)
+          ══════════════════════════════════════════════════════ */}
+      <div className="aurea-card overflow-hidden">
+        <div className="flex items-start justify-between gap-4 border-b border-aurea-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <UserRound className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+            <div>
+              <h2 className="aurea-display text-[18px] text-aurea-ink">Human Response Window</h2>
+              <p className="text-[12px] text-aurea-ink-3">
+                If no human replies to an inbound message within this window, AI jumps in.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-[13px] text-aurea-ink-2">Human First</span>
+            <Switch
+              checked={settings.human_first_sla_enabled ?? false}
+              onCheckedChange={(v) => saveSettings({ human_first_sla_enabled: v })}
+              disabled={saving || !isAdmin}
+            />
+          </div>
+        </div>
+
+        {(settings.human_first_sla_enabled ?? false) && (
+          <div className="p-5 space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="space-y-1">
+                <span className="text-[11px] text-aurea-ink-3">Window (seconds)</span>
+                <Input
+                  type="number"
+                  min={30}
+                  max={3600}
+                  step={30}
+                  value={settings.human_first_sla_seconds ?? 180}
+                  onChange={(e) => setSettings(prev => ({ ...prev, human_first_sla_seconds: parseInt(e.target.value) || 180 }))}
+                  onBlur={() => {
+                    const raw = settings.human_first_sla_seconds ?? 180
+                    const clamped = Math.min(3600, Math.max(30, raw))
+                    if (clamped !== raw) setSettings(prev => ({ ...prev, human_first_sla_seconds: clamped }))
+                    saveSettings({ human_first_sla_seconds: clamped })
+                  }}
+                  className="w-28 h-8 text-sm"
+                  disabled={!isAdmin}
+                />
+              </div>
+              <span className="pt-5 font-mono text-[13px] tabular-nums text-aurea-primary">
+                ≈ {((settings.human_first_sla_seconds ?? 180) / 60).toFixed(1).replace(/\.0$/, '')} min
+              </span>
+            </div>
+            <p className="text-[11.5px] text-aurea-ink-3">
+              Inbound replies are held for your team first. When the window expires with no human
+              reply, the AI takes over the thread — all safety gates still apply.
+            </p>
+          </div>
         )}
       </div>
 
@@ -752,6 +836,7 @@ export function AIControlCenter({
           )}
         </div>
       </div>
+      </>)}
 
       {!isAdmin && (
         <div className="flex items-center justify-center gap-2 py-4 text-[13px] text-aurea-ink-3">

@@ -88,6 +88,12 @@ export type AgentContext = {
    * callers; patient-facing surfaces set it explicitly.
    */
   disclose_phi?: boolean
+  /**
+   * Proactive outreach mode (sequence steps, speed-to-lead follow-ups): there
+   * is no new inbound message — the agent composes the next OUTBOUND touch.
+   * The string is the step's goal, written by staff in the Workflows tab.
+   */
+  outreach_instruction?: string
 }
 
 export type CompetitorContext = {

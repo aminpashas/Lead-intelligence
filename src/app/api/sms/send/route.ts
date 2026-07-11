@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { z } from 'zod'
@@ -145,6 +145,17 @@ export async function POST(request: NextRequest) {
       })
       .select()
       .single()
+
+    // D3: a staff-authored reply closes the response-SLA timer and the live
+    // inbound task. Service client — message_response_slas writes are
+    // service-role only. Best-effort: never blocks or fails the send response.
+    if (!parsed.data.ai_generated) {
+      import('@/lib/automation/sla')
+        .then(({ closeSlaOnHumanReply }) =>
+          closeSlaOnHumanReply(createServiceClient(), conversation.id, profile.id)
+        )
+        .catch(() => { /* non-critical SLA bookkeeping */ })
+    }
 
     // Log activity
     await supabase.from('lead_activities').insert({

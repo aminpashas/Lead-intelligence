@@ -25,7 +25,9 @@ export default async function AIControlPage() {
       autopilot_active_hours_end,
       autopilot_stop_words,
       autopilot_speed_to_lead,
-      autopilot_schedule
+      autopilot_schedule,
+      human_first_sla_enabled,
+      human_first_sla_seconds
     `)
     .eq('id', orgId)
     .single()

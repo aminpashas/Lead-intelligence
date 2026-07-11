@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { updateLeadSchema } from '@/lib/validators/lead'
-import { executeStageTransition } from '@/lib/funnel/executor'
 import { decryptLeadPII, encryptLeadPII } from '@/lib/encryption'
 import { auditPHIRead, auditPHIWrite, auditPHIDeletion } from '@/lib/hipaa-audit'
-import { onStageChange } from '@/lib/campaigns/stage-automation'
+import { applyStageMove } from '@/lib/pipeline/stage-move'
 
 // GET /api/leads/[id] - Get lead details
 export async function GET(
@@ -205,61 +204,21 @@ export async function PATCH(
     }
   }
 
-  // Log stage changes and trigger funnel automations
+  // Log stage changes and trigger funnel + campaign automations via the shared
+  // stage-move engine (same path the bulk recommendation apply uses). The lead
+  // row was already updated above (updateData includes stage_id), so pass the
+  // TRUE prior stage via knownFromStageId — re-reading the row would report the
+  // new stage as "from". Automation failures are recorded per lead inside the
+  // helper (automation_error activities) and never fail the PATCH.
   if (parsed.data.stage_id && parsed.data.stage_id !== currentLead.stage_id) {
-    // Get stage slugs for automation matching
-    const [{ data: fromStage }, { data: toStage }] = await Promise.all([
-      currentLead.stage_id
-        ? supabase.from('pipeline_stages').select('slug').eq('id', currentLead.stage_id).single()
-        : Promise.resolve({ data: null }),
-      supabase.from('pipeline_stages').select('slug').eq('id', parsed.data.stage_id).single(),
-    ])
-
-    await supabase.from('lead_activities').insert({
-      organization_id: currentLead.organization_id,
-      lead_id: id,
-      activity_type: 'stage_changed',
-      title: 'Pipeline stage changed',
-      metadata: { from_stage: currentLead.stage_id, to_stage: parsed.data.stage_id },
+    await applyStageMove(supabase, {
+      organizationId: currentLead.organization_id,
+      leadIds: [id],
+      toStageId: parsed.data.stage_id,
+      actor: { type: 'user', userId: profile.id, source: 'lead_update' },
+      knownFromStageId: currentLead.stage_id ?? null,
+      activityTitle: 'Pipeline stage changed',
     })
-
-    // Execute funnel automations for this transition (non-blocking)
-    if (toStage?.slug) {
-      executeStageTransition(supabase, {
-        organizationId: currentLead.organization_id,
-        leadId: id,
-        lead: lead as Record<string, unknown>,
-        fromStageSlug: fromStage?.slug || null,
-        toStageSlug: toStage.slug,
-      }).catch(async (err) => {
-        console.error('Automation execution error:', err)
-        try {
-          await supabase.from('lead_activities').insert({
-            organization_id: currentLead.organization_id, lead_id: id,
-            activity_type: 'automation_error', title: 'Funnel automation failed',
-            metadata: { error: err instanceof Error ? err.message : 'unknown', trigger: 'stage_transition' },
-          })
-        } catch { /* best effort */ }
-      })
-
-      // Campaign stage automation: trigger campaigns, exit old campaigns (non-blocking)
-      onStageChange(
-        supabase,
-        id,
-        fromStage?.slug || 'unknown',
-        toStage.slug,
-        currentLead.organization_id
-      ).catch(async (err) => {
-        console.error('Campaign stage automation error:', err)
-        try {
-          await supabase.from('lead_activities').insert({
-            organization_id: currentLead.organization_id, lead_id: id,
-            activity_type: 'automation_error', title: 'Campaign stage automation failed',
-            metadata: { error: err instanceof Error ? err.message : 'unknown', trigger: 'stage_change' },
-          })
-        } catch { /* best effort */ }
-      })
-    }
   }
 
   return NextResponse.json({ lead: decryptLeadPII(lead as any) })

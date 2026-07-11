@@ -5,7 +5,12 @@ import { PipelineRecommendations } from '@/components/crm/pipeline-recommendatio
 import { decryptLeadsPII } from '@/lib/encryption'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
-import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
+import {
+  computeCloseBaseRate,
+  scoreCloseProbability,
+  readStampedCloseProbability,
+  type StampedCloseProbability,
+} from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
 import { isPostCloseStage, isOperationalStage, isActiveContactStage, isOffFunnelStage } from '@/lib/pipeline/stage-groups'
 import { gatherPipelineSignals } from '@/lib/pipeline/pipeline-signals'
@@ -182,7 +187,12 @@ export default async function PipelinePage({
   const probabilityByLead: Record<string, number> = {}
   const suggestionByLead: Record<string, StageSuggestion> = {}
   for (const l of allLeads) {
-    const p = scoreCloseProbability(l, baseRate, nowMs)
+    // Prefer the cron-stamped CALIBRATED probability (calibrate-scoring writes
+    // leads.close_probability weekly) when fresh; fall back to the live
+    // heuristic for never-stamped or stale leads.
+    const p =
+      readStampedCloseProbability(l as StampedCloseProbability, nowMs) ??
+      scoreCloseProbability(l, baseRate, nowMs)
     probabilityByLead[l.id] = p
     const s = suggestStageMove(l, p, allStages)
     if (s) suggestionByLead[l.id] = s

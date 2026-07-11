@@ -29,6 +29,20 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+/** "$52,340" (whole dollars) up to $1M, then compact "$1.2M" so the pill never
+ *  blows out the card header on big books. */
+function formatEstValue(v: number): string {
+  if (v >= 1_000_000) {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(v)
+  }
+  return `$${Math.round(v).toLocaleString()}`
+}
+
 const KIND_ICON: Record<RecommendationKind, typeof Flame> = {
   follow_up_deliberating: Clock,
   strike_hot: Flame,
@@ -234,7 +248,15 @@ export function PipelineRecommendations({
                   <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg', t.icon)}>
                     <Icon className="h-4 w-4" />
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    {rec.expectedValueUsd != null && rec.expectedValueUsd > 0 && (
+                      <span
+                        className="rounded-full bg-aurea-surface-2 px-2 py-0.5 text-[10px] font-semibold text-aurea-ink-2"
+                        title="Estimated pipeline value: sum of each lead's close probability × treatment value"
+                      >
+                        {formatEstValue(rec.expectedValueUsd)} est. value
+                      </span>
+                    )}
                     <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', t.pill)}>
                       {rec.leadCount.toLocaleString()} leads
                     </span>

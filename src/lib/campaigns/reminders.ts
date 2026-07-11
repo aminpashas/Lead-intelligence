@@ -724,7 +724,7 @@ export async function calculateNoShowRisk(
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
 
-function formatAppointmentDateTime(isoString: string): string {
+export function formatAppointmentDateTime(isoString: string): string {
   const date = new Date(isoString)
   return date.toLocaleString('en-US', {
     weekday: 'long',

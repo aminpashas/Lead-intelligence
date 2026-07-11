@@ -23,12 +23,19 @@ import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { ConversationChannel, LeadStatus } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { createEscalation } from './escalation'
+import { resolveAutomationOwner } from '@/lib/automation/allocation'
+import {
+  createHumanTask,
+  resolveAssignee,
+  taskDedupeKeyForFirstTouch,
+} from '@/lib/automation/tasks'
 
 export type SpeedToLeadResult = {
   action: 'sent' | 'skipped' | 'escalated' | 'no_contact'
   channel?: 'sms' | 'email'
   message?: string
   conversation_id?: string
+  reason?: string
 }
 
 /**
@@ -51,6 +58,61 @@ export async function triggerSpeedToLead(
   if (config.outreach_suppressed) {
     logger.info('Speed-to-lead: skipped, outreach_suppressed', { leadId, reason: 'outreach_suppressed' })
     return { action: 'skipped' }
+  }
+
+  // Allocation policy gate (Workstream D1, dormant by default): if a policy
+  // allocates first touch to a human (or human-first hold), the AI stands down.
+  // With zero policy rows this always resolves to 'ai' (legacy path).
+  const allocation = await resolveAutomationOwner(supabase, {
+    organizationId,
+    kind: 'speed_to_lead',
+  })
+  if (allocation.owner !== 'ai') {
+    // D2: a human owns the first touch — queue it as a task so the lead isn't
+    // silently dropped. 'hold' carries the SLA in due_at (D3 enforces the AI
+    // takeover). Task creation fails soft; the AI stands down either way.
+    logger.info('Speed-to-lead: skipped, allocated to human', {
+      leadId,
+      owner: allocation.owner,
+      reason: allocation.reason,
+      policyId: allocation.policyId,
+    })
+
+    const { data: taskLead } = await supabase
+      .from('leads')
+      .select('first_name')
+      .eq('id', leadId)
+      .maybeSingle()
+    const rawFirstName = (taskLead?.first_name as string) || ''
+    const firstName = decryptField(rawFirstName) || rawFirstName || 'new lead'
+    const assignee = await resolveAssignee(supabase, organizationId, leadId)
+    const dueAt =
+      allocation.owner === 'hold' && allocation.slaSeconds
+        ? new Date(Date.now() + allocation.slaSeconds * 1000).toISOString()
+        : null
+
+    await createHumanTask(supabase, {
+      organization_id: organizationId,
+      kind: 'first_touch',
+      title: `First touch: ${firstName}`,
+      detail: 'New lead allocated to a human for first outreach (speed-to-lead stood down).',
+      source: 'allocation',
+      lead_id: leadId,
+      policy_id: allocation.policyId,
+      assigned_to: assignee.userId,
+      assigned_role: assignee.role,
+      due_at: dueAt,
+      dedupe_key: taskDedupeKeyForFirstTouch(leadId),
+      metadata: {
+        allocation_owner: allocation.owner,
+        allocation_reason: allocation.reason,
+        sla_seconds: allocation.slaSeconds,
+      },
+    })
+
+    // TODO(D5: notify): route a task notification to assignee.pool here.
+
+    return { action: 'skipped', reason: 'allocated_to_human' }
   }
 
   // HIGH-3: Check active hours (TCPA quiet hours compliance).

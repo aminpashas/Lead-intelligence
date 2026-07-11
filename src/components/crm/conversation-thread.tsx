@@ -46,6 +46,7 @@ import { LeadActions } from './lead-actions'
 import { LiveCallIndicator, LiveCallPanel } from './live-call-panel'
 import { CallCard } from './call-card'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
+import { useConversationPresence } from '@/lib/hooks/use-conversation-presence'
 import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
 
 // ── Thread shaping ──────────────────────────────────────────
@@ -178,6 +179,9 @@ export function ConversationThread({
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
+  // D4 presence heartbeat: tells the staff notifier this user has the thread
+  // open, so inbound-message pings are suppressed while they're looking.
+  useConversationPresence(conversation.id)
   // Which channel the composer sends on. Seeded from the thread's channel but
   // switchable inline, so text + email both happen here — no popup dialog.
   const [sendChannel, setSendChannel] = useState<'sms' | 'email'>(

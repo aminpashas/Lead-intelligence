@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { sendAppointmentReminders } from '@/lib/campaigns/reminders'
+import { loadSequence } from '@/lib/automation/sequences'
+import { runAppointmentSequence } from '@/lib/automation/appointment-sequence'
 import { logger } from '@/lib/logger'
 
 /**
@@ -40,7 +42,13 @@ export async function POST(request: NextRequest) {
 
   for (const org of orgs) {
     try {
-      const results = await sendAppointmentReminders(supabase, org.id)
+      // Once the org's command-center-editable 'appointment_prep' sequence is
+      // enabled it takes over; otherwise the legacy hardcoded 72h/24h/2h/1h
+      // pipeline keeps running unchanged.
+      const seq = await loadSequence(supabase, org.id, 'appointment_prep')
+      const results = seq?.enabled
+        ? await runAppointmentSequence(supabase, org.id, seq)
+        : await sendAppointmentReminders(supabase, org.id)
 
       const orgSent = results.filter((r) => r.status === 'sent').length
       const orgSkipped = results.filter((r) => r.status === 'skipped').length

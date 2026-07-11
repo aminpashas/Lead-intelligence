@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { nextDueStep, DEFAULT_FOLLOWUP_SEQUENCE, type Enrollment } from '@/lib/followup/sequence'
+import {
+  nextDueEnrollmentStep,
+  isEnrollmentComplete,
+  executableSteps,
+  FALLBACK_FOLLOWUP_STEPS,
+  type SchedulableStep,
+} from '@/lib/automation/sequence-schedule'
+import { loadSequence, executeSequenceStep, type SequenceWithSteps } from '@/lib/automation/sequences'
 import { isSendAllowed } from '@/lib/messaging/test-allowlist'
-import { sendEmailToLead } from '@/lib/messaging/resend'
-import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { decryptField } from '@/lib/encryption'
 import { classifyContactedState } from '@/lib/pipeline/contacted-state'
 
@@ -39,20 +44,13 @@ async function ensureNurturingStageId(supabase: SupabaseServiceClient, orgId: st
  * GET /api/cron/follow-up-sequences — fire the due step of each active
  * follow-up enrollment. Auth: Bearer CRON_SECRET (fail-closed).
  *
+ * Steps come from the org's DB-defined 'new_lead_follow_up' sequence
+ * (command-center editable: timing, channel, AI vs human owner per step);
+ * orgs without one fall back to the legacy hardcoded cadence.
+ *
  * SAFETY: default OFF (requires FOLLOWUP_SEQUENCES_ENABLED=true), every send is
  * allowlist- + consent-gated, and a lead that replied after enrolling is stopped.
  */
-const STEP_COPY = {
-  email: {
-    subject: 'Following up on your dental implant consultation',
-    body: "Hi {first}, just circling back — we'd love to help you explore dental implants. Want to book a free consultation? Reply anytime and we'll get you scheduled.",
-  },
-  sms: {
-    subject: null as string | null,
-    body: "Hi {first}, following up from the dental implant team — want to book your free consult? Reply YES and we'll set it up.",
-  },
-}
-
 export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization')
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -65,7 +63,7 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServiceClient()
   const nowMs = Date.now()
-  const summary = { processed: 0, sent: 0, skipped: 0, stopped: 0, completed: 0, errors: 0 }
+  const summary = { processed: 0, sent: 0, tasks: 0, skipped: 0, stopped: 0, completed: 0, errors: 0 }
 
   const { data: enrollments } = await supabase
     .from('follow_up_enrollments')
@@ -73,47 +71,92 @@ export async function GET(request: NextRequest) {
     .eq('status', 'active')
     .limit(500)
 
+  // One sequence load per org per pass.
+  const sequenceCache = new Map<string, SequenceWithSteps | null>()
+  async function orgSequence(orgId: string): Promise<SequenceWithSteps | null> {
+    if (!sequenceCache.has(orgId)) {
+      sequenceCache.set(orgId, await loadSequence(supabase, orgId, 'new_lead_follow_up'))
+    }
+    return sequenceCache.get(orgId) ?? null
+  }
+
   for (const e of enrollments || []) {
     summary.processed++
     try {
-      const due = nextDueStep(
-        { current_step: e.current_step, enrolled_at: e.enrolled_at, status: 'active' } as Enrollment,
+      const seq = await orgSequence(e.organization_id)
+      // A defined-but-disabled sequence means "paused" — leave enrollments untouched.
+      if (seq && !seq.enabled) { summary.skipped++; continue }
+      const steps: SchedulableStep[] = seq ? seq.steps : FALLBACK_FOLLOWUP_STEPS
+      const stopOnReply = seq?.stop_on_reply ?? true
+      const stopOnBooking = seq?.stop_on_booking ?? true
+
+      const due = nextDueEnrollmentStep(
+        steps,
+        { current_step: e.current_step, enrolled_at: e.enrolled_at, status: 'active' },
         nowMs
       )
-      if (!due) { summary.skipped++; continue }
+      if (!due) {
+        // Steps may have been removed/disabled mid-flight — close out exhausted enrollments.
+        if (isEnrollmentComplete(steps, e)) {
+          await supabase.from('follow_up_enrollments').update({ status: 'completed', updated_at: new Date().toISOString() }).eq('id', e.id)
+          summary.completed++
+        } else {
+          summary.skipped++
+        }
+        continue
+      }
 
       const { data: lead } = await supabase
         .from('leads')
-        .select('id, first_name, email, phone_formatted, last_responded_at, organization_id, stage_id, last_contacted_at, total_messages_received')
+        .select('*')
         .eq('id', e.lead_id)
         .single()
       if (!lead) { summary.skipped++; continue }
 
       // Stop-on-reply: the lead engaged after enrolling → halt the sequence.
-      if (lead.last_responded_at && new Date(lead.last_responded_at).getTime() > new Date(e.enrolled_at).getTime()) {
+      if (stopOnReply && lead.last_responded_at && new Date(lead.last_responded_at).getTime() > new Date(e.enrolled_at).getTime()) {
         await supabase.from('follow_up_enrollments').update({ status: 'stopped', updated_at: new Date().toISOString() }).eq('id', e.id)
         summary.stopped++; continue
       }
 
-      const channel = due.step.channel
-      const recipient = (channel === 'email'
-        ? decryptField(lead.email) || lead.email
-        : decryptField(lead.phone_formatted) || lead.phone_formatted) || ''
-      if (!recipient || !isSendAllowed(recipient)) { summary.skipped++; continue }
-
-      const copy = STEP_COPY[channel]
-      const body = copy.body.replace('{first}', lead.first_name || 'there')
-      if (channel === 'email') {
-        const r = await sendEmailToLead({ supabase, leadId: lead.id, to: recipient, subject: copy.subject ?? 'Following up', html: `<p>${body}</p>`, text: body, aiGenerated: true, caller: 'cron.follow-up-sequences' })
-        if (r.sent) summary.sent++
-      } else {
-        const r = await sendSMSToLead({ supabase, leadId: lead.id, to: recipient, body, aiGenerated: true, caller: 'cron.follow-up-sequences' })
-        if (r.sent) summary.sent++
+      // Stop-on-booking: an upcoming appointment means the appointment
+      // sequence owns this lead now.
+      if (stopOnBooking) {
+        const { data: upcoming } = await supabase
+          .from('appointments')
+          .select('id')
+          .eq('lead_id', e.lead_id)
+          .in('status', ['scheduled', 'confirmed'])
+          .gte('scheduled_at', new Date(nowMs).toISOString())
+          .limit(1)
+          .maybeSingle()
+        if (upcoming) {
+          await supabase.from('follow_up_enrollments').update({ status: 'stopped', updated_at: new Date().toISOString() }).eq('id', e.id)
+          summary.stopped++; continue
+        }
       }
+
+      // Test allowlist applies to direct sends (tasks/calls have their own gates).
+      if (due.step.channel === 'sms' || due.step.channel === 'email') {
+        const recipient = (due.step.channel === 'email'
+          ? decryptField(lead.email) || lead.email
+          : decryptField(lead.phone_formatted) || lead.phone_formatted) || ''
+        if (!recipient || !isSendAllowed(recipient)) { summary.skipped++; continue }
+      }
+
+      const result = await executeSequenceStep(supabase, {
+        organizationId: e.organization_id,
+        lead,
+        step: due.step,
+        scopeId: e.id,
+        source: 'follow_up_sequence',
+      })
+      if (result.status === 'sent' || result.status === 'call_initiated') summary.sent++
+      else if (result.status === 'task_created' || result.status === 'escalated') summary.tasks++
 
       // Advance regardless of send outcome (avoid retry storms); complete on last step.
       const nextStep = e.current_step + 1
-      const complete = nextStep >= DEFAULT_FOLLOWUP_SEQUENCE.length
+      const complete = nextStep >= executableSteps(steps).length
       await supabase
         .from('follow_up_enrollments')
         .update({ current_step: nextStep, status: complete ? 'completed' : 'active', last_step_sent_at: new Date().toISOString(), updated_at: new Date().toISOString() })

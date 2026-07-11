@@ -22,6 +22,8 @@ import { decryptField } from '@/lib/encryption'
 import { logger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit/record'
 import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
+import { buildLeadContextVariables } from './lead-context'
+import { formatPhoneForSpeech } from '@/lib/leads/phone'
 
 export type OutboundToLeadResult =
   | { placed: true; call: RetellCallResponse }
@@ -119,6 +121,15 @@ export async function placeOutboundCallToLead(
     .maybeSingle()
   const dateVars = buildDateDynamicVariables((bsForTz?.timezone as string | null) ?? null)
 
+  // Lead memory (conversation summary, recent messages, appointment history) so
+  // the agent can reference what's already happened instead of re-asking.
+  const contextVars = await buildLeadContextVariables(
+    params.supabase,
+    params.leadId,
+    params.organizationId,
+    (bsForTz?.timezone as string | null) ?? null
+  )
+
   // Open or find the active voice conversation so the post-call webhook can attach the transcript.
   const conversationId = await ensureVoiceConversation(
     params.supabase,
@@ -148,9 +159,16 @@ export async function placeOutboundCallToLead(
         is_returning: 'true',
         // Back-compat: some older prompt copies still read {{first_name}}.
         first_name: (lead.first_name as string) || 'there',
+        // The number the lead should call back = our caller ID (what shows on
+        // their phone). Without this the voicemail prompt has no number to give
+        // and the agent reads back the number it's dialing (the patient's own).
+        callback_number: formatPhoneForSpeech(fromNumber),
         // Real clock + dated 2-week calendar. Retell prompt references
         // {{current_datetime}} and {{upcoming_dates}}.
         ...dateVars,
+        // Conversation + appointment memory ({{conversation_summary}},
+        // {{recent_messages}}, {{upcoming_appointment}}, …).
+        ...contextVars,
         ...(params.dynamicVariables || {}),
       },
     })
