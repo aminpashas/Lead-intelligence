@@ -128,7 +128,7 @@ export function ClosingBoard({
               const name = `${row.firstName} ${row.lastName}`.trim() || 'Unnamed'
               return (
                 <tr key={row.id} className="border-b border-aurea-border/60 last:border-0 hover:bg-aurea-surface-2/40">
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     {row.leadId ? (
                       <button
                         onClick={() => router.push(`/leads/${row.leadId}`)}
