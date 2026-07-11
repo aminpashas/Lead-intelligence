@@ -14,6 +14,7 @@ import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 import { getBrandingForOrg } from '@/lib/branding/store'
 import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
+import { parseBranding } from '@/lib/branding/schema'
 
 const bookingSchema = z.object({
   slot_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -257,14 +258,21 @@ export async function POST(
 
   // Resolve the org's brand + logistics for this lead (brand name replaces the
   // bare org name so a TMJ lead hears the TMJ brand, an implant lead Dion Health).
-  const { branding, orgName: orgDisplayName } = await getBrandingForOrg(supabase, orgId)
-
-  const { data: brandLead } = await supabase
-    .from('leads')
-    .select('tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
-    .eq('id', leadId)
-    .maybeSingle()
-  const brand = resolveBrandForContext(branding, orgDisplayName, { lead: (brandLead as never) ?? null })
+  // Guarded: this runs AFTER the appointment is persisted, so a branding failure
+  // must degrade to a default name rather than 500 a booking that already succeeded.
+  let brand
+  try {
+    const { branding, orgName: orgDisplayName } = await getBrandingForOrg(supabase, orgId)
+    const { data: brandLead } = await supabase
+      .from('leads')
+      .select('tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
+      .eq('id', leadId)
+      .maybeSingle()
+    brand = resolveBrandForContext(branding, orgDisplayName, { lead: (brandLead as never) ?? null })
+  } catch (err) {
+    console.error('[Booking] branding resolution failed; using org-name fallback', err)
+    brand = resolveBrandForContext(parseBranding(null), 'Our Practice', { serviceLine: null })
+  }
   const orgName = brand.practiceName
 
   const logisticsLine = [brand.logistics.parkingText, brand.logistics.transitText]
