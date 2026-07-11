@@ -8,6 +8,7 @@ import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { dashboardVariant } from '@/lib/auth/permissions'
 import { decryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
 import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
+import { resolveLeadDateRange } from '@/lib/leads/date-range'
 
 // The dashboard shows a different home depending on who is looking:
 //  - agency_admin        → AI command center (company control room)
@@ -53,8 +54,12 @@ async function OpsDashboardView({
 }) {
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const sevenDaysAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  // Calendar-day window (practice tz) — matches /leads?range=7d so the KPI
+  // cards' drill-down lists show exactly the rows counted here. A rolling
+  // now−168h window would drift by whatever was created since midnight.
+  const weekStart = resolveLeadDateRange('7d')!.gte
+  // Day-boundary upper bound — matches /appointments?window=7d (today → +7d).
+  const sevenDaysAhead = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7).toISOString()
 
   const [
     stagesResult,
@@ -76,14 +81,14 @@ async function OpsDashboardView({
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
-      .gte('created_at', sevenDaysAgo)
+      .gte('created_at', weekStart)
       .or(PAID_AD_CHANNEL_OR_FILTER),
 
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
-      .gte('created_at', sevenDaysAgo)
+      .gte('created_at', weekStart)
       .is('last_contacted_at', null)
       .or(PAID_AD_CHANNEL_OR_FILTER),
 
@@ -250,9 +255,15 @@ async function AgencyDashboard({
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
   const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString()
-  const sevenDaysAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  // Lead KPI windows use the SAME calendar-day bounds (practice tz) as the
+  // /leads `range` filter, so each KPI card's count matches the filtered list
+  // it deep-links to exactly. A rolling now−168h window here would drift from
+  // the list by whatever was created between midnight and the current time.
+  const weekStart = resolveLeadDateRange('7d')!.gte
+  const twoWeeksStart = resolveLeadDateRange('14d')!.gte
+  // Day-boundary upper bound (not rolling now+168h) so the appointments KPI
+  // matches the /appointments?window=7d drill-down's today→+7d window.
+  const sevenDaysAhead = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7).toISOString()
 
   // Run all queries in parallel
   const [
@@ -336,11 +347,12 @@ async function AgencyDashboard({
 
     // New ad leads this week — counts only DGS-attributed Meta / Google paid
     // campaign leads, not imported nurturing-DB / organic / direct.
+    // Same query as /leads?channel=paid&range=7d (the card's drill-down).
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
-      .gte('created_at', sevenDaysAgo)
+      .gte('created_at', weekStart)
       .or(PAID_AD_CHANNEL_OR_FILTER),
 
     // Same count for the week before, so the card can show a real trend.
@@ -348,25 +360,27 @@ async function AgencyDashboard({
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
-      .gte('created_at', fourteenDaysAgo)
-      .lt('created_at', sevenDaysAgo)
+      .gte('created_at', twoWeeksStart)
+      .lt('created_at', weekStart)
       .or(PAID_AD_CHANNEL_OR_FILTER),
 
     // Speed-to-lead gap: this week's ad leads nobody has reached out to yet.
+    // Same query as /leads?channel=paid&range=7d&contacted=never.
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
-      .gte('created_at', sevenDaysAgo)
+      .gte('created_at', weekStart)
       .is('last_contacted_at', null)
       .or(PAID_AD_CHANNEL_OR_FILTER),
 
     // Leads that replied to us in the last 7 days (any channel).
+    // Same query as /leads?responded=7d.
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
-      .gte('last_responded_at', sevenDaysAgo),
+      .gte('last_responded_at', weekStart),
 
     // Appointments on the books for the coming week (today included).
     supabase

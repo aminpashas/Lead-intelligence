@@ -9,6 +9,7 @@ import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
 import { serviceLineOrFilter } from '@/lib/leads/service-line'
 import { resolveLeadDateRange } from '@/lib/leads/date-range'
+import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
 import { OFF_FUNNEL_STAGE_SLUGS } from '@/lib/pipeline/stage-groups'
 
 // URL sort key → leads column, whitelisted so the param can't order by
@@ -86,6 +87,28 @@ export default async function LeadsPage({
     if (bounds) {
       query = query.gte('created_at', bounds.gte)
       if (bounds.lt) query = query.lt('created_at', bounds.lt)
+    }
+  }
+  // Channel class — `paid` mirrors the dashboard's "New Ad Leads" definition
+  // (DGS-attributed Meta/Google paid campaigns only), so the KPI card can
+  // deep-link to exactly the rows it counted.
+  if (params.channel === 'paid') {
+    query = query.or(PAID_AD_CHANNEL_OR_FILTER)
+  }
+  // Outreach state — `never` = nobody has reached out yet (the dashboard's
+  // "Not Contacted" card); `yes` = at least one outbound touch.
+  if (params.contacted === 'never') {
+    query = query.is('last_contacted_at', null)
+  } else if (params.contacted === 'yes') {
+    query = query.not('last_contacted_at', 'is', null)
+  }
+  // Replied window — leads whose last inbound response falls in the window
+  // (the dashboard's "Replied · 7d" card). Same calendar-day presets as `range`.
+  if (params.responded) {
+    const bounds = resolveLeadDateRange(params.responded)
+    if (bounds) {
+      query = query.gte('last_responded_at', bounds.gte)
+      if (bounds.lt) query = query.lt('last_responded_at', bounds.lt)
     }
   }
   if (params.campaign) {

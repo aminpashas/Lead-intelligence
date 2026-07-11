@@ -172,6 +172,61 @@ export function LeadsTable({
           </SelectContent>
         </Select>
 
+        {/* Dashboard drill-down filters (channel / outreach / replied) — these
+            exist so a KPI card can deep-link to exactly the rows it counted.
+            Each renders only while set, so the toolbar stays lean but the
+            state is always visible and clearable (pick "all") when you land
+            here from a card. Same predicates as the /leads server filters. */}
+        {searchParams.get('channel') && (
+          <Select
+            value={searchParams.get('channel') || 'all'}
+            onValueChange={(v) => updateFilters('channel', v)}
+          >
+            <SelectTrigger className="w-44 border-aurea-primary/40 bg-aurea-primary/5 font-medium text-aurea-primary">
+              <SelectValue placeholder="Channel" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Channels</SelectItem>
+              <SelectItem value="paid">Paid ads (Meta / Google)</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+
+        {searchParams.get('contacted') && (
+          <Select
+            value={searchParams.get('contacted') || 'all'}
+            onValueChange={(v) => updateFilters('contacted', v)}
+          >
+            <SelectTrigger className="w-44 border-aurea-primary/40 bg-aurea-primary/5 font-medium text-aurea-primary">
+              <SelectValue placeholder="Outreach" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any Outreach</SelectItem>
+              <SelectItem value="never">Never Contacted</SelectItem>
+              <SelectItem value="yes">Contacted</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+
+        {searchParams.get('responded') && (
+          <Select
+            value={searchParams.get('responded') || 'all'}
+            onValueChange={(v) => updateFilters('responded', v)}
+          >
+            <SelectTrigger className="w-44 border-aurea-primary/40 bg-aurea-primary/5 font-medium text-aurea-primary">
+              <SelectValue placeholder="Replied" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any Reply Time</SelectItem>
+              {LEAD_DATE_RANGES.map((r) => (
+                <SelectItem key={r.value} value={r.value}>
+                  Replied {r.label.toLowerCase()}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
         <Select
           value={searchParams.get('qualification') || 'all'}
           onValueChange={(v) => updateFilters('qualification', v)}

@@ -103,9 +103,11 @@ export function DashboardHome({
       </header>
 
       {/* ── KPI Row ──────────────────────────────────────────
-          Every card is a real Postgres aggregate (no sampled rows) and links
-          to the screen where you act on it. Metrics that are structurally
-          frozen for this book of business (Converted, Hot) don't get a slot. */}
+          Every card is a real Postgres aggregate (no sampled rows) and deep-links
+          to a view filtered to EXACTLY the rows it counted — same predicate, same
+          window — not the unfiltered screen. `include=all` on the lead links keeps
+          the list from hiding off-funnel stages the count didn't hide. Metrics that
+          are structurally frozen for this book (Converted, Hot) don't get a slot. */}
       <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
         <MiniKPI
           icon={TrendingUp}
@@ -113,7 +115,7 @@ export function DashboardHome({
           value={`+${kpis.weekLeads}`}
           sub={weekTrend(kpis.weekLeads, kpis.prevWeekLeads)}
           accent="emerald"
-          href="/leads?sort=created_at&dir=desc"
+          href="/leads?channel=paid&range=7d&include=all&sort=created&dir=desc"
         />
         <MiniKPI
           icon={AlertCircle}
@@ -121,7 +123,7 @@ export function DashboardHome({
           value={kpis.awaitingContact}
           sub="new this week"
           accent={kpis.awaitingContact > 0 ? 'rose' : undefined}
-          href="/leads?status=new&sort=created_at&dir=desc"
+          href="/leads?channel=paid&range=7d&contacted=never&include=all&sort=created&dir=desc"
         />
         <MiniKPI
           icon={MessageSquare}
@@ -129,7 +131,7 @@ export function DashboardHome({
           value={kpis.engaged}
           sub="leads engaged"
           accent={kpis.engaged > 0 ? 'emerald' : undefined}
-          href="/conversations"
+          href="/leads?responded=7d&include=all&sort=created&dir=desc"
         />
         <MiniKPI
           icon={Calendar}
@@ -137,7 +139,7 @@ export function DashboardHome({
           value={kpis.upcomingAppointments}
           sub="on the books"
           accent="amber"
-          href="/appointments"
+          href="/appointments?window=7d"
         />
         <MiniKPI
           icon={DollarSign}
@@ -153,14 +155,14 @@ export function DashboardHome({
           value={kpis.unreadThreads}
           sub="conversations"
           accent={kpis.unreadThreads > 0 ? 'rose' : undefined}
-          href="/conversations"
+          href="/conversations?filter=unread"
         />
         <MiniKPI
           icon={Users}
           label="Database"
           value={formatCount(kpis.totalLeads)}
           sub="total leads"
-          href="/leads"
+          href="/leads?include=all"
         />
       </div>
 
