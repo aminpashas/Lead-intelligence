@@ -6,7 +6,7 @@ import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { isAdminRole } from '@/lib/auth/permissions'
 import { decryptField, decryptLeadPII } from '@/lib/encryption'
-import { sendSMS } from '@/lib/messaging/twilio'
+import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
 import { seedPostConsultNurture } from '@/lib/campaigns/post-consult-nurture'
 import { z } from 'zod'
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
+  const { data: profile } = await getOwnProfile(supabase, 'id, organization_id, full_name')
 
   if (!profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
   // Load the practice's booking protocol config once (gate + no-show fee).
   const { data: bookingSettings } = await supabase
     .from('booking_settings')
-    .select('require_call_before_booking, no_show_fee_enabled, no_show_fee_cents, card_on_file_required')
+    .select('require_call_before_booking, no_show_fee_enabled, no_show_fee_cents, card_on_file_required, timezone')
     .eq('organization_id', orgId)
     .maybeSingle()
 
@@ -227,12 +227,24 @@ export async function POST(request: NextRequest) {
       const brand = resolveBrandForContext(branding, orgName, { lead: (confLead as never) ?? null })
 
       if (phone) {
+        // Render the time in the practice's timezone (falls back to the default
+        // practice tz) so the patient sees their local appointment time, not server UTC.
+        const tz = (bookingSettings?.timezone as string | null) || 'America/Los_Angeles'
         const when = new Date(appointment.scheduled_at as string).toLocaleString('en-US', {
-          weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+          weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz,
         })
         const logisticsLine = [brand.logistics.parkingText, brand.logistics.transitText]
           .filter((s) => s && s.trim()).join(' ')
-        await sendSMS(phone, `Hi ${confLead?.first_name || 'there'}! Your appointment at ${brand.practiceName} is confirmed for ${when}.${logisticsLine ? ` ${logisticsLine}` : ''} Reply STOP to opt out.`)
+        // Consent-gated lead-facing send: sendSMSToLead enforces TCPA consent/DNC/opt-out
+        // (and still funnels through the same MESSAGING_DRY_RUN choke point as sendSMS).
+        await sendSMSToLead({
+          supabase,
+          leadId: parsed.data.lead_id,
+          to: phone,
+          body: `Hi ${confLead?.first_name || 'there'}! Your appointment at ${brand.practiceName} is confirmed for ${when}.${logisticsLine ? ` ${logisticsLine}` : ''} Reply STOP to opt out.`,
+          caller: 'appointments.staff_booking_confirmation',
+          actor: { id: profile.id, label: profile.full_name ?? null },
+        })
       }
     } catch (err) {
       await supabase.from('lead_activities').insert({
