@@ -35,7 +35,8 @@ import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
 import { AIModeToggle } from './ai-mode-toggle'
 import { WorkflowSequences } from './workflow-sequences'
-import type { AIMode } from '@/types/database'
+import { ScopedAutomationGrid } from './scoped-automation-grid'
+import type { AIMode, AutomationPolicy } from '@/types/database'
 import { DEFAULT_SCHEDULE, type WeekSchedule } from '@/lib/autopilot/config'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -49,6 +50,9 @@ type AIControlCenterProps = {
   recentActivities: any[]
   pendingEscalations: number
   isAdmin: boolean
+  stages: { id: string; name: string; position: number }[]
+  campaigns: { id: string; name: string; status: string }[]
+  policies: AutomationPolicy[]
 }
 
 export function AIControlCenter({
@@ -57,6 +61,9 @@ export function AIControlCenter({
   recentActivities,
   pendingEscalations,
   isAdmin,
+  stages,
+  campaigns,
+  policies,
 }: AIControlCenterProps) {
   const [settings, setSettings] = useState<SettingsData>(initialSettings)
   const [saving, setSaving] = useState(false)
@@ -836,6 +843,21 @@ export function AIControlCenter({
           )}
         </div>
       </div>
+
+      {/* ══════════════════════════════════════════════════════
+          F. SCOPED AUTOMATION — per-stage / per-campaign overrides
+          ══════════════════════════════════════════════════════ */}
+      <ScopedAutomationGrid
+        stages={stages}
+        campaigns={campaigns}
+        policies={policies}
+        globalDefaults={{
+          confidence_threshold: settings.autopilot_confidence_threshold ?? 0.75,
+          active_hours_start: settings.autopilot_active_hours_start ?? 8,
+          active_hours_end: settings.autopilot_active_hours_end ?? 21,
+        }}
+        isAdmin={isAdmin}
+      />
       </>)}
 
       {!isAdmin && (
