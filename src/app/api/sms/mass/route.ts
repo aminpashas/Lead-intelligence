@@ -14,12 +14,17 @@ import { assertActiveSubscription } from '@/lib/auth/entitlement'
 import { getOrgFlags } from '@/lib/org/flags'
 import { isUsSmsBlocked, A2P_PENDING_MESSAGE } from '@/lib/messaging/a2p-gate'
 import { recordAudit } from '@/lib/audit/record'
+import { smsCampaignGate, logUnconsentedSmsSend } from '@/lib/consent/gate'
 
 const massSMSSchema = z.object({
   smart_list_id: z.string().uuid().optional(),
   lead_ids: z.array(z.string().uuid()).optional(),
   message_template: z.string().min(1).max(1600),
   broadcast_name: z.string().optional(),
+  // Re-permission override (manual bulk only): include consent-unknown leads.
+  // Opted-out and declined leads are still excluded — see smsCampaignGate.
+  // ⚠️ TCPA: no re-permission safe harbor for SMS; owner-authorized.
+  allow_unconsented: z.boolean().optional().default(false),
 })
 
 export async function POST(request: NextRequest) {
@@ -49,7 +54,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { smart_list_id, lead_ids: directLeadIds, message_template, broadcast_name } = parsed.data
+  const { smart_list_id, lead_ids: directLeadIds, message_template, broadcast_name, allow_unconsented } = parsed.data
 
   if (!smart_list_id && (!directLeadIds || directLeadIds.length === 0)) {
     return NextResponse.json({ error: 'Provide either smart_list_id or lead_ids' }, { status: 400 })
@@ -119,12 +124,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No leads found' }, { status: 400 })
   }
 
-  // Filter to leads with valid phone AND affirmative SMS consent AND not opted out.
-  // The authoritative TCPA check happens per-send in sendSMSToLead; this pre-filter
-  // avoids creating conversations / personalizing for leads we can't legally text.
+  // Filter to leads with a valid phone that pass the SMS campaign gate. Normally
+  // that means affirmative consent + not opted out; with the re-permission override
+  // (allow_unconsented) consent-UNKNOWN leads also pass, but opted-out and declined
+  // leads never do. The authoritative per-send check re-runs inside sendSMSToLead.
   const sendable = leads.filter((l) => {
     const phone = decryptField(l.phone_formatted) || l.phone_formatted
-    return phone && l.sms_consent === true && !l.sms_opt_out
+    return phone && smsCampaignGate(l, { allowUnconsented: allow_unconsented }).allowed
   })
 
   if (sendable.length === 0) {
@@ -229,7 +235,9 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // Send via Twilio — authoritative TCPA consent gate per lead.
+      // Send via Twilio — authoritative TCPA consent gate per lead. When the
+      // broadcast opted into re-permission, pass the override so consent-unknown
+      // leads send (opted-out/declined still refused inside sendSMSToLead).
       const sendResult = await withRetry(
         () => sendSMSToLead({
           supabase,
@@ -237,6 +245,7 @@ export async function POST(request: NextRequest) {
           to: phone,
           body: personalizedMessage,
           caller: 'api.sms.mass',
+          allowUnconsented: allow_unconsented,
         }),
         RETRY_CONFIGS.twilio
       )
@@ -247,6 +256,18 @@ export async function POST(request: NextRequest) {
         continue
       }
       const twilioResult = { sid: sendResult.sid }
+
+      // Audit every send that went out only because of the re-permission override
+      // (consent-unknown lead), so compliance can enumerate them later.
+      const gate = smsCampaignGate(lead, { allowUnconsented: allow_unconsented })
+      if (gate.allowed && gate.usedOverride) {
+        await logUnconsentedSmsSend(supabase, {
+          organizationId: orgId,
+          leadId: lead.id,
+          campaignId: campaign?.id || null,
+          caller: 'sms.mass',
+        })
+      }
 
       // Store message
       await supabase.from('messages').insert({
@@ -315,6 +336,7 @@ export async function POST(request: NextRequest) {
       failed: results.failed,
       skipped: results.skipped,
       smart_list_id: smart_list_id ?? null,
+      allow_unconsented,
     },
   })
 

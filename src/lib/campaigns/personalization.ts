@@ -79,6 +79,7 @@ export interface PersonalizableLead {
   consultation_date: string | null
   sms_consent?: boolean
   sms_opt_out?: boolean
+  sms_consent_status?: 'granted' | 'declined' | 'unknown' | null
   email_consent?: boolean
   email_opt_out?: boolean
   email_consent_status?: 'granted' | 'declined' | 'unknown' | null
@@ -89,7 +90,7 @@ export const PERSONALIZABLE_LEAD_SELECT =
   'id, first_name, last_name, email, phone, phone_formatted, city, state, zip_code, ' +
   'dental_condition, dental_condition_details, status, ai_score, ai_qualification, ' +
   'engagement_score, source_type, treatment_value, budget_range, consultation_date, ' +
-  'sms_consent, sms_opt_out, email_consent, email_opt_out, email_consent_status'
+  'sms_consent, sms_opt_out, sms_consent_status, email_consent, email_opt_out, email_consent_status'
 
 /**
  * Replace all template variables in a string with actual lead data.
