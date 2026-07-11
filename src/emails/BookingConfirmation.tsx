@@ -12,6 +12,7 @@ export type BookingConfirmationProps = {
   leadId: string
   orgId: string
   orgName: string
+  practiceName?: string        // brand-resolved display name; falls back to orgName
   firstName: string
   consultLabel: string         // e.g. "AOX Consultation"
   scheduledAt: string          // ISO string
@@ -24,18 +25,20 @@ export type BookingConfirmationProps = {
 
 export function BookingConfirmation(props: BookingConfirmationProps) {
   const formatted = formatScheduledAt(props.scheduledAt, props.timezone)
+  // Brand-resolved display name; fall back to the bare org name (prior behavior).
+  const displayName = props.practiceName?.trim() || props.orgName
 
   return (
     <Layout
-      preview={`Your ${props.consultLabel} at ${props.orgName} is confirmed`}
+      preview={`Your ${props.consultLabel} at ${displayName} is confirmed`}
       leadId={props.leadId}
       orgId={props.orgId}
-      orgName={props.orgName}
+      orgName={displayName}
     >
       <Text style={styles.heading}>You&apos;re booked, {props.firstName}.</Text>
 
       <Text style={styles.paragraph}>
-        Confirming your {props.consultLabel} with {props.orgName}. Looking forward to
+        Confirming your {props.consultLabel} with {displayName}. Looking forward to
         meeting you.
       </Text>
 

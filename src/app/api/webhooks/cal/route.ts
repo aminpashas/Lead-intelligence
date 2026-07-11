@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
   // Also pull the fields we need for the confirmation email so we don't double-fetch.
   const { data: lead } = await supabase
     .from('leads')
-    .select('id, organization_id, status, first_name, email, timezone')
+    .select('id, organization_id, status, first_name, email, timezone, tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
     .eq('id', leadId)
     .single()
 
@@ -174,12 +174,12 @@ export async function POST(request: NextRequest) {
       // CAN-SPAM exempts transactional/relationship emails triggered by the recipient's action).
       if (lead.email && startTime) {
         try {
-          const { data: org } = await supabase
-            .from('organizations')
-            .select('name')
-            .eq('id', lead.organization_id)
-            .single()
-          const orgName = org?.name || 'Your provider'
+          // Resolve brand-aware practice name from the lead's service-line signals.
+          const { getBrandingForOrg } = await import('@/lib/branding/store')
+          const { resolveBrandForContext } = await import('@/lib/branding/resolve-brand')
+          const { branding, orgName: resolvedOrgName } = await getBrandingForOrg(supabase, lead.organization_id)
+          const orgName = resolvedOrgName || 'Your provider'
+          const brand = resolveBrandForContext(branding, orgName, { lead: (lead as never) ?? null })
           const recipientEmail = decryptField(lead.email) || lead.email
 
           const { html, text } = await renderEmail(
@@ -187,6 +187,7 @@ export async function POST(request: NextRequest) {
               leadId,
               orgId: lead.organization_id,
               orgName,
+              practiceName: brand.practiceName,
               firstName: lead.first_name || 'there',
               consultLabel: parsed.payload.title || 'consultation',
               scheduledAt: startTime,
@@ -198,7 +199,7 @@ export async function POST(request: NextRequest) {
 
           await sendEmail({
             to: recipientEmail,
-            subject: `Confirmed: your ${parsed.payload.title || 'consultation'} with ${orgName}`,
+            subject: `Confirmed: your ${parsed.payload.title || 'consultation'} with ${brand.practiceName}`,
             html,
             text,
             replyTo: undefined,
