@@ -33,6 +33,18 @@ import { renderEmail } from '@/emails/render'
 import { BookingReminder } from '@/emails/BookingReminder'
 import { logger } from '@/lib/logger'
 import { decryptLeadPII } from '@/lib/encryption'
+import { getBrandingForOrg } from '@/lib/branding/store'
+import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
+import type { Branding } from '@/lib/branding/schema'
+
+/** Build a single-line logistics string from a resolved brand's logistics,
+ *  used as the email `location` when present (falls back to the appointment's
+ *  own location at the call site). */
+function brandLogisticsLine(brand: { logistics: Branding['logistics'] }): string {
+  return [brand.logistics.addressText, brand.logistics.parkingText, brand.logistics.transitText]
+    .filter((s) => s && s.trim())
+    .join(' — ')
+}
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -96,29 +108,25 @@ export async function sendAppointmentReminders(
   const now = new Date()
   const results: ReminderResult[] = []
 
-  // Get org name for templates
-  const { data: org } = await supabase
-    .from('organizations')
-    .select('name')
-    .eq('id', orgId)
-    .single()
-
-  const practiceName = org?.name || 'our office'
+  // Load per-org branding once; each reminder resolves the practice name (and
+  // logistics) per-lead from its service line, so a TMJ patient's reminders
+  // carry the TMJ brand rather than a single org-wide name.
+  const { branding, orgName } = await getBrandingForOrg(supabase, orgId)
 
   // ─── 72-HOUR REMINDERS (Email) ──────────────────────────────
-  const r72h = await send72hReminders(supabase, orgId, practiceName, now)
+  const r72h = await send72hReminders(supabase, orgId, branding, orgName, now)
   results.push(...r72h)
 
   // ─── 24-HOUR REMINDERS (SMS + Email) ────────────────────────
-  const r24h = await send24hReminders(supabase, orgId, practiceName, now)
+  const r24h = await send24hReminders(supabase, orgId, branding, orgName, now)
   results.push(...r24h)
 
   // ─── 2-HOUR CONFIRMATION CALLS (Voice) ──────────────────────
-  const r2h = await send2hConfirmationCalls(supabase, orgId, practiceName, now)
+  const r2h = await send2hConfirmationCalls(supabase, orgId, branding, orgName, now)
   results.push(...r2h)
 
   // ─── 1-HOUR FINAL NUDGE (SMS) ──────────────────────────────
-  const r1h = await send1hReminders(supabase, orgId, practiceName, now)
+  const r1h = await send1hReminders(supabase, orgId, branding, orgName, now)
   results.push(...r1h)
 
   return results
@@ -131,7 +139,8 @@ export async function sendAppointmentReminders(
 async function send72hReminders(
   supabase: SupabaseClient,
   orgId: string,
-  practiceName: string,
+  branding: Branding,
+  orgName: string,
   now: Date
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
@@ -142,7 +151,7 @@ async function send72hReminders(
 
   const { data: appointments } = await supabase
     .from('appointments')
-    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out)')
+    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
     .eq('organization_id', orgId)
     .in('status', ['scheduled', 'confirmed'])
     .eq('reminder_sent_72h', false)
@@ -157,6 +166,10 @@ async function send72hReminders(
       continue
     }
 
+    // Resolve the brand from the lead's service line (falls back to org name).
+    const brand = resolveBrandForContext(branding, orgName, { lead: (lead as never) ?? null })
+    const practiceName = brand.practiceName
+
     const dateTime = formatAppointmentDateTime(apt.scheduled_at)
     const confirmUrl = getConfirmationUrl(apt.id, orgId)
     const rescheduleUrl = getRescheduleUrl(apt.id, orgId)
@@ -165,7 +178,7 @@ async function send72hReminders(
       firstName: lead.first_name || 'there',
       appointmentType: apt.type,
       dateTime,
-      location: apt.location,
+      location: brandLogisticsLine(brand) || apt.location,
       practiceName,
       confirmUrl,
       rescheduleUrl,
@@ -224,7 +237,8 @@ async function send72hReminders(
 async function send24hReminders(
   supabase: SupabaseClient,
   orgId: string,
-  practiceName: string,
+  branding: Branding,
+  orgName: string,
   now: Date
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
@@ -235,7 +249,7 @@ async function send24hReminders(
 
   const { data: appointments } = await supabase
     .from('appointments')
-    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out)')
+    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
     .eq('organization_id', orgId)
     .in('status', ['scheduled', 'confirmed'])
     .eq('reminder_sent_24h', false)
@@ -246,6 +260,10 @@ async function send24hReminders(
     // Decrypt PII (email/phone) before use — raw enc:: values are invalid recipients.
     const lead = apt.lead ? decryptLeadPII(apt.lead) : apt.lead
     if (!lead) continue
+
+    // Resolve the brand from the lead's service line (falls back to org name).
+    const brand = resolveBrandForContext(branding, orgName, { lead: (lead as never) ?? null })
+    const practiceName = brand.practiceName
 
     const dateTime = formatAppointmentDateTime(apt.scheduled_at)
     const confirmUrl = getConfirmationUrl(apt.id, orgId)
@@ -306,7 +324,7 @@ async function send24hReminders(
           consultLabel: apt.type,
           scheduledAt: apt.scheduled_at,
           durationMinutes: apt.duration_minutes,
-          location: apt.location || undefined,
+          location: brandLogisticsLine(brand) || apt.location || undefined,
           window: '24h',
           rescheduleUrl,
         })
@@ -367,7 +385,8 @@ async function send24hReminders(
 async function send2hConfirmationCalls(
   supabase: SupabaseClient,
   orgId: string,
-  practiceName: string,
+  branding: Branding,
+  orgName: string,
   now: Date
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
@@ -378,7 +397,7 @@ async function send2hConfirmationCalls(
 
   const { data: appointments } = await supabase
     .from('appointments')
-    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out)')
+    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
     .eq('organization_id', orgId)
     .in('status', ['scheduled']) // Only call unconfirmed appointments
     .eq('reminder_sent_2h', false)
@@ -396,6 +415,10 @@ async function send2hConfirmationCalls(
       results.push({ appointment_id: apt.id, type: '2h', channel: 'voice_confirmation', status: 'skipped', detail: 'voice_not_available' })
       continue
     }
+
+    // Resolve the brand from the lead's service line (falls back to org name).
+    const brand = resolveBrandForContext(branding, orgName, { lead: (lead as never) ?? null })
+    const practiceName = brand.practiceName
 
     const dateTime = formatAppointmentDateTime(apt.scheduled_at)
 
@@ -444,7 +467,8 @@ async function send2hConfirmationCalls(
 async function send1hReminders(
   supabase: SupabaseClient,
   orgId: string,
-  practiceName: string,
+  branding: Branding,
+  orgName: string,
   now: Date
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
@@ -455,7 +479,7 @@ async function send1hReminders(
 
   const { data: appointments } = await supabase
     .from('appointments')
-    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, sms_consent, sms_opt_out)')
+    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, sms_consent, sms_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
     .eq('organization_id', orgId)
     .in('status', ['scheduled', 'confirmed'])
     .eq('reminder_sent_1h', false)
@@ -469,6 +493,10 @@ async function send1hReminders(
       results.push({ appointment_id: apt.id, type: '1h', channel: 'sms', status: 'skipped', detail: 'no_phone_or_opted_out' })
       continue
     }
+
+    // Resolve the brand from the lead's service line (falls back to org name).
+    const brand = resolveBrandForContext(branding, orgName, { lead: (lead as never) ?? null })
+    const practiceName = brand.practiceName
 
     const aptTime = new Date(apt.scheduled_at).toLocaleString('en-US', {
       hour: 'numeric',
