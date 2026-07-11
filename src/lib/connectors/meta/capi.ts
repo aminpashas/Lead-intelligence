@@ -24,7 +24,9 @@ const META_API_VERSION = 'v21.0'
 const META_GRAPH_BASE = 'https://graph.facebook.com'
 
 // Map CRM events to Meta standard/custom event names
-const EVENT_NAME_MAP: Record<ConnectorEventType, string> = {
+// Partial: notification-only events (e.g. 'message.received') have no ad-platform
+// mapping on purpose — the undefined lookup is guarded below and the event is skipped.
+const EVENT_NAME_MAP: Partial<Record<ConnectorEventType, string>> = {
   'lead.created': 'Lead',
   'lead.qualified': 'QualifiedLead',
   'lead.scored': '',

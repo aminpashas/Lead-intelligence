@@ -1127,6 +1127,7 @@ export type ReactivationOffer = {
 
 export type VoiceCallStatus = 'initiated' | 'ringing' | 'in_progress' | 'completed' | 'no_answer' | 'busy' | 'failed' | 'voicemail' | 'canceled'
 export type VoiceCallOutcome = 'appointment_booked' | 'callback_requested' | 'interested' | 'not_interested' | 'wrong_number' | 'do_not_call' | 'voicemail_left' | 'no_answer' | 'technical_failure' | 'transferred'
+export type VoiceCallReviewStatus = 'pending' | 'clear' | 'flagged' | 'escalated'
 export type VoiceCampaignStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'archived'
 export type VoiceCampaignLeadStatus = 'queued' | 'calling' | 'completed' | 'skipped' | 'failed' | 'do_not_call'
 
@@ -1176,6 +1177,11 @@ export type VoiceCall = {
   // Outcome
   outcome: VoiceCallOutcome | null
   outcome_notes: string | null
+
+  // Post-call AI review (null = call predates the review pipeline)
+  review_status: VoiceCallReviewStatus | null
+  /** Patient-facing issues the post-call review flagged (CallIssue[] shape). */
+  review_flags: Array<Record<string, unknown>> | null
 
   // Campaign link
   voice_campaign_id: string | null
@@ -2175,4 +2181,113 @@ export type OrgContractSettings = {
   send_method_default: 'email' | 'sms' | 'email+sms' | 'portal_only'
   share_token_expiry_days: number
   auto_draft_on_ehr_accept: boolean
+}
+
+// ─── Automation allocation policies (Workstream D1) ────────────────────────
+
+export type AutomationPolicyScope = 'org_default' | 'campaign' | 'stage' | 'segment'
+export type AutomationPolicyOwner = 'ai' | 'human' | 'hybrid'
+
+/** Row of automation_policies — who owns an automation touch (AI/human/hybrid). */
+export type AutomationPolicy = {
+  id: string
+  organization_id: string
+  scope: AutomationPolicyScope
+  campaign_id: string | null
+  voice_campaign_id: string | null
+  stage_id: string | null
+  smart_list_id: string | null
+  /** AllocationKind values; empty array = policy applies to all kinds. */
+  kinds: string[]
+  owner: AutomationPolicyOwner
+  ai_role: 'setter' | 'closer' | null
+  /** WeekSchedule shape (see lib/autopilot/config). Enabled hours = HUMAN hours. */
+  human_schedule: Record<string, unknown> | null
+  human_first: boolean
+  human_response_sla_seconds: number
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+// ─── Outreach sequences (command-center-editable cadences) ──────────────────
+
+export type SequenceTrigger = 'lead_created' | 'appointment'
+export type SequenceAnchor = 'enrollment' | 'appointment_time'
+export type SequenceStepChannel = 'sms' | 'email' | 'ai_call' | 'human_call' | 'human_task'
+export type SequenceStepOwner = 'ai' | 'human'
+export type SequenceStepCondition = 'always' | 'unconfirmed' | 'confirmed'
+export type SequenceStepKind = 'step' | 'speed_to_lead'
+
+/** Row of outreach_sequences. */
+export type OutreachSequence = {
+  id: string
+  organization_id: string
+  key: string
+  name: string
+  description: string | null
+  trigger: SequenceTrigger
+  anchor: SequenceAnchor
+  enabled: boolean
+  is_system: boolean
+  stop_on_reply: boolean
+  stop_on_booking: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** Row of outreach_sequence_steps. */
+export type OutreachSequenceStep = {
+  id: string
+  organization_id: string
+  sequence_id: string
+  position: number
+  /** Minutes relative to the anchor; negative = before the appointment. */
+  offset_minutes: number
+  channel: SequenceStepChannel
+  owner: SequenceStepOwner
+  condition: SequenceStepCondition
+  intent: string | null
+  template_subject: string | null
+  template_body: string | null
+  enabled: boolean
+  kind: SequenceStepKind
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AI IMPROVEMENT TICKETS — engineering-facing findings raised by the
+// post-call review (and deterministic system checks), surfaced in the
+// Agency admin panel at /agency/ai-improvements.
+// ═══════════════════════════════════════════════════════════════
+
+export type AIImprovementTicketStatus = 'open' | 'acknowledged' | 'in_progress' | 'resolved' | 'dismissed'
+export type AIImprovementTicketSeverity = 'critical' | 'warning' | 'info'
+export type AIImprovementTicketCategory = 'agent_logic' | 'prompt' | 'telephony' | 'data_gap' | 'integration' | 'other'
+
+/** Row of ai_improvement_tickets. */
+export type AIImprovementTicket = {
+  id: string
+  organization_id: string | null
+  source: 'post_call_review' | 'system_check'
+  category: AIImprovementTicketCategory
+  severity: AIImprovementTicketSeverity
+  title: string
+  summary: string | null
+  recommendation: string | null
+  /** Ordered concrete remediation steps proposed by the reviewer. */
+  action_plan: string[]
+  /** Pointers back to the triggering call(s): call_ids, retell_call_id, … */
+  evidence: Record<string, unknown>
+  fingerprint: string
+  occurrence_count: number
+  last_seen_at: string
+  status: AIImprovementTicketStatus
+  resolution_note: string | null
+  resolved_by: string | null
+  resolved_at: string | null
+  created_at: string
+  updated_at: string
 }

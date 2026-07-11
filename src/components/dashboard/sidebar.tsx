@@ -26,6 +26,7 @@ import {
   FolderHeart,
   FileSignature,
   History,
+  ListTodo,
   ChevronsUpDown,
   PanelLeftClose,
   PanelLeftOpen,
@@ -63,6 +64,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Call Center', href: '/call-center', icon: Phone },
       { name: 'Dialer', href: '/dialer', icon: PhoneOutgoing },
       { name: 'Appointments', href: '/appointments', icon: Calendar },
+      { name: 'Tasks', href: '/tasks', icon: ListTodo },
     ],
   },
   {

@@ -19,7 +19,9 @@ const GA4_ENDPOINT = 'https://www.google-analytics.com/mp/collect'
 const GA4_DEBUG_ENDPOINT = 'https://www.google-analytics.com/debug/mp/collect'
 
 // Map CRM events to GA4 event names (snake_case per GA4 convention)
-const GA4_EVENT_MAP: Record<ConnectorEventType, string> = {
+// Partial: notification-only events (e.g. 'message.received') have no ad-platform
+// mapping on purpose — the undefined lookup is guarded below and the event is skipped.
+const GA4_EVENT_MAP: Partial<Record<ConnectorEventType, string>> = {
   'lead.created': 'generate_lead',
   'lead.qualified': 'qualify_lead',
   'lead.scored': 'score_lead',

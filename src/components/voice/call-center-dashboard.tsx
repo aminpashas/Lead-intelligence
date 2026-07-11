@@ -24,6 +24,7 @@ import {
   VolumeX, BarChart3, Voicemail, Search,
   RefreshCw, Sparkles, XCircle, Ban, ArrowUpRight,
   ChevronDown, ChevronRight, Bot, User, ArrowRight,
+  ShieldAlert, HelpCircle,
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -36,6 +37,14 @@ import { toTranscriptLines } from '@/lib/voice/transcript'
 // TYPES
 // ═══════════════════════════════════════════════════════════════
 
+type CallReviewFlag = {
+  category?: string
+  severity?: 'critical' | 'warning'
+  summary?: string
+  evidence?: string
+  recommended_action?: string
+}
+
 type VoiceCallRow = {
   id: string
   direction: 'inbound' | 'outbound'
@@ -44,6 +53,8 @@ type VoiceCallRow = {
   to_number: string
   duration_seconds: number
   outcome: string | null
+  review_status: 'pending' | 'clear' | 'flagged' | 'escalated' | null
+  review_flags: CallReviewFlag[] | null
   transcript_summary: string | null
   transcript: unknown
   recording_url: string | null
@@ -116,6 +127,42 @@ const outcomeConfig: Record<string, { label: string; color: string; icon: Lucide
   no_answer: { label: 'No Answer', icon: PhoneMissed, color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
   technical_failure: { label: 'Error', icon: AlertCircle, color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
   transferred: { label: 'Transferred', icon: ArrowUpRight, color: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },
+}
+
+// Post-call AI review verdicts. 'clear' stays silent (no badge noise on the
+// happy path); flagged/escalated demand attention.
+const reviewStatusConfig: Record<string, { label: string; color: string }> = {
+  escalated: { label: 'Escalated', color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
+  flagged: { label: 'Flagged', color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
+}
+
+function prettifyOutcome(outcome: string): string {
+  return outcome.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/**
+ * Every finished call must show a clear outcome: known outcomes use their
+ * config, unknown strings are prettified (never a silent blank), and a
+ * completed call with no outcome yet reads "Needs Review".
+ */
+function resolveOutcomeBadge(call: VoiceCallRow): { label: string; color: string; icon: LucideIcon } | null {
+  if (call.outcome) {
+    return (
+      outcomeConfig[call.outcome] ?? {
+        label: prettifyOutcome(call.outcome),
+        icon: HelpCircle,
+        color: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
+      }
+    )
+  }
+  if (call.status === 'completed') {
+    return {
+      label: 'Needs Review',
+      icon: HelpCircle,
+      color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+    }
+  }
+  return null
 }
 
 const campaignStatusColors: Record<string, string> = {
@@ -405,7 +452,9 @@ function CallRow({
 }) {
   const statusCfg = callStatusConfig[call.status] || callStatusConfig.completed
   const StatusIcon = statusCfg.icon
-  const outcomeCfg = call.outcome ? outcomeConfig[call.outcome] : null
+  const outcomeCfg = resolveOutcomeBadge(call)
+  const reviewCfg = call.review_status ? reviewStatusConfig[call.review_status] : null
+  const reviewFlags = (call.review_flags ?? []).filter((f) => f && f.summary)
   const lines = toTranscriptLines(call)
   const live = call.status === 'in_progress'
 
@@ -447,6 +496,12 @@ function CallRow({
                 <Badge className={outcomeCfg.color + ' inline-flex items-center gap-1 text-[11px] px-1.5 py-0'}>
                   <outcomeCfg.icon className="h-3 w-3" />
                   {outcomeCfg.label}
+                </Badge>
+              )}
+              {reviewCfg && (
+                <Badge className={reviewCfg.color + ' inline-flex items-center gap-1 text-[11px] px-1.5 py-0'}>
+                  <ShieldAlert className="h-3 w-3" />
+                  {reviewCfg.label}
                 </Badge>
               )}
             </div>
@@ -498,6 +553,54 @@ function CallRow({
             </div>
           ) : (
             <p className="text-xs text-aurea-ink-3 pt-1">No linked lead — this number isn’t in your CRM yet.</p>
+          )}
+
+          {/* AI review flags — why this call was flagged/escalated */}
+          {reviewFlags.length > 0 && (
+            <div>
+              <p className="aurea-eyebrow mb-2 flex items-center gap-1">
+                <ShieldAlert className="h-3 w-3 text-aurea-rose" strokeWidth={1.75} /> AI Review — issues found
+              </p>
+              <div className="space-y-2">
+                {reviewFlags.map((flag, i) => (
+                  <div
+                    key={i}
+                    className={`rounded-lg border p-3 text-[13px] leading-relaxed ${
+                      flag.severity === 'critical'
+                        ? 'border-aurea-rose/30 bg-aurea-rose/5'
+                        : 'border-aurea-amber/30 bg-aurea-amber/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge
+                        className={
+                          (flag.severity === 'critical'
+                            ? 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20'
+                            : 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20') +
+                          ' text-[10px] px-1.5 py-0 uppercase'
+                        }
+                      >
+                        {flag.severity || 'warning'}
+                      </Badge>
+                      {flag.category && (
+                        <span className="text-[11px] text-aurea-ink-3 capitalize">
+                          {flag.category.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-aurea-ink">{flag.summary}</p>
+                    {flag.evidence && (
+                      <p className="mt-1 text-[12px] italic text-aurea-ink-3">“{flag.evidence}”</p>
+                    )}
+                    {flag.recommended_action && (
+                      <p className="mt-1.5 text-[12px] text-aurea-ink-2">
+                        <span className="font-medium">Next step:</span> {flag.recommended_action}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* AI summary (TL;DR above the full transcript) */}

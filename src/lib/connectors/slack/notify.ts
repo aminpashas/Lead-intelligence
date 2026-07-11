@@ -31,7 +31,13 @@ const EVENT_DISPLAY: Record<ConnectorEventType, { emoji: string; title: string; 
   'lead.lost': { emoji: '❌', title: 'Lead Lost', color: '#ef4444' },
   'appointment.booked': { emoji: '📅', title: 'Appointment Booked', color: '#3b82f6' },
   'payment.received': { emoji: '💰', title: 'Payment Received', color: '#22c55e' },
+  'message.received': { emoji: '💬', title: 'New Message', color: '#3b82f6' },
 }
+
+/** Clamp the inbound-message preview posted to Slack. The caller already
+ *  truncates, but this is the last line of defense before message content
+ *  (PHI-adjacent) leaves the system. */
+const MESSAGE_PREVIEW_MAX = 120
 
 /**
  * Send a notification to Slack via Incoming Webhook.
@@ -45,6 +51,18 @@ export async function sendSlackNotification(
     return {
       connector: 'slack',
       success: true, // Not subscribed — silent skip
+    }
+  }
+
+  // message.received is EXPLICIT OPT-IN. Historically an empty `events` array
+  // means "subscribe to everything" (the check above passes vacuously), but
+  // inbound-message pings are high-volume and carry a message-content preview,
+  // so an org must have listed 'message.received' deliberately to receive
+  // them. An empty array must NOT match this event.
+  if (event.type === 'message.received' && !config.events.includes('message.received')) {
+    return {
+      connector: 'slack',
+      success: true, // Not explicitly subscribed — silent skip
     }
   }
 
@@ -76,6 +94,38 @@ export async function sendSlackNotification(
         ],
       },
     ]
+
+    // message.received: short content preview, assignee line, and a deep link
+    // back to the thread. The preview is clamped defensively — never post more
+    // than MESSAGE_PREVIEW_MAX chars of message content into Slack.
+    if (event.type === 'message.received') {
+      const rawPreview =
+        typeof metadata?.message_preview === 'string' ? metadata.message_preview : ''
+      const preview =
+        rawPreview.length > MESSAGE_PREVIEW_MAX
+          ? `${rawPreview.slice(0, MESSAGE_PREVIEW_MAX - 1)}…`
+          : rawPreview
+      if (preview) {
+        blocks.push({
+          type: 'section',
+          text: { type: 'mrkdwn', text: `> ${preview}` },
+        })
+      }
+      const assignee =
+        typeof metadata?.assignee_name === 'string' && metadata.assignee_name
+          ? metadata.assignee_name
+          : 'Unassigned'
+      blocks.push({
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `👤 Assigned to: *${assignee}*` }],
+      })
+      if (typeof metadata?.conversation_url === 'string' && metadata.conversation_url) {
+        blocks.push({
+          type: 'section',
+          text: { type: 'mrkdwn', text: `<${metadata.conversation_url}|Open conversation →>` },
+        })
+      }
+    }
 
     // Add score/qualification if available
     if (lead.ai_score || lead.ai_qualification) {
