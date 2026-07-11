@@ -132,6 +132,15 @@ export function parseSheetDate(raw: string | null | undefined): string | null {
     return iso.slice(0, 10)
   }
 
+  // ISO date / datetime ("2026-06-26", "2026-06-26 00:00:00") — how a CSV export
+  // of a date-typed cell arrives. Take the date part after validating it.
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T]|$)/)
+  if (iso) {
+    const mo = Number(iso[2])
+    const day = Number(iso[3])
+    if (mo >= 1 && mo <= 12 && day >= 1 && day <= 31) return `${iso[1]}-${iso[2]}-${iso[3]}`
+  }
+
   // Hand-typed M/D/YY — tolerate a stray extra slash ("6/26//26").
   const m = s.replace(/\/+/g, '/').match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
   if (m) {
