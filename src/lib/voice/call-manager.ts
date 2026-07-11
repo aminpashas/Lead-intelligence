@@ -46,11 +46,19 @@ export type PreCallCheckResult = {
 /**
  * Verify that we're allowed to call this lead.
  * Checks: consent, opt-out, DNC flag, phone validity, active hours.
+ *
+ * `options.humanPlaced` selects which org kill switch applies. A staff member
+ * dialing from the browser softphone / ring-my-phone bridge is gated by
+ * `dialer_enabled`; an AI/automated dial is gated by `voice_enabled`. These are
+ * independent switches (see 20260703190000_dialer_toggle.sql) so a practice can
+ * run staff calls and AI calls independently. All other compliance gates
+ * (consent, DNC, TCPA window, rate limit) apply to both.
  */
 export async function preCallCheck(
   supabase: SupabaseClient,
   leadId: string,
-  organizationId: string
+  organizationId: string,
+  options: { humanPlaced?: boolean } = {}
 ): Promise<PreCallCheckResult> {
   // Get lead with consent fields
   const { data: lead, error } = await supabase
@@ -118,15 +126,22 @@ export async function preCallCheck(
     return { allowed: false, reason: 'invalid_phone_format' }
   }
 
-  // Check org voice settings
+  // Check the org kill switch for this call's placement channel (see options doc).
   const { data: org } = await supabase
     .from('organizations')
-    .select('voice_enabled, voice_max_outbound_per_hour')
+    .select('voice_enabled, dialer_enabled, voice_max_outbound_per_hour')
     .eq('id', organizationId)
     .single()
 
-  if (!org?.voice_enabled) {
-    return { allowed: false, reason: 'voice_not_enabled_for_org' }
+  if (!org) {
+    return { allowed: false, reason: 'org_not_found' }
+  }
+  const orgEnabled = options.humanPlaced ? org.dialer_enabled : org.voice_enabled
+  if (!orgEnabled) {
+    return {
+      allowed: false,
+      reason: options.humanPlaced ? 'dialer_not_enabled_for_org' : 'voice_not_enabled_for_org',
+    }
   }
 
   // Rate limit: check how many calls we've made this hour
@@ -174,7 +189,7 @@ export async function prepareStaffCallIntent(
     callMode: 'browser' | 'bridge'
   }
 ): Promise<StaffCallIntent | { error: string; status: number }> {
-  const check = await preCallCheck(supabase, params.leadId, params.organizationId)
+  const check = await preCallCheck(supabase, params.leadId, params.organizationId, { humanPlaced: true })
   if (!check.allowed) {
     return { error: `Cannot call this lead: ${check.reason}`, status: 422 }
   }
@@ -276,12 +291,14 @@ export async function prepareManualCallIntent(
 
   const { data: org } = await supabase
     .from('organizations')
-    .select('voice_enabled, voice_max_outbound_per_hour, voice_outbound_caller_id, voice_recording_enabled')
+    .select('dialer_enabled, voice_max_outbound_per_hour, voice_outbound_caller_id, voice_recording_enabled')
     .eq('id', params.organizationId)
     .single()
 
-  if (!org?.voice_enabled) {
-    return { error: 'Voice calling is not enabled for this organization', status: 422 }
+  // A staff-typed manual dial is a human-placed call → gated by the staff dialer
+  // switch, independent of the Retell AI voice_enabled kill switch.
+  if (!org?.dialer_enabled) {
+    return { error: 'The staff dialer is not enabled for this organization', status: 422 }
   }
 
   const fromNumber = org.voice_outbound_caller_id || process.env.TWILIO_PHONE_NUMBER
