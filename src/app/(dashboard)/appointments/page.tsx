@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -85,6 +86,12 @@ type TabKey = 'calendar' | 'upcoming' | 'today' | 'reminders' | 'analytics'
 // ═══════════════════════════════════════════════════════════════
 
 export default function AppointmentsPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  // Deep-link window from the dashboard's "Appts · 7d" card — narrows the
+  // Upcoming tab to the same today→+7d bounds its Postgres count used.
+  const weekWindow = searchParams.get('window') === '7d'
+
   const [appointments, setAppointments] = useState<AppointmentData[]>([])
   const [reminders, setReminders] = useState<ReminderData[]>([])
   const [loading, setLoading] = useState(true)
@@ -164,7 +171,14 @@ export default function AppointmentsPage() {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
 
-  const upcomingApts = appointments.filter(a => new Date(a.scheduled_at) > now && ['scheduled', 'confirmed'].includes(a.status))
+  const weekEnd = new Date(todayStart.getTime() + 7 * 24 * 60 * 60 * 1000)
+  const upcomingApts = appointments.filter(a => {
+    if (!['scheduled', 'confirmed'].includes(a.status)) return false
+    const d = new Date(a.scheduled_at)
+    // ?window=7d mirrors the dashboard KPI's bounds exactly (today start →
+    // +7 days) so the tab count equals the card; default is all future.
+    return weekWindow ? d >= todayStart && d < weekEnd : d > now
+  })
   const todayApts = appointments.filter(a => {
     const d = new Date(a.scheduled_at)
     return d >= todayStart && d < todayEnd && ['scheduled', 'confirmed', 'completed', 'no_show'].includes(a.status)
@@ -308,6 +322,19 @@ export default function AppointmentsPage() {
       {(activeTab === 'upcoming' || activeTab === 'today') && (
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
+          {/* Dashboard drill-down window — visible + clearable so it's obvious
+              the Upcoming tab is narrowed to the KPI card's 7-day bounds. */}
+          {weekWindow && activeTab === 'upcoming' && (
+            <button
+              onClick={() => router.replace('/appointments')}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-primary text-primary-foreground transition-colors"
+              title="Showing the next 7 days — click to show all upcoming"
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              Next 7 days
+              <XCircle className="h-3.5 w-3.5" />
+            </button>
+          )}
           {([
             { key: 'all', label: 'All', icon: null },
             { key: 'confirmed', label: 'Confirmed', icon: CheckCircle2 },

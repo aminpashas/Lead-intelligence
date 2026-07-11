@@ -162,13 +162,14 @@ export function OpsDashboard({ userName, kpis, stages, upcomingConsults, hotLead
         <p className="mt-1 text-[13px] text-aurea-ink-2">Where your leads sit and what&apos;s on the schedule, {userName}.</p>
       </div>
 
-      {/* KPI strip */}
+      {/* KPI strip — each card deep-links to a view filtered to exactly the
+          rows it counted (same predicates as the queries in dashboard/page.tsx). */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <Kpi icon={Users} label="Total leads" value={formatCount(kpis.totalLeads)} href="/leads" />
-        <Kpi icon={TrendingUp} label="New this week" value={formatCount(kpis.weekLeads)} href="/leads" />
-        <Kpi icon={Calendar} label="Consults this wk" value={formatCount(kpis.bookedThisWeek)} href="/appointments" />
-        <Kpi icon={PhoneOff} label="Awaiting contact" value={formatCount(kpis.awaitingContact)} href="/leads" tone="warn" />
-        <Kpi icon={MessageSquare} label="Unread threads" value={formatCount(kpis.unreadThreads)} href="/conversations" tone="warn" />
+        <Kpi icon={Users} label="Total leads" value={formatCount(kpis.totalLeads)} href="/leads?include=all" />
+        <Kpi icon={TrendingUp} label="New this week" value={formatCount(kpis.weekLeads)} href="/leads?channel=paid&range=7d&include=all&sort=created&dir=desc" />
+        <Kpi icon={Calendar} label="Consults this wk" value={formatCount(kpis.bookedThisWeek)} href="/appointments?window=7d" />
+        <Kpi icon={PhoneOff} label="Awaiting contact" value={formatCount(kpis.awaitingContact)} href="/leads?channel=paid&range=7d&contacted=never&include=all&sort=created&dir=desc" tone="warn" />
+        <Kpi icon={MessageSquare} label="Unread threads" value={formatCount(kpis.unreadThreads)} href="/conversations?filter=unread" tone="warn" />
         <Kpi icon={DollarSign} label="Pipeline value" value={formatCurrency(kpis.pipelineValue)} href="/pipeline" />
       </div>
 

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import {
   Search,
   MessageSquare,
@@ -85,18 +85,25 @@ export function ConversationsSidebar({
   conversations: ConversationListItem[]
 }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const activeId = pathname?.startsWith('/conversations/')
     ? pathname.split('/')[2]
     : null
+
+  // Deep-link support: the dashboard's "Unread" KPI links here as
+  // /conversations?filter=unread so the rail opens pre-narrowed to exactly the
+  // threads that card counted. Initial state only — the drawer stays in charge
+  // after that (this rail lives in a layout, so it never remounts per thread).
+  const arriveUnread = searchParams.get('filter') === 'unread'
 
   const [query, setQuery] = useState('')
   const [channel, setChannel] = useState<ChannelFilter>('all')
   const [quals, setQuals] = useState<Set<string>>(new Set())
   const [sentiments, setSentiments] = useState<Set<string>>(new Set())
-  const [unreadOnly, setUnreadOnly] = useState(false)
+  const [unreadOnly, setUnreadOnly] = useState(arriveUnread)
   const [aiOnly, setAiOnly] = useState(false)
   const [sort, setSort] = useState<SortKey>('recent')
-  const [showFilters, setShowFilters] = useState(false)
+  const [showFilters, setShowFilters] = useState(arriveUnread)
 
   // Opening a thread marks it read server-side; mirror that here so the unread
   // badge clears immediately without waiting for a list refetch.
