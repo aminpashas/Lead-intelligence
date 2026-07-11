@@ -15,7 +15,7 @@ import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 
 const bodySchema = z
   .object({
-    temperature: z.enum(['hot', 'warm', 'cold', 'stalled']).nullable().optional(),
+    temperature: z.enum(['hot', 'warm', 'deliberating', 'cold', 'stalled']).nullable().optional(),
     nextStep: z.string().max(2000).nullable().optional(),
   })
   .refine((b) => b.temperature !== undefined || b.nextStep !== undefined, {

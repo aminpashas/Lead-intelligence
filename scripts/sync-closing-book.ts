@@ -25,6 +25,7 @@ import {
   type SheetCase,
   type ExistingRow,
 } from '../src/lib/pipeline/closing-book-sync'
+import { resolveClosingLead } from '../src/lib/pipeline/closing-book-leads'
 
 // "Case Follow ups" column positions (0-indexed). Col F (5) is the unlabeled
 // short gut-feel flag; G (6) is the status narrative.
@@ -117,19 +118,27 @@ async function main() {
     return
   }
 
-  // Resolve an unambiguous CRM lead for each new patient (exactly-one match), so
-  // Call/SMS/Email lights up where possible; ambiguous/absent → unlinked.
+  // Give every new patient a reachable CRM record: link the one match, mint a
+  // bare record when none exists (sheet-only deals), leave ambiguous names for a
+  // human to resolve on the board. Keeps each closing row clickable into Call /
+  // SMS / Email + the lead detail.
   for (const ins of plan.inserts) {
-    const { data: matches } = await supabase
-      .from('leads')
-      .select('id')
-      .eq('organization_id', org)
-      .ilike('first_name', ins.first_name)
-      .ilike('last_name', ins.last_name)
-      .limit(2)
-    const lead_id = matches?.length === 1 ? matches[0].id : null
+    const resolution = await resolveClosingLead(supabase, org, {
+      firstName: ins.first_name,
+      lastName: ins.last_name,
+      service: ins.service,
+      caseValue: ins.case_value,
+    })
+    const lead_id = resolution.status === 'linked' ? resolution.leadId : null
     const { error: insErr } = await supabase.from('closing_book').insert({ ...ins, organization_id: org, lead_id })
     if (insErr) throw insErr
+    const how =
+      resolution.status === 'linked'
+        ? resolution.created ? 'created lead' : 'linked lead'
+        : resolution.status === 'ambiguous'
+          ? `ambiguous (${resolution.candidateCount} matches — link on board)`
+          : 'unlinked'
+    console.log(`    ↳ ${ins.first_name} ${ins.last_name}: ${how}`)
   }
   for (const u of plan.updates) {
     const { error: upErr } = await supabase

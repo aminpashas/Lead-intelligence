@@ -10,15 +10,133 @@
  * the two inline-editable fields — a closing-temperature override and a
  * next-step note — PATCHed to /api/closing/[id].
  *
- * A row links to a CRM lead (for Call/SMS/Email + the lead detail page) only
- * when the sheet name matched exactly one lead; otherwise it shows read-only.
+ * A linked row is clickable straight into the patient's lead detail (Call / SMS
+ * / Email + history + conversations); the interactive cells (temperature,
+ * next-step, action bar) stop the click from bubbling. A row the seed couldn't
+ * link — several patients or none shared the sheet name — shows a "Link patient"
+ * chooser instead, to pick the right record or mint a new one.
  */
 
 import { useState } from 'react'
+import type { MouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Loader2, UserPlus, UserRoundSearch } from 'lucide-react'
+import { toast } from 'sonner'
 import { LeadActions } from './lead-actions'
 import type { ClosingTemperature } from '@/lib/pipeline/closing'
 import type { ClosingRow } from '@/lib/pipeline/closing-book'
+
+type Candidate = {
+  id: string
+  firstName: string
+  lastName: string | null
+  phoneLast4: string | null
+  city: string | null
+  state: string | null
+  status: string | null
+  lastContactedAt: string | null
+}
+
+/**
+ * LinkPatient — resolve a closing row the seed left unlinked (no name match, or
+ * several patients sharing the name). Lazily fetches candidates on open; the
+ * staffer either links an existing patient or mints a fresh record. Either way
+ * the row becomes clickable into the full lead detail, so we navigate there.
+ */
+function LinkPatient({ rowId, name }: { rowId: string; name: string }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function onOpenChange(next: boolean) {
+    setOpen(next)
+    if (next && candidates === null && !loading) {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/closing/${rowId}/link`)
+        const data = await res.json().catch(() => ({}))
+        setCandidates(Array.isArray(data.candidates) ? data.candidates : [])
+      } catch {
+        setCandidates([])
+      } finally {
+        setLoading(false)
+      }
+    }
+  }
+
+  async function link(body: { leadId?: string; create?: true }) {
+    if (busy) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/closing/${rowId}/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.leadId) throw new Error(data?.error || 'Could not link patient')
+      toast.success(body.create ? `Created a record for ${name}` : `Linked ${name}`)
+      router.push(`/leads/${data.leadId}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not link patient')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger
+        title="Link this deal to a patient record"
+        className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-aurea-border px-2.5 text-[12px] font-medium text-aurea-ink-2 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> : <UserRoundSearch className="h-3.5 w-3.5" strokeWidth={1.75} />}
+        Link patient
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel>Link “{name}” to a patient</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {loading ? (
+          <div className="flex items-center gap-2 px-2 py-3 text-[12px] text-aurea-ink-3">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> Finding patients…
+          </div>
+        ) : candidates && candidates.length > 0 ? (
+          candidates.map((c) => {
+            const place = [c.city, c.state].filter(Boolean).join(', ')
+            const meta = [c.phoneLast4 ? `•••• ${c.phoneLast4}` : null, place || null]
+              .filter(Boolean)
+              .join(' · ')
+            return (
+              <DropdownMenuItem key={c.id} closeOnClick={false} onClick={() => link({ leadId: c.id })}>
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] text-aurea-ink">
+                    {c.firstName} {c.lastName ?? ''}
+                  </p>
+                  {meta ? <p className="truncate text-[11px] text-aurea-ink-3">{meta}</p> : null}
+                </div>
+              </DropdownMenuItem>
+            )
+          })
+        ) : (
+          <div className="px-2 py-2 text-[12px] text-aurea-ink-3">No matching patient found.</div>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem closeOnClick={false} onClick={() => link({ create: true })}>
+          <UserPlus className="mr-2 h-4 w-4" strokeWidth={1.75} /> Create a new patient record
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 type ClosingForecast = {
   count: number
@@ -126,21 +244,24 @@ export function ClosingBoard({
               const isOverride = temps[row.id] != null
               const days = row.daysSinceContact
               const name = `${row.firstName} ${row.lastName}`.trim() || 'Unnamed'
+              const openLead = row.leadId ? () => router.push(`/leads/${row.leadId}`) : undefined
+              // Keep clicks on the inline controls from triggering row navigation.
+              const stop = (e: MouseEvent) => e.stopPropagation()
               return (
-                <tr key={row.id} className="border-b border-aurea-border/60 last:border-0 hover:bg-aurea-surface-2/40">
+                <tr
+                  key={row.id}
+                  onClick={openLead}
+                  className={`group border-b border-aurea-border/60 last:border-0 hover:bg-aurea-surface-2/40 ${
+                    openLead ? 'cursor-pointer' : ''
+                  }`}
+                >
                   <td className="whitespace-nowrap px-4 py-3">
-                    {row.leadId ? (
-                      <button
-                        onClick={() => router.push(`/leads/${row.leadId}`)}
-                        className="font-medium text-aurea-ink hover:text-aurea-primary"
-                      >
-                        {name}
-                      </button>
-                    ) : (
-                      <span className="font-medium text-aurea-ink" title="No matching CRM lead — add contact info to enable call/text/email">
-                        {name}
-                      </span>
-                    )}
+                    <span
+                      className={`font-medium text-aurea-ink ${openLead ? 'group-hover:text-aurea-primary' : ''}`}
+                      title={openLead ? undefined : 'Not yet linked to a patient — use “Link patient” to enable call/text/email'}
+                    >
+                      {name}
+                    </span>
                     {row.won ? (
                       <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
                         Closed
@@ -162,7 +283,7 @@ export function ClosingBoard({
                   <td className="px-4 py-3 text-right font-medium text-aurea-ink">
                     {Math.round(row.closeProbability * 100)}%
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={stop}>
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: style.dot }} />
                       <select
@@ -183,7 +304,7 @@ export function ClosingBoard({
                       {!isOverride ? <span className="text-[10px] text-aurea-ink-3">auto</span> : null}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={stop}>
                     {editingStep === row.id ? (
                       <input
                         autoFocus
@@ -210,11 +331,11 @@ export function ClosingBoard({
                       </button>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={stop}>
                     {row.lead ? (
                       <LeadActions lead={row.lead} variant="compact" />
                     ) : (
-                      <span className="text-[11px] text-aurea-ink-3">No linked contact</span>
+                      <LinkPatient rowId={row.id} name={name} />
                     )}
                   </td>
                 </tr>
