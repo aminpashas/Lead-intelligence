@@ -35,6 +35,7 @@ import {
 } from './config'
 import { createEscalation } from './escalation'
 import { resolveAutomationOwner, type AllocationDecision } from '@/lib/automation/allocation'
+import { applyScopedKnobs } from '@/lib/automation/scoped-config'
 import {
   createHumanTask,
   resolveAssignee,
@@ -307,9 +308,12 @@ export async function processAutoResponse(
 
   // 7. Evaluate whether to auto-send.
   // TCPA: quiet-hours must be evaluated in the org's local timezone, not UTC.
+  // Scoped knobs: a campaign/stage policy may tighten confidence or hours for
+  // this specific reply. Null knobs inherit the org defaults already on config.
+  const effectiveConfig = allocation ? applyScopedKnobs(config, allocation) : config
   const { hour: currentHour } = getLocalHourAndDay(config.timezone)
   const messageCount = (conversation.message_count as number) || 0
-  const decision = shouldAutoRespond(config, {
+  const decision = shouldAutoRespond(effectiveConfig, {
     confidence: agentResponse.confidence,
     agentType: agentResponse.agent,
     isFirstMessage: messageCount === 0,
