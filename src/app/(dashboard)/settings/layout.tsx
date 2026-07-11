@@ -23,6 +23,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
           { name: 'Live Transfer', href: '/settings/live-transfer' },
           { name: 'Connectors', href: '/settings/connectors' },
           { name: 'Legal', href: '/settings/legal' },
+          { name: 'Branding', href: '/settings/branding' },
           { name: 'Templates', href: '/settings/contracts/templates' },
         ]}
       />
