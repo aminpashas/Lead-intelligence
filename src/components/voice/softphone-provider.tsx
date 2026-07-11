@@ -48,6 +48,7 @@ type SoftphoneContextValue = {
   ready: boolean
   activeLead: DialableLead | null
   muted: boolean
+  held: boolean
   callSeconds: number
   /** The just-ended call awaiting a disposition (null once dispositioned/cleared). */
   endedCall: EndedCall | null
@@ -56,6 +57,7 @@ type SoftphoneContextValue = {
   startCallToNumber: (number: string) => Promise<void>
   hangup: () => void
   toggleMute: () => void
+  toggleHold: () => void
   sendDigit: (digit: string) => void
   clearEnded: () => void
 }
@@ -78,6 +80,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false)
   const [activeLead, setActiveLead] = useState<DialableLead | null>(null)
   const [muted, setMuted] = useState(false)
+  const [held, setHeld] = useState(false)
   const [callSeconds, setCallSeconds] = useState(0)
   const [endedCall, setEndedCall] = useState<EndedCall | null>(null)
 
@@ -98,6 +101,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
     setActiveLead(null)
     activeLeadRef.current = null
     setMuted(false)
+    setHeld(false)
     setCallSeconds(0)
     setStatus(deviceRef.current ? 'idle' : 'offline')
   }, [stopTimer])
@@ -274,9 +278,45 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
     const call = callRef.current
     if (!call) return
     const next = !muted
-    call.mute(next)
+    // Effective mic state is muted OR held; toggling mute must not un-mute a held call.
+    call.mute(next || held)
     setMuted(next)
-  }, [muted])
+  }, [muted, held])
+
+  // Hold: put the lead on real hold music via the conference (server-side), so the
+  // lead hears music — not dead air — while the agent steps away. We ALSO apply the
+  // local mute/remote-disable immediately so there's no audible gap before Twilio
+  // applies the participant hold (~a few hundred ms). If the server call fails we
+  // roll both back to the pre-toggle state.
+  const applyLocalHold = useCallback((call: TwilioCall, holdState: boolean, isMuted: boolean) => {
+    call.mute(holdState || isMuted)
+    call.getRemoteStream()?.getAudioTracks().forEach((track) => {
+      track.enabled = !holdState
+    })
+  }, [])
+
+  const toggleHold = useCallback(async () => {
+    const call = callRef.current
+    const callId = activeCallIdRef.current
+    if (!call || !callId || status !== 'in_call') return
+
+    const next = !held
+    setHeld(next)
+    applyLocalHold(call, next, muted)
+
+    try {
+      const res = await fetch('/api/voice/hold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ call_id: callId, hold: next }),
+      })
+      if (!res.ok) throw new Error('hold failed')
+    } catch {
+      setHeld(!next)
+      applyLocalHold(call, !next, muted)
+      toast.error(next ? 'Could not place the call on hold' : 'Could not resume the call')
+    }
+  }, [held, muted, status, applyLocalHold])
 
   const sendDigit = useCallback((digit: string) => {
     callRef.current?.sendDigits(digit)
@@ -291,12 +331,14 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         ready,
         activeLead,
         muted,
+        held,
         callSeconds,
         endedCall,
         startCall,
         startCallToNumber,
         hangup,
         toggleMute,
+        toggleHold,
         sendDigit,
         clearEnded,
       }}

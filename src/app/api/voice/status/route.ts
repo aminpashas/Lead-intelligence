@@ -20,7 +20,10 @@ export async function POST(request: NextRequest) {
   const url = new URL(request.url)
   const proto = request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')
   const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || url.host
-  const publicUrl = `${proto}://${host}${url.pathname}`
+  // Include the query string: the conference bridge tags its lead-leg and recording
+  // callbacks with ?voiceCallId=, and Twilio signs the full URL. Legacy callers
+  // (peer <Dial>, ring-my-phone) have no query, so this stays a no-op for them.
+  const publicUrl = `${proto}://${host}${url.pathname}${url.search}`
 
   const form = await request.formData()
   const params: Record<string, string> = {}
@@ -34,16 +37,27 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // The row's twilio_call_sid is the PARENT (browser) leg. Child-leg callbacks
-  // carry ParentCallSid; the recording callback carries the parent as CallSid.
-  const lookupSid = params['ParentCallSid'] || params['CallSid']
-  if (!lookupSid) return NextResponse.json({ ok: true })
+  // Match the row: the conference bridge tags callbacks with ?voiceCallId= (the
+  // lead leg is an independent call, so it has no ParentCallSid). Legacy peer-dial
+  // callbacks are matched by the stored parent (browser) leg SID: child-leg
+  // callbacks carry ParentCallSid; the recording callback carries it as CallSid.
+  const voiceCallId = url.searchParams.get('voiceCallId')
+  const query = voiceCallId
+    ? supabase
+        .from('voice_calls')
+        .select('id, organization_id, lead_id, status, answered_at, outcome')
+        .eq('id', voiceCallId)
+    : (() => {
+        const lookupSid = params['ParentCallSid'] || params['CallSid']
+        if (!lookupSid) return null
+        return supabase
+          .from('voice_calls')
+          .select('id, organization_id, lead_id, status, answered_at, outcome')
+          .eq('twilio_call_sid', lookupSid)
+      })()
 
-  const { data: call } = await supabase
-    .from('voice_calls')
-    .select('id, organization_id, lead_id, status, answered_at, outcome')
-    .eq('twilio_call_sid', lookupSid)
-    .maybeSingle()
+  if (!query) return NextResponse.json({ ok: true })
+  const { data: call } = await query.maybeSingle()
 
   if (!call) return NextResponse.json({ ok: true })
 

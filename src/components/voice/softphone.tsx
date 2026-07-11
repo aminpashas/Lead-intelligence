@@ -4,13 +4,13 @@
  * Softphone — the floating call widget, mounted once in the dashboard shell.
  *
  * It renders nothing while idle. During a call it shows the live controls (mute,
- * keypad, hang up, timer); when the call ends it prompts the staffer for an
+ * hold, keypad, hang up, timer); when the call ends it prompts the staffer for an
  * outcome (disposition) and PATCHes it. All call state comes from useSoftphone().
  */
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Phone, PhoneOff, Mic, MicOff, Grid3x3, X, Loader2, Check } from 'lucide-react'
+import { Phone, PhoneOff, Mic, MicOff, Grid3x3, Pause, Play, X, Loader2, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useSoftphone } from './softphone-provider'
@@ -37,7 +37,7 @@ function fmt(seconds: number): string {
 
 export function Softphone() {
   const router = useRouter()
-  const { status, activeLead, muted, callSeconds, endedCall, hangup, toggleMute, sendDigit, clearEnded } =
+  const { status, activeLead, muted, held, callSeconds, endedCall, hangup, toggleMute, toggleHold, sendDigit, clearEnded } =
     useSoftphone()
   const [showKeypad, setShowKeypad] = useState(false)
   const [savingOutcome, setSavingOutcome] = useState<string | null>(null)
@@ -74,7 +74,15 @@ export function Softphone() {
       : 'Lead'
 
   const statusLabel =
-    status === 'connecting' ? 'Connecting…' : status === 'ringing' ? 'Ringing…' : status === 'in_call' ? fmt(callSeconds) : ''
+    status === 'connecting'
+      ? 'Connecting…'
+      : status === 'ringing'
+        ? 'Ringing…'
+        : status === 'in_call'
+          ? held
+            ? `On hold · ${fmt(callSeconds)}`
+            : fmt(callSeconds)
+          : ''
 
   return (
     <div className="fixed bottom-4 right-4 z-50 w-72 overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-2xl">
@@ -85,7 +93,11 @@ export function Softphone() {
             <span
               className={cn(
                 'flex h-9 w-9 items-center justify-center rounded-full',
-                status === 'in_call' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-aurea-surface-2 text-aurea-ink-2'
+                status === 'in_call' && held
+                  ? 'bg-amber-500/15 text-amber-500'
+                  : status === 'in_call'
+                    ? 'bg-emerald-500/15 text-emerald-500'
+                    : 'bg-aurea-surface-2 text-aurea-ink-2'
               )}
             >
               <Phone className="h-4 w-4" strokeWidth={1.75} />
@@ -121,6 +133,18 @@ export function Softphone() {
               )}
             >
               {muted ? <MicOff className="h-4 w-4" strokeWidth={1.75} /> : <Mic className="h-4 w-4" strokeWidth={1.75} />}
+            </button>
+
+            <button
+              onClick={toggleHold}
+              disabled={status !== 'in_call'}
+              title={held ? 'Resume' : 'Hold'}
+              className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-full border transition-colors disabled:opacity-40',
+                held ? 'border-amber-500/30 bg-amber-500/10 text-amber-500' : 'border-aurea-border text-aurea-ink hover:bg-aurea-surface-2'
+              )}
+            >
+              {held ? <Play className="h-4 w-4" strokeWidth={1.75} /> : <Pause className="h-4 w-4" strokeWidth={1.75} />}
             </button>
 
             <button

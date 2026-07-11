@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { validateTwilioWebhook } from '@/lib/messaging/twilio'
-import { buildOutboundDialTwiml } from '@/lib/voice/twilio-voice'
+import { buildAgentConferenceTwiml, dialLeadIntoConference } from '@/lib/voice/twilio-voice'
 import { logger } from '@/lib/logger'
 
 /** A spoken decline + hangup, returned when we can't authorize the dial. */
@@ -74,20 +74,41 @@ export async function POST(request: NextRequest) {
     return declineTwiml('Sorry, this call has expired.')
   }
 
-  // Consume the token: bind this Twilio call to the row so it can't be replayed.
+  // Consume the token: bind the AGENT (browser) leg to the row so it can't be
+  // replayed. The lead leg SID is stored below once we originate it.
   await supabase
     .from('voice_calls')
     .update({ twilio_call_sid: callSid, status: 'ringing', started_at: new Date().toISOString() })
     .eq('id', call.id)
 
-  const twiml = buildOutboundDialTwiml({
-    toNumber: call.to_number,
-    callerId: call.from_number,
-    statusCallbackUrl: `${origin}/api/voice/status`,
-    recordingStatusCallbackUrl: `${origin}/api/voice/status`,
+  // Bridge via a conference so the lead can later be put on hold with music (a peer
+  // <Dial> can't hold). Originate the lead's leg into the room; its call
+  // statusCallback (tagged with ?voiceCallId=) drives ringing → answered →
+  // completed, and the recording callback carries the same tag for matching.
+  const statusCallbackUrl = `${origin}/api/voice/status?voiceCallId=${call.id}`
+  try {
+    const leadCallSid = await dialLeadIntoConference({
+      callId: call.id,
+      toNumber: call.to_number,
+      callerId: call.from_number,
+      statusCallbackUrl,
+    })
+    await supabase.from('voice_calls').update({ twilio_lead_call_sid: leadCallSid }).eq('id', call.id)
+  } catch (err) {
+    logger.error('Failed to originate lead leg for conference bridge', {
+      call_id: call.id,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    await supabase.from('voice_calls').update({ status: 'failed', ended_at: new Date().toISOString() }).eq('id', call.id)
+    return declineTwiml('Sorry, we could not connect that call.')
+  }
+
+  const twiml = buildAgentConferenceTwiml({
+    callId: call.id,
+    recordingStatusCallbackUrl: statusCallbackUrl,
     record: !!call.recording_disclosure_given,
   })
 
-  logger.info('Browser call bridged', { call_id: call.id, twilio_call_sid: callSid })
+  logger.info('Browser call bridged via conference', { call_id: call.id, twilio_call_sid: callSid })
   return new NextResponse(twiml, { status: 200, headers: { 'Content-Type': 'text/xml' } })
 }
