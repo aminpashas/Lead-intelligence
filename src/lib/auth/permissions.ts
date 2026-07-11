@@ -106,6 +106,7 @@ export type Permission =
   | 'contracts:void'
   | 'contract_templates:manage'
   | 'legal_settings:manage'
+  | 'branding:manage'
   // Agency-only (deliberately NOT part of FULL_PERMISSIONS — client owners/admins
   // must never receive these; only agency_admin does)
   | 'connectors:manage'
@@ -137,6 +138,7 @@ const FULL_PERMISSIONS: Permission[] = [
   'cases:read', 'cases:create', 'cases:diagnose',
   'contracts:read', 'contracts:generate', 'contracts:approve', 'contracts:void',
   'contract_templates:manage', 'legal_settings:manage',
+  'branding:manage',
 ]
 
 // Agency-scale outbound + AI configuration. Only agency_admin carries these;
@@ -360,6 +362,7 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/settings/financing': 'ai_control:read',
   '/settings/connectors': 'connectors:manage',
   '/settings/legal': 'legal_settings:manage',
+  '/settings/branding': 'branding:manage',
   // Key matches the real page + the Settings hub tab href. There is no
   // /settings/contracts index page, so pointing the key at .../templates keeps
   // the map from advertising a phantom route while still gating the [id] detail
