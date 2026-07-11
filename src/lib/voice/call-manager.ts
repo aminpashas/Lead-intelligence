@@ -19,12 +19,14 @@ import {
   type RetellCallConfig,
 } from './retell-client'
 import { decryptField, searchHash } from '@/lib/encryption'
-import { formatToE164 } from '@/lib/leads/phone'
+import { formatToE164, formatPhoneForSpeech } from '@/lib/leads/phone'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
 import { logger } from '@/lib/logger'
 import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
+import { buildLeadContextVariables } from './lead-context'
+import { normalizeCallOutcome } from './post-call-review'
 import type {
   VoiceCallStatus,
   VoiceCallOutcome,
@@ -383,6 +385,15 @@ export async function initiateOutboundCall(
     .maybeSingle()
   const dateVars = buildDateDynamicVariables((bsForTz?.timezone as string | null) ?? null)
 
+  // Lead memory (conversation summary, recent messages, appointment history) so
+  // the agent references what's already happened instead of re-asking.
+  const contextVars = await buildLeadContextVariables(
+    supabase,
+    lead_id,
+    organization_id,
+    (bsForTz?.timezone as string | null) ?? null
+  )
+
   // Find or create voice conversation
   let conversationId: string
   const { data: existingConvo } = await supabase
@@ -467,6 +478,9 @@ export async function initiateOutboundCall(
     retell_llm_dynamic_variables: {
       call_direction: 'outbound',
       practice_name: org.name || 'our practice',
+      // Callback number the lead should dial = our caller ID. Prevents the
+      // voicemail prompt from reading back the number it's calling.
+      callback_number: formatPhoneForSpeech(fromNumber),
       caller_first_name: (lead.first_name as string) || '',
       caller_full_name:
         `${(lead.first_name as string) || ''} ${(lead.last_name as string) || ''}`.trim() || '',
@@ -482,6 +496,9 @@ export async function initiateOutboundCall(
       // Real clock + dated 2-week calendar. Retell prompt references
       // {{current_datetime}} and {{upcoming_dates}}.
       ...dateVars,
+      // Conversation + appointment memory ({{conversation_summary}},
+      // {{recent_messages}}, {{upcoming_appointment}}, …).
+      ...contextVars,
     },
   }
 
@@ -704,24 +721,19 @@ export async function processCallEnd(
     timestamp_ms: t.words?.[0]?.start || i * 1000,
   })) || []
 
-  // Determine outcome from call analysis
-  let outcome: VoiceCallOutcome | null = null
-  if (detail?.call_analysis) {
-    if (detail.call_analysis.call_successful) {
-      outcome = 'interested'
-    } else if (detail.call_analysis.user_sentiment === 'Negative') {
-      outcome = 'not_interested'
-    }
-  }
-
-  if (detail?.disconnection_reason === 'voicemail_reached') {
-    outcome = 'voicemail_left'
-  } else if (detail?.disconnection_reason === 'no_answer' || detail?.disconnection_reason === 'busy') {
-    outcome = detail.disconnection_reason as VoiceCallOutcome
-  }
-
   // Update call record
   const duration = detail?.duration_ms ? Math.round(detail.duration_ms / 1000) : 0
+
+  // Outcome via the shared normalizer — it only emits values allowed by the
+  // voice_calls.outcome CHECK (the old inline mapping cast 'busy', which the
+  // constraint rejects and which failed the whole update).
+  const outcome: VoiceCallOutcome | null = normalizeCallOutcome({
+    disconnectionReason: detail?.disconnection_reason,
+    callSuccessful: detail?.call_analysis?.call_successful ?? null,
+    userSentiment: detail?.call_analysis?.user_sentiment ?? null,
+    durationSeconds: duration,
+    hasTranscript: transcript.length > 0,
+  })
 
   await supabase
     .from('voice_calls')

@@ -18,6 +18,7 @@ import {
   DollarSign,
   SlidersHorizontal,
   FlaskConical,
+  Wrench,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -40,6 +41,7 @@ const agencyNavigation = [
       { name: 'AI Engine', href: '/ai-engine', icon: Zap },
       { name: 'Sales Intelligence', href: '/ai-engine/sales-intelligence', icon: Crosshair },
       { name: 'AI Audit', href: '/agency/ai-audit', icon: Shield },
+      { name: 'AI Improvements', href: '/agency/ai-improvements', icon: Wrench },
     ],
   },
   {

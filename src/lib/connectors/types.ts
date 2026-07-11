@@ -23,6 +23,10 @@ export type ConnectorEventType =
   | 'lead.lost'
   | 'appointment.booked'
   | 'payment.received'
+  // D5 staff notification: an inbound patient message needs human eyes.
+  // Slack-only by design (dispatched with only:['slack']) and explicit
+  // opt-in in the Slack connector — ad platforms must never fire on it.
+  | 'message.received'
 
 export type ConnectorEvent = {
   type: ConnectorEventType

@@ -25,7 +25,9 @@ const GOOGLE_ADS_API_BASE = 'https://googleads.googleapis.com'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 
 // Map CRM events to default conversion action names
-const DEFAULT_CONVERSION_MAP: Record<ConnectorEventType, string> = {
+// Partial: notification-only events (e.g. 'message.received') have no ad-platform
+// mapping on purpose — the undefined lookup is guarded below and the event is skipped.
+const DEFAULT_CONVERSION_MAP: Partial<Record<ConnectorEventType, string>> = {
   'lead.created': 'Lead Form Submit',
   'lead.qualified': 'Qualified Lead',
   'lead.scored': '',

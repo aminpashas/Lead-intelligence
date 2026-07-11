@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { processEncounter, extractFromTranscript } from '@/lib/ai/encounter-processor'
+import { normalizeCallOutcome, runPostCallReview } from '@/lib/voice/post-call-review'
 import { verifyRetellWebhook } from '@/lib/voice/retell-client'
 import { decryptField, searchHash } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
@@ -105,6 +106,19 @@ export async function POST(req: NextRequest) {
 
     if (!retellRes.ok) {
       console.error('[Voice Events] Retell fetch failed:', retellRes.status)
+      // Raise a system ticket — a failed get-call strands transcript/recording.
+      await runPostCallReview(supabase, {
+        callId: null,
+        organizationId: null,
+        leadId: null,
+        conversationId: null,
+        retellCallId,
+        direction: 'inbound',
+        transcript: '',
+        durationSeconds: 0,
+        currentOutcome: null,
+        retellFetchOk: false,
+      })
       return NextResponse.json({ received: true })
     }
 
@@ -207,6 +221,20 @@ export async function POST(req: NextRequest) {
     // SIP-trunk calls are usually pre-registered by /api/voice/inbound, so the
     // row typically EXISTS — update by retell_call_id, which needs neither
     // leadId nor orgId. Insert only when no row exists AND we can attribute it.
+    // Outcome MUST come from the normalizer: voice_calls.outcome has a CHECK
+    // constraint, and writing a raw disconnection_reason ('user_hangup', …)
+    // used to fail the whole finalization UPDATE. A null outcome here means
+    // "connected but unclassified" — the AI review below refines it, and the
+    // UI renders it as "Needs Review" rather than a silent blank.
+    const normalizedOutcome = normalizeCallOutcome({
+      disconnectionReason,
+      callSuccessful: callAnalysis.call_successful as boolean | null,
+      userSentiment: callAnalysis.user_sentiment as string | null,
+      appointmentBooked: !!extracted.appointmentBooked,
+      durationSeconds: callDuration,
+      hasTranscript: transcript.trim().length > 0,
+    })
+
     const callRecord = {
       status: 'completed',
       ended_at: callData.end_timestamp
@@ -216,8 +244,8 @@ export async function POST(req: NextRequest) {
       recording_url: recordingUrl,
       transcript: transcript.slice(0, 50000),
       transcript_summary: (callAnalysis.call_summary as string) || null,
-      outcome: extracted.appointmentBooked ? 'appointment_booked'
-        : (callAnalysis.call_successful ? 'interested' : disconnectionReason),
+      outcome: normalizedOutcome,
+      review_status: 'pending',
       metadata: {
         ...callMetadata,
         call_analysis: callAnalysis,
@@ -230,12 +258,14 @@ export async function POST(req: NextRequest) {
       .from('voice_calls').select('id')
       .eq('retell_call_id', retellCallId).maybeSingle()
 
+    let finalizedCallId: string | null = null
     if (existingCall) {
+      finalizedCallId = existingCall.id
       const { error: updateError } = await supabase
         .from('voice_calls').update(callRecord).eq('id', existingCall.id)
       if (updateError) console.error('[Voice Events] voice_calls update failed:', updateError)
     } else if (orgId && leadId) {
-      const { error: insertError } = await supabase.from('voice_calls').insert({
+      const { data: insertedCall, error: insertError } = await supabase.from('voice_calls').insert({
         ...callRecord,
         organization_id: orgId,
         lead_id: leadId,
@@ -248,7 +278,8 @@ export async function POST(req: NextRequest) {
           ? new Date(callData.start_timestamp as number).toISOString()
           : new Date().toISOString(),
         consent_verified: true,
-      })
+      }).select('id').single()
+      finalizedCallId = insertedCall?.id ?? null
       if (insertError) console.error('[Voice Events] voice_calls insert failed:', insertError)
     } else {
       // No pre-registered row and we couldn't attribute the call to an org/lead
@@ -318,6 +349,42 @@ export async function POST(req: NextRequest) {
       }
     } else {
       console.log('[Voice Events] Skipping AI processing (no transcript/attribution)', { leadId, orgId, hasTranscript: !!transcript })
+    }
+
+    // ── 6. Post-call review — outcome refinement, issue flags → admin
+    //    escalation, technical findings → agency improvement tickets.
+    //    Only on call_analyzed (the second, analysis-bearing event) so each
+    //    call is reviewed exactly once; the review_status guard makes a
+    //    duplicate delivery a no-op. Isolated: failures never strand the
+    //    finalized record.
+    if (event === 'call_analyzed') {
+      try {
+        let alreadyReviewed = false
+        if (finalizedCallId) {
+          const { data: reviewRow } = await supabase
+            .from('voice_calls')
+            .select('review_status')
+            .eq('id', finalizedCallId)
+            .maybeSingle()
+          alreadyReviewed = !!reviewRow?.review_status && reviewRow.review_status !== 'pending'
+        }
+        if (!alreadyReviewed) {
+          await runPostCallReview(supabase, {
+            callId: finalizedCallId,
+            organizationId: orgId,
+            leadId,
+            conversationId,
+            retellCallId,
+            direction,
+            transcript,
+            durationSeconds: callDuration,
+            disconnectionReason,
+            currentOutcome: normalizedOutcome,
+          })
+        }
+      } catch (reviewErr) {
+        console.error('[Voice Events] Post-call review failed (non-fatal):', reviewErr)
+      }
     }
 
   } catch (error) {
