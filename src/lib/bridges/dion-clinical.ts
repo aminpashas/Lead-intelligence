@@ -230,6 +230,73 @@ export async function fetchCaseSurgeryStatus(p: {
   }
 }
 
+/** A curated, PHI-bounded follow-up brief for a finished visit — the READ-arm
+ * payload Dion Clinical returns from /api/encounters/:id/brief. The note gist
+ * (assessment/plan) is clinical narrative and INTERNAL: never disclose it to the
+ * patient. `externalCaseId` is the LI clinical_cases.id — the bridge back to a lead. */
+export type DionEncounterBrief = {
+  encounterId: string
+  found: boolean
+  dionPatientId: string | null
+  externalCaseId: string | null
+  externalPlanId: string | null
+  encounterStatus: string | null
+  completedAt: string | null
+  note: {
+    type: string
+    status: string
+    signed: boolean
+    assessment: string | null
+    plan: string | null
+  } | null
+  findings: Array<{ kind: string; severity: string }>
+}
+
+export type DionEncounterBriefResult = {
+  ok: boolean
+  /** true when the bridge isn't configured or we lack a practice id — a no-op. */
+  skipped?: boolean
+  found?: boolean
+  brief?: DionEncounterBrief
+  status?: number
+  error?: string
+}
+
+/**
+ * Pull an encounter follow-up brief from Dion Clinical — the READ half of the
+ * "encounter summarized → notify → pull brief" loop. Called after LI receives a
+ * clinical.scribe_completed / clinical.encounter_completed event off the bus.
+ * Clinical scopes the read by practice; mirrors fetchCaseSurgeryStatus (never
+ * throws — a federation hiccup must not break inbound processing).
+ */
+export async function fetchEncounterBrief(p: {
+  encounterId: string
+  dionPracticeId?: string | null
+}): Promise<DionEncounterBriefResult> {
+  const config = getConfig()
+  if (!config) return { ok: true, skipped: true }
+  if (!p.dionPracticeId) return { ok: true, skipped: true }
+
+  try {
+    const url =
+      `${config.base}/api/encounters/${encodeURIComponent(p.encounterId)}/brief` +
+      `?dionPracticeId=${encodeURIComponent(p.dionPracticeId)}`
+    const res = await fetch(url, {
+      headers: dionHeaders(config),
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (res.status === 404) return { ok: true, found: false }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return { ok: false, status: res.status, error: `dion-clinical ${res.status}: ${text.slice(0, 200)}` }
+    }
+    const json = (await res.json().catch(() => ({}))) as DionEncounterBrief
+    return { ok: true, found: json.found === true, brief: json }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'fetch failed' }
+  }
+}
+
 export function emitAppointmentCancelled(p: {
   appointmentId: string
   reasonCode?: string

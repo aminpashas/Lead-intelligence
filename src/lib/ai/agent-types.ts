@@ -94,6 +94,14 @@ export type AgentContext = {
    * The string is the step's goal, written by staff in the Workflows tab.
    */
   outreach_instruction?: string
+  /**
+   * INTERNAL latest-visit outcome pulled from Dion Clinical after the ambient
+   * scribe summarizes a consult (assessment + plan gist, finding flags). Lands on
+   * leads.appointment_summary. Use it to STEER the follow-up (what was recommended,
+   * what's unresolved) — it is clinical narrative, so do NOT quote specifics to
+   * the patient unless disclose_phi is true.
+   */
+  appointment_summary?: string | null
 }
 
 export type CompetitorContext = {

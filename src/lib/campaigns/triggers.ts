@@ -14,6 +14,7 @@ export type TriggerEvent =
   | 'appointment_no_show'
   | 'appointment_scheduled'
   | 'consult_completed'
+  | 'encounter_summarized'
   | 'lead_went_cold'
   | 'lead_qualified'
   | 'lead_disqualified'

@@ -371,6 +371,29 @@ ${list}
 }
 
 /**
+ * The latest-visit outcome pulled from Dion Clinical's ambient scribe (assessment
+ * + plan gist, finding flags). This is INTERNAL clinical narrative: it steers the
+ * follow-up but must not be recited to the patient unless PHI disclosure is
+ * verified. When `gated` (identity unverified / patient-facing), we still give the
+ * agent the context but harden the do-not-disclose instruction.
+ */
+function formatLastVisitSummaryForPrompt(context: AgentContext, gated: boolean): string {
+  const summary = context.appointment_summary ?? context.lead.appointment_summary
+  if (!summary || !summary.trim()) return ''
+  return `
+═══ LAST VISIT SUMMARY (INTERNAL — from Dion Clinical scribe) ═══
+
+Use this to steer the follow-up — reference what was recommended and what's still
+unresolved so the patient feels heard and understood. This is clinical context;
+${gated
+  ? 'the person on the other end is NOT identity-verified — do NOT reveal or confirm any clinical detail, diagnosis, treatment specifics, or costs from it.'
+  : 'do NOT quote clinical specifics (diagnoses, findings, measurements) verbatim — speak in general, supportive terms and direct the patient to call/visit for specifics.'}
+
+${summary.trim()}
+`
+}
+
+/**
  * Options for a proactive, scheduled nurture touch (vs. an inbound reply).
  * Used by the post-consult funding-nurture campaign executor.
  */
@@ -434,6 +457,7 @@ Messages exchanged: ${context.message_count}
 ${context.financing_context ? formatFinancingContextForPrompt(context.financing_context) : ''}
 ${formatCompetitorContextForPrompt(context)}
 ${formatNegotiationLeversForPrompt(context)}
+${formatLastVisitSummaryForPrompt(context, gated)}
 ${(context.lead_status === 'contract_signed' || context.lead_status === 'scheduled') ? `
 ═══ TREATMENT CLOSING WORKFLOW ═══
 

@@ -279,6 +279,14 @@ export type Lead = {
   closing_updated_at: string | null
   closing_follow_up_at: string | null
 
+  // Clinical visit outcome (Dion Clinical scribe → LI, see dion-encounter-brief.ts).
+  // appointment_summary is INTERNAL clinical narrative — steers follow-ups, never
+  // disclosed to the patient. dion_patient_id is the suite-wide identity link,
+  // backfilled when an encounter brief matches this lead.
+  dion_patient_id: string | null
+  appointment_summary: string | null
+  last_encounter_brief_at: string | null
+
   // Metadata
   tags: string[]
   custom_fields: Record<string, unknown>

@@ -149,6 +149,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/dion-inbox-reprocess",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/calibrate-scoring",
       "schedule": "0 2 * * 0"
     }
