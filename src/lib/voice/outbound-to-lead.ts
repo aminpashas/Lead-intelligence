@@ -24,6 +24,8 @@ import { recordAudit } from '@/lib/audit/record'
 import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
 import { buildLeadContextVariables } from './lead-context'
 import { formatPhoneForSpeech } from '@/lib/leads/phone'
+import { getBrandingForOrg } from '@/lib/branding/store'
+import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
 
 export type OutboundToLeadResult =
   | { placed: true; call: RetellCallResponse }
@@ -68,7 +70,7 @@ export async function placeOutboundCallToLead(
   // Look up lead phone (decrypt if needed) + the org's outbound caller-ID number.
   const { data: lead } = await params.supabase
     .from('leads')
-    .select('id, first_name, last_name, phone, phone_formatted')
+    .select('id, first_name, last_name, phone, phone_formatted, tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
     .eq('id', params.leadId)
     .single()
 
@@ -137,6 +139,11 @@ export async function placeOutboundCallToLead(
     params.leadId
   )
 
+  // Resolve per-service-line branding so the agent can identify with the right
+  // practice name / doctor / website instead of a generic default.
+  const { branding, orgName } = await getBrandingForOrg(params.supabase, params.organizationId)
+  const brand = resolveBrandForContext(branding, orgName, { lead: (lead as never) })
+
   try {
     const call = await createOutboundCall(agentId, {
       from_number: fromNumber,
@@ -169,6 +176,11 @@ export async function placeOutboundCallToLead(
         // Conversation + appointment memory ({{conversation_summary}},
         // {{recent_messages}}, {{upcoming_appointment}}, …).
         ...contextVars,
+        // Per-service-line branding so the agent identifies with the right
+        // practice/doctor/website ({{practice_name}}, {{doctor_name}}, {{brand_website}}).
+        practice_name: brand.practiceName,
+        doctor_name: brand.doctorName || '',
+        brand_website: brand.website || '',
         ...(params.dynamicVariables || {}),
       },
     })
