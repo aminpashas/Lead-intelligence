@@ -25,6 +25,21 @@ describe('parseBranding', () => {
     expect(b.logistics.addressText).toBe('')
   })
 
+  it('parses the by-car and what-to-expect logistics fields', () => {
+    const b = parseBranding({
+      logistics: {
+        addressText: '450 Sutter St',
+        drivingText: 'Corner of Sutter & Powell',
+        transitText: 'Powell St BART',
+        whatToExpectText: 'Arrive 10 min early. Bring ID.',
+      },
+    })
+    expect(b.logistics.drivingText).toBe('Corner of Sutter & Powell')
+    expect(b.logistics.whatToExpectText).toBe('Arrive 10 min early. Bring ID.')
+    // Unsent keys still default to empty strings.
+    expect(b.logistics.parkingText).toBe('')
+  })
+
   it('keeps the standard service-line → brand mapping and default brand', () => {
     const b = parseBranding({})
     expect(b.serviceLineToBrand.implants).toBe('dion_health')

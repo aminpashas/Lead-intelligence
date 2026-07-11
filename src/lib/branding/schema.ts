@@ -8,8 +8,13 @@ export type Brand = {
 
 export type BrandLogistics = {
   addressText: string
+  /** How to get here by car — route/landmarks (distinct from where to park). */
+  drivingText: string
   parkingText: string
+  /** How to get here by BART / public transit. */
   transitText: string
+  /** What to expect at the visit (arrival, what to bring, how long). Email only. */
+  whatToExpectText: string
 }
 
 export type Branding = {
@@ -41,7 +46,7 @@ export const DEFAULT_BRANDING: Branding = {
     lanap: 'sf_dentistry',
   },
   defaultBrand: 'sf_dentistry',
-  logistics: { addressText: '', parkingText: '', transitText: '' },
+  logistics: { addressText: '', drivingText: '', parkingText: '', transitText: '', whatToExpectText: '' },
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
@@ -78,8 +83,10 @@ export function parseBranding(raw: unknown): Branding {
   const rawLog = (r.logistics && typeof r.logistics === 'object' ? r.logistics : {}) as Record<string, unknown>
   const logistics: BrandLogistics = {
     addressText: str(rawLog.addressText),
+    drivingText: str(rawLog.drivingText),
     parkingText: str(rawLog.parkingText),
     transitText: str(rawLog.transitText),
+    whatToExpectText: str(rawLog.whatToExpectText),
   }
 
   return {
@@ -101,8 +108,10 @@ export const brandingPatchSchema = z.object({
   defaultBrand: z.string().max(60).optional(),
   logistics: z.object({
     addressText: z.string().max(500).optional(),
+    drivingText: z.string().max(1000).optional(),
     parkingText: z.string().max(1000).optional(),
     transitText: z.string().max(1000).optional(),
+    whatToExpectText: z.string().max(2000).optional(),
   }).optional(),
 })
 

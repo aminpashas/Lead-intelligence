@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { RoleGuard } from '@/components/auth/role-guard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
@@ -11,7 +12,21 @@ import { Loader2 } from 'lucide-react'
 import { BRAND_SLUGS } from '@/lib/branding/schema'
 
 type BrandForm = { name: string; doctorName: string; website: string }
-type LogisticsForm = { addressText: string; parkingText: string; transitText: string }
+type LogisticsForm = {
+  addressText: string
+  drivingText: string
+  parkingText: string
+  transitText: string
+  whatToExpectText: string
+}
+
+const EMPTY_LOGISTICS: LogisticsForm = {
+  addressText: '',
+  drivingText: '',
+  parkingText: '',
+  transitText: '',
+  whatToExpectText: '',
+}
 
 const BRAND_LABELS: Record<string, string> = {
   dion_health: 'Dion Health (implants)',
@@ -34,7 +49,7 @@ function BrandingSettingsContent() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [brands, setBrands] = useState<Record<string, BrandForm>>({})
-  const [logistics, setLogistics] = useState<LogisticsForm>({ addressText: '', parkingText: '', transitText: '' })
+  const [logistics, setLogistics] = useState<LogisticsForm>(EMPTY_LOGISTICS)
 
   useEffect(() => {
     void (async () => {
@@ -50,8 +65,10 @@ function BrandingSettingsContent() {
         setBrands(mapped)
         setLogistics({
           addressText: b?.logistics?.addressText ?? '',
+          drivingText: b?.logistics?.drivingText ?? '',
           parkingText: b?.logistics?.parkingText ?? '',
           transitText: b?.logistics?.transitText ?? '',
+          whatToExpectText: b?.logistics?.whatToExpectText ?? '',
         })
       }
       setLoading(false)
@@ -89,7 +106,8 @@ function BrandingSettingsContent() {
         <h1 className="aurea-display text-[40px] text-aurea-ink sm:text-[52px]">Branding</h1>
         <p className="mt-4 max-w-2xl text-[16px] leading-relaxed text-aurea-ink-2">
           Each service line speaks its own brand on calls, texts, and emails. The doctor name is spoken only where set
-          (leave blank for general dentistry). Parking &amp; transit is shared across all brands (one office).
+          (leave blank for general dentistry). Address, directions &amp; &ldquo;what to expect&rdquo; are shared across
+          all brands (one office) and are attached to every booking confirmation to cut no-shows.
         </p>
       </header>
 
@@ -141,6 +159,15 @@ function BrandingSettingsContent() {
             />
           </div>
           <div>
+            <Label className="text-[12px] text-aurea-ink-3">By car</Label>
+            <Input
+              value={logistics.drivingText}
+              onChange={(e) => setLogistics((p) => ({ ...p, drivingText: e.target.value }))}
+              placeholder="At the corner of Sutter &amp; Powell, one block from Union Square…"
+              className="mt-1"
+            />
+          </div>
+          <div>
             <Label className="text-[12px] text-aurea-ink-3">Parking</Label>
             <Input
               value={logistics.parkingText}
@@ -150,11 +177,21 @@ function BrandingSettingsContent() {
             />
           </div>
           <div>
-            <Label className="text-[12px] text-aurea-ink-3">Transit / BART</Label>
+            <Label className="text-[12px] text-aurea-ink-3">By BART / transit</Label>
             <Input
               value={logistics.transitText}
               onChange={(e) => setLogistics((p) => ({ ...p, transitText: e.target.value }))}
-              placeholder="BART: exit Montgomery St, 5-min walk up Sutter…"
+              placeholder="Powell St BART, 3-block walk up Powell to Sutter…"
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label className="text-[12px] text-aurea-ink-3">What to expect (email only)</Label>
+            <Textarea
+              value={logistics.whatToExpectText}
+              onChange={(e) => setLogistics((p) => ({ ...p, whatToExpectText: e.target.value }))}
+              placeholder="Arrive 10 minutes early. Bring your ID and insurance card. Your consultation lasts about 60 minutes…"
+              rows={4}
               className="mt-1"
             />
           </div>

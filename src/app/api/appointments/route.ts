@@ -216,34 +216,66 @@ export async function POST(request: NextRequest) {
     try {
       const { getBrandingForOrg } = await import('@/lib/branding/store')
       const { resolveBrandForContext } = await import('@/lib/branding/resolve-brand')
+      const { renderVisitLogistics } = await import('@/lib/branding/visit-logistics')
       const { branding, orgName } = await getBrandingForOrg(supabase, orgId)
 
       const { data: confLead } = await supabase
         .from('leads')
-        .select('first_name, phone_formatted, tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
+        .select('first_name, phone_formatted, email, tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
         .eq('id', parsed.data.lead_id)
         .maybeSingle()
       const phone = confLead?.phone_formatted ? (decryptField(confLead.phone_formatted as string) || null) : null
+      const email = confLead?.email ? (decryptField(confLead.email as string) || null) : null
       const brand = resolveBrandForContext(branding, orgName, { lead: (confLead as never) ?? null })
+      const logistics = renderVisitLogistics(brand)
+
+      // Render the time in the practice's timezone (falls back to the default
+      // practice tz) so the patient sees their local appointment time, not server UTC.
+      const tz = (bookingSettings?.timezone as string | null) || 'America/Los_Angeles'
+      const when = new Date(appointment.scheduled_at as string).toLocaleString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz,
+      })
+      const firstName = confLead?.first_name || 'there'
 
       if (phone) {
-        // Render the time in the practice's timezone (falls back to the default
-        // practice tz) so the patient sees their local appointment time, not server UTC.
-        const tz = (bookingSettings?.timezone as string | null) || 'America/Los_Angeles'
-        const when = new Date(appointment.scheduled_at as string).toLocaleString('en-US', {
-          weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz,
-        })
-        const logisticsLine = [brand.logistics.parkingText, brand.logistics.transitText]
-          .filter((s) => s && s.trim()).join(' ')
         // Consent-gated lead-facing send: sendSMSToLead enforces TCPA consent/DNC/opt-out
         // (and still funnels through the same MESSAGING_DRY_RUN choke point as sendSMS).
         await sendSMSToLead({
           supabase,
           leadId: parsed.data.lead_id,
           to: phone,
-          body: `Hi ${confLead?.first_name || 'there'}! Your appointment at ${brand.practiceName} is confirmed for ${when}.${logisticsLine ? ` ${logisticsLine}` : ''} Reply STOP to opt out.`,
+          body: `Hi ${firstName}! Your appointment at ${brand.practiceName} is confirmed for ${when}.${logistics.smsSuffix ? ` ${logistics.smsSuffix}` : ''} Reply STOP to opt out.`,
           caller: 'appointments.staff_booking_confirmation',
           actor: { id: profile.id, label: profile.full_name ?? null },
+        })
+      }
+
+      // Rich confirmation email — the address/directions/"what to expect" the
+      // patient needs to actually show up. Consent-gated like the SMS.
+      if (email) {
+        const { sendEmailToLead } = await import('@/lib/messaging/resend')
+        const { escapeHtml } = await import('@/lib/utils')
+        await sendEmailToLead({
+          supabase,
+          leadId: parsed.data.lead_id,
+          to: email,
+          subject: `Appointment Confirmed — ${brand.practiceName}`,
+          html: `
+        <div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+          <h2 style="color: #111;">Your Appointment is Confirmed!</h2>
+          <p>Hi ${escapeHtml(firstName)},</p>
+          <p>You're all set for your appointment at <strong>${escapeHtml(brand.practiceName)}</strong>.</p>
+          <div style="background: #f9f9f9; padding: 16px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 4px 0;"><strong>When:</strong> ${escapeHtml(when)}</p>
+          </div>
+          ${logistics.emailHtml}
+          <p style="color: #666; font-size: 12px; margin-top: 24px;">
+            Need to reschedule? Reply to this email or call us.
+          </p>
+        </div>
+      `,
+          text: `Hi ${firstName}, your appointment at ${brand.practiceName} is confirmed for ${when}.${logistics.emailText ? `\n\n${logistics.emailText}` : ''}\n\nWe look forward to seeing you!`,
+          caller: 'appointments.staff_booking_confirmation',
         })
       }
     } catch (err) {
@@ -251,8 +283,8 @@ export async function POST(request: NextRequest) {
         organization_id: orgId,
         lead_id: parsed.data.lead_id,
         activity_type: 'notification_failed',
-        title: 'Staff booking confirmation SMS failed',
-        metadata: { error: err instanceof Error ? err.message : 'unknown', channel: 'sms' },
+        title: 'Staff booking confirmation failed',
+        metadata: { error: err instanceof Error ? err.message : 'unknown', channel: 'sms+email' },
       })
     }
   }

@@ -14,6 +14,7 @@ import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 import { getBrandingForOrg } from '@/lib/branding/store'
 import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
+import { renderVisitLogistics } from '@/lib/branding/visit-logistics'
 
 const bookingSchema = z.object({
   slot_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -267,12 +268,10 @@ export async function POST(
   const brand = resolveBrandForContext(branding, orgDisplayName, { lead: (brandLead as never) ?? null })
   const orgName = brand.practiceName
 
-  const logisticsLine = [brand.logistics.parkingText, brand.logistics.transitText]
-    .filter((s) => s && s.trim())
-    .join(' ')
+  const logistics = renderVisitLogistics(brand)
 
   try {
-    await sendSMS(phone, `Hi ${first_name}! Your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}.${logisticsLine ? ` ${logisticsLine}` : ''} We look forward to seeing you! Reply STOP to opt out.`)
+    await sendSMS(phone, `Hi ${first_name}! Your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}.${logistics.smsSuffix ? ` ${logistics.smsSuffix}` : ''} We look forward to seeing you! Reply STOP to opt out.`)
   } catch (err) {
     // Log SMS failure for visibility
     await supabase.from('lead_activities').insert({
@@ -300,20 +299,14 @@ export async function POST(
             <p style="margin: 4px 0;"><strong>Duration:</strong> ${settings.slot_duration_minutes} minutes</p>
             ${settings.location ? `<p style="margin: 4px 0;"><strong>Location:</strong> ${escapeHtml(settings.location)}</p>` : ''}
           </div>
-          ${(brand.logistics.addressText || brand.logistics.parkingText || brand.logistics.transitText) ? `
-          <div style="background: #f4f8ff; padding: 16px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 0 0 8px; font-weight: 600;">Getting here</p>
-            ${brand.logistics.addressText ? `<p style="margin: 4px 0;">${escapeHtml(brand.logistics.addressText)}</p>` : ''}
-            ${brand.logistics.parkingText ? `<p style="margin: 4px 0;"><strong>Parking:</strong> ${escapeHtml(brand.logistics.parkingText)}</p>` : ''}
-            ${brand.logistics.transitText ? `<p style="margin: 4px 0;"><strong>Transit:</strong> ${escapeHtml(brand.logistics.transitText)}</p>` : ''}
-          </div>` : ''}
+          ${logistics.emailHtml}
           <p>${escapeHtml(settings.booking_message || 'We look forward to seeing you!')}</p>
           <p style="color: #666; font-size: 12px; margin-top: 24px;">
             Need to reschedule? Reply to this email or call us.
           </p>
         </div>
       `,
-      text: `Hi ${first_name}, your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}. ${settings.location ? `Location: ${settings.location}. ` : ''}${logisticsLine ? `${logisticsLine} ` : ''}We look forward to seeing you!`,
+      text: `Hi ${first_name}, your consultation at ${orgName} is confirmed for ${dateDisplay} at ${timeDisplay}.${settings.location ? ` Location: ${settings.location}.` : ''}${logistics.emailText ? `\n\n${logistics.emailText}` : ''}\n\nWe look forward to seeing you!`,
     })
   } catch (err) {
     // Log email failure for visibility
