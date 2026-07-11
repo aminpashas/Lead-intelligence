@@ -9,6 +9,7 @@ import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { assertActiveSubscription } from '@/lib/auth/entitlement'
+import { emailCampaignGate } from '@/lib/consent/gate'
 
 const sendEmailSchema = z.object({
   lead_id: z.string().uuid(),
@@ -43,13 +44,25 @@ export async function POST(request: NextRequest) {
 
   const { data: lead } = await supabase
     .from('leads')
-    .select('id, email, first_name, last_name, organization_id')
+    .select('id, email, first_name, last_name, organization_id, email_opt_out, email_consent, email_consent_status')
     .eq('id', parsed.data.lead_id)
     .eq('organization_id', orgId) // Defense-in-depth: explicit org scoping
     .single()
 
   if (!lead || !lead.email) {
     return NextResponse.json({ error: 'Lead not found or has no email' }, { status: 404 })
+  }
+
+  // A staff-authored 1:1 email may go to a consent-unknown lead (allowUnconsented),
+  // but NEVER to someone who opted out or explicitly declined — that floor is
+  // non-waivable (CAN-SPAM honor-the-unsubscribe). This closes the prior gap where
+  // manual email ignored email_opt_out entirely.
+  const emailGate = emailCampaignGate(lead, { allowUnconsented: true })
+  if (!emailGate.allowed) {
+    return NextResponse.json(
+      { error: 'This lead has opted out of email', reason: emailGate.reason },
+      { status: 403 }
+    )
   }
 
   // Decrypt PII fields
