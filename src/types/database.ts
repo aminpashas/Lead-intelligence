@@ -18,6 +18,19 @@ export type Organization = {
   trial_ends_at: string | null
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
+  // Optional parent enterprise (DSO). NULL = standalone single-location practice.
+  enterprise_account_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+// DSO/enterprise umbrella grouping N locations (organizations). Admin + reporting
+// only — billing/pricing stay per-location. Agency-admin managed (migration
+// 20260711220000_enterprise_accounts).
+export type EnterpriseAccount = {
+  id: string
+  name: string
+  slug: string
   created_at: string
   updated_at: string
 }
