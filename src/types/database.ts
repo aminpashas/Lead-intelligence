@@ -258,9 +258,13 @@ export type Lead = {
 
   // In-Closing workflow (/closing board). Manual temperature is an override of
   // the derived value (see src/lib/pipeline/closing.ts); null = use derived.
-  closing_temperature: 'hot' | 'warm' | 'cold' | 'stalled' | null
+  // 'deliberating' is manual-only: patient saw the plan and is actively deciding
+  // ("thinking / spouse / saving up"); closing_follow_up_at carries the date to
+  // circle back, so the deal is muted from the live queue until then.
+  closing_temperature: 'hot' | 'warm' | 'cold' | 'stalled' | 'deliberating' | null
   closing_next_step: string | null
   closing_updated_at: string | null
+  closing_follow_up_at: string | null
 
   // Metadata
   tags: string[]
@@ -475,7 +479,10 @@ export type Appointment = {
   lead_id: string
   assigned_to: string | null
   type: 'consultation' | 'follow_up' | 'treatment' | 'scan' | 'other'
-  status: 'scheduled' | 'confirmed' | 'completed' | 'no_show' | 'canceled' | 'rescheduled'
+  // 'pending_card' is a held slot awaiting a card-on-file (card_on_file_required
+  // mode) — NOT a confirmed booking. The Stripe webhook flips it to 'scheduled'
+  // once the card lands. Excluded from confirmed views, reminders, and counts.
+  status: 'scheduled' | 'confirmed' | 'completed' | 'no_show' | 'canceled' | 'rescheduled' | 'pending_card'
   scheduled_at: string
   duration_minutes: number
   location: string | null
@@ -1030,6 +1037,12 @@ export type SmartListCriteria = {
   /** Leads last contacted before this ISO datetime, OR never contacted (null).
    *  Powers "needs follow-up" segments (Pipeline recommendations engine). */
   last_contacted_before?: string
+  /** Closer workflow temperature(s), e.g. ['deliberating']. Matches
+   *  leads.closing_temperature. */
+  closing_temperatures?: string[]
+  /** Deliberating deals whose follow-up date has arrived: closing_follow_up_at
+   *  IS NOT NULL AND <= this ISO datetime. Powers the "due follow-up" rec. */
+  closing_follow_up_before?: string
   /** Only leads that have never been contacted (last_contacted_at is null). */
   never_contacted?: boolean
   has_phone?: boolean

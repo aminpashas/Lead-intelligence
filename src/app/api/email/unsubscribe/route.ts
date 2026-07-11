@@ -21,7 +21,9 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  // Verify HMAC (legacy unsigned tokens still accepted for grandfathered emails).
+  // Verify HMAC — fail-closed. The payload (base64 leadId:orgId) is not secret,
+  // so an unsigned/forged token must be rejected or anyone could suppress another
+  // org's leads.
   if (!verifyUnsubscribeToken(token)) {
     return new NextResponse(renderPage('Invalid unsubscribe link.', false), {
       headers: { 'Content-Type': 'text/html' },

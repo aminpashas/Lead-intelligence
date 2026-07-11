@@ -9,6 +9,11 @@ import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
 import { serviceLineOrFilter } from '@/lib/leads/service-line'
 import { resolveLeadDateRange } from '@/lib/leads/date-range'
+import {
+  applyDerivedFilter,
+  isDerivedColumnKey,
+  ACTIVE_COMMS_WINDOW_DAYS,
+} from '@/lib/pipeline/derived-columns'
 import { OFF_FUNNEL_STAGE_SLUGS } from '@/lib/pipeline/stage-groups'
 
 // URL sort key → leads column, whitelisted so the param can't order by
@@ -97,6 +102,14 @@ export default async function LeadsPage({
   if (params.service) {
     const or = serviceLineOrFilter(params.service)
     if (or) query = query.or(or)
+  }
+  // Derived "signal" filter — the deep-link target from the pipeline board's
+  // read-only signal columns. Reuses the SAME predicate as those columns, so the
+  // list here matches a column's header count exactly. Guarded because the key
+  // comes from the URL (see isDerivedColumnKey).
+  if (isDerivedColumnKey(params.signal)) {
+    const cutoffIso = new Date(Date.now() - ACTIVE_COMMS_WINDOW_DAYS * 86_400_000).toISOString()
+    query = applyDerivedFilter(query, params.signal, cutoffIso)
   }
   if (params.search) {
     // email/phone are encrypted at rest — ilike can't match ciphertext, so

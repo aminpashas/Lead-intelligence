@@ -31,6 +31,9 @@ const TONES = [
   { value: 'friendly', label: 'Friendly & Casual' },
 ]
 
+const MODEL_LABELS: Record<string, string> = Object.fromEntries(MODELS.map((m) => [m.value, m.label]))
+const TONE_LABELS: Record<string, string> = Object.fromEntries(TONES.map((t) => [t.value, t.label]))
+
 interface AgencyConfigClientProps {
   initialPersona: {
     name: string
@@ -110,7 +113,7 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
 
           <div className="space-y-2">
             <Label className="text-aurea-ink-2">Communication Tone</Label>
-            <Select value={tone} onValueChange={(v) => v && setTone(v)}>
+            <Select items={TONE_LABELS} value={tone} onValueChange={(v) => v && setTone(v)}>
               <SelectTrigger className="bg-aurea-surface-2 border-aurea-border text-aurea-ink focus:ring-aurea-primary">
                 <SelectValue />
               </SelectTrigger>
@@ -157,7 +160,7 @@ export function AgencyConfigClient({ initialPersona, initialModel }: AgencyConfi
         <CardContent className="space-y-5">
           <div className="space-y-2">
             <Label className="text-aurea-ink-2">Model</Label>
-            <Select value={model} onValueChange={(v) => v && setModel(v)}>
+            <Select items={MODEL_LABELS} value={model} onValueChange={(v) => v && setModel(v)}>
               <SelectTrigger className="bg-aurea-surface-2 border-aurea-border text-aurea-ink focus:ring-aurea-primary">
                 <SelectValue />
               </SelectTrigger>

@@ -19,13 +19,14 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { ArrowDown, ArrowUp, Brain, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import { ArrowDown, ArrowUp, Brain, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { TagBadgeList } from './tag-badge'
 import { formatCampaignAttribution } from '@/lib/attribution'
 import type { Lead, PipelineStage, Tag } from '@/types/database'
 import { LeadActions } from './lead-actions'
 import { LEAD_DATE_RANGES } from '@/lib/leads/date-range'
-import { useState } from 'react'
+import { cn } from '@/lib/utils'
+import { useState, type ReactNode } from 'react'
 
 // Lead qualification chips — monochrome editorial palette
 const qualificationColors: Record<string, string> = {
@@ -100,6 +101,82 @@ export function LeadsTable({
     updateFilters('search', search)
   }
 
+  // Which filters are currently narrowing the list (search included).
+  const FILTER_KEYS = ['search', 'range', 'qualification', 'status', 'service', 'source', 'credit', 'campaign', 'tag']
+  const activeFilterCount = FILTER_KEYS.filter((k) => searchParams.get(k)).length
+
+  // Reset every filter but keep the current sort — a clean slate, not a reload.
+  function clearAll() {
+    const params = new URLSearchParams()
+    const sort = searchParams.get('sort')
+    const dir = searchParams.get('dir')
+    if (sort) params.set('sort', sort)
+    if (dir) params.set('dir', dir)
+    setSearch('')
+    router.push(`/leads?${params.toString()}`)
+  }
+
+  /**
+   * One filter dropdown. Base UI's <Select.Value> renders the raw value, so we
+   * feed it an `items` map (value → trigger text). The category name is always
+   * shown so you can tell what the filter does at a glance: idle reads "Source"
+   * / "Status", and a set filter reads "Status: New" rather than a bare "New"
+   * that gives no clue which column it narrows. A set filter is accent-tinted.
+   */
+  function FilterSelect({
+    paramKey,
+    label,
+    allLabel,
+    options,
+    className,
+  }: {
+    paramKey: string
+    label: string
+    allLabel: string
+    options: { value: string; row: ReactNode; text: string }[]
+    className?: string
+  }) {
+    const current = searchParams.get(paramKey) || 'all'
+    const active = current !== 'all'
+    const items: Record<string, ReactNode> = { all: label }
+    for (const o of options) {
+      items[o.value] = (
+        <span className="truncate">
+          <span className="text-aurea-ink-3">{label}:</span> {o.text}
+        </span>
+      )
+    }
+    return (
+      <Select items={items} value={current} onValueChange={(v) => updateFilters(paramKey, v)}>
+        <SelectTrigger
+          className={cn(
+            'w-40',
+            active && 'border-aurea-primary/40 bg-aurea-primary/5 font-medium text-aurea-primary',
+            className
+          )}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">{allLabel}</SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.row}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
+  }
+
+  // Facet rows carry a muted count suffix; the trigger keeps just the label.
+  const countRow = (label: ReactNode, count: number): ReactNode => (
+    <span className="flex items-center gap-1.5">
+      {label}
+      <span className="text-aurea-ink-3">({count.toLocaleString()})</span>
+    </span>
+  )
+
   // Column-header sorting: first click sorts desc (asc for name), second
   // click flips direction. State lives in the URL like every other filter.
   const activeSort = searchParams.get('sort') || 'created'
@@ -142,11 +219,11 @@ export function LeadsTable({
   return (
     <div className="space-y-4">
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative max-w-sm flex-1">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <div className="relative min-w-[200px] max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-aurea-ink-3" strokeWidth={1.75} />
           <Input
-            placeholder="Search leads..."
+            placeholder="Search name, email, or phone…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -155,167 +232,128 @@ export function LeadsTable({
         </div>
 
         {/* Date range — filters on created_at (calendar days, practice tz) */}
-        <Select
-          value={searchParams.get('range') || 'all'}
-          onValueChange={(v) => updateFilters('range', v)}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Date" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Any Time</SelectItem>
-            {LEAD_DATE_RANGES.map((r) => (
-              <SelectItem key={r.value} value={r.value}>
-                {r.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <FilterSelect
+          paramKey="range"
+          label="Date"
+          allLabel="Any time"
+          options={LEAD_DATE_RANGES.map((r) => ({ value: r.value, row: r.label, text: r.label }))}
+        />
 
-        <Select
-          value={searchParams.get('qualification') || 'all'}
-          onValueChange={(v) => updateFilters('qualification', v)}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Qualification" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Any Engagement</SelectItem>
-            <SelectItem value="hot">Hot</SelectItem>
-            <SelectItem value="warm">Warm</SelectItem>
-            <SelectItem value="cold">Cold</SelectItem>
-            <SelectItem value="unqualified">Unqualified</SelectItem>
-          </SelectContent>
-        </Select>
+        <FilterSelect
+          paramKey="qualification"
+          label="Engagement"
+          allLabel="Any engagement"
+          options={[
+            { value: 'hot', row: 'Hot', text: 'Hot' },
+            { value: 'warm', row: 'Warm', text: 'Warm' },
+            { value: 'cold', row: 'Cold', text: 'Cold' },
+            { value: 'unqualified', row: 'Unqualified', text: 'Unqualified' },
+          ]}
+        />
 
-        <Select
-          value={searchParams.get('status') || 'all'}
-          onValueChange={(v) => updateFilters('status', v)}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="new">New</SelectItem>
-            <SelectItem value="contacted">Contacted</SelectItem>
-            <SelectItem value="qualified">Qualified</SelectItem>
-            <SelectItem value="consultation_scheduled">Consult Scheduled</SelectItem>
-            <SelectItem value="treatment_presented">Treatment Presented</SelectItem>
-            <SelectItem value="contract_signed">Contract Signed</SelectItem>
-            <SelectItem value="lost">Lost</SelectItem>
-          </SelectContent>
-        </Select>
+        <FilterSelect
+          paramKey="status"
+          label="Status"
+          allLabel="All statuses"
+          options={[
+            { value: 'new', row: 'New', text: 'New' },
+            { value: 'contacted', row: 'Contacted', text: 'Contacted' },
+            { value: 'qualified', row: 'Qualified', text: 'Qualified' },
+            { value: 'consultation_scheduled', row: 'Consult Scheduled', text: 'Consult Scheduled' },
+            { value: 'treatment_presented', row: 'Treatment Presented', text: 'Treatment Presented' },
+            { value: 'contract_signed', row: 'Contract Signed', text: 'Contract Signed' },
+            { value: 'lost', row: 'Lost', text: 'Lost' },
+          ]}
+        />
 
         {/* Service line */}
-        <Select
-          value={searchParams.get('service') || 'all'}
-          onValueChange={(v) => updateFilters('service', v)}
-        >
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Service" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Services</SelectItem>
-            {SERVICE_OPTIONS.map((s) => (
-              <SelectItem key={s.value} value={s.value}>
-                {s.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <FilterSelect
+          paramKey="service"
+          label="Service"
+          allLabel="All services"
+          className="w-44"
+          options={SERVICE_OPTIONS.map((s) => ({ value: s.value, row: s.label, text: s.label }))}
+        />
 
         {/* Lead source */}
         {sourceFacets && sourceFacets.length > 0 && (
-          <Select
-            value={searchParams.get('source') || 'all'}
-            onValueChange={(v) => updateFilters('source', v)}
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Source" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sources</SelectItem>
-              {sourceFacets.map((f) => (
-                <SelectItem key={f.value} value={f.value}>
-                  <span className="capitalize">{f.value.replace(/_/g, ' ')}</span>
-                  <span className="ml-1 text-aurea-ink-3">({f.count.toLocaleString()})</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <FilterSelect
+            paramKey="source"
+            label="Source"
+            allLabel="All sources"
+            className="w-44"
+            options={sourceFacets.map((f) => {
+              const text = f.value.replace(/_/g, ' ')
+              return { value: f.value, text, row: countRow(<span className="capitalize">{text}</span>, f.count) }
+            })}
+          />
         )}
 
         {/* Credit range — facet-gated: hidden until discovery captures credit
             data (empty across the imported book today). */}
         {creditFacets && creditFacets.length > 0 && (
-          <Select
-            value={searchParams.get('credit') || 'all'}
-            onValueChange={(v) => updateFilters('credit', v)}
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Credit" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any Credit</SelectItem>
-              {creditFacets.map((f) => (
-                <SelectItem key={f.value} value={f.value}>
-                  {CREDIT_LABELS[f.value] ?? f.value}
-                  <span className="ml-1 text-aurea-ink-3">({f.count.toLocaleString()})</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <FilterSelect
+            paramKey="credit"
+            label="Credit"
+            allLabel="Any credit"
+            className="w-44"
+            options={creditFacets.map((f) => {
+              const text = CREDIT_LABELS[f.value] ?? f.value
+              return { value: f.value, text, row: countRow(text, f.count) }
+            })}
+          />
         )}
 
         {/* Campaign */}
         {campaignFacets && campaignFacets.length > 0 && (
-          <Select
-            value={searchParams.get('campaign') || 'all'}
-            onValueChange={(v) => updateFilters('campaign', v)}
-          >
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Campaign" />
-            </SelectTrigger>
-            <SelectContent className="max-w-[380px]">
-              <SelectItem value="all">All Campaigns</SelectItem>
-              {campaignFacets.map((f) => (
-                <SelectItem key={f.value} value={f.value}>
-                  <span className="block max-w-[300px] truncate" title={f.value}>
-                    {f.value}
-                  </span>
-                  <span className="ml-1 text-aurea-ink-3">({f.count.toLocaleString()})</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <FilterSelect
+            paramKey="campaign"
+            label="Campaign"
+            allLabel="All campaigns"
+            className="w-56"
+            options={campaignFacets.map((f) => ({
+              value: f.value,
+              text: f.value,
+              row: countRow(
+                <span className="block max-w-[280px] truncate" title={f.value}>{f.value}</span>,
+                f.count
+              ),
+            }))}
+          />
         )}
 
         {/* Tag Filter */}
         {allTags && allTags.length > 0 && (
-          <Select
-            value={searchParams.get('tag') || 'all'}
-            onValueChange={(v) => updateFilters('tag', v)}
+          <FilterSelect
+            paramKey="tag"
+            label="Tag"
+            allLabel="All tags"
+            className="w-44"
+            options={allTags.map((tag) => ({
+              value: tag.slug,
+              text: tag.name,
+              row: countRow(
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: tag.color }} />
+                  {tag.name}
+                </span>,
+                tag.lead_count
+              ),
+            }))}
+          />
+        )}
+
+        {/* Clear all — only once something is actually narrowing the list. */}
+        {activeFilterCount > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearAll}
+            className="h-8 gap-1.5 text-aurea-ink-3 hover:text-aurea-ink"
           >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Filter by tag" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Tags</SelectItem>
-              {allTags.map((tag) => (
-                <SelectItem key={tag.id} value={tag.slug}>
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    {tag.name}
-                    <span className="ml-1 text-aurea-ink-3">({tag.lead_count})</span>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Clear{activeFilterCount > 1 ? ` (${activeFilterCount})` : ''}
+          </Button>
         )}
       </div>
 

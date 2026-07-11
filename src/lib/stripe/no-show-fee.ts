@@ -171,19 +171,30 @@ export async function chargeNoShowFeeForAppointment(
 
   const stripe = getStripeClient(config)
   try {
-    const pi = await stripe.paymentIntents.create({
-      amount,
-      currency: 'usd',
-      customer: appointment.stripe_customer_id,
-      payment_method: appointment.stripe_payment_method_id,
-      off_session: true,
-      confirm: true,
-      metadata: {
-        purpose: 'no_show_fee',
-        organization_id: organizationId,
-        appointment_id: appointment.id,
+    const pi = await stripe.paymentIntents.create(
+      {
+        amount,
+        currency: 'usd',
+        customer: appointment.stripe_customer_id,
+        payment_method: appointment.stripe_payment_method_id,
+        off_session: true,
+        confirm: true,
+        metadata: {
+          purpose: 'no_show_fee',
+          organization_id: organizationId,
+          appointment_id: appointment.id,
+        },
       },
-    })
+      {
+        // Deterministic idempotency key: Stripe dedupes server-side, so two
+        // concurrent no_show PATCHes (double-click, retry, two staff) can never
+        // create two PaymentIntents for the same appointment. Scoped by payment
+        // method so a genuine card-change retry (different params) is not blocked
+        // by the idempotency cache. Belt-and-suspenders with the conditional
+        // status claim at the caller.
+        idempotencyKey: `noshow_fee_${appointment.id}_${appointment.stripe_payment_method_id}`,
+      }
+    )
     return { ok: true, paymentIntentId: pi.id }
   } catch (err) {
     // Card declined / authentication_required / etc. surface as a failed status

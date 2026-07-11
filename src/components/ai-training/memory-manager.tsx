@@ -123,7 +123,7 @@ export function MemoryManager() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Select value={categoryFilter} onValueChange={(v) => v && setCategoryFilter(v)}>
+          <Select items={{ all: 'All Categories', ...CATEGORY_LABELS }} value={categoryFilter} onValueChange={(v) => v && setCategoryFilter(v)}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="All Categories">
                 {categoryFilter === 'all' ? 'All Categories' : CATEGORY_LABELS[categoryFilter as AIMemoryCategory] || categoryFilter}

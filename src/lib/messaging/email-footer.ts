@@ -25,14 +25,19 @@ export function generateUnsubscribeToken(leadId: string, orgId: string): string 
 }
 
 /**
- * Verify an unsubscribe token's HMAC. Returns true if the signature is valid OR
- * if the token is a legacy unsigned token (no '.'), for backward compatibility.
+ * Verify an unsubscribe token's HMAC. Fail-closed: a token must carry a valid
+ * signature. Previously this accepted any unsigned token (no '.') and any token
+ * when no secret was configured — since the payload is just base64(leadId:orgId)
+ * and those IDs are not secret, that let anyone forge a token for an arbitrary
+ * lead and suppress a competitor org's deliverability (unauthenticated
+ * cross-tenant write). WEBHOOK_SECRET is required in prod, so all legitimately
+ * generated links are signed and continue to verify.
  */
 export function verifyUnsubscribeToken(token: string): boolean {
-  const dot = token.indexOf('.')
-  if (dot < 0) return true // legacy unsigned token — accepted (grandfathered)
   const secret = unsubSecret()
-  if (!secret) return true
+  if (!secret) return false // cannot verify without a secret → reject
+  const dot = token.indexOf('.')
+  if (dot < 0) return false // unsigned token → reject (was a forgery vector)
   const payload = token.slice(0, dot)
   const sig = token.slice(dot + 1)
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex').slice(0, 32)

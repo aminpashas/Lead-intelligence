@@ -47,6 +47,11 @@ const STATUS_OPTIONS = [
   'completed', 'lost', 'disqualified', 'no_show', 'unresponsive',
 ]
 
+// value → trigger label map (Base UI Select renders the raw value otherwise)
+const STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  STATUS_OPTIONS.map((s) => [s, s.replace(/_/g, ' ')])
+)
+
 type BulkActionKind =
   | 'score' | 'change_status' | 'change_stage'
   | 'add_tags' | 'remove_tags' | 'enroll_campaign' | 'disqualify'
@@ -215,7 +220,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
           <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-[13px]">Action</Label>
-              <Select value={action} onValueChange={(v) => setAction(v as BulkActionKind)}>
+              <Select items={ACTION_LABELS} value={action} onValueChange={(v) => setAction(v as BulkActionKind)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {(Object.keys(ACTION_LABELS) as BulkActionKind[]).map((k) => (
@@ -228,7 +233,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
             {action === 'change_status' && (
               <div className="space-y-2">
                 <Label className="text-[13px]">New status</Label>
-                <Select value={status} onValueChange={(v) => v && setStatus(v)}>
+                <Select items={STATUS_LABELS} value={status} onValueChange={(v) => v && setStatus(v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {STATUS_OPTIONS.map((s) => (

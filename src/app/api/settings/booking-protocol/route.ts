@@ -7,7 +7,7 @@ import { RATE_LIMITS } from '@/lib/rate-limit'
 import { z } from 'zod'
 
 const PROTOCOL_COLUMNS =
-  'require_call_before_booking, no_show_fee_enabled, no_show_fee_cents, youtube_testimonial_url, consult_price_range_text, discovery_script'
+  'require_call_before_booking, no_show_fee_enabled, no_show_fee_cents, card_on_file_required, youtube_testimonial_url, consult_price_range_text, discovery_script'
 
 // GET /api/settings/booking-protocol — read the phone-first protocol config
 export async function GET(request: NextRequest) {
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   if (rlError) return rlError
 
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data } = await supabase
@@ -26,10 +26,14 @@ export async function GET(request: NextRequest) {
 
   // Sensible defaults when the org has no booking_settings row yet.
   return NextResponse.json({
+    // Whether the caller (Super-Admin / agency_admin) may flip the mandatory
+    // card-on-file switch. Practice admins see it read-only.
+    can_edit_card_required: role === 'agency_admin',
     settings: data ?? {
       require_call_before_booking: false,
       no_show_fee_enabled: false,
       no_show_fee_cents: 5000,
+      card_on_file_required: false,
       youtube_testimonial_url: null,
       consult_price_range_text: null,
       discovery_script: null,
@@ -41,6 +45,7 @@ const patchSchema = z.object({
   require_call_before_booking: z.boolean().optional(),
   no_show_fee_enabled: z.boolean().optional(),
   no_show_fee_cents: z.number().int().min(0).max(100000).optional(),
+  card_on_file_required: z.boolean().optional(),
   youtube_testimonial_url: z.string().url().max(500).nullish().or(z.literal('')),
   consult_price_range_text: z.string().max(200).nullish(),
   discovery_script: z.string().max(10000).nullish(),
@@ -84,6 +89,12 @@ export async function PATCH(request: NextRequest) {
   if (update.youtube_testimonial_url === '') update.youtube_testimonial_url = null
   if (update.consult_price_range_text === '') update.consult_price_range_text = null
   if (update.discovery_script === '') update.discovery_script = null
+
+  // The mandatory card-on-file switch is Super-Admin (agency_admin) only. A
+  // practice admin's save simply leaves it untouched rather than failing.
+  if ('card_on_file_required' in update && profile.role !== 'agency_admin') {
+    delete update.card_on_file_required
+  }
 
   const { data, error } = await supabase
     .from('booking_settings')

@@ -34,6 +34,12 @@ import {
   type AutopilotConfig,
 } from './config'
 import { createEscalation } from './escalation'
+import { resolveAutomationOwner, type AllocationDecision } from '@/lib/automation/allocation'
+import {
+  createHumanTask,
+  resolveAssignee,
+  taskDedupeKeyForInbound,
+} from '@/lib/automation/tasks'
 import { classifyMedicalQuestion, severityToPriority } from '@/lib/ai/medical-question-detector'
 import type { AgentContext, AgentResponse, ConversationMessage } from '@/lib/ai/agent-types'
 import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
@@ -42,16 +48,26 @@ import { getActiveRuleSetStamp } from '@/lib/ai/learning/rule-stamp'
 import { logger } from '@/lib/logger'
 
 export type AutoResponseResult = {
-  action: 'sent' | 'escalated' | 'skipped' | 'stopped' | 'rate_limited'
+  action: 'sent' | 'escalated' | 'skipped' | 'stopped' | 'rate_limited' | 'held_for_human'
   message?: string
   confidence?: number
   agent?: string
   escalation_id?: string | null
   reason?: string
+  /** Present when action = 'held_for_human' (Workstream D1 allocation). */
+  allocation?: AllocationDecision
+  /** Present when action = 'held_for_human' — the created/refreshed human task (D2). */
+  task_id?: string | null
 }
 
 /**
  * Process an inbound message and auto-respond if autopilot is enabled.
+ *
+ * `opts.takeover` (Workstream D3): the human-response SLA expired and the
+ * sla-takeover cron is re-running this inbound. The D1/D2 allocation hold
+ * branch is skipped (we are past the hold), but EVERY other gate still runs —
+ * stop words, rate limit, medical question, confidence, assist mode, shadow
+ * mode. A gate block escalates/drafts as usual; it never force-sends.
  */
 export async function processAutoResponse(
   supabase: SupabaseClient,
@@ -64,7 +80,8 @@ export async function processAutoResponse(
     inbound_message: string
     channel: 'sms' | 'email'
     sender_contact: string // phone number or email
-  }
+  },
+  opts?: { takeover?: boolean }
 ): Promise<AutoResponseResult> {
   const { organization_id, conversation_id, lead_id, lead, conversation, inbound_message, channel, sender_contact } = params
 
@@ -103,6 +120,74 @@ export async function processAutoResponse(
   if (stopCheck.detected) {
     await handleStopWord(supabase, params, stopCheck.word!, channel)
     return { action: 'stopped', reason: `stop_word: ${stopCheck.word}` }
+  }
+
+  // 2b. Allocation policy gate (Workstream D1, dormant by default).
+  // Runs AFTER the opt-out/STOP check so opt-out processing is never bypassed,
+  // and after the conversation/lead AI gates above. With zero policy rows and
+  // the org human-first toggle off this always resolves to 'ai' (legacy path).
+  // Skipped entirely on an SLA takeover (D3): the hold already ran its course.
+  const allocation = opts?.takeover
+    ? null
+    : await resolveAutomationOwner(supabase, {
+        organizationId: organization_id,
+        kind: 'inbound_reply',
+        stageId: (lead.stage_id as string) || undefined,
+      })
+  if (allocation && allocation.owner !== 'ai') {
+    // D2: the human owns this reply — create (or refresh) the human task so
+    // the inbound lands in the /tasks queue. 'hold' = human-first with an SLA
+    // before the AI may take over, so due_at carries the deadline (D3 enforces
+    // the actual takeover). Task creation fails soft — the AI stands down
+    // either way.
+    logger.info('Autopilot: inbound reply allocated to human', {
+      conversation_id,
+      lead_id,
+      owner: allocation.owner,
+      reason: allocation.reason,
+      policy_id: allocation.policyId,
+    })
+
+    const rawFirstName = (lead.first_name as string) || ''
+    const firstName = decryptField(rawFirstName) || rawFirstName || 'lead'
+    const assignee = await resolveAssignee(supabase, organization_id, lead_id)
+    const dueAt =
+      allocation.owner === 'hold' && allocation.slaSeconds
+        ? new Date(Date.now() + allocation.slaSeconds * 1000).toISOString()
+        : null
+
+    const { taskId } = await createHumanTask(supabase, {
+      organization_id,
+      kind: 'inbound_reply',
+      title: `Reply to ${firstName}`,
+      detail: inbound_message.substring(0, 500),
+      source: 'allocation',
+      lead_id,
+      conversation_id,
+      policy_id: allocation.policyId,
+      assigned_to: assignee.userId,
+      assigned_role: assignee.role,
+      due_at: dueAt,
+      dedupe_key: taskDedupeKeyForInbound(conversation_id),
+      metadata: {
+        channel,
+        allocation_owner: allocation.owner,
+        allocation_reason: allocation.reason,
+        sla_seconds: allocation.slaSeconds,
+      },
+    })
+
+    // TODO(D5: notify): route a task notification to assignee.pool here.
+    // escalation.notifyStaff is escalation-shaped (module-private, escalation
+    // reasons/links) so it isn't trivially reusable — D5 builds the real
+    // notifier for tasks.
+
+    return {
+      action: 'held_for_human',
+      reason: `allocation_${allocation.reason}`,
+      allocation,
+      task_id: taskId,
+    }
   }
 
   // 3. Check rate limit (anti-spam)
@@ -320,6 +405,7 @@ export async function processAutoResponse(
       channel,
       sender_contact,
       agentResponse,
+      takeover: opts?.takeover === true,
     })
   } catch (error) {
     logger.error('Failed to send auto-response', { conversation_id, channel }, error instanceof Error ? error : undefined)
@@ -463,9 +549,11 @@ async function sendAgentResponse(
     channel: 'sms' | 'email'
     sender_contact: string
     agentResponse: AgentResponse
+    /** D3: this send is an SLA takeover — stamped on the message metadata. */
+    takeover?: boolean
   }
 ): Promise<void> {
-  const { organization_id, conversation_id, lead_id, lead, channel, sender_contact, agentResponse } = params
+  const { organization_id, conversation_id, lead_id, lead, channel, sender_contact, agentResponse, takeover } = params
   let externalId: string | undefined
 
   // CRIT-1: TCPA consent check enforced inside sendSMSToLead / sendEmailToLead.
@@ -528,6 +616,7 @@ async function sendAgentResponse(
       agent: agentResponse.agent,
       action_taken: agentResponse.action_taken,
       autopilot: true,
+      ...(takeover ? { sla_takeover: true } : {}),
       ...(ruleStamp ? { rule_set: ruleStamp } : {}),
     },
   })

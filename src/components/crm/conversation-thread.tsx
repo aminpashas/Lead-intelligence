@@ -46,6 +46,7 @@ import { LeadActions } from './lead-actions'
 import { LiveCallIndicator, LiveCallPanel } from './live-call-panel'
 import { CallCard } from './call-card'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
+import { useConversationPresence } from '@/lib/hooks/use-conversation-presence'
 import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
 
 // ── Thread shaping ──────────────────────────────────────────
@@ -63,6 +64,14 @@ const COMPOSER_MAX_H = 520
 const PANEL_MIN_W = 300
 const PANEL_MAX_W = 720
 const PANEL_DEFAULT_W = 380
+
+// Base UI's <SelectValue> renders the raw value, so map each value → trigger label.
+const AI_MODE_LABELS: Record<string, string> = {
+  education: 'Educate',
+  objection_handling: 'Objections',
+  appointment_scheduling: 'Schedule',
+  follow_up: 'Follow Up',
+}
 
 type ThreadItem =
   | { type: 'day'; key: string; label: string }
@@ -140,6 +149,7 @@ export function ConversationThread({
   messages: initialMessages,
   calls = [],
   prequalEnabled = false,
+  noShowFeeEnabled = false,
   backHref = '/conversations',
   savedAnalysis = null,
   patientProfile = null,
@@ -151,6 +161,7 @@ export function ConversationThread({
   messages: Message[]
   calls?: VoiceCall[]
   prequalEnabled?: boolean
+  noShowFeeEnabled?: boolean
   /** Where the header back-arrow returns to. Defaults to the conversations
    *  inbox; the lead surface passes '/leads' so the arrow retraces the click. */
   backHref?: string
@@ -168,6 +179,9 @@ export function ConversationThread({
 }) {
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
+  // D4 presence heartbeat: tells the staff notifier this user has the thread
+  // open, so inbound-message pings are suppressed while they're looking.
+  useConversationPresence(conversation.id)
   // Which channel the composer sends on. Seeded from the thread's channel but
   // switchable inline, so text + email both happen here — no popup dialog.
   const [sendChannel, setSendChannel] = useState<'sms' | 'email'>(
@@ -514,7 +528,7 @@ export function ConversationThread({
           <LiveCallIndicator live={live} />
           {/* Call + DND live here; SMS/Email happen in the composer below, so
               suppress the modal buttons to keep everything in one surface. */}
-          <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} showMessaging={false} />
+          <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} showMessaging={false} />
           <AIModeToggle
             conversationId={conversation.id}
             currentMode={conversation.ai_mode || 'off'}
@@ -713,7 +727,7 @@ export function ConversationThread({
                 AI Agent Draft
               </Button>
               {/* Legacy mode selector as fallback */}
-              <Select value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
+              <Select items={AI_MODE_LABELS} value={aiMode} onValueChange={(v) => v && setAiMode(v)}>
                 <SelectTrigger className="h-8 w-32 text-xs">
                   <SelectValue />
                 </SelectTrigger>

@@ -23,6 +23,7 @@ export function ConversationView({
   calls,
   timeline,
   prequalEnabled = false,
+  noShowFeeEnabled = false,
   savedAnalysis = null,
   patientProfile = null,
   timeZone,
@@ -35,6 +36,8 @@ export function ConversationView({
   timeline: TimelineEntry[]
   /** Account financing pre-qualification switch, forwarded to the action bar. */
   prequalEnabled?: boolean
+  /** Practice no-show fee switch, forwarded to the action bar's "Card link". */
+  noShowFeeEnabled?: boolean
   /** Persisted intelligence, forwarded to seed the thread's side panel. */
   savedAnalysis?: ConversationAnalysis | null
   patientProfile?: PatientProfile | null
@@ -57,7 +60,7 @@ export function ConversationView({
 
       {mode === 'thread' ? (
         <div className="min-h-0 flex-1">
-          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} />
+          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">

@@ -62,3 +62,13 @@ export function isPostCloseStage(slug: string | null | undefined): boolean {
 export function isOperationalStage(slug: string | null | undefined): boolean {
   return !!slug && OPERATIONAL.has(slug)
 }
+
+/** Stages whose cards show the Day-N cadence badge (the working funnel). */
+export const ACTIVE_CONTACT_STAGE_SLUGS = ['contacted', 'engaged'] as const
+
+const ACTIVE_CONTACT = new Set<string>(ACTIVE_CONTACT_STAGE_SLUGS)
+
+/** True for the Following Up / Engaged stages that carry a cadence timeline. */
+export function isActiveContactStage(slug: string | null | undefined): boolean {
+  return !!slug && ACTIVE_CONTACT.has(slug)
+}

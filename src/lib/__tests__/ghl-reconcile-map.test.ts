@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { resolveReconcileTarget, normalizeStageName } from '@/lib/ghl/reconcile-map'
+import type { LiStageSlug } from '@/lib/ghl/reconcile-map'
 
 describe('normalizeStageName', () => {
   it('lowercases, collapses whitespace, and normalizes en/em dashes', () => {
@@ -50,5 +51,24 @@ describe('resolveReconcileTarget', () => {
   it('keeps stalled deals active for re-engagement', () => {
     expect(resolveReconcileTarget('Treatment Plan Not Accepted')).toMatchObject({ stageSlug: 'treatment-presented' })
     expect(resolveReconcileTarget('Denied Financing')).toMatchObject({ stageSlug: 'financing' })
+  })
+})
+
+describe('engaged slug', () => {
+  it('accepts engaged as a valid LiStageSlug (LI-derived, no GHL name maps to it)', () => {
+    const s: LiStageSlug = 'engaged'
+    expect(s).toBe('engaged')
+  })
+  it('still maps the whole contacted family to contacted (Following Up)', () => {
+    expect(resolveReconcileTarget('1st Call')).toEqual({ stageSlug: 'contacted' })
+    expect(resolveReconcileTarget('Follow Up Needed')).toEqual({ stageSlug: 'contacted' })
+  })
+  it('has no STAGE_TABLE entry resolving to engaged', () => {
+    // engaged is assigned by LI signals only; assert no GHL name yields it
+    const names = ['contacted', 'engaged', 'replied', 'active communication', 'follow up']
+    for (const n of names) {
+      const t = resolveReconcileTarget(n)
+      expect(t?.stageSlug).not.toBe('engaged')
+    }
   })
 })

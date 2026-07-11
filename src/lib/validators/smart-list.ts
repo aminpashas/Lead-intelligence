@@ -43,6 +43,10 @@ export const smartListCriteriaSchema = z.object({
   last_contacted_before: z.string().optional(),
   /** Only leads that have never been contacted (last_contacted_at is null). */
   never_contacted: z.boolean().optional(),
+  /** Closer workflow temperature(s), e.g. ['deliberating']. */
+  closing_temperatures: z.array(z.string()).optional(),
+  /** Deliberating deals whose follow-up date has arrived (non-null and <= this). */
+  closing_follow_up_before: z.string().optional(),
   has_phone: z.boolean().optional(),
   has_email: z.boolean().optional(),
   sms_consent: z.boolean().optional(),

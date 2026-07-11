@@ -20,6 +20,8 @@ import { PipelineColumn } from './pipeline-column'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
+import { classifyContactedState, type TimelineEnrollment } from '@/lib/pipeline/contacted-state'
+import { isActiveContactStage } from '@/lib/pipeline/stage-groups'
 import { SERVICE_LINES } from '@/lib/leads/service-line'
 import { toast } from 'sonner'
 
@@ -32,6 +34,7 @@ export function PipelineBoard({
   activeService = null,
   probabilityByLead,
   suggestionByLead,
+  enrollments,
 }: {
   stages: PipelineStage[]
   leads: Lead[]
@@ -48,6 +51,8 @@ export function PipelineBoard({
   activeService?: string | null
   probabilityByLead?: Record<string, number>
   suggestionByLead?: Record<string, StageSuggestion>
+  /** Follow-up cadence enrollment per lead (Following Up / Engaged stages only). */
+  enrollments?: Record<string, TimelineEnrollment>
 }) {
   const [leads, setLeads] = useState(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -80,6 +85,25 @@ export function PipelineBoard({
   )
 
   const activeLead = activeId ? leads.find((l) => l.id === activeId) : null
+  // Keep the Day-N cadence badge on the floating drag-preview card too, matching
+  // how PipelineColumn builds it, so the badge doesn't vanish mid-drag.
+  const activeStage = activeLead ? stages.find((s) => s.id === activeLead.stage_id) : null
+  const activeCadence =
+    activeLead && activeStage && isActiveContactStage(activeStage.slug)
+      ? {
+          enrollment: enrollments?.[activeLead.id] ?? null,
+          engaged:
+            activeStage.slug === 'engaged' ||
+            classifyContactedState(
+              {
+                last_contacted_at: activeLead.last_contacted_at ?? null,
+                last_responded_at: activeLead.last_responded_at ?? null,
+                total_messages_received: activeLead.total_messages_received ?? null,
+              },
+              Date.now()
+            ) === 'engaged',
+        }
+      : undefined
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string)
@@ -170,7 +194,7 @@ export function PipelineBoard({
           {stages.filter((s) => !s.is_lost).map((stage) => {
             const stageLeads = leads.filter((l) => l.stage_id === stage.id)
             return (
-              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={stageCounts?.[stage.id]} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} />
+              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={stageCounts?.[stage.id]} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} enrollments={enrollments} />
             )
           })}
         </div>
@@ -201,13 +225,14 @@ export function PipelineBoard({
                 probabilityByLead={probabilityByLead}
                 suggestionByLead={suggestionByLead}
                 onApplySuggestion={handleApplySuggestion}
+                enrollments={enrollments}
               />
             )
           })}
       </div>
 
       <DragOverlay>
-        {activeLead && <LeadCard lead={activeLead} />}
+        {activeLead && <LeadCard lead={activeLead} cadence={activeCadence} />}
       </DragOverlay>
     </DndContext>
   )

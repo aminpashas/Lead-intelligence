@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Dialog,
@@ -25,6 +25,7 @@ import {
   Clock,
   Timer,
   Check,
+  CreditCard,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -103,7 +104,32 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
   const [duration, setDuration] = useState('60')
   const [location, setLocation] = useState('')
   const [notes, setNotes] = useState('')
+  // No-show card-on-file config, loaded when the dialog opens.
+  const [feeEnabled, setFeeEnabled] = useState(false)
+  const [feeDollars, setFeeDollars] = useState(50)
+  const [cardRequired, setCardRequired] = useState(false)
+  const [sendCardLink, setSendCardLink] = useState(true)
   const router = useRouter()
+
+  // Load the practice's no-show settings once the dialog is open, so we can show
+  // the card-on-file control and know whether it's optional or mandatory.
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    fetch('/api/settings/booking-protocol')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        if (!active) return
+        setFeeEnabled(!!d.settings?.no_show_fee_enabled)
+        setFeeDollars(Math.round((d.settings?.no_show_fee_cents ?? 5000) / 100))
+        setCardRequired(!!d.settings?.card_on_file_required)
+      })
+      .catch(() => { /* non-fatal: control just won't show */ })
+    return () => { active = false }
+  }, [open])
+
+  // The card link only applies to consultations (matches the server gate).
+  const showCard = feeEnabled && type === 'consultation'
 
   // Next 6 days as quick-pick chips (Today / Tomorrow / weekday).
   const dayChips = useMemo(() => {
@@ -146,12 +172,21 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
           duration_minutes: parseInt(duration),
           location: location || undefined,
           notes: notes || undefined,
+          // Optional mode: honour the rep's checkbox. Required/off modes ignore it.
+          send_card_link: sendCardLink,
         }),
       })
 
       if (!res.ok) throw new Error('Failed to schedule')
 
-      toast.success('Appointment scheduled!')
+      const data = await res.json().catch(() => ({}))
+      if (data?.held) {
+        toast.success('Slot held — the patient was texted a card link. It confirms once they save a card.')
+      } else if (data?.card_link_sent) {
+        toast.success('Appointment scheduled — card-on-file link texted to the patient.')
+      } else {
+        toast.success('Appointment scheduled!')
+      }
       setOpen(false)
       router.refresh()
     } catch {
@@ -310,6 +345,42 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
                 placeholder="Any special instructions…"
               />
             </div>
+
+            {/* No-show card-on-file */}
+            {showCard && (
+              <div>
+                <SectionLabel>No-show protection</SectionLabel>
+                {cardRequired ? (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-aurea-primary/25 bg-aurea-primary/5 px-3 py-2.5">
+                    <CreditCard className="mt-px h-[17px] w-[17px] shrink-0 text-aurea-primary" strokeWidth={1.75} />
+                    <p className="text-[13px] leading-snug text-aurea-ink-2">
+                      A card on file is <span className="font-medium text-aurea-ink">required</span>. The patient
+                      is texted a link now; the appointment confirms automatically once they save a card
+                      (${feeDollars} charged only on a no-show).
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSendCardLink((v) => !v)}
+                    className="flex w-full items-start gap-2.5 rounded-lg border border-aurea-border bg-aurea-surface px-3 py-2.5 text-left transition-colors hover:bg-aurea-surface-2"
+                  >
+                    <span
+                      className={cn(
+                        'mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors',
+                        sendCardLink ? 'border-aurea-primary bg-aurea-primary text-white' : 'border-aurea-border-strong bg-aurea-surface'
+                      )}
+                    >
+                      {sendCardLink && <Check className="h-3 w-3" strokeWidth={3} />}
+                    </span>
+                    <span className="text-[13px] leading-snug text-aurea-ink-2">
+                      <span className="font-medium text-aurea-ink">Text a card-on-file link</span> — the consult
+                      is free; the ${feeDollars} fee is charged only if they miss the appointment without notice.
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Footer — live summary + actions */}
@@ -326,7 +397,7 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={saving} className="gap-1.5">
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Schedule
+                {showCard && cardRequired ? 'Hold & text card link' : 'Schedule'}
               </Button>
             </div>
           </div>

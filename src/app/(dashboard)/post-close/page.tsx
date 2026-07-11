@@ -28,9 +28,11 @@ export default async function PostClosePage() {
   const allStages = stages || []
 
   // One bounded, ai_score-ordered fetch per stage, each carrying its own exact
-  // count. These are already-won cases, so we show the TRUE stage population —
-  // no sales-status filter (a signed patient belongs on the fulfillment board
-  // regardless of a stale lead status).
+  // count. `stage_id` here comes from GHL stage-name mapping and does NOT imply
+  // the lead is genuinely won — practices park disqualified/lost leads in GHL
+  // "Closed" buckets, and reconcile faithfully mirrors that. So we mirror the
+  // sales-pipeline rule and drop disqualified/lost, which otherwise show up as
+  // phantom "signed contracts" on the fulfillment board.
   const CARD_CAP = 80
   const perStage = await Promise.all(
     allStages.map(async (s) => {
@@ -39,6 +41,7 @@ export default async function PostClosePage() {
         .select('*', { count: 'exact' })
         .eq('organization_id', orgId)
         .eq('stage_id', s.id)
+        .not('status', 'in', '("disqualified","lost")')
         .order('ai_score', { ascending: false })
         .range(0, CARD_CAP - 1)
       return { stageId: s.id, rows: data || [], count: count ?? 0 }

@@ -10,6 +10,9 @@ import { CSS } from '@dnd-kit/utilities'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
+import type { TimelineEnrollment } from '@/lib/pipeline/contacted-state'
+import { classifyContactedState } from '@/lib/pipeline/contacted-state'
+import { isActiveContactStage } from '@/lib/pipeline/stage-groups'
 
 function SortableLeadCard({
   lead,
@@ -17,12 +20,14 @@ function SortableLeadCard({
   closeProbability,
   suggestion,
   onApplySuggestion,
+  cadence,
 }: {
   lead: Lead
   onClick: () => void
   closeProbability?: number
   suggestion?: StageSuggestion | null
   onApplySuggestion?: (leadId: string, toStageId: string) => void
+  cadence?: { enrollment: TimelineEnrollment | null; engaged: boolean }
 }) {
   const {
     attributes,
@@ -53,6 +58,7 @@ function SortableLeadCard({
         closeProbability={closeProbability}
         suggestion={suggestion}
         onApplySuggestion={onApplySuggestion}
+        cadence={cadence}
       />
     </div>
   )
@@ -66,6 +72,7 @@ export function PipelineColumn({
   probabilityByLead,
   suggestionByLead,
   onApplySuggestion,
+  enrollments,
 }: {
   stage: PipelineStage
   leads: Lead[]
@@ -78,7 +85,12 @@ export function PipelineColumn({
   probabilityByLead?: Record<string, number>
   suggestionByLead?: Record<string, StageSuggestion>
   onApplySuggestion?: (leadId: string, toStageId: string) => void
+  /** Follow-up cadence enrollment per lead (Following Up / Engaged stages only). */
+  enrollments?: Record<string, TimelineEnrollment>
 }) {
+  // Only the Following Up / Engaged columns carry a cadence timeline — everywhere
+  // else `cadence` stays undefined and the card renders no badge.
+  const isCadenceStage = isActiveContactStage(stage.slug)
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
 
   // Header count is the true stage total when supplied; otherwise the rendered
@@ -142,6 +154,23 @@ export function PipelineColumn({
               closeProbability={probabilityByLead?.[lead.id]}
               suggestion={suggestionByLead?.[lead.id] ?? null}
               onApplySuggestion={onApplySuggestion}
+              cadence={
+                isCadenceStage
+                  ? {
+                      enrollment: enrollments?.[lead.id] ?? null,
+                      engaged:
+                        stage.slug === 'engaged' ||
+                        classifyContactedState(
+                          {
+                            last_contacted_at: lead.last_contacted_at ?? null,
+                            last_responded_at: lead.last_responded_at ?? null,
+                            total_messages_received: lead.total_messages_received ?? null,
+                          },
+                          Date.now()
+                        ) === 'engaged',
+                    }
+                  : undefined
+              }
             />
           ))}
         </SortableContext>

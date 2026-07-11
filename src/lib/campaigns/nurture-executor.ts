@@ -32,6 +32,7 @@ import { getPatientProfile } from '@/lib/ai/patient-psychology'
 import { buildFinancingContext } from '@/lib/ai/financial-coach'
 import { getAutopilotConfig, shouldAutoRespond, getLocalHourAndDay } from '@/lib/autopilot/config'
 import { createEscalation, type EscalationReason } from '@/lib/autopilot/escalation'
+import { resolveAutomationOwner } from '@/lib/automation/allocation'
 import { getOrCreateFinancingShareLink } from '@/lib/financing/share-link'
 import type { ExecutionResult } from './executor'
 
@@ -181,6 +182,24 @@ export async function executeNurtureStep(
   }
 
   if (isAiStep) {
+    // Allocation policy gate (Workstream D1, dormant by default): an AI step
+    // allocated to a human (or human-first hold) routes the draft through the
+    // existing escalation path instead of sending — same as shadow mode does.
+    // With zero policy rows this always resolves to 'ai' (legacy path).
+    const allocation = await resolveAutomationOwner(supabase, {
+      organizationId: orgId,
+      kind: 'nurture_step',
+      campaignId: campaign.id,
+    })
+    if (allocation.owner !== 'ai') {
+      // TODO(D2/D3 wiring point): create the human task + SLA timer for 'hold'.
+      await escalateDraft(supabase, {
+        orgId, conversationId, leadId: lead.id, reason: 'compliance_flag', confidence, internalNotes,
+        note: `Allocated to human by automation policy (allocated_to_human: ${allocation.reason}) — nurture draft not auto-sent.`,
+      })
+      return await advance(supabase, campaign, enrollment, stepNumber, base, 'escalated_allocated_to_human')
+    }
+
     const { hour: currentHour } = getLocalHourAndDay(config.timezone)
     const decision = shouldAutoRespond(config, {
       confidence, agentType: 'closer', isFirstMessage: false, currentHour,

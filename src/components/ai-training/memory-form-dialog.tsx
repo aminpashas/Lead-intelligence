@@ -104,7 +104,7 @@ export function MemoryFormDialog({ open, onOpenChange, memory, onSave }: MemoryF
 
           <div>
             <Label htmlFor="memory-category">Category</Label>
-            <Select value={category} onValueChange={(v) => v && setCategory(v as AIMemoryCategory)}>
+            <Select items={Object.fromEntries(CATEGORIES.map((c) => [c.value, c.label]))} value={category} onValueChange={(v) => v && setCategory(v as AIMemoryCategory)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>

@@ -33,6 +33,8 @@ type ConfigResponse = {
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 const KIND_LABEL: Record<string, string> = { phone: 'Phone', sip: 'SIP', softphone_user: 'In-app rep' }
+// Base UI's <SelectValue> renders the raw value, so map each value → trigger label.
+const KIND_SELECT_LABELS: Record<string, string> = { phone: 'Phone number', sip: 'SIP address', softphone_user: 'In-app rep' }
 
 export function LiveTransferSettings({ canAdmin }: { canAdmin: boolean }) {
   const [config, setConfig] = useState<ConfigResponse | null>(null)
@@ -212,7 +214,7 @@ function TargetsCard(props: {
               </div>
               <div className="space-y-1">
                 <Label>Type</Label>
-                <Select value={kind} onValueChange={(v) => setKind(v || 'phone')}>
+                <Select items={KIND_SELECT_LABELS} value={kind} onValueChange={(v) => setKind(v || 'phone')}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="phone">Phone number</SelectItem>

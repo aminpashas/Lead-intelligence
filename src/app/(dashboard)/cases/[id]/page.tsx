@@ -53,6 +53,13 @@ const STATUS_LABELS: Record<string, { label: string; dot: string; text: string }
 
 const CLOSING_STATUSES = ['accepted', 'closing', 'surgery_scheduled', 'ready_for_surgery']
 
+const SEVERITY_LABELS: Record<string, string> = {
+  mild: 'Mild',
+  moderate: 'Moderate',
+  severe: 'Severe',
+  critical: 'Critical',
+}
+
 export default function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
@@ -499,7 +506,7 @@ function DiagnosisSection({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Severity</Label>
-                <Select value={form.severity} onValueChange={v => v && setForm({ ...form, severity: v })}>
+                <Select items={SEVERITY_LABELS} value={form.severity} onValueChange={v => v && setForm({ ...form, severity: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="mild">Mild</SelectItem>

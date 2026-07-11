@@ -60,6 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Pipeline', href: '/pipeline', icon: GitBranch },
       { name: 'In Closing', href: '/closing', icon: Flame },
       { name: 'Leads', href: '/leads', icon: Users },
+      { name: 'Tasks', href: '/tasks', icon: ListTodo },
       { name: 'Conversations', href: '/conversations', icon: MessageSquare },
       { name: 'Call Center', href: '/call-center', icon: Phone },
       { name: 'Dialer', href: '/dialer', icon: PhoneOutgoing },
@@ -122,16 +123,43 @@ function useSidebarCollapsed(): [boolean, () => void] {
   return [collapsed, toggle]
 }
 
+// Open human-task count for the Tasks nav badge (Workstream D2). Fetched once
+// on mount + refreshed on a slow interval; fails silent (badge just hides).
+function useOpenTaskCount(): number {
+  const [count, setCount] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = () =>
+      fetch('/api/tasks?status=active&limit=1')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (!cancelled && json) setCount(json.openCount ?? 0)
+        })
+        .catch(() => { /* badge is a courtesy — never surface the failure */ })
+    load()
+    const t = setInterval(load, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [])
+
+  return count
+}
+
 function NavLink({
   item,
   isActive,
   collapsed,
   onNavigate,
+  badgeCount,
 }: {
   item: NavItem
   isActive: boolean
   collapsed?: boolean
   onNavigate?: () => void
+  badgeCount?: number
 }) {
   return (
     <Link
@@ -154,7 +182,19 @@ function NavLink({
         )}
         strokeWidth={2}
       />
-      {!collapsed && item.name}
+      {!collapsed && (
+        <>
+          <span className="flex-1">{item.name}</span>
+          {!!badgeCount && (
+            <Badge
+              variant="outline"
+              className="ml-auto h-4 px-1.5 text-[10px] font-semibold text-muted-foreground"
+            >
+              {badgeCount > 99 ? '99+' : badgeCount}
+            </Badge>
+          )}
+        </>
+      )}
     </Link>
   )
 }
@@ -171,6 +211,7 @@ function SidebarContent({
   const pathname = usePathname()
   const { userProfile } = useOrgStore()
   const role = (userProfile?.role || 'member') as PracticeRole
+  const openTaskCount = useOpenTaskCount()
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
 
@@ -254,6 +295,7 @@ function SidebarContent({
                   isActive={isActive(item.href)}
                   collapsed={collapsed}
                   onNavigate={onNavigate}
+                  badgeCount={item.href === '/tasks' ? openTaskCount : undefined}
                 />
               ))}
             </div>

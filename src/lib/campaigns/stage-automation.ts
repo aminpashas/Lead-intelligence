@@ -15,6 +15,8 @@ import { processTemplate, buildTemplateContext, type TemplateContext } from './t
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { createEscalation } from '@/lib/autopilot/escalation'
+import { resolveAutomationOwner, type AllocationDecision } from '@/lib/automation/allocation'
 
 type StageChangeResult = {
   entryActionsExecuted: number
@@ -76,8 +78,38 @@ export async function onStageChange(
       const orgName = org?.name || 'Our Practice'
       const templateCtx = buildTemplateContext(decryptedLead, orgName, organizationId)
 
+      // Allocation policy gate (Workstream D1, dormant by default): only
+      // resolved when this stage actually has outbound (sms/email) entry
+      // actions. With zero policy rows this always resolves to 'ai' (legacy path).
+      let allocation: AllocationDecision | null = null
+      const hasOutboundActions = stageConfig.entryActions.some(
+        (a) => (a.type === 'sms' || a.type === 'email') && a.delay_minutes <= 2
+      )
+      if (hasOutboundActions) {
+        allocation = await resolveAutomationOwner(supabase, {
+          organizationId,
+          kind: 'stage_automation',
+          stageId: (decryptedLead.stage_id as string) || undefined,
+        })
+      }
+
       for (const action of stageConfig.entryActions) {
         try {
+          if (
+            (action.type === 'sms' || action.type === 'email') &&
+            allocation &&
+            allocation.owner !== 'ai' &&
+            action.delay_minutes <= 2 &&
+            action.template
+          ) {
+            // Allocated to a human (or human-first hold): route the rendered
+            // copy through the existing escalation draft path instead of sending.
+            // TODO(D2/D3 wiring point): create the human task + SLA timer for 'hold'.
+            await holdStageActionForHuman(supabase, {
+              action, lead: decryptedLead, organizationId, templateCtx, allocation,
+            })
+            continue
+          }
           await executeEntryAction(supabase, action, decryptedLead, organizationId, templateCtx, orgName)
           result.entryActionsExecuted++
         } catch (err) {
@@ -110,6 +142,68 @@ export async function onStageChange(
   })
 
   return result
+}
+
+/**
+ * Route a stage entry action's rendered copy to a human via the existing
+ * escalation draft path instead of sending it (Workstream D1 allocation).
+ * Only reachable when an automation_policies row allocates stage_automation
+ * to a human — with zero policy rows this is dead code (dormant ship).
+ */
+async function holdStageActionForHuman(
+  supabase: SupabaseClient,
+  params: {
+    action: StageAction
+    lead: Record<string, unknown>
+    organizationId: string
+    templateCtx: TemplateContext
+    allocation: AllocationDecision
+  }
+): Promise<void> {
+  const { action, lead, organizationId, templateCtx, allocation } = params
+  if (!action.template) return
+
+  const message = processTemplate(action.template, templateCtx)
+  const channel = action.type // 'sms' | 'email'
+
+  // Find (or create) the lead's active conversation on this channel so the
+  // held draft has a thread staff can review from.
+  let conversationId: string | null = null
+  const { data: existing } = await supabase
+    .from('conversations')
+    .select('id')
+    .eq('lead_id', lead.id)
+    .eq('channel', channel)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle<{ id: string }>()
+  if (existing?.id) {
+    conversationId = existing.id
+  } else {
+    const { data: created } = await supabase
+      .from('conversations')
+      .insert({
+        organization_id: organizationId,
+        lead_id: lead.id,
+        channel,
+        status: 'active',
+        ai_enabled: true,
+        ai_mode: 'auto',
+      })
+      .select('id')
+      .single<{ id: string }>()
+    conversationId = created?.id || null
+  }
+  if (!conversationId) return
+
+  await createEscalation(supabase, {
+    organization_id: organizationId,
+    conversation_id: conversationId,
+    lead_id: lead.id as string,
+    reason: 'compliance_flag',
+    ai_notes: `Allocated to human by automation policy (allocated_to_human: ${allocation.reason}) — stage entry ${channel} not auto-sent.`,
+    ai_draft_response: message,
+  }).catch(() => { /* escalation failure is non-fatal */ })
 }
 
 async function executeEntryAction(

@@ -83,6 +83,16 @@ export default async function ConversationDetailPage({
     ? await isFlagEnabled(supabase, conversation.organization_id as string, 'financing_prequal_enabled')
     : false
 
+  // Practice no-show fee switch — gates the "Card link" action.
+  const { data: convBookingSettings } = conversation.organization_id
+    ? await supabase
+        .from('booking_settings')
+        .select('no_show_fee_enabled')
+        .eq('organization_id', conversation.organization_id as string)
+        .maybeSingle()
+    : { data: null }
+  const noShowFeeEnabled = convBookingSettings?.no_show_fee_enabled === true
+
   // Render all thread timestamps in the practice timezone so SSR (UTC) agrees
   // with the browser on day boundaries.
   const timeZone = await resolvePracticeTimeZone(supabase, conversation.organization_id as string | null)
@@ -95,6 +105,7 @@ export default async function ConversationDetailPage({
       calls={calls || []}
       timeline={timeline}
       prequalEnabled={prequalEnabled}
+      noShowFeeEnabled={noShowFeeEnabled}
       savedAnalysis={(savedAnalysis as ConversationAnalysis | null) ?? null}
       patientProfile={(patientProfile as PatientProfile | null) ?? null}
       timeZone={timeZone}

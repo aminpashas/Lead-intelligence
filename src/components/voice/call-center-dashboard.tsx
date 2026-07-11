@@ -545,7 +545,7 @@ function CallRow({
             <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
               <LeadActions lead={call.lead} variant="compact" />
               <a
-                href={`/leads?id=${call.lead.id}`}
+                href={`/leads/${call.lead.id}`}
                 className="inline-flex items-center gap-1 text-xs font-medium text-aurea-ink-3 hover:text-aurea-ink transition-colors"
               >
                 View full lead <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.75} />

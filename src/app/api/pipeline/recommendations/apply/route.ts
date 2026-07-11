@@ -4,6 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg, requirePermission } from '@/lib/auth/active-org'
 import { smartListCriteriaSchema } from '@/lib/validators/smart-list'
 import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
+import { applyStageMove } from '@/lib/pipeline/stage-move'
+import { resolveAutomationOwner } from '@/lib/automation/allocation'
+import { createHumanTask, resolveAssignee } from '@/lib/automation/tasks'
 
 /**
  * Apply a Pipeline recommendation — REVIEW FIRST.
@@ -24,6 +27,12 @@ import { resolveSmartListLeads } from '@/lib/campaigns/smart-list-resolver'
  * so no consent/A2P gate applies — but it DOES mutate many leads at once, so it
  * requires the `bulk_actions:write` permission (stricter than the review path)
  * and is capped + audited. Broadcasts are never auto-applied.
+ *
+ * Auto-applied moves run through the shared stage-move engine
+ * (`applyStageMove`), so stage automations (funnel rules + campaign
+ * entry/exit) fire for each moved lead exactly like a hand-dragged move —
+ * unless the caller opts out with `suppressAutomations: true` (the choice is
+ * recorded on every lead's activity row).
  */
 
 const applySchema = z.object({
@@ -34,6 +43,15 @@ const applySchema = z.object({
   criteria: smartListCriteriaSchema,
   /** bulk_stage only: move leads immediately instead of handing off for review. */
   autoApply: z.boolean().optional(),
+  /** autoApply only: skip stage automations for the moved leads (default false — they fire). */
+  suppressAutomations: z.boolean().optional(),
+  /**
+   * D2: who executes the recommendation. 'human' routes it to the human task
+   * lane instead of the redirect/auto-apply paths. When absent the allocation
+   * policy decides (resolveAutomationOwner, kind 'recommendation') — dormant
+   * orgs resolve to 'ai', preserving today's behavior exactly.
+   */
+  executor: z.enum(['ai', 'human']).optional(),
 })
 
 /** Ceiling on a single auto-apply run — a guard against a mis-scoped segment
@@ -54,7 +72,8 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
-  const { segmentName, actionType, toStageSlug, criteria, autoApply } = parsed.data
+  const { segmentName, actionType, toStageSlug, criteria, autoApply, suppressAutomations, executor } =
+    parsed.data
 
   if (autoApply && actionType !== 'bulk_stage') {
     return NextResponse.json(
@@ -117,6 +136,58 @@ export async function POST(request: NextRequest) {
     smartListId = created.id
   }
 
+  // ── D2: human task lane. ─────────────────────────────────────────────────
+  // Explicit `executor` wins; otherwise the allocation policy decides (with
+  // zero policy rows this resolves to 'ai' — the legacy paths below, so the
+  // response contract is unchanged for existing callers). 'hold' counts as
+  // human: the whole point of human-first is a person seeing it first.
+  let effectiveExecutor: 'ai' | 'human' = executor ?? 'ai'
+  if (!executor) {
+    const allocation = await resolveAutomationOwner(supabase, {
+      organizationId: orgId,
+      kind: 'recommendation',
+      smartListId,
+    })
+    effectiveExecutor = allocation.owner === 'ai' ? 'ai' : 'human'
+  }
+
+  if (effectiveExecutor === 'human') {
+    const assignee = await resolveAssignee(supabase, orgId)
+    const { taskId } = await createHumanTask(supabase, {
+      organization_id: orgId,
+      kind: 'recommendation',
+      title: `Review recommendation: ${segmentName}`,
+      detail:
+        actionType === 'broadcast'
+          ? `Send an SMS broadcast to the "${segmentName}" segment (${count} leads).`
+          : `Move the "${segmentName}" segment (${count} leads) to stage "${toStageSlug ?? 'unknown'}".`,
+      source: 'recommendation_apply',
+      assigned_to: assignee.userId,
+      assigned_role: assignee.role,
+      // One live task per segment: re-applying the same recommendation
+      // refreshes the task (and its count) instead of duplicating it.
+      dedupe_key: `recommendation:${smartListId}`,
+      metadata: {
+        criteria,
+        lead_count: count,
+        smart_list_id: smartListId,
+        action_type: actionType,
+        to_stage_slug: toStageSlug ?? null,
+        requested_by: profile.id,
+      },
+    })
+
+    if (!taskId) {
+      return NextResponse.json({ error: 'Failed to create task' }, { status: 500 })
+    }
+    return NextResponse.json({
+      smartListId,
+      leadCount: count,
+      taskCreated: true,
+      taskId,
+    })
+  }
+
   // Build the review-surface deep-link.
   if (actionType === 'broadcast') {
     return NextResponse.json({
@@ -151,6 +222,7 @@ export async function POST(request: NextRequest) {
     // impossible. The iteration ceiling is a belt-and-suspenders infinite-loop
     // guard on top of AUTO_APPLY_CAP.
     let moved = 0
+    const automationErrors: Array<{ leadId: string; error: string }> = []
     const maxIterations = Math.ceil(AUTO_APPLY_CAP / AUTO_APPLY_PAGE) + 1
     for (let i = 0; i < maxIterations && moved < AUTO_APPLY_CAP; i++) {
       const { leadIds } = await resolveSmartListLeads(supabase, orgId, criteria, {
@@ -158,35 +230,27 @@ export async function POST(request: NextRequest) {
       })
       if (leadIds.length === 0) break
 
-      const { error: updErr } = await supabase
-        .from('leads')
-        .update({ stage_id: stage.id })
-        .in('id', leadIds)
-        .eq('organization_id', orgId)
-      if (updErr) {
+      // Shared stage-move engine: updates stage_id, writes one auditable
+      // stage_changed activity per lead, and fires the stage automations
+      // (unless explicitly suppressed) — same semantics as a manual move.
+      const res = await applyStageMove(supabase, {
+        organizationId: orgId,
+        leadIds,
+        toStageId: stage.id,
+        actor: { type: 'ai', source: 'pipeline_recommendation' },
+        suppressAutomations,
+        activityTitle: `Moved to ${stage.name} by pipeline recommendation`,
+        activityMetadata: { segment: segmentName },
+      })
+      moved += res.moved
+      automationErrors.push(...res.automationErrors)
+      if (res.error) {
         return NextResponse.json(
-          { error: updErr.message, moved, partial: true },
+          { error: res.error, moved, partial: true },
           { status: 500 }
         )
       }
 
-      // One activity-trail row per lead so each move is auditable and visible on
-      // the lead timeline (mirrors how manual stage changes are recorded).
-      await supabase.from('lead_activities').insert(
-        leadIds.map((leadId) => ({
-          organization_id: orgId,
-          lead_id: leadId,
-          activity_type: 'stage_changed',
-          title: `Moved to ${stage.name} by pipeline recommendation`,
-          metadata: {
-            to_stage_id: stage.id,
-            source: 'pipeline_recommendation',
-            segment: segmentName,
-          },
-        }))
-      )
-
-      moved += leadIds.length
       if (leadIds.length < AUTO_APPLY_PAGE) break
     }
 
@@ -200,6 +264,8 @@ export async function POST(request: NextRequest) {
       capped,
       toStageId: stage.id,
       toStageName: stage.name,
+      automationsSuppressed: !!suppressAutomations,
+      automationErrorCount: automationErrors.length,
     })
   }
 

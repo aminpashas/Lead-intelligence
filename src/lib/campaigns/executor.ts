@@ -11,6 +11,8 @@ import { decryptField } from '@/lib/encryption'
 import { POST_CONSULT_NURTURE_KEY } from './post-consult-nurture'
 import { executeNurtureStep } from './nurture-executor'
 import { checkCompliance } from '@/lib/ai/compliance-filter'
+import { createEscalation } from '@/lib/autopilot/escalation'
+import { resolveAutomationOwner } from '@/lib/automation/allocation'
 
 export type ExecutionResult = {
   enrollment_id: string
@@ -239,6 +241,38 @@ async function executeOneStep(
     }
   }
 
+  // Allocation policy gate (Workstream D1, dormant by default): applies to
+  // AI-generated steps only — fixed templates keep today's behavior. A step
+  // allocated to a human (or human-first hold) routes the draft through the
+  // existing escalation path instead of sending, then advances the enrollment
+  // (same semantics as the nurture executor's shadow/low-confidence path).
+  // With zero policy rows this always resolves to 'ai' (legacy path).
+  if (step.ai_personalize && (step.channel === 'sms' || step.channel === 'email')) {
+    const allocation = await resolveAutomationOwner(supabase, {
+      organizationId: campaign.organization_id,
+      kind: 'nurture_step',
+      campaignId: campaign.id,
+    })
+    if (allocation.owner !== 'ai') {
+      // TODO(D2/D3 wiring point): create the human task + SLA timer for 'hold'.
+      const conversationIdForDraft = await findOrCreateConversation(
+        supabase, campaign.organization_id, lead.id, step.channel, subject
+      )
+      if (conversationIdForDraft) {
+        await createEscalation(supabase, {
+          organization_id: campaign.organization_id,
+          conversation_id: conversationIdForDraft,
+          lead_id: lead.id,
+          reason: 'compliance_flag',
+          ai_notes: `Allocated to human by automation policy (allocated_to_human: ${allocation.reason}) — campaign draft not auto-sent.`,
+          ai_draft_response: messageBody,
+        }).catch(() => { /* escalation failure is non-fatal; the step still advances */ })
+      }
+      await advanceEnrollment(supabase, campaign, enrollment, nextStepNumber)
+      return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'skipped', detail: `allocated_to_human: ${allocation.reason}` }
+    }
+  }
+
   // Send the message
   let externalId: string | null = null
   let sendSuccess = false
@@ -435,6 +469,80 @@ async function executeOneStep(
   }
 
   return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'sent', detail: `${step.channel} step ${step.step_number}` }
+}
+
+// ── Helpers ───────────────────────────────────────
+
+/**
+ * Find the lead's active conversation on a channel, or create one.
+ * Same lookup/insert the post-send path uses; needed earlier by the
+ * allocation gate so the escalated draft has a thread to attach to.
+ */
+async function findOrCreateConversation(
+  supabase: SupabaseClient,
+  organizationId: string,
+  leadId: string,
+  channel: string,
+  subject?: string
+): Promise<string | null> {
+  const { data: existing } = await supabase
+    .from('conversations')
+    .select('id')
+    .eq('lead_id', leadId)
+    .eq('channel', channel)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle<{ id: string }>()
+  if (existing?.id) return existing.id
+
+  const { data: created } = await supabase
+    .from('conversations')
+    .insert({
+      organization_id: organizationId,
+      lead_id: leadId,
+      channel,
+      status: 'active',
+      ai_enabled: true,
+      ai_mode: 'auto',
+      subject,
+    })
+    .select('id')
+    .single<{ id: string }>()
+  return created?.id || null
+}
+
+/**
+ * Advance the enrollment to the next step (or complete it) without sending.
+ * Mirrors the post-send scheduling block.
+ */
+async function advanceEnrollment(
+  supabase: SupabaseClient,
+  campaign: { id: string; total_completed?: number | null },
+  enrollment: { id: string },
+  currentStepNumber: number
+): Promise<void> {
+  const { data: nextStep } = await supabase
+    .from('campaign_steps')
+    .select('delay_minutes')
+    .eq('campaign_id', campaign.id)
+    .eq('step_number', currentStepNumber + 1)
+    .maybeSingle<{ delay_minutes: number | null }>()
+
+  if (nextStep) {
+    await supabase.from('campaign_enrollments').update({
+      current_step: currentStepNumber,
+      next_step_at: new Date(Date.now() + (nextStep.delay_minutes || 0) * 60 * 1000).toISOString(),
+    }).eq('id', enrollment.id)
+  } else {
+    await supabase.from('campaign_enrollments').update({
+      current_step: currentStepNumber,
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+    }).eq('id', enrollment.id)
+    await supabase.from('campaigns').update({
+      total_completed: (campaign.total_completed || 0) + 1,
+    }).eq('id', campaign.id)
+  }
 }
 
 // ── Condition Evaluators ──────────────────────────

@@ -911,13 +911,21 @@ async function executeCreateBooking(
     const displayTime = formatTimeDisplay(time)
 
     if (phone && typeof phone === 'string') {
-      sendSMSToLead({
-        supabase,
-        leadId: context.lead_id,
-        to: phone,
-        body: `✅ Confirmed! Your consultation at ${orgName} is booked for ${displayDate} at ${displayTime}. We look forward to seeing you!`,
-        caller: 'autopilot.book_appointment',
-      }).catch(() => { /* Non-critical; consent denial is handled inside the gate */ })
+      // AWAIT the send — do not fire-and-forget. When this runs inside a voice
+      // custom-function endpoint (book_appointment), the serverless function is
+      // frozen the instant we return, so a dangling send promise never reaches
+      // Twilio and the patient gets no confirmation. Consent denial is handled
+      // inside sendSMSToLead and surfaced as a rejection we swallow here — the
+      // booking already succeeded, so a failed confirmation must not fail it.
+      try {
+        await sendSMSToLead({
+          supabase,
+          leadId: context.lead_id,
+          to: phone,
+          body: `✅ Confirmed! Your consultation at ${orgName} is booked for ${displayDate} at ${displayTime}. We look forward to seeing you!`,
+          caller: 'autopilot.book_appointment',
+        })
+      } catch { /* Non-critical; consent denial is handled inside the gate */ }
 
       // No-show fee: text a card-on-file link (charged only on a no-show).
       if (settings.no_show_fee_enabled) {
@@ -933,7 +941,9 @@ async function executeCreateBooking(
 
     if (email && typeof email === 'string' && !context.lead.email_opt_out) {
       const firstName = (context.lead.first_name as string) || 'there'
-      sendEmail({
+      // AWAIT for the same serverless-freeze reason as the SMS above.
+      try {
+        await sendEmail({
         to: email,
         subject: `Consultation Confirmed — ${escapeHtml(orgName)}`,
         html: `
@@ -954,7 +964,8 @@ async function executeCreateBooking(
           </div>
         `,
         text: `Hi ${firstName}, your consultation at ${orgName} is confirmed for ${displayDate} at ${displayTime}. ${settings.location ? `Location: ${settings.location}. ` : ''}We look forward to seeing you!`,
-      }).catch(async (err) => {
+        })
+      } catch (err) {
         await supabase.from('lead_activities').insert({
           organization_id: context.organization_id,
           lead_id: context.lead_id,
@@ -962,7 +973,7 @@ async function executeCreateBooking(
           title: 'Booking confirmation email failed',
           metadata: { error: err instanceof Error ? err.message : 'unknown', channel: 'email', appointment_id: appointment!.id },
         })
-      })
+      }
     }
   }
 

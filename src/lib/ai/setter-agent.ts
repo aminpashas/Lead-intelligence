@@ -16,6 +16,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildSafeLeadContext, checkResponseCompliance, logHIPAAEvent, scrubPHI } from './hipaa'
+import { wrapUserContent } from './prompt-guard'
 import type { AgentContext, AgentResponse } from './agent-types'
 import {
   buildQualificationStatus,
@@ -409,13 +410,34 @@ export async function setterAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  // Proactive outreach (sequence steps / speed-to-lead): no new inbound turn —
+  // the agent writes the next OUTBOUND touch toward the step's staff-set goal.
+  const outreachBlock = context.outreach_instruction
+    ? `## PROACTIVE OUTREACH STEP\nThere is no new inbound message. You are composing the practice's next OUTBOUND ${context.channel} touch in a follow-up cadence.\nStep goal: ${context.outreach_instruction}\nKeep it short, warm, and easy to reply to. Do not fabricate prior commitments or approvals.`
+    : ''
 
-  // Scrub PHI from conversation history
-  const safeHistory = context.conversation_history.map((msg) => ({
-    role: msg.role as 'user' | 'assistant',
-    content: scrubPHI(msg.content),
-  }))
+  const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
+
+  // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
+  // in delimiters. The autopilot's injection scan only neutralized the NEWEST
+  // inbound message; once it rolled into history it was replayed raw. Wrapping all
+  // prior user turns structurally separates them from instructions, so an
+  // injection payload buried in an earlier message can't masquerade as a command
+  // to the tool-calling agent.
+  const safeHistory = context.conversation_history.map((msg) => {
+    const role = msg.role as 'user' | 'assistant'
+    const scrubbed = scrubPHI(msg.content)
+    return { role, content: role === 'user' ? wrapUserContent(scrubbed) : scrubbed }
+  })
+
+  // The Messages API rejects an empty messages array; proactive outreach with
+  // no history yet (first touch) needs a synthetic opener turn.
+  if (safeHistory.length === 0) {
+    safeHistory.push({
+      role: 'user',
+      content: '[No conversation yet — compose the first outbound message described in the system prompt.]',
+    })
+  }
 
   // SMS gets the same 1024-token budget as web: the response is a full JSON object
   // (message + techniques + lead_assessment, all consumed downstream), not just the

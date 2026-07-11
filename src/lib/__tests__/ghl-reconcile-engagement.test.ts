@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hasLiEngagement, type LeadEngagement } from '@/lib/ghl/reconcile'
+import { hasLiEngagement, type LeadEngagement, PRIORITY, NATIVE } from '@/lib/ghl/reconcile'
 
 const base: LeadEngagement = {
   status: 'new',
@@ -28,5 +28,15 @@ describe('hasLiEngagement', () => {
   it('is true when a contact/response timestamp exists even at status "new"', () => {
     expect(hasLiEngagement({ ...base, last_contacted_at: '2026-07-03T22:06:24Z' })).toBe(true)
     expect(hasLiEngagement({ ...base, last_responded_at: '2026-07-03T22:06:36Z' })).toBe(true)
+  })
+})
+
+describe('engaged ordering', () => {
+  it('ranks engaged above contacted but below qualified', () => {
+    expect(PRIORITY.engaged).toBeGreaterThan(PRIORITY.contacted)
+    expect(PRIORITY.engaged).toBeLessThan(PRIORITY.qualified)
+  })
+  it('treats engaged as a native LI stage that must exist per org', () => {
+    expect(NATIVE).toContain('engaged')
   })
 })

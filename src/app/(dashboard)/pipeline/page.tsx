@@ -5,11 +5,22 @@ import { PipelineRecommendations } from '@/components/crm/pipeline-recommendatio
 import { decryptLeadsPII } from '@/lib/encryption'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFocusedStaff } from '@/lib/auth/permissions'
-import { computeCloseBaseRate, scoreCloseProbability } from '@/lib/pipeline/close-probability'
+import {
+  computeCloseBaseRate,
+  scoreCloseProbability,
+  readStampedCloseProbability,
+  type StampedCloseProbability,
+} from '@/lib/pipeline/close-probability'
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
-import { isPostCloseStage, isOperationalStage, isOffFunnelStage } from '@/lib/pipeline/stage-groups'
+import { isPostCloseStage, isOperationalStage, isActiveContactStage, isOffFunnelStage } from '@/lib/pipeline/stage-groups'
 import { gatherPipelineSignals } from '@/lib/pipeline/pipeline-signals'
 import { buildRecommendations } from '@/lib/pipeline/recommendations'
+import {
+  DERIVED_COLUMNS,
+  ACTIVE_COMMS_WINDOW_DAYS,
+  applyDerivedFilter,
+} from '@/lib/pipeline/derived-columns'
+import { PipelineSignalColumns } from '@/components/crm/pipeline-signal-columns'
 import { SERVICE_LINES, serviceLineOrFilter } from '@/lib/leads/service-line'
 
 export default async function PipelinePage({
@@ -135,21 +146,102 @@ export default async function PipelinePage({
   const allLeads = decryptLeadsPII(perStage.flatMap((p) => p.rows))
   const nowMs = Date.now()
 
+  // Following Up / Engaged cards show a Day-N cadence badge sourced from the
+  // lead's follow_up_enrollments row. Scope the fetch to just those two
+  // stages' rendered leads — no need to touch enrollments for the rest of the
+  // board.
+  const activeContactStageIds = new Set(
+    allStages.filter((s) => isActiveContactStage(s.slug)).map((s) => s.id)
+  )
+  const activeContactLeadIds = allLeads
+    .filter((l) => l.stage_id && activeContactStageIds.has(l.stage_id))
+    .map((l) => l.id)
+
+  const enrollments: Record<
+    string,
+    { status: 'active' | 'completed' | 'stopped'; current_step: number; enrolled_at: string }
+  > = {}
+  if (activeContactLeadIds.length > 0) {
+    const { data: enr } = await supabase
+      .from('follow_up_enrollments')
+      .select('lead_id, status, current_step, enrolled_at')
+      .eq('organization_id', orgId)
+      .in('lead_id', activeContactLeadIds)
+    for (const e of enr || []) {
+      enrollments[e.lead_id] = {
+        status: e.status,
+        current_step: e.current_step,
+        enrolled_at: e.enrolled_at,
+      }
+    }
+  }
+
   // Board-level AI recommendations (Google/Meta-Ads-style band). Computed from
   // cheap aggregate COUNT signals over the whole book — deliberately NOT the
   // capped card sample above — so a suggestion like "142 cooling leads" reflects
   // the real population, and its count matches what Apply will target.
   const signals = await gatherPipelineSignals(supabase, orgId, allStages, serviceOr, nowMs)
   const recommendations = buildRecommendations(signals)
+
   const baseRate = computeCloseBaseRate(allLeads.map((l) => l.status))
   const probabilityByLead: Record<string, number> = {}
   const suggestionByLead: Record<string, StageSuggestion> = {}
   for (const l of allLeads) {
-    const p = scoreCloseProbability(l, baseRate, nowMs)
+    // Prefer the cron-stamped CALIBRATED probability (calibrate-scoring writes
+    // leads.close_probability weekly) when fresh; fall back to the live
+    // heuristic for never-stamped or stale leads.
+    const p =
+      readStampedCloseProbability(l as StampedCloseProbability, nowMs) ??
+      scoreCloseProbability(l, baseRate, nowMs)
     probabilityByLead[l.id] = p
     const s = suggestStageMove(l, p, allStages)
     if (s) suggestionByLead[l.id] = s
   }
+
+  // Derived "signal" columns — honest, read-only lenses computed from real lead
+  // activity (contacted-ness, reply recency, financial assessment) instead of the
+  // stale GHL stage label that makes "New Lead" read 10k. Each is one exact,
+  // whole-book, treatment-aware count plus a capped card slice, scoped to the
+  // board's (pre-close) stages. Cheap COUNT + a small card fetch per column.
+  const SIGNAL_CARD_CAP = 40
+  const signalCutoffIso = new Date(nowMs - ACTIVE_COMMS_WINDOW_DAYS * 86_400_000).toISOString()
+  const signalColumns = await Promise.all(
+    DERIVED_COLUMNS.map(async (col) => {
+      // Exact whole-book count for the header (head:true = count only, no rows).
+      let cq = supabase
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .in('stage_id', boardStageIds)
+      cq = applyDerivedFilter(cq, col.key, signalCutoffIso)
+      if (serviceOr) cq = cq.or(serviceOr)
+      const { count } = await cq
+
+      // Top cards by ai_score — same predicate, so cards ⊆ the counted set.
+      let dq = supabase
+        .from('leads')
+        .select('*')
+        .eq('organization_id', orgId)
+        .in('stage_id', boardStageIds)
+      dq = applyDerivedFilter(dq, col.key, signalCutoffIso)
+      if (serviceOr) dq = dq.or(serviceOr)
+      const { data } = await dq.order('ai_score', { ascending: false }).range(0, SIGNAL_CARD_CAP - 1)
+
+      // "View all" deep-links into /leads with the same signal filter (and the
+      // active treatment, so a filtered board's links stay filtered).
+      const linkParams = new URLSearchParams({ signal: col.key })
+      if (activeService) linkParams.set('service', activeService)
+
+      return {
+        key: col.key,
+        label: col.label,
+        description: col.description,
+        count: count ?? 0,
+        leads: decryptLeadsPII(data || []),
+        href: `/leads?${linkParams.toString()}`,
+      }
+    })
+  )
 
   return (
     <div className="h-full animate-in fade-in-0 duration-500">
@@ -161,6 +253,7 @@ export default async function PipelinePage({
         </p>
       </header>
       <PipelineRecommendations recommendations={recommendations} />
+      <PipelineSignalColumns columns={signalColumns} />
       <PipelineBoard
         stages={allStages}
         leads={allLeads}
@@ -170,6 +263,7 @@ export default async function PipelinePage({
         activeService={activeService}
         probabilityByLead={probabilityByLead}
         suggestionByLead={suggestionByLead}
+        enrollments={enrollments}
       />
     </div>
   )

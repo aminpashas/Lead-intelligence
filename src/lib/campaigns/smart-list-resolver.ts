@@ -184,6 +184,17 @@ export function applySmartListCriteria(
     query = query.eq('is_existing_patient', criteria.is_existing_patient)
   }
 
+  // Closer workflow: deliberating deals and their follow-up timer.
+  if (criteria.closing_temperatures && criteria.closing_temperatures.length > 0) {
+    query = query.in('closing_temperature', criteria.closing_temperatures)
+  }
+  if (criteria.closing_follow_up_before) {
+    // "Due" = has a timer set AND it has arrived. Nulls excluded on purpose.
+    query = query
+      .not('closing_follow_up_at', 'is', null)
+      .lte('closing_follow_up_at', criteria.closing_follow_up_before)
+  }
+
   return query
 }
 

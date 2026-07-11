@@ -43,6 +43,13 @@ const CATEGORY_LABELS: Record<TagCategory, string> = {
   custom: 'Custom',
 }
 
+// value → trigger label map for the category filter, incl. the "all" sentinel
+// (Base UI Select renders the raw value otherwise)
+const CATEGORY_FILTER_LABELS: Record<string, string> = {
+  all: 'All Categories',
+  ...CATEGORY_LABELS,
+}
+
 // Aurea-aligned category chips: neutral/emerald-tinted, no blue/purple
 const CATEGORY_COLORS: Record<TagCategory, string> = {
   pipeline_stage: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
@@ -218,7 +225,7 @@ export function TagManager() {
 
               <div className="space-y-2">
                 <Label>Category</Label>
-                <Select value={formCategory} onValueChange={(v) => setFormCategory(v as TagCategory)}>
+                <Select items={CATEGORY_LABELS} value={formCategory} onValueChange={(v) => setFormCategory(v as TagCategory)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -288,7 +295,7 @@ export function TagManager() {
             className="pl-9"
           />
         </div>
-        <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v || 'all')}>
+        <Select items={CATEGORY_FILTER_LABELS} value={categoryFilter} onValueChange={(v) => setCategoryFilter(v || 'all')}>
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>

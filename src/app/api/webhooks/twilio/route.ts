@@ -205,19 +205,23 @@ export async function POST(request: NextRequest) {
     return new NextResponse('Server error', { status: 500 })
   }
 
-  // Store inbound message
-  await supabase.from('messages').insert({
-    organization_id: lead.organization_id,
-    conversation_id: conversation.id,
-    lead_id: lead.id,
-    direction: 'inbound',
-    channel: 'sms',
-    body,
-    sender_type: 'lead',
-    sender_name: `${lead.first_name} ${lead.last_name || ''}`.trim(),
-    status: 'delivered',
-    external_id: messageSid,
-  })
+  // Store inbound message (id captured for the D3 response-SLA row)
+  const { data: inboundMessage } = await supabase
+    .from('messages')
+    .insert({
+      organization_id: lead.organization_id,
+      conversation_id: conversation.id,
+      lead_id: lead.id,
+      direction: 'inbound',
+      channel: 'sms',
+      body,
+      sender_type: 'lead',
+      sender_name: `${lead.first_name} ${lead.last_name || ''}`.trim(),
+      status: 'delivered',
+      external_id: messageSid,
+    })
+    .select('id')
+    .single()
 
   // Log activity
   await supabase.from('lead_activities').insert({
@@ -282,6 +286,49 @@ export async function POST(request: NextRequest) {
       reason: result.reason,
       confidence: result.confidence,
     })
+
+    // ── D3: response-SLA bookkeeping ──
+    // 'hold' → open the takeover timer (the sla-takeover cron enforces it);
+    // AI sent → stamp the first-response metrics row. Best-effort: SLA writes
+    // must never fail the webhook response.
+    try {
+      const { openResponseSla, recordImmediateAiResponse } = await import('@/lib/automation/sla')
+      if (
+        result.action === 'held_for_human' &&
+        result.allocation?.owner === 'hold' &&
+        result.allocation.slaSeconds
+      ) {
+        await openResponseSla(supabase, {
+          organizationId: lead.organization_id,
+          conversationId: conversation.id,
+          leadId: lead.id,
+          inboundMessageId: inboundMessage?.id ?? null,
+          slaSeconds: result.allocation.slaSeconds,
+          takeoverPayload: {
+            organization_id: lead.organization_id,
+            conversation_id: conversation.id,
+            lead_id: lead.id,
+            inbound_message: body,
+            channel: 'sms',
+            sender_contact: from,
+          },
+        })
+        // TODO(D5: notifyInboundMessage): alert the assignee pool that a lead
+        // is waiting on a human reply with an SLA running.
+      } else if (result.action === 'sent') {
+        await recordImmediateAiResponse(supabase, {
+          organizationId: lead.organization_id,
+          conversationId: conversation.id,
+          leadId: lead.id,
+          inboundMessageId: inboundMessage?.id ?? null,
+        })
+      }
+    } catch (err) {
+      logger.warn('SLA bookkeeping failed (webhook unaffected)', {
+        conversationId: conversation.id,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   // Refresh the rolling conversation summary in the background.

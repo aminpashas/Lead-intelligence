@@ -67,6 +67,7 @@ export function LeadDetail({
   stages,
   teamMembers,
   prequalEnabled = false,
+  noShowFeeEnabled = false,
   timeZone,
 }: {
   lead: Lead
@@ -82,6 +83,7 @@ export function LeadDetail({
   stages: PipelineStage[]
   teamMembers: Pick<UserProfile, 'id' | 'full_name' | 'email' | 'role'>[]
   prequalEnabled?: boolean
+  noShowFeeEnabled?: boolean
   /** Practice IANA timezone, forwarded so thread timestamps render zone-fixed. */
   timeZone?: string
 }) {
@@ -239,6 +241,7 @@ export function LeadDetail({
                 messages={threadMessages}
                 calls={threadCalls}
                 prequalEnabled={prequalEnabled}
+                noShowFeeEnabled={noShowFeeEnabled}
                 backHref="/leads"
                 savedAnalysis={latestAnalysis}
                 patientProfile={patientProfile}
@@ -307,7 +310,7 @@ export function LeadDetail({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <LeadActions lead={lead} variant="bar" prequalEnabled={prequalEnabled} />
+                <LeadActions lead={lead} variant="bar" prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} />
                 <ScheduleAppointment lead={lead} />
                 <Button onClick={scoreLead} disabled={scoring} variant="outline" size="sm" className="gap-1.5">
                   {scoring

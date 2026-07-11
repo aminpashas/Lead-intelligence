@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateTwilioWebhook } from '@/lib/messaging/twilio'
 import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
+import { buildLeadContextVariables } from '@/lib/voice/lead-context'
 import { formatPhoneForSpeech } from '@/lib/leads/phone'
 
 /**
@@ -225,6 +226,21 @@ export async function POST(req: NextRequest) {
             practice_name: practiceName,
             personality_type: (personality?.type as string) || '',
             communication_style: (personality?.communication_style as string) || '',
+          }
+
+          // Returning caller → give the agent its memory: last conversation
+          // summary, recent messages, and appointment history. New leads have
+          // nothing to load. Best-effort: a failure degrades to empty strings
+          // rather than delaying the TwiML response.
+          if (!isNewLead) {
+            try {
+              Object.assign(
+                dynamicVariables,
+                await buildLeadContextVariables(supabase, lead.id, orgId, voiceTimezone)
+              )
+            } catch (ctxErr) {
+              console.error('[Voice Inbound] Lead context error (non-fatal):', ctxErr)
+            }
           }
 
           // Create/find conversation

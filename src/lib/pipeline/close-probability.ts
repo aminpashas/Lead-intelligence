@@ -1,4 +1,6 @@
 import type { Lead } from '@/types/database'
+import { predictProba, type ModelCoefficients } from '@/lib/scoring/calibration'
+import { buildFeatureVector, type FeatureInput } from '@/lib/scoring/features'
 
 /**
  * Per-lead close-probability scorer for the pipeline Kanban badges.
@@ -81,4 +83,59 @@ export function scoreCloseProbability(
 
   const probability = Math.max(0, Math.min(1, score))
   return Math.round(probability * 100) / 100
+}
+
+/** The active calibrated model a caller passes in (from scoring_model_versions). */
+export type ActiveScoringModel = {
+  id: string
+  coefficients: ModelCoefficients
+}
+
+/**
+ * Calibrated close probability when a fitted model is available, with the
+ * heuristic above as the UNCHANGED fallback. Same output contract (0-1, 2 d.p.)
+ * so `suggestStageMove` and the Kanban badge consume either transparently.
+ */
+export function scoreCloseProbabilityCalibrated(
+  lead: CloseProbabilityInput & FeatureInput,
+  activeModel: ActiveScoringModel | null,
+  baseRate: number,
+  nowMs: number
+): number {
+  if (!activeModel) return scoreCloseProbability(lead, baseRate, nowMs)
+  const p = predictProba(activeModel.coefficients, buildFeatureVector(lead, undefined, nowMs))
+  return Math.round(Math.max(0, Math.min(1, p)) * 100) / 100
+}
+
+/**
+ * Fields the calibrate-scoring cron stamps onto leads (migration
+ * 20260711130000). Additive columns not yet folded into the Lead type — read
+ * paths intersect them in via this type.
+ */
+export type StampedCloseProbability = {
+  close_probability?: number | string | null
+  close_probability_model_id?: string | null
+  close_probability_at?: string | null
+}
+
+/** Stamps older than this are stale — the weekly cron plus one day of grace. */
+export const CLOSE_PROBABILITY_STAMP_MAX_AGE_MS = 8 * 24 * 60 * 60 * 1000
+
+/**
+ * The cron-stamped calibrated probability, when present and fresh (< 8 days);
+ * null otherwise so the caller falls back to the live heuristic. numeric comes
+ * back from PostgREST as a string — coerce defensively.
+ */
+export function readStampedCloseProbability(
+  lead: StampedCloseProbability,
+  nowMs: number
+): number | null {
+  if (lead.close_probability == null || lead.close_probability_at == null) return null
+  const stampedAt = new Date(lead.close_probability_at).getTime()
+  if (!Number.isFinite(stampedAt) || nowMs - stampedAt > CLOSE_PROBABILITY_STAMP_MAX_AGE_MS) {
+    return null
+  }
+  const p = Number(lead.close_probability)
+  if (!Number.isFinite(p)) return null
+  return Math.round(Math.max(0, Math.min(1, p)) * 100) / 100
 }

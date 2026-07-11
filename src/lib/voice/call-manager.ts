@@ -25,6 +25,7 @@ import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
 import { logger } from '@/lib/logger'
 import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
+import { buildLeadContextVariables } from './lead-context'
 import { normalizeCallOutcome } from './post-call-review'
 import type {
   VoiceCallStatus,
@@ -384,6 +385,15 @@ export async function initiateOutboundCall(
     .maybeSingle()
   const dateVars = buildDateDynamicVariables((bsForTz?.timezone as string | null) ?? null)
 
+  // Lead memory (conversation summary, recent messages, appointment history) so
+  // the agent references what's already happened instead of re-asking.
+  const contextVars = await buildLeadContextVariables(
+    supabase,
+    lead_id,
+    organization_id,
+    (bsForTz?.timezone as string | null) ?? null
+  )
+
   // Find or create voice conversation
   let conversationId: string
   const { data: existingConvo } = await supabase
@@ -486,6 +496,9 @@ export async function initiateOutboundCall(
       // Real clock + dated 2-week calendar. Retell prompt references
       // {{current_datetime}} and {{upcoming_dates}}.
       ...dateVars,
+      // Conversation + appointment memory ({{conversation_summary}},
+      // {{recent_messages}}, {{upcoming_appointment}}, …).
+      ...contextVars,
     },
   }
 

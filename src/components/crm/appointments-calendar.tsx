@@ -435,6 +435,10 @@ function statusColors(a: CalendarAppointment): {
     }
   }
   switch (a.status) {
+    case 'pending_card':
+      // Held slot awaiting a card on file — not a confirmed booking. Muted +
+      // dashed so it reads as provisional.
+      return { dot: 'bg-aurea-ink-3', chipBg: 'bg-aurea-surface-2', chipText: 'text-aurea-ink-3', blockBg: 'bg-aurea-surface-2/60', blockBorder: 'border-dashed border-aurea-border-strong' }
     case 'confirmed':
       return { dot: 'bg-aurea-primary', chipBg: 'bg-aurea-primary/10', chipText: 'text-aurea-primary', blockBg: 'bg-aurea-primary/10', blockBorder: 'border-aurea-primary/30' }
     case 'completed':

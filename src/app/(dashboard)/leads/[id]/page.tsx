@@ -126,6 +126,15 @@ export default async function LeadDetailPage({
   // "Send Pre-Qual" action shows in the action bar.
   const prequalEnabled = await isFlagEnabled(supabase, lead.organization_id, 'financing_prequal_enabled')
 
+  // Practice no-show fee switch — drives whether the per-lead "Card link" action
+  // (text/resend the card-on-file link) shows in the action bar.
+  const { data: bookingSettingsRow } = await supabase
+    .from('booking_settings')
+    .select('no_show_fee_enabled')
+    .eq('organization_id', lead.organization_id)
+    .maybeSingle()
+  const noShowFeeEnabled = bookingSettingsRow?.no_show_fee_enabled === true
+
   // Thread timestamps render in the practice timezone so SSR (UTC) and the
   // browser agree on day boundaries.
   const timeZone = await resolvePracticeTimeZone(supabase, lead.organization_id)
@@ -145,6 +154,7 @@ export default async function LeadDetailPage({
       stages={stages || []}
       teamMembers={teamMembers || []}
       prequalEnabled={prequalEnabled}
+      noShowFeeEnabled={noShowFeeEnabled}
       timeZone={timeZone}
     />
   )

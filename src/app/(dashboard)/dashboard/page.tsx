@@ -9,6 +9,24 @@ import { dashboardVariant } from '@/lib/auth/permissions'
 import { decryptLeadPII, decryptLeadsPII } from '@/lib/encryption'
 import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
 
+// The dashboard "Pipeline" KPI is the probability-weighted forecast of the open
+// deals curated on the In-Closing board (closing_book): Σ(case_value × close_probability).
+// It deliberately does NOT sum leads.treatment_value — that column is only ever
+// populated when a case *completes*, so summing it showed the booked revenue of
+// already-closed cases mislabeled as open pipeline (e.g. SF's "$23k" = 7 completed
+// cases). close_probability is stored as a 0–1 fraction. closing_book is a small
+// curated table, so reducing rows in JS is safe from the 1000-row cap.
+async function weightedPipelineForecast(supabase: SupabaseClient, orgId: string): Promise<number> {
+  const { data } = await supabase
+    .from('closing_book')
+    .select('case_value, close_probability')
+    .eq('organization_id', orgId)
+  return (data || []).reduce(
+    (s, d) => s + (Number(d.case_value) || 0) * (Number(d.close_probability) || 0),
+    0
+  )
+}
+
 // The dashboard shows a different home depending on who is looking:
 //  - agency_admin        → AI command center (company control room)
 //  - clinical front-desk → the Today view (consults + per-visit prep)
@@ -63,7 +81,7 @@ async function OpsDashboardView({
     awaitingContactResult,
     bookedResult,
     unreadThreadsResult,
-    pipelineResult,
+    pipelineValue,
     upcomingResult,
     hotLeadsResult,
   ] = await Promise.all([
@@ -101,7 +119,8 @@ async function OpsDashboardView({
       .eq('organization_id', orgId)
       .gt('unread_count', 0),
 
-    supabase.from('leads').select('treatment_value').eq('organization_id', orgId).gt('treatment_value', 0),
+    // Pipeline value — probability-weighted forecast from the In-Closing board.
+    weightedPipelineForecast(supabase, orgId),
 
     supabase
       .from('appointments')
@@ -127,8 +146,6 @@ async function OpsDashboardView({
   // canonical sales funnel is positions 0–10. Keep the real funnel only.
   type StageRow = { stage_id: string; name: string; stage_position: number; lead_count: number }
   const stages = ((stagesResult.data as StageRow[] | null) || []).filter((s) => s.stage_position <= 10)
-
-  const pipelineValue = (pipelineResult.data || []).reduce((s, l) => s + (l.treatment_value || 0), 0)
 
   const upcomingConsults = (upcomingResult.data || []).map((appt: Record<string, any>) => ({
     ...appt,
@@ -269,7 +286,7 @@ async function AgencyDashboard({
     engagedResult,
     upcomingApptsResult,
     unreadThreadsResult,
-    pipelineResult,
+    pipelineValue,
   ] = await Promise.all([
     // Hot leads needing attention (no response in 24h+)
     supabase
@@ -384,12 +401,8 @@ async function AgencyDashboard({
       .eq('organization_id', orgId)
       .gt('unread_count', 0),
 
-    // Pipeline value — only rows that actually carry a value, summed here.
-    supabase
-      .from('leads')
-      .select('treatment_value')
-      .eq('organization_id', orgId)
-      .gt('treatment_value', 0),
+    // Pipeline value — probability-weighted forecast from the In-Closing board.
+    weightedPipelineForecast(supabase, orgId),
   ])
 
   // PII is encrypted at rest — decrypt server-side before rendering.
@@ -398,11 +411,6 @@ async function AgencyDashboard({
     ...appt,
     lead: appt.lead ? decryptLeadPII(appt.lead as Record<string, unknown>) : appt.lead,
   }))
-
-  const pipelineValue = (pipelineResult.data || []).reduce(
-    (s, l) => s + (l.treatment_value || 0),
-    0
-  )
 
   return (
     <div className="animate-in fade-in-0 duration-500 space-y-4">

@@ -17,15 +17,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createOutboundCall, type RetellCallResponse } from './retell-client'
 import { assertConsent, logConsentViolation, type ConsentDenyReason } from '@/lib/consent/gate'
+import { messagingDryRun, isSendAllowed } from '@/lib/messaging/test-allowlist'
 import { decryptField } from '@/lib/encryption'
 import { logger } from '@/lib/logger'
 import { recordAudit } from '@/lib/audit/record'
 import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
+import { buildLeadContextVariables } from './lead-context'
 import { formatPhoneForSpeech } from '@/lib/leads/phone'
 
 export type OutboundToLeadResult =
   | { placed: true; call: RetellCallResponse }
-  | { placed: false; reason: ConsentDenyReason | 'no_phone' | 'no_agent' | 'no_from_number' | 'retell_error'; detail?: string }
+  | { placed: false; reason: ConsentDenyReason | 'no_phone' | 'no_agent' | 'no_from_number' | 'retell_error' | 'dry_run' | 'not_allowlisted'; detail?: string }
 
 export type OutboundToLeadParams = {
   supabase: SupabaseClient
@@ -76,6 +78,26 @@ export async function placeOutboundCallToLead(
   const phone = rawPhone ? decryptField(rawPhone) || rawPhone : null
   if (!phone) return { placed: false, reason: 'no_phone' }
 
+  // Global send kill-switch parity with SMS/email. The MESSAGING_DRY_RUN /
+  // TEST_SEND_ALLOWLIST clamps live inside sendSMS/sendEmail, but Retell is a
+  // separate transport — without this check a stray campaign voice step or a
+  // replayed event could place a live call while the company believes all
+  // messaging is frozen. One switch must stop all three channels.
+  if (messagingDryRun()) {
+    logger.warn('MESSAGING_DRY_RUN active — outbound voice call suppressed (not placed)', {
+      leadId: params.leadId,
+      caller: params.caller,
+    })
+    return { placed: false, reason: 'dry_run' }
+  }
+  if (!isSendAllowed(phone)) {
+    logger.warn('TEST_SEND_ALLOWLIST active — outbound voice call suppressed (number not allowlisted)', {
+      leadId: params.leadId,
+      caller: params.caller,
+    })
+    return { placed: false, reason: 'not_allowlisted' }
+  }
+
   const { data: org } = await params.supabase
     .from('organizations')
     .select('twilio_phone_number')
@@ -98,6 +120,15 @@ export async function placeOutboundCallToLead(
     .eq('organization_id', params.organizationId)
     .maybeSingle()
   const dateVars = buildDateDynamicVariables((bsForTz?.timezone as string | null) ?? null)
+
+  // Lead memory (conversation summary, recent messages, appointment history) so
+  // the agent can reference what's already happened instead of re-asking.
+  const contextVars = await buildLeadContextVariables(
+    params.supabase,
+    params.leadId,
+    params.organizationId,
+    (bsForTz?.timezone as string | null) ?? null
+  )
 
   // Open or find the active voice conversation so the post-call webhook can attach the transcript.
   const conversationId = await ensureVoiceConversation(
@@ -135,6 +166,9 @@ export async function placeOutboundCallToLead(
         // Real clock + dated 2-week calendar. Retell prompt references
         // {{current_datetime}} and {{upcoming_dates}}.
         ...dateVars,
+        // Conversation + appointment memory ({{conversation_summary}},
+        // {{recent_messages}}, {{upcoming_appointment}}, …).
+        ...contextVars,
         ...(params.dynamicVariables || {}),
       },
     })

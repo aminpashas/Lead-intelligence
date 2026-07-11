@@ -69,13 +69,16 @@ export default async function FinancingPublicPage({
     )
   }
 
-  // Load lead basic info to pre-fill the form
-  // HIPAA-3: Only select non-PII fields for prefill. Email and phone are
-  // encrypted at rest (start with 'enc::') — DO NOT pass ciphertext to
-  // the client. The patient will re-enter their contact info in the form.
+  // Load lead basic info to pre-fill the form.
+  // HIPAA minimization: this page is PUBLIC (unauthenticated, reached by anyone
+  // holding the share token — which can be forwarded or shoulder-surfed). Names
+  // are plaintext at rest, so we deliberately surface only the FIRST name (for a
+  // greeting + prefill). The last name is NOT rendered here — first name alone is
+  // far less identifying, and the applicant knows their own last name to enter.
+  // Email/phone are excluded (encrypted ciphertext; patient re-enters them).
   const { data: lead } = await supabase
     .from('leads')
-    .select('first_name, last_name, city, state')
+    .select('first_name, city, state')
     .eq('id', application.lead_id)
     .single()
 
@@ -110,7 +113,9 @@ export default async function FinancingPublicPage({
           patientFirstName={lead?.first_name || ''}
           prefill={{
             first_name: lead?.first_name || '',
-            last_name: lead?.last_name || '',
+            // last_name intentionally not prefilled on this public page (HIPAA
+            // minimization — see the lead query above). Applicant enters it.
+            last_name: '',
             // HIPAA-3: email/phone excluded — they're encrypted in the DB
             // Patient will enter their own contact info in the form
             email: '',

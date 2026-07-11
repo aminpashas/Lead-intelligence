@@ -79,6 +79,14 @@ const CANONICAL_FIELDS = [
 
 type CanonicalField = (typeof CANONICAL_FIELDS)[number]['value']
 
+// Base UI's <SelectValue> renders the raw value, so map each value → trigger label.
+const FIELD_LABELS = Object.fromEntries(CANONICAL_FIELDS.map((f) => [f.value, f.label]))
+const DEDUPE_LABELS = {
+  skip: 'Skip (recommended)',
+  overwrite: 'Overwrite existing',
+  allow: 'Insert anyway',
+}
+
 const HEADER_HINTS: Record<string, CanonicalField> = {
   'first name': 'first_name', firstname: 'first_name', first: 'first_name', fname: 'first_name', given: 'first_name',
   'last name': 'last_name', lastname: 'last_name', last: 'last_name', lname: 'last_name', surname: 'last_name', family: 'last_name',
@@ -396,6 +404,7 @@ export function LeadCSVImport() {
                       </TableCell>
                       <TableCell>
                         <Select
+                          items={FIELD_LABELS}
                           value={mapping[h] || '__ignore__'}
                           onValueChange={(v) => setMapping({ ...mapping, [h]: v as CanonicalField })}
                         >
@@ -654,7 +663,7 @@ function PreviewStep(props: {
         </div>
         <div className="space-y-2">
           <Label>If duplicate found</Label>
-          <Select value={props.dedupeMode} onValueChange={(v) => props.setDedupeMode(v as 'skip' | 'overwrite' | 'allow')}>
+          <Select items={DEDUPE_LABELS} value={props.dedupeMode} onValueChange={(v) => props.setDedupeMode(v as 'skip' | 'overwrite' | 'allow')}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="skip">Skip (recommended)</SelectItem>

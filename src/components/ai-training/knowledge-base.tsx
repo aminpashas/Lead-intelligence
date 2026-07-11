@@ -154,7 +154,7 @@ export function KnowledgeBase() {
               className="pl-9 w-[200px]"
             />
           </div>
-          <Select value={categoryFilter} onValueChange={(v) => v && setCategoryFilter(v)}>
+          <Select items={{ all: 'All Categories', ...CATEGORY_LABELS }} value={categoryFilter} onValueChange={(v) => v && setCategoryFilter(v)}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="All Categories">
                 {categoryFilter === 'all' ? 'All Categories' : CATEGORY_LABELS[categoryFilter as AIKnowledgeCategory] || categoryFilter}

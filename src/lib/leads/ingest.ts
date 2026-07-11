@@ -232,6 +232,15 @@ export async function ingestLead(
       } catch {
         // Best-effort: a speed-to-lead failure must never affect ingestion.
       }
+
+      // Enroll in the org's no-answer follow-up cadence (no-op unless the
+      // sequence is enabled; the cron is additionally env-gated).
+      try {
+        const { enrollLeadInFollowUp } = await import('@/lib/automation/sequences')
+        await enrollLeadInFollowUp(supabase, leadId, input.organizationId)
+      } catch {
+        // Best-effort: enrollment failure must never affect ingestion.
+      }
     }
   }
 

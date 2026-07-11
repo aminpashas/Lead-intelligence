@@ -17,7 +17,17 @@ export const CLOSING_STAGE_SLUGS = ['treatment-presented', 'financing'] as const
 /** A deal goes "stalled" once it has had no contact for this many days. */
 export const CLOSING_STALE_DAYS = 21
 
-export type ClosingTemperature = 'hot' | 'warm' | 'cold' | 'stalled'
+/**
+ * Closing temperatures.
+ *
+ * `hot | warm | cold` track close probability; `stalled` is DERIVED from silence
+ * (see `deriveClosingTemperature`). `deliberating` is MANUAL-ONLY — a closer sets
+ * it when a patient who has seen the plan is actively deciding ("let me think /
+ * talk to my spouse / save up"). It is engaged-and-waiting, distinct from
+ * `stalled` (gone quiet) and from Lost (dead). It is never auto-derived; it only
+ * appears as a human override, paired with `leads.closing_follow_up_at`.
+ */
+export type ClosingTemperature = 'hot' | 'warm' | 'cold' | 'stalled' | 'deliberating'
 
 /** Whole days since `dateStr` (null if never contacted). */
 export function daysSince(dateStr: string | null, nowMs: number): number | null {
@@ -54,6 +64,44 @@ export function effectiveTemperature(
   daysSinceContact: number | null
 ): ClosingTemperature {
   return (manual as ClosingTemperature | null) ?? deriveClosingTemperature(closeProbability, daysSinceContact)
+}
+
+/**
+ * Where a deal sits in the closer's live queue:
+ *
+ *   - `waiting` — deliberating with a follow-up date still in the future. The
+ *     closer agreed to circle back later; muted / hidden from the live queue
+ *     until its timer fires. This is what keeps "thinking about it" deals from
+ *     cluttering the working column.
+ *   - `due`     — deliberating and the follow-up date has arrived (or a
+ *     deliberating deal with NO date set — treat as due, don't lose it).
+ *     Surfaces for the nudge.
+ *   - `active`  — everything else: untouched deals and normal working deals.
+ *     Always in the live queue.
+ *
+ * The live queue is `active` + `due`; `waiting` is collapsed. Pure (now injected)
+ * so it unit-tests without mocks, matching the rest of this module.
+ */
+export type ClosingQueueState = 'active' | 'due' | 'waiting'
+
+export function closingQueueState(
+  temperature: Lead['closing_temperature'],
+  followUpAt: string | null,
+  nowMs: number
+): ClosingQueueState {
+  if (temperature !== 'deliberating') return 'active'
+  // Deliberating but no timer set: keep it visible rather than silently hiding it.
+  if (!followUpAt) return 'due'
+  return new Date(followUpAt).getTime() <= nowMs ? 'due' : 'waiting'
+}
+
+/** True when a deal belongs in the closer's live queue (not muted as waiting). */
+export function isInLiveQueue(
+  temperature: Lead['closing_temperature'],
+  followUpAt: string | null,
+  nowMs: number
+): boolean {
+  return closingQueueState(temperature, followUpAt, nowMs) !== 'waiting'
 }
 
 export type ClosingDeal = { treatmentValue: number | null; closeProbability: number; daysSinceContact: number | null }

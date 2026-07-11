@@ -258,7 +258,10 @@ export async function handleTrainerSms(
     if (cmd.kind === 'help' || cmd.kind === 'status') return { handled: true, reply: HELP_TEXT }
 
     if (cmd.kind === 'train' || cmd.kind === 'roleplay') {
-      if (config.pin && cmd.pin !== config.pin) {
+      // Fail-closed: a missing/unset PIN must NOT open a training session that can
+      // write agency_ai_rules. Previously a null config.pin skipped the check
+      // entirely, so any allowlisted number could TRAIN/ROLEPLAY with no PIN.
+      if (!config.pin || cmd.pin !== config.pin) {
         return { handled: true, reply: 'Invalid PIN. Text HELP for commands.' }
       }
       const referenceOrgId = await resolveReferenceOrg(supabase, config.referenceOrgId)

@@ -485,7 +485,7 @@ export function AiAuditDashboard() {
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Select value={agentFilter} onValueChange={(v) => { if (v) { setAgentFilter(v); setPage(1) } }}>
+        <Select items={{ all: 'All Agents', setter: 'Setter Only', closer: 'Closer Only' }} value={agentFilter} onValueChange={(v) => { if (v) { setAgentFilter(v); setPage(1) } }}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Agent" />
           </SelectTrigger>
@@ -496,7 +496,7 @@ export function AiAuditDashboard() {
           </SelectContent>
         </Select>
 
-        <Select value={ratedFilter} onValueChange={(v) => { if (v) { setRatedFilter(v); setPage(1) } }}>
+        <Select items={{ all: 'All', false: 'Unrated', true: 'Rated' }} value={ratedFilter} onValueChange={(v) => { if (v) { setRatedFilter(v); setPage(1) } }}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Rating" />
           </SelectTrigger>
@@ -507,7 +507,7 @@ export function AiAuditDashboard() {
           </SelectContent>
         </Select>
 
-        <Select value={flaggedFilter} onValueChange={(v) => { if (v) { setFlaggedFilter(v); setPage(1) } }}>
+        <Select items={{ all: 'All', true: 'Flagged Only' }} value={flaggedFilter} onValueChange={(v) => { if (v) { setFlaggedFilter(v); setPage(1) } }}>
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Flagged" />
           </SelectTrigger>

@@ -38,6 +38,11 @@ const autopilotSettingsSchema = z.object({
   autopilot_stop_words: z.array(z.string().min(1).max(50)).max(20).optional(),
   autopilot_speed_to_lead: z.boolean().optional(),
   autopilot_schedule: weekScheduleSchema.nullable().optional(),
+  // D3: human-first response window — hold inbound replies for a human for
+  // this many seconds before the AI takes over (same 30s-1h range as
+  // automation_policies.human_response_sla_seconds).
+  human_first_sla_enabled: z.boolean().optional(),
+  human_first_sla_seconds: z.number().int().min(30).max(3600).optional(),
 }).refine(
   (data) => {
     // Ensure delay_min <= delay_max when both provided
@@ -89,7 +94,9 @@ export async function GET(request: NextRequest) {
       autopilot_active_hours_end,
       autopilot_stop_words,
       autopilot_speed_to_lead,
-      autopilot_schedule
+      autopilot_schedule,
+      human_first_sla_enabled,
+      human_first_sla_seconds
     `)
     .eq('id', orgId)
     .single()

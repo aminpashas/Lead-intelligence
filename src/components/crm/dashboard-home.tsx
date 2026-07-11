@@ -143,9 +143,9 @@ export function DashboardHome({
           icon={DollarSign}
           label="Pipeline"
           value={formatCurrency(kpis.pipelineValue)}
-          sub="est. treatment value"
+          sub="weighted forecast"
           accent="emerald"
-          href="/pipeline"
+          href="/closing"
         />
         <MiniKPI
           icon={Bell}
