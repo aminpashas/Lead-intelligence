@@ -6,6 +6,7 @@ import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { chargeNoShowFeeForAppointment, sendCardCaptureLink } from '@/lib/stripe/no-show-fee'
 import { isAdminRole } from '@/lib/auth/permissions'
 import { decryptField, decryptLeadPII } from '@/lib/encryption'
+import { sendSMS } from '@/lib/messaging/twilio'
 import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
 import { seedPostConsultNurture } from '@/lib/campaigns/post-consult-nurture'
 import { z } from 'zod'
@@ -207,6 +208,41 @@ export async function POST(request: NextRequest) {
       phone,
       orgName: orgRow?.name || null,
     })
+  }
+
+  // Patient confirmation (net-new for staff bookings). Skip held/pending_card
+  // slots — those aren't confirmed until the card link is completed.
+  if (appointment.status === 'scheduled') {
+    try {
+      const { getBrandingForOrg } = await import('@/lib/branding/store')
+      const { resolveBrandForContext } = await import('@/lib/branding/resolve-brand')
+      const { branding, orgName } = await getBrandingForOrg(supabase, orgId)
+
+      const { data: confLead } = await supabase
+        .from('leads')
+        .select('first_name, phone_formatted, tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
+        .eq('id', parsed.data.lead_id)
+        .maybeSingle()
+      const phone = confLead?.phone_formatted ? (decryptField(confLead.phone_formatted as string) || null) : null
+      const brand = resolveBrandForContext(branding, orgName, { lead: (confLead as never) ?? null })
+
+      if (phone) {
+        const when = new Date(appointment.scheduled_at as string).toLocaleString('en-US', {
+          weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+        })
+        const logisticsLine = [brand.logistics.parkingText, brand.logistics.transitText]
+          .filter((s) => s && s.trim()).join(' ')
+        await sendSMS(phone, `Hi ${confLead?.first_name || 'there'}! Your appointment at ${brand.practiceName} is confirmed for ${when}.${logisticsLine ? ` ${logisticsLine}` : ''} Reply STOP to opt out.`)
+      }
+    } catch (err) {
+      await supabase.from('lead_activities').insert({
+        organization_id: orgId,
+        lead_id: parsed.data.lead_id,
+        activity_type: 'notification_failed',
+        title: 'Staff booking confirmation SMS failed',
+        metadata: { error: err instanceof Error ? err.message : 'unknown', channel: 'sms' },
+      })
+    }
   }
 
   // `held` tells the UI this slot isn't confirmed yet (waiting on the card);
