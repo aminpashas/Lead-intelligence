@@ -15,28 +15,71 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createServiceClient } from '@/lib/supabase/server'
 import { logger } from '@/lib/logger'
+import { TIER_PRICE_ENV, TIERS, isTierId, type TierId } from '@/lib/billing/tiers'
 
+// Tiers the webhook will accept from metadata: the sellable ladder plus legacy tiers still live
+// on existing subscriptions. Identity map — validation, not translation.
 const TIER_MAP: Record<string, string> = {
+  basic: 'basic',
+  growth: 'growth',
+  full: 'full',
   starter: 'starter',
   professional: 'professional',
   enterprise: 'enterprise',
 }
 
 /**
- * Resolve the plan tier from the Stripe Price ID (server-authoritative) rather
- * than trusting client-supplied metadata.tier — otherwise a buyer who can
- * influence checkout metadata could self-assign 'enterprise'. Configure the
- * mapping via STRIPE_PRICE_STARTER / STRIPE_PRICE_PROFESSIONAL / STRIPE_PRICE_ENTERPRISE.
- * Falls back to the metadata tier when no price map is configured (back-compat).
+ * Build the Stripe-Price-ID → tier map from the environment. Sellable tiers are configured via
+ * TIER_PRICE_ENV (STRIPE_PRICE_BASIC/GROWTH/FULL); legacy price envs are kept so old subscriptions
+ * still resolve. A subscription now carries several line items (base + seat + metered), so callers
+ * search ALL item price IDs for the one that matches a known base price.
  */
-function resolveTier(priceId: string | undefined, metadataTier: string | undefined): string | undefined {
-  const priceMap: Record<string, string> = {}
-  if (process.env.STRIPE_PRICE_STARTER) priceMap[process.env.STRIPE_PRICE_STARTER] = 'starter'
-  if (process.env.STRIPE_PRICE_PROFESSIONAL) priceMap[process.env.STRIPE_PRICE_PROFESSIONAL] = 'professional'
-  if (process.env.STRIPE_PRICE_ENTERPRISE) priceMap[process.env.STRIPE_PRICE_ENTERPRISE] = 'enterprise'
+function tierPriceMap(): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const id of Object.keys(TIER_PRICE_ENV) as TierId[]) {
+    const priceId = process.env[TIER_PRICE_ENV[id]]
+    if (priceId) map[priceId] = id
+  }
+  if (process.env.STRIPE_PRICE_STARTER) map[process.env.STRIPE_PRICE_STARTER] = 'starter'
+  if (process.env.STRIPE_PRICE_PROFESSIONAL) map[process.env.STRIPE_PRICE_PROFESSIONAL] = 'professional'
+  if (process.env.STRIPE_PRICE_ENTERPRISE) map[process.env.STRIPE_PRICE_ENTERPRISE] = 'enterprise'
+  return map
+}
 
-  if (priceId && priceMap[priceId]) return priceMap[priceId]
+/**
+ * Resolve the plan tier from a subscription's Price IDs (server-authoritative) rather than trusting
+ * client-supplied metadata.tier — otherwise a buyer who can influence checkout metadata could
+ * self-assign a higher tier. Falls back to validated metadata when no price map matches (back-compat).
+ */
+function resolveTier(priceIds: (string | undefined)[], metadataTier: string | undefined): string | undefined {
+  const priceMap = tierPriceMap()
+  for (const priceId of priceIds) {
+    if (priceId && priceMap[priceId]) return priceMap[priceId]
+  }
   return metadataTier && TIER_MAP[metadataTier] ? TIER_MAP[metadataTier] : undefined
+}
+
+/**
+ * Keep the internal usage-invoice engine (billing_settings.platform_fee_cents) in step with the
+ * tier the customer bought, so agency dashboards and internal invoices show the same platform fee
+ * Stripe charges. Best-effort: a failure here must not fail the webhook (Stripe is the biller).
+ */
+async function syncPlatformFee(
+  supabase: ReturnType<typeof createServiceClient>,
+  orgId: string,
+  tier: string,
+): Promise<void> {
+  if (!isTierId(tier)) return
+  try {
+    await supabase
+      .from('billing_settings')
+      .upsert(
+        { organization_id: orgId, platform_fee_cents: TIERS[tier].baseFeeCents, updated_at: new Date().toISOString() },
+        { onConflict: 'organization_id' },
+      )
+  } catch (err) {
+    logger.warn('Failed to sync platform fee to billing_settings', { orgId, tier, err: err instanceof Error ? err.message : 'Unknown' })
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -78,17 +121,19 @@ export async function POST(request: NextRequest) {
           : session.subscription?.id
 
         if (orgId && tier && subscriptionId) {
+          const resolvedTier = TIER_MAP[tier] || tier
           await supabase
             .from('organizations')
             .update({
-              subscription_tier: TIER_MAP[tier] || tier,
+              subscription_tier: resolvedTier,
               subscription_status: 'active',
               stripe_subscription_id: subscriptionId,
               trial_ends_at: null,
             })
             .eq('id', orgId)
+          await syncPlatformFee(supabase, orgId, resolvedTier)
 
-          logger.info('Subscription activated via checkout', { orgId, tier, subscriptionId })
+          logger.info('Subscription activated via checkout', { orgId, tier: resolvedTier, subscriptionId })
         }
         break
       }
@@ -176,9 +221,10 @@ async function syncSubscriptionStatus(
   orgId: string,
   sub: Stripe.Subscription
 ) {
-  // Tier from the Price ID (server-authoritative), not client metadata.
-  const priceId = sub.items?.data?.[0]?.price?.id
-  const tier = resolveTier(priceId, sub.metadata?.tier)
+  // Tier from the subscription's Price IDs (server-authoritative), not client metadata. The base
+  // (tier) price is one of several line items — search them all for the one we recognize.
+  const priceIds = (sub.items?.data ?? []).map((i) => i.price?.id)
+  const tier = resolveTier(priceIds, sub.metadata?.tier)
   const statusMap: Record<string, string> = {
     active: 'active',
     past_due: 'past_due',
@@ -202,6 +248,8 @@ async function syncSubscriptionStatus(
     .from('organizations')
     .update(updates)
     .eq('id', orgId)
+
+  if (tier) await syncPlatformFee(supabase, orgId, tier)
 
   logger.info('Subscription status synced', { orgId, status: sub.status, tier })
 }

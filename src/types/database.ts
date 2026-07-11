@@ -13,7 +13,9 @@ export type Organization = {
   settings: Record<string, unknown>
   feature_flags: Record<string, boolean>
   dion_practice_id: string | null
-  subscription_tier: 'trial' | 'starter' | 'professional' | 'enterprise'
+  // Sellable tiers are basic | growth | full (see src/lib/billing/tiers.ts). starter/professional/
+  // enterprise are legacy tiers retained for back-compat on existing subscriptions.
+  subscription_tier: 'trial' | 'basic' | 'growth' | 'full' | 'starter' | 'professional' | 'enterprise'
   subscription_status: 'active' | 'past_due' | 'canceled' | 'trialing'
   trial_ends_at: string | null
   stripe_customer_id: string | null

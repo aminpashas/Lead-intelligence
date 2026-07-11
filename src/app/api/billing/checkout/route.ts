@@ -9,12 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
-
-const PRICE_IDS: Record<string, string | undefined> = {
-  starter: process.env.STRIPE_PRICE_STARTER,
-  professional: process.env.STRIPE_PRICE_PROFESSIONAL,
-  enterprise: process.env.STRIPE_PRICE_ENTERPRISE,
-}
+import { isTierId, billableSeats, buildSubscriptionItems } from '@/lib/billing/tiers'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -41,17 +36,29 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const tier = body.tier as string
 
-  if (!tier || !PRICE_IDS[tier]) {
+  if (!tier || !isTierId(tier)) {
     return NextResponse.json(
-      { error: 'Invalid tier. Must be one of: starter, professional, enterprise' },
+      { error: 'Invalid tier. Must be one of: basic, growth, full' },
       { status: 400 }
     )
   }
 
-  const priceId = PRICE_IDS[tier]
-  if (!priceId) {
+  // Extra (billable) seats = staff beyond the tier's included allotment. The base fee covers the
+  // included seats; each additional staff member adds a $50/mo licensed seat line.
+  const { count: staffCount } = await supabase
+    .from('user_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
+  const extraSeats = billableSeats(tier, staffCount ?? 1)
+
+  // Base (qty 1) + seat (qty = extraSeats) + 4 metered usage items. Throws — surfaced as 500 —
+  // if any Stripe price is unconfigured, so we never sell a plan that silently drops usage billing.
+  let lineItems: Array<{ price: string; quantity?: number }>
+  try {
+    lineItems = buildSubscriptionItems(tier, extraSeats)
+  } catch (err) {
     return NextResponse.json(
-      { error: `Stripe price not configured for tier: ${tier}. Set STRIPE_PRICE_${tier.toUpperCase()} env var.` },
+      { error: err instanceof Error ? err.message : 'Billing not configured' },
       { status: 500 }
     )
   }
@@ -98,7 +105,7 @@ export async function POST(request: NextRequest) {
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: lineItems,
     success_url: `${appUrl}/billing?session_id={CHECKOUT_SESSION_ID}&success=true`,
     cancel_url: `${appUrl}/billing?canceled=true`,
     subscription_data: {

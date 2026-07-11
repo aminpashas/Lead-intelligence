@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useOrgStore } from '@/lib/store/use-org'
 import { RoleGuard } from '@/components/auth/role-guard'
 import { Button } from '@/components/ui/button'
+import { TIERS, TIER_ORDER, type TierId, isTierId } from '@/lib/billing/tiers'
 import {
   CreditCard,
   TrendingUp,
@@ -44,11 +45,24 @@ function BillingContent() {
     return 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20'
   }
 
-  const tierPrices: Record<string, string> = {
-    trial: '$0',
-    starter: '$299',
-    professional: '$599',
-    enterprise: 'Custom',
+  const usd = (cents: number) => `$${Math.round(cents / 100).toLocaleString('en-US')}`
+
+  // Price label for the "current plan" hero. New tiers come from the source of truth; legacy
+  // tiers keep their historical sticker so an existing subscriber still sees a sensible number.
+  const legacyPrices: Record<string, string> = { starter: '$299', professional: '$599', enterprise: 'Custom' }
+  function tierPriceLabel(t: string): string {
+    if (t === 'trial') return '$0'
+    if (isTierId(t)) return usd(TIERS[t].baseFeeCents)
+    return legacyPrices[t] ?? 'Custom'
+  }
+
+  // Next tier up the ladder for the hero "Upgrade" button (trial → basic → growth → full).
+  function nextTier(t: string): TierId {
+    if (isTierId(t)) {
+      const i = TIER_ORDER.indexOf(t)
+      return TIER_ORDER[Math.min(i + 1, TIER_ORDER.length - 1)]
+    }
+    return 'growth' // trial / legacy → steer to the target tier
   }
 
   const tier = organization?.subscription_tier || 'trial'
@@ -152,11 +166,16 @@ function BillingContent() {
 
         <div className="px-6 py-5">
           <div className="flex items-baseline gap-1 mb-2">
-            <span className="aurea-display text-[48px] tabular-nums text-aurea-ink">{tierPrices[tier]}</span>
-            {tierPrices[tier] !== 'Custom' && (
-              <span className="text-[14px] text-aurea-ink-3 mb-1">/mo</span>
+            <span className="aurea-display text-[48px] tabular-nums text-aurea-ink">{tierPriceLabel(tier)}</span>
+            {tierPriceLabel(tier) !== 'Custom' && (
+              <span className="text-[14px] text-aurea-ink-3 mb-1">/mo + usage</span>
             )}
           </div>
+          {tier !== 'trial' && (
+            <p className="text-[12px] text-aurea-ink-3 mb-1">
+              Platform fee. Calls, texts, emails &amp; AI are billed as usage on top.
+            </p>
+          )}
 
           {organization?.trial_ends_at && tier === 'trial' && (
             <p className="text-[13px] text-aurea-amber mb-5 flex items-center gap-1.5">
@@ -166,10 +185,10 @@ function BillingContent() {
           )}
 
           <div className="flex gap-3 mt-5">
-            {tier !== 'enterprise' && (
+            {tier !== 'full' && tier !== 'enterprise' && (
               <Button
                 className="gap-2"
-                onClick={() => handleUpgrade(tier === 'trial' ? 'starter' : tier === 'starter' ? 'professional' : 'enterprise')}
+                onClick={() => handleUpgrade(nextTier(tier))}
                 disabled={!!upgradeLoading}
               >
                 {upgradeLoading ? (
@@ -261,36 +280,31 @@ function BillingContent() {
       <section>
         <p className="aurea-eyebrow mb-3">Plans</p>
         <h2 className="aurea-display text-[28px] text-aurea-ink mb-1">Choose your plan</h2>
-        <p className="text-[13px] text-aurea-ink-3 mb-6">Find the tier that fits your practice.</p>
+        <p className="text-[13px] text-aurea-ink-3 mb-6">
+          A flat monthly platform fee — then SMS, email, AI voice calls &amp; AI tokens are billed
+          as usage on top. You save by replacing staff hours, not by paying less per message.
+        </p>
         <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
-          <PlanCard
-            name="Starter"
-            price="$299"
-            features={['Up to 5 team members', 'Basic AI automation', '500 leads/month', 'Email campaigns', 'Standard support']}
-            current={tier === 'starter'}
-            onUpgrade={() => handleUpgrade('starter')}
-            loading={upgradeLoading === 'starter'}
-            canUpgrade={tier === 'trial'}
-          />
-          <PlanCard
-            name="Professional"
-            price="$599"
-            features={['Up to 15 team members', 'Advanced AI with autopilot', 'Unlimited leads', 'Multi-channel campaigns', 'Priority support', 'Analytics dashboard']}
-            current={tier === 'professional'}
-            highlighted
-            onUpgrade={() => handleUpgrade('professional')}
-            loading={upgradeLoading === 'professional'}
-            canUpgrade={tier === 'trial' || tier === 'starter'}
-          />
-          <PlanCard
-            name="Enterprise"
-            price="Custom"
-            features={['Unlimited team members', 'Custom AI training', 'Dedicated account manager', 'API access', 'HIPAA BAA', 'Custom integrations']}
-            current={tier === 'enterprise'}
-            onUpgrade={() => handleUpgrade('enterprise')}
-            loading={upgradeLoading === 'enterprise'}
-            canUpgrade={tier !== 'enterprise'}
-          />
+          {TIER_ORDER.map((id) => {
+            const t = TIERS[id]
+            // A tier is an upgrade if it sits above the current tier on the ladder. Trial/legacy
+            // tiers can move to any tier; a paid tier can only move to a higher one.
+            const currentIdx = isTierId(tier) ? TIER_ORDER.indexOf(tier) : -1
+            return (
+              <PlanCard
+                key={id}
+                name={t.name}
+                price={usd(t.baseFeeCents)}
+                seatLine={`${t.includedSeats} user${t.includedSeats > 1 ? 's' : ''} included · $${t.perSeatCents / 100}/mo each extra`}
+                features={t.highlights}
+                current={tier === id}
+                highlighted={t.mostPopular}
+                onUpgrade={() => handleUpgrade(id)}
+                loading={upgradeLoading === id}
+                canUpgrade={TIER_ORDER.indexOf(id) > currentIdx}
+              />
+            )
+          })}
         </div>
       </section>
     </div>
@@ -332,6 +346,7 @@ function RevenueCard({
 function PlanCard({
   name,
   price,
+  seatLine,
   features,
   current,
   highlighted,
@@ -341,6 +356,7 @@ function PlanCard({
 }: {
   name: string
   price: string
+  seatLine: string
   features: string[]
   current: boolean
   highlighted?: boolean
@@ -364,12 +380,11 @@ function PlanCard({
         </span>
       )}
       <p className="aurea-eyebrow mb-2">{name}</p>
-      <div className="flex items-baseline gap-0.5 mb-5">
+      <div className="flex items-baseline gap-0.5 mb-1">
         <span className="aurea-display text-[36px] tabular-nums text-aurea-ink">{price}</span>
-        {price !== 'Custom' && (
-          <span className="text-[13px] text-aurea-ink-3 mb-1">/mo</span>
-        )}
+        <span className="text-[13px] text-aurea-ink-3 mb-1">/mo + usage</span>
       </div>
+      <p className="mb-5 text-[11.5px] text-aurea-ink-3">{seatLine}</p>
       <ul className="space-y-2.5 mb-6">
         {features.map((f) => (
           <li key={f} className="flex items-center gap-2 text-[13px] text-aurea-ink-2">
@@ -387,7 +402,7 @@ function PlanCard({
         {loading ? (
           <Loader2 className="h-4 w-4 animate-spin mr-2" />
         ) : null}
-        {current ? 'Current Plan' : name === 'Enterprise' ? 'Contact Sales' : 'Upgrade'}
+        {current ? 'Current Plan' : 'Upgrade'}
       </Button>
     </div>
   )
