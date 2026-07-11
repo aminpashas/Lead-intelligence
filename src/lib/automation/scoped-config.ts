@@ -4,8 +4,7 @@ import type { AllocationDecision } from './allocation'
 /**
  * Return a copy of `config` with the allocation's per-scope knobs applied.
  * A null knob inherits the org-level value already on `config`. Pure — never
- * mutates the input. An active-hours override also clears `config.schedule`
- * so the simpler [start, end) window governs the scoped decision.
+ * mutates the input.
  */
 export function applyScopedKnobs(
   config: AutopilotConfig,
@@ -13,10 +12,16 @@ export function applyScopedKnobs(
 ): AutopilotConfig {
   const next: AutopilotConfig = { ...config }
   if (decision.confidenceThreshold != null) next.confidence_threshold = decision.confidenceThreshold
-  if (decision.activeHoursStart != null && decision.activeHoursEnd != null) {
+  // Scoped simple-hours apply only when the org uses a simple window (no
+  // day-of-week schedule). We never null an existing schedule — that would
+  // silently discard the org's day disables (e.g. "no autopilot Sunday").
+  if (
+    config.schedule == null &&
+    decision.activeHoursStart != null &&
+    decision.activeHoursEnd != null
+  ) {
     next.active_hours_start = decision.activeHoursStart
     next.active_hours_end = decision.activeHoursEnd
-    next.schedule = null
   }
   return next
 }

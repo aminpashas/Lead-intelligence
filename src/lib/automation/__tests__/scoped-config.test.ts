@@ -26,4 +26,10 @@ describe('applyScopedKnobs', () => {
     applyScopedKnobs(base, dec({ confidenceThreshold: 0.9 }))
     expect(base.confidence_threshold).toBe(0.65)
   })
+  it('does not apply scoped hours (nor null the schedule) when the org uses a day schedule', () => {
+    const withSchedule = { ...base, schedule: { monday: { enabled: true, start: 8, end: 21 } } } as AutopilotConfig
+    const c = applyScopedKnobs(withSchedule, dec({ activeHoursStart: 0, activeHoursEnd: 24 }))
+    expect(c.schedule).toEqual(withSchedule.schedule)
+    expect(c.active_hours_start).toBe(8)
+  })
 })

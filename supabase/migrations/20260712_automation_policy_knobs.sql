@@ -14,3 +14,7 @@ comment on column public.automation_policies.active_hours_start is
   'Per-scope active-hours start (0-23); NULL inherits org autopilot_active_hours_start.';
 comment on column public.automation_policies.active_hours_end is
   'Per-scope active-hours end (1-24); NULL inherits org autopilot_active_hours_end.';
+
+alter table public.automation_policies
+  add constraint automation_policies_active_hours_paired
+  check ((active_hours_start is null) = (active_hours_end is null));
