@@ -79,6 +79,13 @@ export type LiveSpend = {
   totalPlatformFeeCents: number
   /** Sum of blended bills (usage billable + platform fee) across practices. */
   totalBlendedCents: number
+  /**
+   * Enterprise (DSO) roll-up total: same value as totalBlendedCents but only set
+   * when the call was filtered to one enterprise (opts.enterpriseAccountId), so
+   * callers can label it unambiguously as "the whole enterprise's bill". NULL for
+   * unfiltered / single-org / all-practices calls.
+   */
+  enterpriseTotalBlendedCents: number | null
   sinceDays: number
 }
 
@@ -147,10 +154,17 @@ export async function loadLiveSpend(
     /** Explicit period end (exclusive). Defaults to now when omitted. */
     until?: Date | string | null
     organizationId?: string | null
+    /**
+     * Roll spend up for a whole enterprise (DSO): the RPC returns per-location
+     * rows for every org under this enterprise. Agency-admin only. Mutually
+     * complementary with organizationId (omit it for the enterprise view).
+     */
+    enterpriseAccountId?: string | null
   } = {},
 ): Promise<LiveSpend> {
   const sinceDays = opts.sinceDays ?? 30
   const organizationId = opts.organizationId ?? null
+  const enterpriseAccountId = opts.enterpriseAccountId ?? null
 
   const sinceIso = opts.since
     ? new Date(opts.since).toISOString()
@@ -167,6 +181,7 @@ export async function loadLiveSpend(
     p_since: sinceIso,
     p_org: organizationId,
     p_until: untilIso,
+    p_enterprise: enterpriseAccountId,
   })
   if (error) {
     // Surface an empty-but-valid shape; the pages render a "no usage" state rather than crash.
@@ -176,6 +191,7 @@ export async function loadLiveSpend(
       orgNames: {},
       totalPlatformFeeCents: 0,
       totalBlendedCents: 0,
+      enterpriseTotalBlendedCents: enterpriseAccountId ? 0 : null,
       sinceDays,
     }
   }
@@ -242,7 +258,17 @@ export async function loadLiveSpend(
     for (const o of orgs ?? []) orgNames[o.id as string] = o.name as string
   }
 
-  return { summary: summarizeSpendRows(spendRows), byOrg, orgNames, totalPlatformFeeCents, totalBlendedCents, sinceDays }
+  return {
+    summary: summarizeSpendRows(spendRows),
+    byOrg,
+    orgNames,
+    totalPlatformFeeCents,
+    totalBlendedCents,
+    // When filtered to one enterprise, the returned orgs ARE that enterprise's
+    // locations, so the blended total is the enterprise roll-up.
+    enterpriseTotalBlendedCents: enterpriseAccountId ? totalBlendedCents : null,
+    sinceDays,
+  }
 }
 
 /** Effective re-bill multiple of cost for a service (markup 300% → 4.0×). For display. */

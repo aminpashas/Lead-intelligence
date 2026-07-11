@@ -19,6 +19,7 @@ import {
   SlidersHorizontal,
   FlaskConical,
   Wrench,
+  Network,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -27,6 +28,7 @@ const agencyNavigation = [
     group: 'Overview',
     items: [
       { name: 'Agency Home', href: '/agency', icon: LayoutDashboard, exact: true },
+      { name: 'Enterprises', href: '/agency/enterprises', icon: Network },
       { name: 'Practices', href: '/agency/practices', icon: Building2 },
       { name: 'Spend & Margin', href: '/agency/spend', icon: DollarSign },
       { name: 'Pricing', href: '/agency/pricing', icon: SlidersHorizontal },

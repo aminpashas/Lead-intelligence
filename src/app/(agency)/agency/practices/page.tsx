@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { Building2, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
+import { Building2, CheckCircle2, AlertCircle, Clock, Network } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { EnterAccountButton } from './enter-account-button'
@@ -42,6 +42,13 @@ export default async function PracticesPage() {
     .order('created_at', { ascending: false })
 
   const organizations = (allOrgs ?? []).filter((o) => o.id !== agencyOrgId)
+
+  // Enterprise names for the umbrella badge on grouped locations.
+  const { data: enterprises } = await supabase
+    .from('enterprise_accounts')
+    .select('id, name')
+  const enterpriseName: Record<string, string> = {}
+  for (const e of enterprises ?? []) enterpriseName[e.id as string] = e.name as string
 
   // Which client (if any) is the agency admin currently inside?
   const { data: active } = await supabase
@@ -87,6 +94,12 @@ export default async function PracticesPage() {
                   {org.subscription_tier}
                 </Badge>
               </div>
+              {org.enterprise_account_id && enterpriseName[org.enterprise_account_id] && (
+                <div className="mt-2 flex items-center gap-1.5 text-[11px] text-aurea-ink-3">
+                  <Network className="h-3 w-3" />
+                  <span className="truncate">{enterpriseName[org.enterprise_account_id]}</span>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="flex flex-1 flex-col">
               <dl className="space-y-2.5">
