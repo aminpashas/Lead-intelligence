@@ -1,5 +1,5 @@
-import { AnalyticsDashboard } from '@/components/crm/analytics-charts'
+import { DeepAnalyticsPage } from '@/components/crm/deep-analytics'
 
 export default function AnalyticsPage() {
-  return <AnalyticsDashboard />
+  return <DeepAnalyticsPage />
 }
