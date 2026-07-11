@@ -19,7 +19,7 @@ import {
   type RetellCallConfig,
 } from './retell-client'
 import { decryptField, searchHash } from '@/lib/encryption'
-import { formatToE164 } from '@/lib/leads/phone'
+import { formatToE164, formatPhoneForSpeech } from '@/lib/leads/phone'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
@@ -467,6 +467,9 @@ export async function initiateOutboundCall(
     retell_llm_dynamic_variables: {
       call_direction: 'outbound',
       practice_name: org.name || 'our practice',
+      // Callback number the lead should dial = our caller ID. Prevents the
+      // voicemail prompt from reading back the number it's calling.
+      callback_number: formatPhoneForSpeech(fromNumber),
       caller_first_name: (lead.first_name as string) || '',
       caller_full_name:
         `${(lead.first_name as string) || ''} ${(lead.last_name as string) || ''}`.trim() || '',

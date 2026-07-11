@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateTwilioWebhook } from '@/lib/messaging/twilio'
 import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
+import { formatPhoneForSpeech } from '@/lib/leads/phone'
 
 /**
  * Twilio Voice Webhook — Inbound Call Handler
@@ -269,6 +270,11 @@ export async function POST(req: NextRequest) {
   // it never says "next Tuesday" without knowing the date. The Retell prompt must
   // reference {{current_datetime}} and {{upcoming_dates}}.
   Object.assign(dynamicVariables, buildDateDynamicVariables(voiceTimezone))
+
+  // The practice number the patient dialed (`to`) is the number they should call
+  // back — expose it so the voicemail/callback prompt speaks our line, never the
+  // caller's own number.
+  dynamicVariables.callback_number = formatPhoneForSpeech(to)
 
   // ── 2. Register the call with Retell (CRITICAL — must succeed) ──
   try {
