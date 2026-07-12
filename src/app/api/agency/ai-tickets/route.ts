@@ -12,20 +12,16 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { z } from 'zod'
+import { requireAgencyCapability } from '@/lib/auth/active-org'
 
 async function requireAgencyAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-  if (!profile || profile.role !== 'agency_admin') {
-    return { error: NextResponse.json({ error: 'Forbidden — agency access required' }, { status: 403 }) }
-  }
+  // AI improvement triage is an owner-only AI-config capability.
+  const cap = await requireAgencyCapability(supabase, 'agency:ai_config')
+  if ('error' in cap) return { error: cap.error }
   return { supabase, user }
 }
 

@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
-import { getOwnProfile } from '@/lib/auth/active-org'
+import { requireAgencyCapability } from '@/lib/auth/active-org'
 
 async function requireAgencyAdmin(request: NextRequest) {
   const rlError = applyRateLimit(request, RATE_LIMITS.api)
@@ -24,10 +24,9 @@ async function requireAgencyAdmin(request: NextRequest) {
   if (!user) {
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
-  const { data: profile } = await getOwnProfile(supabase, 'role')
-  if (!profile || profile.role !== 'agency_admin') {
-    return { error: NextResponse.json({ error: 'Forbidden — agency access required' }, { status: 403 }) }
-  }
+  // Enterprise (DSO umbrella) management is an owner-only capability.
+  const cap = await requireAgencyCapability(supabase, 'agency:enterprises_manage')
+  if ('error' in cap) return { error: cap.error }
   return { supabase }
 }
 

@@ -3,10 +3,12 @@
 import { useState } from 'react'
 import { AgencySidebar, AgencyMobileSidebar } from '@/components/agency/sidebar'
 import { AgencyTopbar } from '@/components/agency/topbar'
+import type { AgencyAccessLevel } from '@/lib/auth/permissions'
 
 interface AgencyShellProps {
   children: React.ReactNode
   fontClassName?: string
+  level: AgencyAccessLevel
   userProfile: {
     id: string
     full_name: string
@@ -15,18 +17,19 @@ interface AgencyShellProps {
   }
 }
 
-export function AgencyShell({ children, fontClassName, userProfile }: AgencyShellProps) {
+export function AgencyShell({ children, fontClassName, level, userProfile }: AgencyShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
     <div className={`aurea flex h-screen overflow-hidden bg-aurea-canvas ${fontClassName ?? ''}`}>
       {/* Desktop Sidebar */}
-      <AgencySidebar />
+      <AgencySidebar level={level} />
 
       {/* Mobile Sidebar */}
       <AgencyMobileSidebar
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
+        level={level}
       />
 
       {/* Main Content */}

@@ -20,43 +20,73 @@ import {
   FlaskConical,
   Wrench,
   Network,
+  Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AGENCY_LEVEL_LABELS,
+  agencyCan,
+  type AgencyAccessLevel,
+  type AgencyCapability,
+} from '@/lib/auth/permissions'
 
-const agencyNavigation = [
+type NavItem = {
+  name: string
+  href: string
+  icon: React.ElementType
+  exact?: boolean
+  /** If set, the item is only shown to levels that carry this capability. */
+  cap?: AgencyCapability
+}
+
+const agencyNavigation: { group: string; items: NavItem[] }[] = [
   {
     group: 'Overview',
     items: [
       { name: 'Agency Home', href: '/agency', icon: LayoutDashboard, exact: true },
-      { name: 'Enterprises', href: '/agency/enterprises', icon: Network },
+      { name: 'Enterprises', href: '/agency/enterprises', icon: Network, cap: 'agency:enterprises_manage' },
       { name: 'Practices', href: '/agency/practices', icon: Building2 },
       { name: 'Spend & Margin', href: '/agency/spend', icon: DollarSign },
-      { name: 'Pricing', href: '/agency/pricing', icon: SlidersHorizontal },
+      { name: 'Pricing', href: '/agency/pricing', icon: SlidersHorizontal, cap: 'agency:pricing_manage' },
     ],
   },
   {
     group: 'AI Platform',
     items: [
-      { name: 'AI Configuration', href: '/agency/ai-config', icon: Brain },
-      { name: 'AI Training', href: '/agency/ai-training', icon: GraduationCap },
-      { name: 'AI Learning', href: '/agency/ai-learning', icon: FlaskConical },
+      { name: 'AI Configuration', href: '/agency/ai-config', icon: Brain, cap: 'agency:ai_config' },
+      { name: 'AI Training', href: '/agency/ai-training', icon: GraduationCap, cap: 'agency:ai_config' },
+      { name: 'AI Learning', href: '/agency/ai-learning', icon: FlaskConical, cap: 'agency:ai_config' },
       { name: 'AI Engine', href: '/ai-engine', icon: Zap },
       { name: 'Sales Intelligence', href: '/ai-engine/sales-intelligence', icon: Crosshair },
       { name: 'AI Audit', href: '/agency/ai-audit', icon: Shield },
-      { name: 'AI Improvements', href: '/agency/ai-improvements', icon: Wrench },
+      { name: 'AI Improvements', href: '/agency/ai-improvements', icon: Wrench, cap: 'agency:ai_config' },
     ],
   },
   {
     group: 'Settings',
     items: [
-      { name: 'Integrations', href: '/agency/integrations', icon: Plug },
+      { name: 'Agency Team', href: '/agency/team', icon: Users },
+      { name: 'Integrations', href: '/agency/integrations', icon: Plug, cap: 'agency:integrations_manage' },
       { name: 'Agency Settings', href: '/agency/settings', icon: Settings },
     ],
   },
 ]
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarContent({
+  onNavigate,
+  level,
+}: {
+  onNavigate?: () => void
+  level: AgencyAccessLevel
+}) {
   const pathname = usePathname()
+
+  const sections = agencyNavigation
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !item.cap || agencyCan(level, item.cap)),
+    }))
+    .filter((section) => section.items.length > 0)
 
   return (
     <div className="flex h-full flex-col">
@@ -73,7 +103,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
-        {agencyNavigation.map((section) => (
+        {sections.map((section) => (
           <div key={section.group}>
             <p className="px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-aurea-ink-3">
               {section.group}
@@ -118,10 +148,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="border-t border-aurea-border px-5 py-4">
         <div className="flex items-center gap-2">
           <Shield className="h-3.5 w-3.5 text-aurea-primary" strokeWidth={2} />
-          <p className="text-[11px] font-medium text-aurea-ink-2">Agency Admin · Full access</p>
+          <p className="text-[11px] font-medium text-aurea-ink-2">
+            {AGENCY_LEVEL_LABELS[level]}
+            {level === 'owner' ? ' · Full access' : level === 'manager' ? ' · Operate practices' : ' · Read-only'}
+          </p>
         </div>
         <p className="mt-1 text-[10.5px] leading-relaxed text-aurea-ink-3">
-          Changes here affect all practices.
+          {level === 'analyst' ? 'You have read-only access.' : 'Changes here affect all practices.'}
         </p>
       </div>
     </div>
@@ -129,10 +162,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 // Desktop sidebar — flat editorial rail
-export function AgencySidebar() {
+export function AgencySidebar({ level }: { level: AgencyAccessLevel }) {
   return (
     <aside className="aurea-rail hidden lg:flex h-full w-64 flex-col border-r">
-      <SidebarContent />
+      <SidebarContent level={level} />
     </aside>
   )
 }
@@ -141,9 +174,11 @@ export function AgencySidebar() {
 export function AgencyMobileSidebar({
   open,
   onClose,
+  level,
 }: {
   open: boolean
   onClose: () => void
+  level: AgencyAccessLevel
 }) {
   return (
     <>
@@ -167,7 +202,7 @@ export function AgencyMobileSidebar({
         >
           <X className="h-4 w-4" />
         </Button>
-        <SidebarContent onNavigate={onClose} />
+        <SidebarContent onNavigate={onClose} level={level} />
       </aside>
     </>
   )

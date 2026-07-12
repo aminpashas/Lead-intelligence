@@ -12,7 +12,14 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { hasPermission, type Permission } from '@/lib/auth/permissions'
+import {
+  hasPermission,
+  agencyCan,
+  resolveAgencyLevel,
+  type Permission,
+  type AgencyAccessLevel,
+  type AgencyCapability,
+} from '@/lib/auth/permissions'
 
 export type ActiveOrg = {
   /** The org the current request should operate on (active client or home). */
@@ -173,6 +180,59 @@ export async function requirePermission(
     }
   }
   return { orgId: active.orgId, role: active.role }
+}
+
+/**
+ * Resolve the caller's effective agency access level (owner / manager /
+ * analyst), or null if they are not agency staff. Reads role +
+ * agency_access_level from the caller's own profile; a legacy agency_admin with
+ * no explicit level resolves to 'owner' (see resolveAgencyLevel).
+ */
+export async function getAgencyLevel(
+  supabase: SupabaseClient
+): Promise<{ level: AgencyAccessLevel | null; homeOrgId: string | null }> {
+  const { data } = await getOwnProfile(supabase, 'organization_id, role, agency_access_level')
+  if (!data) return { level: null, homeOrgId: null }
+  return {
+    level: resolveAgencyLevel(data.role, data.agency_access_level),
+    homeOrgId: (data.organization_id as string) ?? null,
+  }
+}
+
+/**
+ * Guard for agency-console capabilities (owner/manager/analyst tiers). Any
+ * agency staffer has `role = 'agency_admin'` at the DB layer, so this is the
+ * application-layer boundary that separates the tiers — call it in every agency
+ * route whose action is not available to all agency staff.
+ *
+ * Returns the caller's level + their home (agency) org on success, or a
+ * ready-to-send NextResponse: 401 not agency staff · 403 lacking the capability.
+ *
+ * Usage:
+ *   const guard = await requireAgencyCapability(supabase, 'agency:team_manage')
+ *   if ('error' in guard) return guard.error
+ *   const { level, agencyOrgId } = guard
+ */
+export async function requireAgencyCapability(
+  supabase: SupabaseClient,
+  capability: AgencyCapability
+): Promise<
+  | { level: AgencyAccessLevel; agencyOrgId: string }
+  | { error: NextResponse }
+> {
+  const { level, homeOrgId } = await getAgencyLevel(supabase)
+  if (!level || !homeOrgId) {
+    return { error: NextResponse.json({ error: 'Forbidden — agency access required' }, { status: 403 }) }
+  }
+  if (!agencyCan(level, capability)) {
+    return {
+      error: NextResponse.json(
+        { error: 'Your agency access level does not allow this action.' },
+        { status: 403 }
+      ),
+    }
+  }
+  return { level, agencyOrgId: homeOrgId }
 }
 
 /** Error codes surfaced as `?oauth_error=` on the connectors settings page. */

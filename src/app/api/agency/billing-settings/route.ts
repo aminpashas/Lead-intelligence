@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile } from '@/lib/auth/active-org'
+import { requireAgencyCapability } from '@/lib/auth/active-org'
 
 const bodySchema = z.object({
   organizationId: z.string().uuid(),
@@ -23,10 +23,9 @@ const bodySchema = z.object({
 export async function PATCH(request: NextRequest) {
   const supabase = await createClient()
 
-  const { data: profile } = await getOwnProfile(supabase, 'role')
-  if (!profile || profile.role !== 'agency_admin') {
-    return NextResponse.json({ error: 'Forbidden — agency access required' }, { status: 403 })
-  }
+  // Setting practice pricing is an owner-only agency-billing action.
+  const guard = await requireAgencyCapability(supabase, 'agency:billing_manage')
+  if ('error' in guard) return guard.error
 
   let parsed
   try {

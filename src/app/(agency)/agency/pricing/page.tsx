@@ -1,7 +1,10 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadLiveSpend } from '@/lib/billing/usage-live'
 import { resolveMarkupPct, resolvePlatformFeeCents, DEFAULT_MARKUP_PCT, DEFAULT_PLATFORM_FEE_CENTS } from '@/lib/billing/markup'
 import { PricingCalculator, type PricingPractice } from '@/components/agency/pricing-calculator'
+import { getAgencyLevel } from '@/lib/auth/active-org'
+import { agencyCan } from '@/lib/auth/permissions'
 
 export const metadata = {
   title: 'Pricing Calculator | Lead Intelligence',
@@ -9,6 +12,10 @@ export const metadata = {
 
 export default async function AgencyPricingPage() {
   const supabase = await createClient()
+
+  // Owner-only (pricing controls re-bill markups).
+  const { level } = await getAgencyLevel(supabase)
+  if (!agencyCan(level, 'agency:pricing_manage')) redirect('/agency')
 
   // Usage cost per practice over the trailing 30 days (≈ a monthly run-rate) drives the live preview.
   const { byOrg } = await loadLiveSpend(supabase, { sinceDays: 30 })
