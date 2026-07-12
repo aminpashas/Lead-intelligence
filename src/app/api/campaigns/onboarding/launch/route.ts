@@ -5,6 +5,7 @@ import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { hasPermission } from '@/lib/auth/permissions'
 import { serviceLineSlugSchema } from '@/lib/validators/practice-profile'
 import { getBlueprint, blueprintSystemKey } from '@/lib/campaigns/blueprints'
+import { checkCampaignCapacity } from '@/lib/billing/limits'
 import { getProfileGaps, renderBlueprintSteps } from '@/lib/campaigns/onboarding'
 import {
   getOrCreatePracticeProfile,
@@ -74,6 +75,12 @@ export async function POST(request: NextRequest) {
       { error: `A ${blueprint.name} campaign already exists`, campaign_id: existing.id },
       { status: 409 }
     )
+  }
+
+  // Plan quota: a blueprint draft occupies a campaign slot like any other.
+  const capacity = await checkCampaignCapacity(supabase, orgId)
+  if (!capacity.allowed) {
+    return NextResponse.json({ error: capacity.message, code: 'tier_limit' }, { status: 403 })
   }
 
   const { data: org } = await supabase

@@ -11,6 +11,9 @@ import {
   METERED_SERVICES,
   METER_EVENT_NAME,
   buildSubscriptionItems,
+  TIER_LIMITS,
+  effectiveTierId,
+  limitsForSubscriptionTier,
 } from '@/lib/billing/tiers'
 
 describe('tier ladder', () => {
@@ -144,5 +147,30 @@ describe('buildSubscriptionItems', () => {
   it('throws when the tier base price is unconfigured', () => {
     const { STRIPE_PRICE_FULL: _omit, ...missingFull } = fullEnv
     expect(() => buildSubscriptionItems('full', 0, missingFull)).toThrow(/STRIPE_PRICE_FULL/)
+  })
+})
+
+describe('plan quotas', () => {
+  it('caps Basic at one brand and one live campaign', () => {
+    expect(TIER_LIMITS.basic).toEqual({ maxBrands: 1, maxCampaigns: 1 })
+  })
+
+  it('gives Growth three brands and three live campaigns, Full unlimited', () => {
+    expect(TIER_LIMITS.growth).toEqual({ maxBrands: 3, maxCampaigns: 3 })
+    expect(TIER_LIMITS.full).toEqual({ maxBrands: null, maxCampaigns: null })
+  })
+
+  it('maps legacy tiers onto the ladder and treats trial/unknown as Full', () => {
+    expect(effectiveTierId('starter')).toBe('basic')
+    expect(effectiveTierId('professional')).toBe('growth')
+    expect(effectiveTierId('enterprise')).toBe('full')
+    expect(effectiveTierId('trial')).toBe('full')
+    expect(effectiveTierId(null)).toBe('full')
+    expect(effectiveTierId('growth')).toBe('growth')
+  })
+
+  it('resolves limits straight from the subscription_tier string', () => {
+    expect(limitsForSubscriptionTier('basic').maxBrands).toBe(1)
+    expect(limitsForSubscriptionTier('trial').maxBrands).toBeNull()
   })
 })

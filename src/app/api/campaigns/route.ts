@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg, requirePermission } from '@/lib/auth/active-org'
+import { checkCampaignCapacity } from '@/lib/billing/limits'
 import { z } from 'zod'
 
 const createCampaignSchema = z.object({
@@ -86,6 +87,12 @@ export async function POST(request: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Plan quota: Basic includes a single live campaign.
+  const capacity = await checkCampaignCapacity(supabase, orgId)
+  if (!capacity.allowed) {
+    return NextResponse.json({ error: capacity.message, code: 'tier_limit' }, { status: 403 })
   }
 
   const { steps, smart_list_id, ...campaignData } = parsed.data
