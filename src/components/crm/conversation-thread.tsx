@@ -212,6 +212,7 @@ export function ConversationThread({
   const [showPanel, setShowPanel] = useState(true)
   const [activeAgent, setActiveAgent] = useState<AgentType>(conversation.active_agent || 'setter')
   const [agentNotes, setAgentNotes] = useState<string | null>(null)
+  const [draftBlock, setDraftBlock] = useState<{ kind: string; reason: string; guidance: string | null } | null>(null)
   const [techniquesUsed, setTechniquesUsed] = useState<Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>>([])
   const [leadAssessment, setLeadAssessment] = useState<{ engagement_temperature: number; resistance_level: number; buying_readiness: number; emotional_state: string } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -338,6 +339,7 @@ export function ConversationThread({
   async function generateAIMessage() {
     setGenerating(true)
     setAgentNotes(null)
+    setDraftBlock(null)
     try {
       // Use agent system for smart routing between Setter/Closer
       const res = await fetch('/api/ai/agent-respond', {
@@ -351,6 +353,17 @@ export function ConversationThread({
       if (!res.ok) throw new Error('AI generation failed')
 
       const data = await res.json()
+
+      // The route can decline to draft: the lead needs a human (escalation) or
+      // the thread already closed. Surface that instead of a tone-deaf message.
+      if (data.blocked) {
+        setDraftBlock({ kind: data.block_kind, reason: data.reason, guidance: data.guidance ?? null })
+        toast.message(
+          data.block_kind === 'escalation' ? 'Draft held — this lead needs a human' : 'No draft — conversation already closed'
+        )
+        return
+      }
+
       setDraft(data.message)
       if (data.agent) setActiveAgent(data.agent)
       if (data.internal_notes) setAgentNotes(data.internal_notes)
@@ -613,6 +626,42 @@ export function ConversationThread({
       {/* ── Compose ────────────────────────────────────────── */}
       <div className="border-t border-aurea-border px-4 py-4 lg:px-6">
         <div className="mx-auto w-full max-w-[720px] space-y-3">
+          {/* Draft suppressed — the lead needs a human, or the thread is closed.
+              We show the reason (and recovery guidance) instead of a draft. */}
+          {draftBlock && (
+            <div
+              className={`flex items-start gap-2 rounded-lg border p-2.5 text-sm ${
+                draftBlock.kind === 'escalation'
+                  ? 'border-aurea-rose/30 bg-aurea-rose/10'
+                  : 'border-aurea-border bg-aurea-surface-2'
+              }`}
+            >
+              <AlertTriangle
+                className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${draftBlock.kind === 'escalation' ? 'text-aurea-rose' : 'text-aurea-ink-3'}`}
+                strokeWidth={1.75}
+              />
+              <div className="min-w-0 flex-1">
+                <span className={`text-xs font-medium ${draftBlock.kind === 'escalation' ? 'text-aurea-rose' : 'text-aurea-ink-2'}`}>
+                  {draftBlock.kind === 'escalation' ? 'AI draft held — needs a human' : 'No draft generated'}
+                </span>
+                <p className="mt-0.5 text-xs text-aurea-ink-2">{draftBlock.reason}</p>
+                {draftBlock.guidance && (
+                  <p className="mt-1 text-xs text-aurea-ink-3">
+                    <span className="font-medium text-aurea-ink-2">Suggested next step: </span>
+                    {draftBlock.guidance}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDraftBlock(null)}
+                  className="mt-1.5 text-xs font-medium text-aurea-ink-3 underline underline-offset-2 hover:text-aurea-ink"
+                >
+                  Write manually
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Agent notes (staff-visible reasoning from the AI) */}
           {agentNotes && (
             <div className="flex items-start gap-2 rounded-lg border border-aurea-amber/30 bg-aurea-amber/10 p-2.5 text-sm">
