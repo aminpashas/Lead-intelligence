@@ -321,6 +321,8 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/leads': 'leads:read',
   '/leads/lists': 'smart_lists:read',
   '/conversations': 'conversations:read',
+  // Org-wide live activity monitor — same read gate as the inbox it aggregates.
+  '/monitor': 'conversations:read',
   '/call-center': 'call_center:read',
   '/dialer': 'call_center:read',
   '/appointments': 'schedule:read',

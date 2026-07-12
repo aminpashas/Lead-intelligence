@@ -2,6 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "action-center-worktree",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/action-center-cohorts' && exec /usr/local/bin/node '/Users/aminsamadian/Lead Intelligence/node_modules/.bin/next' dev -p 3120"
+      ],
+      "port": 3120
+    },
+    {
       "name": "lead-crm",
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [

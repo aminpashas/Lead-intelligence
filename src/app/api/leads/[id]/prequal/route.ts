@@ -31,6 +31,71 @@ import { decryptField } from '@/lib/encryption'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { escapeHtml } from '@/lib/utils'
 
+/** Pre-qual lifecycle state the chat action bar renders as a status chip. */
+export type PrequalState = 'none' | 'awaiting' | 'completed' | 'expired'
+
+export type PrequalStatus = {
+  state: PrequalState
+  first_sent_at: string | null
+  last_sent_at: string | null
+  submitted_at: string | null
+  reminder_count: number
+}
+
+/**
+ * GET /api/leads/[id]/prequal — lightweight status read for the CRM chat.
+ *
+ * Derives the pre-qual lifecycle from the lead's most recent financing link so
+ * the action bar can show "Sent · awaiting reply" vs "Completed" and swap the
+ * button between "Pre-Qual" (first send) and "Follow up" (a link is already out).
+ * Intentionally returns NO PII — just timestamps + a coarse state.
+ */
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const supabase = await createClient()
+
+  const { orgId } = await resolveActiveOrg(supabase)
+  if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: app } = await supabase
+    .from('financing_applications')
+    .select('status, first_sent_at, last_sent_at, submitted_at, reminder_count, expires_at')
+    .eq('lead_id', id)
+    .eq('organization_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle<{
+      status: string
+      first_sent_at: string | null
+      last_sent_at: string | null
+      submitted_at: string | null
+      reminder_count: number | null
+      expires_at: string | null
+    }>()
+
+  let state: PrequalState = 'none'
+  if (app?.submitted_at) {
+    state = 'completed'
+  } else if (app?.first_sent_at) {
+    // Sent but unfilled — awaiting, unless the link has aged out.
+    const expired = app.expires_at ? new Date(app.expires_at) < new Date() : false
+    state = expired || app.status === 'expired' ? 'expired' : 'awaiting'
+  }
+
+  const status: PrequalStatus = {
+    state,
+    first_sent_at: app?.first_sent_at ?? null,
+    last_sent_at: app?.last_sent_at ?? null,
+    submitted_at: app?.submitted_at ?? null,
+    reminder_count: app?.reminder_count ?? 0,
+  }
+
+  return NextResponse.json(status)
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -80,6 +145,35 @@ export async function POST(
     )
   }
 
+  // Look up any open pre-qual link this lead already has. Two things hinge on it:
+  //   1. If the patient already SUBMITTED, there is nothing to resend — say so.
+  //   2. If a link is already out but unfilled, this click is a *follow-up*, not
+  //      a fresh first touch, so we switch to gentle "just checking in" copy
+  //      rather than pitching the link as if it's brand new. The link itself is
+  //      never duplicated — getOrCreateFinancingShareLink reuses the token.
+  const { data: existingApp } = await supabase
+    .from('financing_applications')
+    .select('id, status, first_sent_at, submitted_at')
+    .eq('lead_id', id)
+    .eq('organization_id', orgId)
+    .in('status', ['pending', 'in_progress'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle<{ id: string; status: string; first_sent_at: string | null; submitted_at: string | null }>()
+
+  if (existingApp?.submitted_at) {
+    return NextResponse.json(
+      {
+        error: 'This patient already completed their pre-qualification — no need to resend.',
+        code: 'already_completed',
+      },
+      { status: 409 }
+    )
+  }
+
+  // A follow-up = a link that has already gone out at least once and is still unfilled.
+  const isFollowUp = !!existingApp?.first_sent_at
+
   // Reuse the shared share-link helper: creates (or reuses) a pending
   // application + `/finance/{token}` URL on the stable prod host. Prequal does
   // not require a treatment amount — pass it through if we have one so the
@@ -94,15 +188,31 @@ export async function POST(
   }
 
   const firstName = lead.first_name || 'there'
-  // Claim-free copy: invite them to CHECK what they prequalify for. No approval,
-  // no dollar figure the lender hasn't returned.
-  const smsBody =
-    `Hi ${firstName}! If it'd help, you can check what payment options you prequalify for in about 2 minutes — ` +
-    `it's a soft check that won't affect your credit: ${link.url} No pressure, just here if it's useful!`
-
   const safeFirstName = escapeHtml(firstName)
-  const emailSubject = 'Check your financing options'
-  const emailBody = `
+
+  // Claim-free copy in both variants: invite them to CHECK what they prequalify
+  // for. Never an approval or a dollar figure the lender hasn't returned.
+  //   • First touch  — introduces the option, no pressure.
+  //   • Follow-up    — a link is already out and unfilled, so we don't re-pitch;
+  //     we gently check in and, per the ask, surface an off-ramp for questions
+  //     or reservations ("if anything's holding you up, just reply").
+  const smsBody = isFollowUp
+    ? `Hi ${firstName}, just checking back on the payment-options link I sent — it only takes about 2 minutes ` +
+      `and it's a soft check that won't affect your credit: ${link.url} If anything's holding you up or you have questions, just reply and I'm happy to help!`
+    : `Hi ${firstName}! If it'd help, you can check what payment options you prequalify for in about 2 minutes — ` +
+      `it's a soft check that won't affect your credit: ${link.url} No pressure, just here if it's useful!`
+
+  const emailSubject = isFollowUp ? 'Following up on your financing options' : 'Check your financing options'
+  const emailBody = isFollowUp
+    ? `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;color:#111;">
+      <p>Hi ${safeFirstName},</p>
+      <p>Just circling back on the payment-options check I sent over — it only takes a couple of minutes and uses a <strong>soft credit check that won't affect your credit score</strong>.</p>
+      <p><a href="${escapeHtml(link.url)}" style="background:#10b981;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;font-weight:bold;">Pick up where you left off</a></p>
+      <p>If anything's holding you up, or you have questions or concerns about it, just reply — I'm happy to walk through it with you.</p>
+    </div>
+  `
+    : `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;color:#111;">
       <p>Hi ${safeFirstName},</p>
       <p>If it would be helpful, you can check what payment options you prequalify for — it only takes a couple of minutes and uses a <strong>soft credit check that won't affect your credit score</strong>.</p>
@@ -149,28 +259,49 @@ export async function POST(
     )
   }
 
+  const nowIso = new Date().toISOString()
+
   // Stamp the send + link the application so the readiness auto-trigger's
   // "already sent recently" guard also respects this manual send.
   await supabase
     .from('leads')
-    .update({ financing_link_sent_at: new Date().toISOString(), financing_application_id: link.applicationId })
+    .update({ financing_link_sent_at: nowIso, financing_application_id: link.applicationId })
     .eq('id', id)
     .eq('organization_id', orgId)
 
-  // Activity breadcrumb — distinct type so manual prequal sends are separable
-  // from the AI auto-trigger's `financing_link_auto_sent`.
+  // Stamp the application's lifecycle timestamps. first_sent_at is written once
+  // (COALESCE-style: only if still null) so it always marks the true first touch;
+  // last_sent_at moves on every send/follow-up. reminder_count is deliberately
+  // NOT touched here — that counter is the automated cron's cap, and a staffer's
+  // manual follow-up should never burn a patient's automated-nudge budget.
+  await supabase
+    .from('financing_applications')
+    .update({
+      first_sent_at: existingApp?.first_sent_at ?? nowIso,
+      last_sent_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq('id', link.applicationId)
+    .eq('organization_id', orgId)
+
+  // Activity breadcrumb — distinct types so first sends, manual follow-ups, and
+  // the AI auto-trigger's `financing_link_auto_sent` stay separable in the timeline.
   try {
     await supabase.from('lead_activities').insert({
       organization_id: orgId,
       lead_id: id,
-      activity_type: 'financing_prequal_manual_sent',
-      title: `Pre-qualification link sent via ${sentVia.join(' & ')}`,
-      description: `Manual staff send. Patient link: ${link.url}`,
+      activity_type: isFollowUp ? 'financing_prequal_followup_sent' : 'financing_prequal_manual_sent',
+      title: isFollowUp
+        ? `Pre-qualification follow-up sent via ${sentVia.join(' & ')}`
+        : `Pre-qualification link sent via ${sentVia.join(' & ')}`,
+      description: isFollowUp
+        ? `Manual staff follow-up on an existing, unfilled link. Patient link: ${link.url}`
+        : `Manual staff send. Patient link: ${link.url}`,
       metadata: {
         application_id: link.applicationId,
         share_token: link.shareToken,
         sent_via: sentVia,
-        trigger: 'manual_button',
+        trigger: isFollowUp ? 'manual_followup' : 'manual_button',
         actor: profile.id,
       },
     })
@@ -178,5 +309,11 @@ export async function POST(
     /* breadcrumb only */
   }
 
-  return NextResponse.json({ success: true, lead_id: id, financing_url: link.url, sent_via: sentVia })
+  return NextResponse.json({
+    success: true,
+    lead_id: id,
+    financing_url: link.url,
+    sent_via: sentVia,
+    is_follow_up: isFollowUp,
+  })
 }

@@ -82,7 +82,7 @@ export default async function LeadDetailPage({
   // Fetch logged voice calls for the unified timeline
   const { data: voiceCalls } = await supabase
     .from('voice_calls')
-    .select('id, created_at, started_at, direction, outcome, duration_seconds, outcome_notes, transcript_summary, recording_url, status')
+    .select('id, created_at, started_at, direction, outcome, duration_seconds, outcome_notes, transcript_summary, recording_url, status, call_mode, agent_type, staff_user_id')
     .eq('lead_id', id)
     .order('created_at', { ascending: true })
     .limit(300)

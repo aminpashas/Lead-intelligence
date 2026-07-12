@@ -110,6 +110,11 @@ export async function POST(request: NextRequest) {
       .eq('lead_id', lead.id)
       .eq('status', 'active')
 
+    // A lead who opts out shouldn't have a stale "we're waiting for your YES"
+    // marker lingering; clear it so nothing re-fires if they later re-subscribe.
+    const { clearPendingReplyIntent } = await import('@/lib/messaging/pending-intent')
+    await clearPendingReplyIntent(supabase, lead.id, 'sms')
+
     // Return confirmation TwiML
     return new NextResponse(
       '<?xml version="1.0" encoding="UTF-8"?><Response><Message>You have been unsubscribed and will no longer receive automated messages from us. Reply START to re-subscribe.</Message></Response>',
@@ -117,40 +122,74 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── APPOINTMENT CONFIRMATION via SMS ──
-  // Detect YES/CONFIRM/Y and auto-confirm the next upcoming unconfirmed appointment
+  // ── AFFIRMATIVE REPLY ROUTING (YES/CONFIRM/Y…) ──
+  // A bare "YES" is ambiguous — appointment reminders, the financing follow-up,
+  // and mass blasts all solicit one. Route by the intent the last soliciting send
+  // stamped, rather than assuming every YES confirms an appointment (which used to
+  // hijack a financing "Reply YES" into confirming the next upcoming appointment).
   const confirmKeywords = /^\s*(yes|confirm|y|confirmed|yep|yeah)\s*$/i
   if (confirmKeywords.test(body)) {
-    // Check for an upcoming unconfirmed appointment
-    const { data: pendingApt } = await supabase
-      .from('appointments')
-      .select('id, type, scheduled_at')
-      .eq('lead_id', lead.id)
-      .eq('organization_id', lead.organization_id)
-      .in('status', ['scheduled'])
-      .eq('confirmation_received', false)
-      .gte('scheduled_at', new Date().toISOString())
-      .order('scheduled_at', { ascending: true })
-      .limit(1)
-      .single()
+    const { consumePendingReplyIntent } = await import('@/lib/messaging/pending-intent')
+    const pending = await consumePendingReplyIntent(supabase, lead.id, 'sms')
 
-    if (pendingApt) {
-      // Confirm the appointment
-      const { confirmAppointment } = await import('@/lib/campaigns/reminders')
-      await confirmAppointment(supabase, pendingApt.id, 'sms_reply', lead.organization_id)
+    if (pending?.intent === 'appointment_confirm') {
+      // Confirm the specific appointment the reminder pointed at. Fall back to the
+      // next upcoming unconfirmed one only if the ref is missing or already gone.
+      let appointmentId: string | null = pending.ref_id
+      if (appointmentId) {
+        const { data: refApt } = await supabase
+          .from('appointments')
+          .select('id')
+          .eq('id', appointmentId)
+          .eq('organization_id', lead.organization_id)
+          .eq('confirmation_received', false)
+          .maybeSingle()
+        if (!refApt) appointmentId = null
+      }
+      if (!appointmentId) {
+        const { data: nextApt } = await supabase
+          .from('appointments')
+          .select('id')
+          .eq('lead_id', lead.id)
+          .eq('organization_id', lead.organization_id)
+          .in('status', ['scheduled'])
+          .eq('confirmation_received', false)
+          .gte('scheduled_at', new Date().toISOString())
+          .order('scheduled_at', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        appointmentId = nextApt?.id ?? null
+      }
 
-      logger.info('Appointment confirmed via SMS reply', {
+      if (appointmentId) {
+        const { confirmAppointment } = await import('@/lib/campaigns/reminders')
+        await confirmAppointment(supabase, appointmentId, 'sms_reply', lead.organization_id)
+
+        logger.info('Appointment confirmed via SMS reply', {
+          leadId: lead.id,
+          appointmentId,
+        })
+
+        // Confirmed — don't fall through to re-subscribe/AI.
+        return new NextResponse(
+          '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+          { headers: { 'Content-Type': 'text/xml' } }
+        )
+      }
+      // Intent said "confirm" but no matching appointment survived — fall through
+      // to the AI responder rather than guessing at another workflow.
+    } else if (pending) {
+      // A YES owed to another workflow (financing_followup, mass_sms). Do NOT
+      // confirm any appointment; let it reach the AI responder below, which drives
+      // that conversation (e.g. discussing in-house payment plans).
+      logger.info('Affirmative reply routed to AI (non-appointment intent)', {
         leadId: lead.id,
-        appointmentId: pendingApt.id,
+        intent: pending.intent,
       })
-
-      // Return confirmation TwiML — don't fall through to re-subscribe
-      return new NextResponse(
-        '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
-        { headers: { 'Content-Type': 'text/xml' } }
-      )
     }
-    // No pending appointment — fall through to re-subscribe handler below
+    // No live intent, or handled above without a match: fall through so the
+    // message reaches the conversation + AI responder. A bare YES no longer
+    // silently confirms an appointment the lead wasn't asked about.
   }
 
   // TCPA: Handle re-subscribe (START)

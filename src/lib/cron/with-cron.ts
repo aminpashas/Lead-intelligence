@@ -28,11 +28,35 @@ export type CronOutcome = {
   status?: 'ok' | 'skipped' | 'failed'
   /** Items processed this run. Recorded for observability; 0 is fine. */
   items?: number
+  /**
+   * Why a soft `failed` happened. Recorded into `cron_runs.error` so a soft
+   * failure is debuggable from the heartbeat alone. If omitted, the wrapper
+   * falls back to `data.error` / `data.errors` so existing handlers that stash
+   * the reason there still surface it.
+   */
+  error?: string
   /** Response body returned to the caller — preserves each cron's existing shape. */
   data?: Record<string, unknown>
 }
 
 type CronContext = { request: NextRequest; supabase: ServiceClient }
+
+/**
+ * Best-effort extraction of a soft-failure reason from a CronOutcome, so the
+ * heartbeat's `error` column is populated for `status: 'failed'` even when the
+ * handler put the reason in `data.error` (a string) or `data.errors` (an array)
+ * rather than the dedicated `error` field.
+ */
+function outcomeError(outcome: CronOutcome): string | undefined {
+  if (outcome.error) return outcome.error
+  const data = outcome.data
+  if (!data) return undefined
+  if (typeof data.error === 'string' && data.error) return data.error
+  if (Array.isArray(data.errors) && data.errors.length > 0) {
+    return data.errors.map(String).join('; ')
+  }
+  return undefined
+}
 
 /**
  * Records a single cron heartbeat. Best-effort: never throws, so an observability
@@ -76,6 +100,7 @@ export function withCron(
         status,
         items: outcome.items,
         durationMs: Date.now() - started,
+        error: status === 'failed' ? outcomeError(outcome) : undefined,
       })
       return NextResponse.json({ cron, status, ...(outcome.data ?? {}) })
     } catch (err) {

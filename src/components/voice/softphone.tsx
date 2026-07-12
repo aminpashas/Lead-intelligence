@@ -14,10 +14,31 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Phone, PhoneOff, Mic, MicOff, Grid3x3, Pause, Play, X, Loader2, Check } from 'lucide-react'
+import { Phone, PhoneOff, Mic, MicOff, Grid3x3, Pause, Play, X, Loader2, Check, Plus, Maximize2, Minimize2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useSoftphone } from './softphone-provider'
+
+/** A single note the staffer submitted, stamped with the moment they clicked Submit. */
+type LoggedNote = { at: string; text: string }
+
+/** The clock time a note was submitted, in the staffer's local time (e.g. "3:45 PM"). */
+function stampTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+/**
+ * Fold the submitted-note log (+ any still-unsubmitted draft) into the single text
+ * body the disposition endpoint persists. Each committed note becomes its own
+ * `[3:45 PM] …` line; a trailing draft is included unstamped so nothing is lost on a
+ * final save that skipped the Submit button.
+ */
+function composeNotes(log: LoggedNote[], draft = ''): string {
+  const lines = log.map((e) => `[${stampTime(e.at)}] ${e.text}`)
+  const trailing = draft.trim()
+  if (trailing) lines.push(trailing)
+  return lines.join('\n')
+}
 
 const DTMF = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
 
@@ -58,9 +79,15 @@ export function Softphone() {
   const [showKeypad, setShowKeypad] = useState(false)
   const [savingOutcome, setSavingOutcome] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [submittingNote, setSubmittingNote] = useState(false)
+  // Bigger panel when the staffer wants more room to write. Persists across the
+  // in-call → ended transition (a per-staffer preference, not per-call).
+  const [expanded, setExpanded] = useState(false)
 
   // Drafts the staffer fills while talking — persisted through call end.
   const [notes, setNotes] = useState('')
+  // Notes the staffer has committed with the Submit button, each time-stamped.
+  const [noteLog, setNoteLog] = useState<LoggedNote[]>([])
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
@@ -72,6 +99,7 @@ export function Softphone() {
   useEffect(() => {
     if (inCall && !endedCall) {
       setNotes('')
+      setNoteLog([])
       setFirstName('')
       setLastName('')
       setEmail('')
@@ -94,15 +122,17 @@ export function Softphone() {
   }, [firstName, lastName, email])
 
   // Persist the write-up. `outcome` is optional — a bare "Save" keeps notes/contact
-  // without forcing a disposition. Returns true on success so callers can close.
+  // without forcing a disposition. `notesToSave` is the composed note body (log +
+  // trailing draft). Returns true on success so callers can close.
   const save = useCallback(
-    async (outcome?: string): Promise<boolean> => {
+    async (outcome?: string, notesToSave?: string): Promise<boolean> => {
       if (!endedCall) return false
       const body: Record<string, unknown> = {
         duration_seconds: endedCall.durationSeconds,
       }
       if (outcome) body.outcome = outcome
-      if (notes.trim()) body.notes = notes.trim()
+      const trimmed = notesToSave?.trim()
+      if (trimmed) body.notes = trimmed
       const contact = buildContact()
       if (showContactForm && contact) body.contact = contact
 
@@ -119,12 +149,29 @@ export function Softphone() {
         return false
       }
     },
-    [endedCall, notes, buildContact, showContactForm]
+    [endedCall, buildContact, showContactForm]
   )
+
+  // Commit the current draft as a time-stamped note. During a live call there is no
+  // call id yet, so it just accumulates locally and flushes on call end; once the
+  // call has ended each submit also persists immediately.
+  const submitNote = useCallback(async () => {
+    const text = notes.trim()
+    if (!text) return
+    const nextLog = [...noteLog, { at: new Date().toISOString(), text }]
+    setNoteLog(nextLog)
+    setNotes('')
+    if (endedCall) {
+      setSubmittingNote(true)
+      const ok = await save(undefined, composeNotes(nextLog))
+      setSubmittingNote(false)
+      if (ok) toast.success('Note added')
+    }
+  }, [notes, noteLog, endedCall, save])
 
   async function disposition(outcome: string) {
     setSavingOutcome(outcome)
-    const ok = await save(outcome)
+    const ok = await save(outcome, composeNotes(noteLog, notes))
     setSavingOutcome(null)
     if (ok) {
       toast.success('Call logged')
@@ -135,7 +182,7 @@ export function Softphone() {
 
   async function saveAndClose() {
     setSaving(true)
-    const ok = await save()
+    const ok = await save(undefined, composeNotes(noteLog, notes))
     setSaving(false)
     if (ok) {
       toast.success('Call saved')
@@ -144,7 +191,7 @@ export function Softphone() {
     }
   }
 
-  const busy = savingOutcome !== null || saving
+  const busy = savingOutcome !== null || saving || submittingNote
 
   // Nothing to show when idle and no call is awaiting disposition.
   if (!inCall && !endedCall) return null
@@ -165,6 +212,21 @@ export function Softphone() {
             ? `On hold · ${fmt(callSeconds)}`
             : fmt(callSeconds)
           : ''
+
+  // Grow/shrink the panel, shared between the in-call and ended headers.
+  const expandButton = (
+    <button
+      onClick={() => setExpanded((v) => !v)}
+      title={expanded ? 'Shrink' : 'Expand'}
+      className="flex h-7 w-7 items-center justify-center rounded-full text-aurea-ink-3 hover:bg-aurea-surface-2"
+    >
+      {expanded ? (
+        <Minimize2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+      ) : (
+        <Maximize2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+      )}
+    </button>
+  )
 
   // Contact form + notes editor, shared between the in-call and ended panels.
   const writeUp = (
@@ -198,19 +260,58 @@ export function Softphone() {
 
       <div>
         <label className="mb-1.5 block text-[11px] font-medium text-aurea-ink-2">Call notes</label>
+
+        {noteLog.length > 0 && (
+          <ul className="mb-2 space-y-1">
+            {noteLog.map((entry, i) => (
+              <li
+                key={`${entry.at}-${i}`}
+                className="rounded-lg bg-aurea-canvas/60 px-2.5 py-1.5 text-xs leading-[1.5] text-aurea-ink"
+              >
+                <span className="mr-1.5 tabular-nums text-aurea-ink-3">{stampTime(entry.at)}</span>
+                {entry.text}
+              </li>
+            ))}
+          </ul>
+        )}
+
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          rows={3}
+          onKeyDown={(e) => {
+            // ⌘/Ctrl+Enter submits the note without reaching for the button.
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault()
+              void submitNote()
+            }
+          }}
+          rows={expanded ? 8 : 3}
           placeholder="What was discussed, next steps…"
           className="w-full resize-none rounded-lg border border-aurea-border bg-aurea-surface px-2.5 py-2 text-sm leading-[1.5] text-aurea-ink placeholder:text-aurea-ink-3 focus:border-aurea-primary focus:outline-none"
         />
+        <button
+          onClick={() => void submitNote()}
+          disabled={!notes.trim() || submittingNote}
+          className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-aurea-border py-1.5 text-xs font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2 disabled:opacity-50"
+        >
+          {submittingNote ? (
+            <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.75} />
+          ) : (
+            <Plus className="h-3 w-3" strokeWidth={2} />
+          )}
+          Submit note
+        </button>
       </div>
     </div>
   )
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex max-h-[calc(100vh-2rem)] w-[22rem] flex-col overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-2xl">
+    <div
+      className={cn(
+        'fixed bottom-4 right-4 z-50 flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-2xl transition-[width] duration-200',
+        expanded ? 'w-[32rem]' : 'w-[22rem]'
+      )}
+    >
       {/* ── Live call ─────────────────────────────────────────────── */}
       {inCall && (
         <div className="overflow-y-auto p-4">
@@ -231,6 +332,7 @@ export function Softphone() {
               <p className="truncate text-sm font-medium text-aurea-ink">{leadName}</p>
               <p className="text-xs tabular-nums text-aurea-ink-3">{statusLabel}</p>
             </div>
+            {expandButton}
           </div>
 
           {showKeypad && status === 'in_call' && (
@@ -308,14 +410,17 @@ export function Softphone() {
                 {leadName} · {fmt(endedCall.durationSeconds)}
               </p>
             </div>
-            <button
-              onClick={clearEnded}
-              disabled={busy}
-              title="Skip"
-              className="flex h-7 w-7 items-center justify-center rounded-full text-aurea-ink-3 hover:bg-aurea-surface-2 disabled:opacity-50"
-            >
-              <X className="h-4 w-4" strokeWidth={1.75} />
-            </button>
+            <div className="flex items-center gap-0.5">
+              {expandButton}
+              <button
+                onClick={clearEnded}
+                disabled={busy}
+                title="Skip"
+                className="flex h-7 w-7 items-center justify-center rounded-full text-aurea-ink-3 hover:bg-aurea-surface-2 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+            </div>
           </div>
 
           {/* Same notes + contact editor the staffer had during the call. */}

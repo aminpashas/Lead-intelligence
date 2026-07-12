@@ -33,21 +33,36 @@ export function zonedTimeLabel(instant: Date, timeZone: string): string {
   }).format(instant)
 }
 
-/** Short date in `timeZone`, e.g. "Jul 5". */
-export function zonedDateLabel(instant: Date, timeZone: string): string {
+/**
+ * Labels omit the year only when the instant falls in the CURRENT year (as
+ * seen in `timeZone`) — a yearless "Jul 29" for an imported 2025 message reads
+ * as a future date once the calendar rolls past it.
+ */
+function needsYear(instant: Date, timeZone: string, now: Date): boolean {
+  return zonedDayKey(instant, timeZone).slice(0, 4) !== zonedDayKey(now, timeZone).slice(0, 4)
+}
+
+/** Short date in `timeZone`, e.g. "Jul 5" — or "Jul 5, 2025" for other years. */
+export function zonedDateLabel(instant: Date, timeZone: string, now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-US', {
     timeZone,
     month: 'short',
     day: 'numeric',
+    ...(needsYear(instant, timeZone, now) && { year: 'numeric' }),
   }).format(instant)
 }
 
 /** Date + time in `timeZone`, e.g. "Jul 5, 9:56 AM" (message hover title). */
-export function zonedDateTimeLabel(instant: Date, timeZone: string): string {
+export function zonedDateTimeLabel(
+  instant: Date,
+  timeZone: string,
+  now: Date = new Date()
+): string {
   return new Intl.DateTimeFormat('en-US', {
     timeZone,
     month: 'short',
     day: 'numeric',
+    ...(needsYear(instant, timeZone, now) && { year: 'numeric' }),
     hour: 'numeric',
     minute: '2-digit',
   }).format(instant)
@@ -68,5 +83,6 @@ export function zonedDayDivider(instant: Date, timeZone: string, now: Date = new
     weekday: 'long',
     month: 'short',
     day: 'numeric',
+    ...(needsYear(instant, timeZone, now) && { year: 'numeric' }),
   }).format(instant)
 }

@@ -308,5 +308,25 @@ export function formatPatientPsychologyForPrompt(profile: PatientProfile | null)
     lines.push(`Recommended next action: ${profile.next_best_action}`)
   }
 
+  // The analyzer's narrative read of this person. It carries context the
+  // structured fields flatten out (history of broken promises, what actually
+  // matters to them). Ground the reply in it so the draft matches the same
+  // read of the lead that staff see in the Lead Intelligence panel.
+  if (profile.ai_summary) {
+    lines.push(`Analyst read of this patient: ${profile.ai_summary}`)
+  }
+
+  // Hard tone guard: when the patient is upset, cheerful/scripted enthusiasm
+  // ("Great!", "I'll send that right over!") reads as tone-deaf and can end the
+  // relationship. Force acknowledgement over enthusiasm.
+  const negative = /angry|anger|furious|fury|rage|frustrat|humiliat|betray|hostile|distrust|mistrust|upset|disappoint|offend|insult/i.test(
+    profile.emotional_state || ''
+  )
+  if (negative) {
+    lines.push(
+      `⚠️ TONE OVERRIDE: This patient is ${profile.emotional_state}. Do NOT open with upbeat filler ("Great!", "I'll send that right over!") or push to close. Acknowledge their frustration directly and honestly first. If anything went wrong on our side, own it plainly. Prioritize repairing trust over advancing the sale.`
+    )
+  }
+
   return lines.join('\n')
 }

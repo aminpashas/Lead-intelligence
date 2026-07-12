@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { CallCenterDashboard } from '@/components/voice/call-center-dashboard'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { decryptLeadPII } from '@/lib/encryption'
+import { applyCallMetric, startOfTodayISO } from '@/lib/voice/call-metrics'
 
 export default async function CallCenterPage() {
   const supabase = await createClient()
@@ -40,37 +41,22 @@ export default async function CallCenterPage() {
     .eq('id', orgId)
     .single()
 
-  // Aggregate stats
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const todayISO = today.toISOString()
+  // Aggregate stats. Each card is a filter over voice_calls; applyCallMetric is
+  // shared with the drill-down list endpoint so the count and the list agree.
+  const todayISO = startOfTodayISO()
 
-  const { count: todayCalls } = await supabase
-    .from('voice_calls')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .gte('created_at', todayISO)
+  const countFor = (metric: Parameters<typeof applyCallMetric>[1]) =>
+    applyCallMetric(
+      supabase
+        .from('voice_calls')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId),
+      metric,
+      todayISO,
+    )
 
-  const { count: todayConnected } = await supabase
-    .from('voice_calls')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .eq('status', 'completed')
-    .gt('duration_seconds', 0)
-    .gte('created_at', todayISO)
-
-  const { count: todayAppointments } = await supabase
-    .from('voice_calls')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .eq('outcome', 'appointment_booked')
-    .gte('created_at', todayISO)
-
-  const { count: activeCalls } = await supabase
-    .from('voice_calls')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .in('status', ['initiated', 'ringing', 'in_progress'])
+  const [{ count: todayCalls }, { count: todayConnected }, { count: todayAppointments }, { count: activeCalls }] =
+    await Promise.all([countFor('today'), countFor('connected'), countFor('appointments'), countFor('active')])
 
   return (
     <CallCenterDashboard

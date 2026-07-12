@@ -27,8 +27,8 @@ describe('buildTimeline', () => {
     const out = buildTimeline({
       ...empty,
       calls: [
-        { id: 'c1', created_at: '2026-06-01T09:00:00.000Z', started_at: '2026-06-01T09:05:00.000Z', direction: 'outbound', outcome: 'interested', duration_seconds: 120, outcome_notes: 'good chat', transcript_summary: null, recording_url: null, status: 'completed' },
-        { id: 'c2', created_at: '2026-06-01T08:00:00.000Z', started_at: null, direction: 'inbound', outcome: null, duration_seconds: 0, outcome_notes: null, transcript_summary: null, recording_url: null, status: 'no_answer' },
+        { id: 'c1', created_at: '2026-06-01T09:00:00.000Z', started_at: '2026-06-01T09:05:00.000Z', direction: 'outbound', outcome: 'interested', duration_seconds: 120, outcome_notes: 'good chat', transcript_summary: null, recording_url: null, status: 'completed', call_mode: 'browser', agent_type: null, staff_user_id: 'u1' },
+        { id: 'c2', created_at: '2026-06-01T08:00:00.000Z', started_at: null, direction: 'inbound', outcome: null, duration_seconds: 0, outcome_notes: null, transcript_summary: null, recording_url: null, status: 'no_answer', call_mode: 'ai', agent_type: 'setter', staff_user_id: null },
       ],
     })
     expect(out.map((e) => e.at)).toEqual(['2026-06-01T08:00:00.000Z', '2026-06-01T09:05:00.000Z'])
@@ -54,7 +54,7 @@ describe('buildTimeline', () => {
         { id: 'm2', created_at: '2026-06-01T10:00:00.000Z', channel: 'email', direction: 'outbound', body: 'b', subject: 'Hi', status: 'sent', ai_generated: true, sender_type: 'ai', sender_name: 'AI' },
         { id: 'm1', created_at: '2026-06-01T10:00:00.000Z', channel: 'sms', direction: 'inbound', body: 'a', subject: null, status: 'read', ai_generated: false, sender_type: 'lead', sender_name: null },
       ],
-      calls: [{ id: 'c1', created_at: '2026-06-01T09:00:00.000Z', started_at: '2026-06-01T09:00:00.000Z', direction: 'outbound', outcome: null, duration_seconds: 30, outcome_notes: null, transcript_summary: null, recording_url: null, status: 'completed' }],
+      calls: [{ id: 'c1', created_at: '2026-06-01T09:00:00.000Z', started_at: '2026-06-01T09:00:00.000Z', direction: 'outbound', outcome: null, duration_seconds: 30, outcome_notes: null, transcript_summary: null, recording_url: null, status: 'completed', call_mode: 'ai', agent_type: 'closer', staff_user_id: null }],
       activities: [],
     })
     expect(out.map((e) => e.id)).toEqual(['c1', 'm1', 'm2'])
