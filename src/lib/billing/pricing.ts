@@ -97,13 +97,16 @@ export function estimateVoiceCents(seconds: number): number {
 }
 
 /**
- * Rough GSM-7 segment count for pre-send SMS estimates. A single segment holds 160 chars;
- * concatenated messages hold 153 each. Twilio's actual `num_segments` (which also accounts for
- * UCS-2/emoji encoding) overrides this at reconciliation time.
+ * Rough segment count for pre-send SMS estimates. GSM-7 holds 160 chars in a single segment /
+ * 153 per concatenated part; any non-ASCII char forces UCS-2 encoding (70 / 67). Same math as
+ * the usage_rollup RPC, so the live Usage panel and send-time cost events agree. Twilio's
+ * actual `num_segments` (which knows the true GSM-7 alphabet) overrides this at reconciliation.
  */
 export function estimateSmsSegments(body: string): number {
   const len = body.length
   if (len === 0) return 0
-  if (len <= 160) return 1
-  return Math.ceil(len / 153)
+  const ucs2 = /[^\x00-\x7F]/.test(body)
+  const [single, part] = ucs2 ? [70, 67] : [160, 153]
+  if (len <= single) return 1
+  return Math.ceil(len / part)
 }
