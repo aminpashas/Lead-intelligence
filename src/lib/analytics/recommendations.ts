@@ -73,6 +73,7 @@ export function buildRecommendations(inputs: RecommendationInputs): Recommendati
         evidence: `${c.leads} leads, ${c.responded} responded, 0 reached the engaged tier; ${c.disqualified} disqualified.`,
         action: 'Pause or rebuild this campaign: new creative/audience, or route its leads into a faster follow-up cadence before spending more.',
         dgsRelevant: true,
+        leadsHref: `/leads?campaign=${encodeURIComponent(c.campaign)}`,
       })
     }
   }
@@ -133,6 +134,7 @@ export function buildRecommendations(inputs: RecommendationInputs): Recommendati
       evidence: 'AI conversation analysis marked these leads ready_to_book, but they are not scheduled and have no recent outbound.',
       action: 'Call these leads today — they asked to book. Work the list in the Action Queue below.',
       dgsRelevant: false,
+      cohortKey: 'ready_to_book_stale',
     })
   }
   if (actionQueue.inbound_awaiting_reply > 0) {
@@ -144,6 +146,7 @@ export function buildRecommendations(inputs: RecommendationInputs): Recommendati
       evidence: 'Their last inbound message is newer than your last outbound (past 14 days).',
       action: 'Clear the reply backlog — every unanswered inbound is a hand-raiser cooling off.',
       dgsRelevant: false,
+      cohortKey: 'inbound_awaiting_reply',
     })
   }
   if (actionQueue.untouched_new >= 100) {
@@ -156,6 +159,7 @@ export function buildRecommendations(inputs: RecommendationInputs): Recommendati
       evidence: `They sit in status "new" with zero outbound.${bestResponse > 0 ? ` Your best channel response rate is ${bestResponse.toFixed(0)}%, so thousands of conversations are recoverable.` : ''}`,
       action: 'Run a segmented reactivation blitz (AI SMS first-touch, oldest last) instead of buying new traffic first.',
       dgsRelevant: false,
+      cohortKey: 'untouched_new',
     })
   }
   if (actionQueue.engaged_gone_quiet >= 20) {
@@ -167,6 +171,7 @@ export function buildRecommendations(inputs: RecommendationInputs): Recommendati
       evidence: 'These leads showed buying intent in conversation, then the thread died.',
       action: 'Enroll them in a re-engagement cadence (new information, not "just checking in") with a booking link.',
       dgsRelevant: false,
+      cohortKey: 'engaged_gone_quiet',
     })
   }
 

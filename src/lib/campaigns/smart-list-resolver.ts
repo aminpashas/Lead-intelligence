@@ -87,6 +87,13 @@ export function applySmartListCriteria(
   query: any,
   criteria: SmartListCriteria
 ) {
+  // Static snapshot: pin to an explicit ID set (Action Center cohorts et al).
+  // Applied here — not in resolveSmartListLeads — so every criteria consumer
+  // (list-leads endpoint, counts, eligibility, mass send) honors it.
+  if (criteria.lead_ids && criteria.lead_ids.length > 0) {
+    query = query.in('id', criteria.lead_ids.slice(0, 1000))
+  }
+
   // Status filter
   if (criteria.statuses && criteria.statuses.length > 0) {
     query = query.in('status', criteria.statuses)
