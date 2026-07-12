@@ -39,6 +39,9 @@ export function buildTimeline(input: TimelineInput): TimelineEntry[] {
       transcriptSummary: c.transcript_summary ?? null,
       recordingUrl: c.recording_url ?? null,
       status: c.status,
+      callMode: c.call_mode ?? null,
+      agentType: c.agent_type ?? null,
+      staffUserId: c.staff_user_id ?? null,
     })
   }
 

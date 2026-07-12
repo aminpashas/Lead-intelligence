@@ -58,7 +58,7 @@ export default async function MonitorPage() {
       .limit(MESSAGE_LIMIT),
     supabase
       .from('voice_calls')
-      .select(`id, created_at, started_at, direction, outcome, duration_seconds, outcome_notes, transcript_summary, recording_url, status, conversation_id, lead_id, ${LEAD_JOIN}`)
+      .select(`id, created_at, started_at, direction, outcome, duration_seconds, outcome_notes, transcript_summary, recording_url, status, call_mode, agent_type, staff_user_id, conversation_id, lead_id, ${LEAD_JOIN}`)
       .eq('organization_id', orgId)
       .not('ended_at', 'is', null)
       .order('created_at', { ascending: false })
@@ -120,19 +120,36 @@ export default async function MonitorPage() {
     sourceById,
   ).slice(0, FEED_LIMIT)
 
+  // Resolve the staff who placed human calls to names, so the feed can say who
+  // dialed. One batched lookup over the ids actually present in the calls.
+  const staffIds = [...new Set(calls.map((c) => c.staff_user_id as string | null).filter(Boolean) as string[])]
+  const staffNames: Record<string, string> = {}
+  if (staffIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('id, full_name')
+      .eq('organization_id', orgId)
+      .in('id', staffIds)
+    for (const p of (profiles ?? []) as { id: string; full_name: string | null }[]) {
+      if (p.full_name) staffNames[p.id] = p.full_name
+    }
+  }
+
   const timeZone = await resolvePracticeTimeZone(supabase, orgId)
 
-  return <MonitorFrame orgId={orgId} entries={entries} timeZone={timeZone} />
+  return <MonitorFrame orgId={orgId} entries={entries} timeZone={timeZone} staffNames={staffNames} />
 }
 
 function MonitorFrame({
   orgId,
   entries,
   timeZone,
+  staffNames,
 }: {
   orgId: string
   entries: Awaited<ReturnType<typeof buildActivityFeed>>
   timeZone?: string
+  staffNames?: Record<string, string>
 }) {
   return (
     <div className="mx-auto max-w-[760px] space-y-6">
@@ -147,7 +164,7 @@ function MonitorFrame({
         </p>
       </div>
 
-      <ActivityMonitor entries={entries} orgId={orgId} timeZone={timeZone} />
+      <ActivityMonitor entries={entries} orgId={orgId} timeZone={timeZone} staffNames={staffNames} />
     </div>
   )
 }

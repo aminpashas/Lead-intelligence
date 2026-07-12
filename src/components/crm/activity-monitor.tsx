@@ -27,12 +27,19 @@ export function ActivityMonitor({
   entries,
   orgId,
   timeZone = DEFAULT_PRACTICE_TIMEZONE,
+  staffNames,
 }: {
   entries: ActivityEntry[]
   orgId: string
   timeZone?: string
+  /** staff_user_id → display name, for attributing human-placed calls. */
+  staffNames?: Record<string, string>
 }) {
   const router = useRouter()
+
+  // Rebuild the Map the renderer wants from the plain object the server passes
+  // (Maps aren't serializable across the server/client boundary).
+  const userNameById = useMemo(() => new Map(Object.entries(staffNames ?? {})), [staffNames])
   const [live, setLive] = useState(false)
 
   // Source lookup for the decoration closures, keyed the same way the feed keys
@@ -101,7 +108,7 @@ export function ActivityMonitor({
         <span>{live ? 'Live — new activity syncs automatically' : 'Watching for new activity…'}</span>
         <span className="ml-auto tabular-nums">{entries.length} recent events</span>
       </div>
-      <TimelineFeed entries={entries} variant="detailed" timeZone={timeZone} decorations={decorations} />
+      <TimelineFeed entries={entries} variant="detailed" timeZone={timeZone} decorations={decorations} userNameById={userNameById} />
     </div>
   )
 }
