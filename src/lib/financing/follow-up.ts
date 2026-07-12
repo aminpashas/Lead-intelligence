@@ -315,6 +315,18 @@ export async function followUpDenied(ctx: FollowUpContext): Promise<FollowUpResu
     })
   }
 
+  // This SMS ends "Reply YES or call us" — claim the lead's next YES for the
+  // financing conversation so the appointment-confirmation handler can't grab it.
+  if (result.channel === 'sms') {
+    const { setPendingReplyIntent } = await import('@/lib/messaging/pending-intent')
+    await setPendingReplyIntent(ctx.supabase, {
+      organizationId: ctx.organizationId,
+      leadId: ctx.leadId,
+      intent: 'financing_followup',
+      refType: 'financing_application',
+    })
+  }
+
   return { sent: !!result.channel, channel: result.channel, message_type: 'denied' }
 }
 
