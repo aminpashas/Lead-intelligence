@@ -130,6 +130,57 @@ export type ActionQueue = {
   }
 }
 
+/** Keys of the drillable action-queue cohorts — must match the CASE branches
+ *  in analytics_in_action_cohort() (20260712100000_action_queue_cohort_rpc.sql). */
+export type ActionQueueCohortKey =
+  | 'untouched_new'
+  | 'ready_to_book_stale'
+  | 'inbound_awaiting_reply'
+  | 'engaged_gone_quiet'
+
+export const ACTION_QUEUE_COHORTS: Record<
+  ActionQueueCohortKey,
+  { label: string; description: string }
+> = {
+  ready_to_book_stale: {
+    label: 'Ready-to-book, untouched 48h+',
+    description: 'AI flagged them ready_to_book; no outbound touch in 48h+',
+  },
+  inbound_awaiting_reply: {
+    label: 'Inbound awaiting your reply',
+    description: 'Their last inbound (past 14d) is newer than your last outbound',
+  },
+  untouched_new: {
+    label: 'New leads never contacted',
+    description: 'Status "new", zero outbound ever, captured over a day ago',
+  },
+  engaged_gone_quiet: {
+    label: 'Engaged leads gone quiet 7d+',
+    description: 'Showed considering/exploring intent, then the thread died',
+  },
+}
+
+export function isActionQueueCohortKey(v: string): v is ActionQueueCohortKey {
+  return v in ACTION_QUEUE_COHORTS
+}
+
+/** One row of a cohort drill-down list (get_action_queue_cohort RPC). */
+export type ActionQueueCohortLead = {
+  id: string
+  name: string
+  status: string
+  conversation_intent: string | null
+  last_contacted_at: string | null
+  last_responded_at: string | null
+  created_at: string
+}
+
+export type ActionQueueCohortPage = {
+  cohort: ActionQueueCohortKey
+  total: number
+  leads: ActionQueueCohortLead[]
+}
+
 export type TrackingCoverage = {
   total: number
   with_channel: number
@@ -172,6 +223,11 @@ export type Recommendation = {
   action: string
   /** True when the action lives in Dion Growth Studio (ads/creative/tracking) rather than the CRM. */
   dgsRelevant: boolean
+  /** When set, this recommendation is backed by a drillable lead cohort — the
+   *  UI opens the cohort sheet (lead list + batch actions) for it. */
+  cohortKey?: ActionQueueCohortKey
+  /** When set, deep-link to the /leads table pre-filtered (e.g. by campaign). */
+  leadsHref?: string
 }
 
 export type DgsFeedback = {

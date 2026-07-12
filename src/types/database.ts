@@ -1080,6 +1080,11 @@ export type SmartListCriteria = {
     match: 'any' | 'all'
     scopes: ('conversation' | 'lead_fields' | 'inbound_sms' | 'tags')[]
   }
+  /** Static snapshot: restrict to exactly these lead IDs (max 1000). Powers
+   *  SQL-only cohorts (e.g. Action Center queues) that no attribute filter can
+   *  express — the cohort is resolved once and pinned. Combines with the other
+   *  filters (AND), so consent/contactability criteria still apply on top. */
+  lead_ids?: string[]
 }
 
 export type SmartList = {

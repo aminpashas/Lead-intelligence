@@ -17,9 +17,10 @@ import {
   PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { AnalyticsDashboard } from '@/components/crm/analytics-charts'
+import { ActionQueueCohortSheet } from '@/components/crm/action-queue-cohort-sheet'
 import { labelChannel } from '@/lib/analytics/recommendations'
 import type {
-  DeepAnalytics, HeatmapCell, Recommendation, RecommendationSeverity,
+  ActionQueueCohortKey, DeepAnalytics, HeatmapCell, Recommendation, RecommendationSeverity,
 } from '@/lib/analytics/deep-types'
 
 const emptySubscribe = () => () => {}
@@ -184,34 +185,40 @@ function ActionCenter({ data }: { data: DeepAnalytics }) {
   const { recommendations, actionQueue } = data
   const crmRecs = recommendations.filter((r) => !r.dgsRelevant)
   const dgsRecs = recommendations.filter((r) => r.dgsRelevant)
+  // Which cohort's drill-down sheet is open (null = closed).
+  const [openCohort, setOpenCohort] = useState<ActionQueueCohortKey | null>(null)
 
   return (
     <div className="space-y-4">
-      {/* Work queues */}
+      {/* Work queues — each tile opens its lead list + batch actions */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <QueueTile
           icon={Flame}
           label="Ready-to-book, untouched 48h+"
           value={actionQueue.ready_to_book_stale}
           tone={actionQueue.ready_to_book_stale > 0 ? 'critical' : 'ok'}
+          onOpen={() => setOpenCohort('ready_to_book_stale')}
         />
         <QueueTile
           icon={MessageSquare}
           label="Inbound awaiting your reply"
           value={actionQueue.inbound_awaiting_reply}
           tone={actionQueue.inbound_awaiting_reply > 0 ? 'critical' : 'ok'}
+          onOpen={() => setOpenCohort('inbound_awaiting_reply')}
         />
         <QueueTile
           icon={PhoneOff}
           label="New leads never contacted"
           value={actionQueue.untouched_new}
           tone={actionQueue.untouched_new > 100 ? 'warn' : 'ok'}
+          onOpen={() => setOpenCohort('untouched_new')}
         />
         <QueueTile
           icon={Clock}
           label="Engaged leads gone quiet 7d+"
           value={actionQueue.engaged_gone_quiet}
           tone={actionQueue.engaged_gone_quiet > 20 ? 'warn' : 'ok'}
+          onOpen={() => setOpenCohort('engaged_gone_quiet')}
         />
       </div>
 
@@ -223,7 +230,7 @@ function ActionCenter({ data }: { data: DeepAnalytics }) {
             </CardTitle>
             <CardDescription>AI conversation analysis flagged them ready_to_book; no touch in 48h+</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
+          <CardContent className="flex flex-wrap items-center gap-2">
             {actionQueue.samples.ready_to_book_stale.map((l) => (
               <Link key={l.id} href={`/leads/${l.id}`}>
                 <Badge variant="outline" className="cursor-pointer hover:bg-accent">
@@ -231,6 +238,17 @@ function ActionCenter({ data }: { data: DeepAnalytics }) {
                 </Badge>
               </Link>
             ))}
+            {actionQueue.ready_to_book_stale > actionQueue.samples.ready_to_book_stale.length && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                onClick={() => setOpenCohort('ready_to_book_stale')}
+              >
+                View all {actionQueue.ready_to_book_stale.toLocaleString()}
+                <ArrowRight className="ml-1 h-3 w-3" />
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -241,27 +259,39 @@ function ActionCenter({ data }: { data: DeepAnalytics }) {
           title="Fix inside the CRM"
           description="Follow-up, cadence, and process actions for the practice team"
           recs={crmRecs}
+          onOpenCohort={setOpenCohort}
         />
         <RecommendationList
           title="Feed back into Dion Growth Studio"
           description="Budget, creative, and tracking actions for the growth team"
           recs={dgsRecs}
+          onOpenCohort={setOpenCohort}
         />
       </div>
 
       <DgsFeedbackPanel data={data} />
+
+      <ActionQueueCohortSheet cohort={openCohort} onClose={() => setOpenCohort(null)} />
     </div>
   )
 }
 
-function QueueTile({ icon: Icon, label, value, tone }: {
+function QueueTile({ icon: Icon, label, value, tone, onOpen }: {
   icon: typeof Flame; label: string; value: number; tone: 'critical' | 'warn' | 'ok'
+  onOpen: () => void
 }) {
   const toneClass = tone === 'critical'
     ? 'text-red-600 dark:text-red-400'
     : tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-aurea-primary'
   return (
-    <Card>
+    <Card
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+      className="cursor-pointer transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={`${label}: ${value.toLocaleString()} leads — open list`}
+    >
       <CardContent className="pt-4">
         <div className="flex items-start justify-between">
           <div>
@@ -270,13 +300,17 @@ function QueueTile({ icon: Icon, label, value, tone }: {
           </div>
           <Icon className={`h-4 w-4 ${toneClass}`} />
         </div>
+        <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
+          View leads <ArrowRight className="h-3 w-3" />
+        </p>
       </CardContent>
     </Card>
   )
 }
 
-function RecommendationList({ title, description, recs }: {
+function RecommendationList({ title, description, recs, onOpenCohort }: {
   title: string; description: string; recs: Recommendation[]
+  onOpenCohort: (cohort: ActionQueueCohortKey) => void
 }) {
   return (
     <Card>
@@ -290,14 +324,17 @@ function RecommendationList({ title, description, recs }: {
             <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Nothing flagged in this range
           </div>
         ) : (
-          recs.map((rec) => <RecCard key={rec.id} rec={rec} />)
+          recs.map((rec) => <RecCard key={rec.id} rec={rec} onOpenCohort={onOpenCohort} />)
         )}
       </CardContent>
     </Card>
   )
 }
 
-function RecCard({ rec }: { rec: Recommendation }) {
+function RecCard({ rec, onOpenCohort }: {
+  rec: Recommendation
+  onOpenCohort: (cohort: ActionQueueCohortKey) => void
+}) {
   const sev = SEVERITY_META[rec.severity]
   const CatIcon = CATEGORY_ICON[rec.category]
   return (
@@ -316,6 +353,25 @@ function RecCard({ rec }: { rec: Recommendation }) {
         <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-aurea-primary" />
         <span>{rec.action}</span>
       </p>
+      {rec.cohortKey ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2 h-7 text-xs"
+          onClick={() => onOpenCohort(rec.cohortKey!)}
+        >
+          <Users className="mr-1 h-3 w-3" /> View leads
+        </Button>
+      ) : rec.leadsHref ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2 h-7 text-xs"
+          render={<Link href={rec.leadsHref} />}
+        >
+          <Users className="mr-1 h-3 w-3" /> View leads
+        </Button>
+      ) : null}
     </div>
   )
 }
