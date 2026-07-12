@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseBranding, DEFAULT_BRANDING, BRAND_SLUGS } from '@/lib/branding/schema'
+import { parseBranding, DEFAULT_BRANDING, BRAND_SLUGS, configuredBrandSlugs, slugifyBrandName } from '@/lib/branding/schema'
 
 describe('parseBranding', () => {
   it('returns the default structure for null/garbage input', () => {
@@ -47,5 +47,23 @@ describe('parseBranding', () => {
     expect(b.serviceLineToBrand.sleep_apnea).toBe('tmj_sleep')
     expect(b.serviceLineToBrand.cosmetic).toBe('sf_dentistry')
     expect(b.defaultBrand).toBe('sf_dentistry')
+  })
+})
+
+describe('logoUrl + brand counting', () => {
+  it('parses logoUrl and defaults it to empty', () => {
+    const b = parseBranding({ brands: { dion_health: { name: 'Dion', logoUrl: 'https://x/logo.png' } } })
+    expect(b.brands.dion_health.logoUrl).toBe('https://x/logo.png')
+    expect(b.brands.sf_dentistry.logoUrl).toBe('')
+  })
+
+  it('counts only named brands as configured (empty default slots are free)', () => {
+    const b = parseBranding({ brands: { dion_health: { name: 'Dion' }, extra: { logoUrl: 'https://x/l.png' } } })
+    expect(configuredBrandSlugs(b)).toEqual(['dion_health'])
+  })
+
+  it('slugifies brand names into stable keys', () => {
+    expect(slugifyBrandName('TMJ & Sleep Clinic')).toBe('tmj_sleep_clinic')
+    expect(slugifyBrandName('  --  ')).toBe('')
   })
 })

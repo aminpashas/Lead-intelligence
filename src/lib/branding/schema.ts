@@ -4,6 +4,8 @@ export type Brand = {
   name: string
   doctorName: string
   website: string
+  /** Public URL of the brand's logo (shown in settings, usable in emails). */
+  logoUrl: string
 }
 
 export type BrandLogistics = {
@@ -30,7 +32,7 @@ export type Branding = {
 
 export const BRAND_SLUGS = ['dion_health', 'tmj_sleep', 'sf_dentistry'] as const
 
-const emptyBrand = (): Brand => ({ name: '', doctorName: '', website: '' })
+const emptyBrand = (): Brand => ({ name: '', doctorName: '', website: '', logoUrl: '' })
 
 export const DEFAULT_BRANDING: Branding = {
   brands: {
@@ -58,7 +60,26 @@ function parseBrand(raw: unknown, fallback: Brand): Brand {
     name: str(r.name) || fallback.name,
     doctorName: str(r.doctorName) || fallback.doctorName,
     website: str(r.website) || fallback.website,
+    logoUrl: str(r.logoUrl) || fallback.logoUrl,
   }
+}
+
+/** Brands the org has actually filled in (a brand exists once it has a name).
+ *  The three default slots parse into every blob as empty placeholders, so
+ *  plan quotas count named brands — not raw keys. */
+export function configuredBrandSlugs(branding: Branding): string[] {
+  return Object.entries(branding.brands)
+    .filter(([, b]) => b.name.trim().length > 0)
+    .map(([slug]) => slug)
+}
+
+/** Slugify a brand name for use as a brands-record key (e.g. "TMJ & Sleep" → "tmj_sleep"). */
+export function slugifyBrandName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60)
 }
 
 /** Forgiving parser: overlays stored config onto DEFAULT_BRANDING so the three
@@ -103,7 +124,10 @@ export const brandingPatchSchema = z.object({
     name: z.string().max(200).optional(),
     doctorName: z.string().max(200).optional(),
     website: z.string().max(300).optional(),
+    logoUrl: z.string().max(500).optional(),
   })).optional(),
+  /** Brand slugs to delete outright (their service-line mappings fall back to defaultBrand). */
+  removeBrands: z.array(z.string().max(60)).max(50).optional(),
   serviceLineToBrand: z.record(z.string(), z.string()).optional(),
   defaultBrand: z.string().max(60).optional(),
   logistics: z.object({

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg, requirePermission } from '@/lib/auth/active-org'
+import { checkCampaignCapacity } from '@/lib/billing/limits'
 import { z } from 'zod'
 
 const createReactivationSchema = z.object({
@@ -95,6 +96,11 @@ export async function POST(request: NextRequest) {
   // 1. Create the underlying campaign in the campaigns table (for enrollment/execution)
   let campaignId: string | null = null
   if (steps && steps.length > 0) {
+    // Plan quota: the underlying campaign occupies a slot like any other.
+    const capacity = await checkCampaignCapacity(supabase, orgId)
+    if (!capacity.allowed) {
+      return NextResponse.json({ error: capacity.message, code: 'tier_limit' }, { status: 403 })
+    }
     const { data: campaign, error: campaignError } = await supabase
       .from('campaigns')
       .insert({

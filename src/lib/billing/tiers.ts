@@ -79,6 +79,7 @@ export const TIERS: Record<TierId, Tier> = {
     capabilities: ['ai_drafts'],
     highlights: [
       '1 user included ($50/mo per extra)',
+      '1 brand · 1 live campaign',
       'AI-drafted replies (you send)',
       'Two-way SMS & email',
       'Standard support',
@@ -93,6 +94,7 @@ export const TIERS: Record<TierId, Tier> = {
     capabilities: ['ai_drafts', 'ai_autopilot', 'multi_channel', 'analytics'],
     highlights: [
       '3 users included ($50/mo per extra)',
+      '3 brands · 3 live campaigns',
       'AI autopilot — replies & follows up on its own',
       'Multi-channel campaigns',
       'Analytics dashboard',
@@ -109,6 +111,7 @@ export const TIERS: Record<TierId, Tier> = {
     capabilities: ['ai_drafts', 'ai_autopilot', 'multi_channel', 'analytics', 'ai_voice', 'api_access', 'hipaa_baa'],
     highlights: [
       '5 users included ($50/mo per extra)',
+      'Unlimited brands & campaigns',
       'Everything in Growth, plus:',
       'AI voice agent — answers & places calls',
       'API access & custom integrations',
@@ -118,6 +121,49 @@ export const TIERS: Record<TierId, Tier> = {
 }
 
 export const TIER_ORDER: TierId[] = ['basic', 'growth', 'full']
+
+// ── Plan quotas ───────────────────────────────────────────────────────────
+//
+// Hard counts (as opposed to capabilities, which are booleans). `null` means
+// unlimited. Brands = distinct practice identities (name/logo/website) usable
+// across campaigns; campaigns = concurrently live (draft/active/paused) —
+// completed/archived campaigns release their slot.
+
+export type PlanLimits = {
+  /** Distinct brands the org may configure. */
+  maxBrands: number | null
+  /** Concurrently live campaigns (draft/active/paused). */
+  maxCampaigns: number | null
+}
+
+/**
+ * The quota ladder — a business decision, tuned here. Basic is single-identity
+ * single-play by design (one brand, one campaign) so multi-brand practices and
+ * anyone running parallel plays must step up to Growth.
+ */
+export const TIER_LIMITS: Record<TierId, PlanLimits> = {
+  basic: { maxBrands: 1, maxCampaigns: 1 },
+  growth: { maxBrands: 3, maxCampaigns: 3 },
+  full: { maxBrands: null, maxCampaigns: null },
+}
+
+/**
+ * Map anything `organizations.subscription_tier` can hold onto the sellable
+ * ladder: legacy tiers keep their old rank; `trial` (and anything unknown)
+ * gets Full limits so a trial demos the whole product — quotas bite when the
+ * org converts onto a paid tier.
+ */
+export function effectiveTierId(subscriptionTier: string | null | undefined): TierId {
+  const t = subscriptionTier ?? ''
+  if (isTierId(t)) return t
+  if (t === 'starter') return 'basic'
+  if (t === 'professional') return 'growth'
+  return 'full' // 'enterprise', 'trial', unknown
+}
+
+export function limitsForSubscriptionTier(subscriptionTier: string | null | undefined): PlanLimits {
+  return TIER_LIMITS[effectiveTierId(subscriptionTier)]
+}
 
 export function isTierId(value: string): value is TierId {
   return value === 'basic' || value === 'growth' || value === 'full'
