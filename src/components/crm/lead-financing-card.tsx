@@ -36,19 +36,20 @@ type EstimateData = {
   term_months: number
 }
 
-// Application status pill styles — emerald=approved, amber=in_progress/pending, rose=denied/error/expired
+// Application status pill styles — emerald=approved, amber=in_progress/pending/awaiting, rose=denied/error/expired
 const STATUS_PILL: Record<string, string> = {
-  approved:    'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
-  denied:      'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
-  in_progress: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
-  pending:     'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
-  expired:     'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
-  error:       'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  approved:         'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20',
+  denied:           'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  in_progress:      'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  awaiting_patient: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
+  pending:          'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
+  expired:          'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
+  error:            'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
 }
 
 const STATUS_LABEL: Record<string, string> = {
   approved: 'Approved', denied: 'Denied', in_progress: 'In Progress',
-  pending: 'Pending', expired: 'Expired', error: 'Error',
+  awaiting_patient: 'Options Sent', pending: 'Pending', expired: 'Expired', error: 'Error',
 }
 
 // Financial-readiness tier surfaced from the AI qualifier. Only shown once the

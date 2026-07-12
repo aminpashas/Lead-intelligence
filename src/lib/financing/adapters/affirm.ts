@@ -1,5 +1,6 @@
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { getPublicAppUrl } from '@/lib/app-url'
+import { validateLenderBaseUrl } from '../url-validator'
 import type {
   LenderAdapter,
   LenderApplicationRequest,
@@ -45,7 +46,9 @@ export class AffirmAdapter implements LenderAdapter {
     credentials: LenderCredentials
   ): Promise<LenderApplicationResponse> {
     return withRetry(async () => {
-      const baseUrl = credentials.api_base_url || 'https://api.affirm.com'
+      // API-5 (SSRF): only Affirm's own hosts may receive applicant PII. Accepts
+      // api.affirm.com (prod) and sandbox.affirm.com (sandbox); rejects anything else.
+      const baseUrl = validateLenderBaseUrl('affirm', credentials.api_base_url || 'https://api.affirm.com')
 
       // Affirm uses HTTP Basic Auth: public_key:private_key → base64
       const authToken = Buffer.from(
@@ -157,7 +160,7 @@ export class AffirmAdapter implements LenderAdapter {
     externalId: string,
     credentials: LenderCredentials
   ): Promise<LenderApplicationResponse> {
-    const baseUrl = credentials.api_base_url || 'https://api.affirm.com'
+    const baseUrl = validateLenderBaseUrl('affirm', credentials.api_base_url || 'https://api.affirm.com')
     const authToken = Buffer.from(
       `${credentials.public_key}:${credentials.private_key}`
     ).toString('base64')
