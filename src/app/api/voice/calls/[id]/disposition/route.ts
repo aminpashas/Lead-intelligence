@@ -131,6 +131,9 @@ export async function PATCH(
 
   // ── Contact capture — mint a real lead for a nameless manual dial ────────────
   let leadId: string | null = call.lead_id
+  // True only when THIS request minted a brand-new lead (not matched an existing
+  // one) — surfaced to the softphone so it can tell the staffer a contact was created.
+  let leadCreated = false
   if (contact && !leadId) {
     const phone = formatToE164(call.to_number) ?? call.to_number
     const phoneHash = searchHash(phone)
@@ -178,6 +181,7 @@ export async function PATCH(
         return NextResponse.json({ error: 'Failed to create contact' }, { status: 500 })
       }
       leadId = newLead.id
+      leadCreated = true
 
       await supabase.from('lead_activities').insert({
         organization_id: orgId,
@@ -220,5 +224,5 @@ export async function PATCH(
     await supabase.from('leads').update({ do_not_call: true }).eq('id', leadId).eq('organization_id', orgId)
   }
 
-  return NextResponse.json({ ok: true, lead_id: leadId })
+  return NextResponse.json({ ok: true, lead_id: leadId, lead_created: leadCreated })
 }

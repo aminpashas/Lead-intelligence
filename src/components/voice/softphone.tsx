@@ -22,6 +22,9 @@ import { useSoftphone } from './softphone-provider'
 /** A single note the staffer submitted, stamped with the moment they clicked Submit. */
 type LoggedNote = { at: string; text: string }
 
+/** What a successful disposition save tells us about where the call landed. */
+type SaveResult = { leadId: string | null; leadCreated: boolean }
+
 /** The clock time a note was submitted, in the staffer's local time (e.g. "3:45 PM"). */
 function stampTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -123,10 +126,12 @@ export function Softphone() {
 
   // Persist the write-up. `outcome` is optional — a bare "Save" keeps notes/contact
   // without forcing a disposition. `notesToSave` is the composed note body (log +
-  // trailing draft). Returns true on success so callers can close.
+  // trailing draft). Returns the saved call's lead linkage on success (and whether a
+  // new contact was minted) so callers can tell the staffer exactly where it landed;
+  // null on failure.
   const save = useCallback(
-    async (outcome?: string, notesToSave?: string): Promise<boolean> => {
-      if (!endedCall) return false
+    async (outcome?: string, notesToSave?: string): Promise<SaveResult | null> => {
+      if (!endedCall) return null
       const body: Record<string, unknown> = {
         duration_seconds: endedCall.durationSeconds,
       }
@@ -143,13 +148,39 @@ export function Softphone() {
           body: JSON.stringify(body),
         })
         if (!res.ok) throw new Error('Failed to save')
-        return true
+        const data = await res.json().catch(() => ({}))
+        return {
+          leadId: typeof data?.lead_id === 'string' ? data.lead_id : null,
+          leadCreated: data?.lead_created === true,
+        }
       } catch {
         toast.error('Could not save the call')
-        return false
+        return null
       }
     },
     [endedCall, buildContact, showContactForm]
+  )
+
+  // Success toast that names where the call landed. When a contact was minted, say
+  // so and deep-link it; when it attached to a known lead, offer to open it; only
+  // fall back to the bare label when there's no lead to point at.
+  const notifySaved = useCallback(
+    (result: SaveResult, label: string) => {
+      const name = `${firstName.trim()} ${lastName.trim()}`.trim()
+      if (result.leadCreated && result.leadId) {
+        toast.success(`New contact created${name ? `: ${name}` : ''}`, {
+          description: 'A new lead was added from this call.',
+          action: { label: 'View', onClick: () => router.push(`/leads/${result.leadId}`) },
+        })
+      } else if (result.leadId) {
+        toast.success(label, {
+          action: { label: 'View lead', onClick: () => router.push(`/leads/${result.leadId}`) },
+        })
+      } else {
+        toast.success(label)
+      }
+    },
+    [firstName, lastName, router]
   )
 
   // Commit the current draft as a time-stamped note. During a live call there is no
@@ -163,18 +194,18 @@ export function Softphone() {
     setNotes('')
     if (endedCall) {
       setSubmittingNote(true)
-      const ok = await save(undefined, composeNotes(nextLog))
+      const result = await save(undefined, composeNotes(nextLog))
       setSubmittingNote(false)
-      if (ok) toast.success('Note added')
+      if (result) toast.success('Note added')
     }
   }, [notes, noteLog, endedCall, save])
 
   async function disposition(outcome: string) {
     setSavingOutcome(outcome)
-    const ok = await save(outcome, composeNotes(noteLog, notes))
+    const result = await save(outcome, composeNotes(noteLog, notes))
     setSavingOutcome(null)
-    if (ok) {
-      toast.success('Call logged')
+    if (result) {
+      notifySaved(result, 'Call logged')
       clearEnded()
       router.refresh()
     }
@@ -182,10 +213,10 @@ export function Softphone() {
 
   async function saveAndClose() {
     setSaving(true)
-    const ok = await save(undefined, composeNotes(noteLog, notes))
+    const result = await save(undefined, composeNotes(noteLog, notes))
     setSaving(false)
-    if (ok) {
-      toast.success('Call saved')
+    if (result) {
+      notifySaved(result, 'Call saved')
       clearEnded()
       router.refresh()
     }
