@@ -159,6 +159,10 @@
     {
       "path": "/api/cron/calibrate-scoring",
       "schedule": "0 2 * * 0"
+    },
+    {
+      "path": "/api/cron/dgs-lead-quality",
+      "schedule": "0 7 * * *"
     }
   ]
 }

@@ -113,6 +113,7 @@ export const EXPECTED_CRONS: Record<string, number> = {
   disqualify: 26 * 60, // daily 08:00 UTC
   'calibrate-scoring': 8 * 24 * 60, // weekly Sun 02:00 UTC + a day of grace
   'sla-takeover': 10, // every minute — tight: a stalled sweep breaks the 3-min SLA promise
+  'dgs-lead-quality': 26 * 60, // daily 07:00 UTC
 }
 
 export type CronHealthIssue = {
