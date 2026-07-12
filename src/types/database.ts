@@ -2283,6 +2283,11 @@ export type AutomationPolicy = {
   human_schedule: Record<string, unknown> | null
   human_first: boolean
   human_response_sla_seconds: number
+  /** Per-scope min AI confidence (0-1). NULL inherits the org autopilot default. */
+  confidence_threshold: number | null
+  /** Per-scope active-hours window. NULL inherits the org autopilot default. */
+  active_hours_start: number | null
+  active_hours_end: number | null
   enabled: boolean
   created_at: string
   updated_at: string

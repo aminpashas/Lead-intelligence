@@ -43,6 +43,9 @@ const policy = (overrides: Partial<AutomationPolicy> = {}): AutomationPolicy => 
   enabled: true,
   created_at: '2026-07-11T00:00:00Z',
   updated_at: '2026-07-11T00:00:00Z',
+  confidence_threshold: null,
+  active_hours_start: null,
+  active_hours_end: null,
   ...overrides,
 })
 
@@ -70,6 +73,9 @@ describe('resolveAllocation — dormant defaults', () => {
       policyId: null,
       slaSeconds: null,
       aiRole: null,
+      confidenceThreshold: null,
+      activeHoursStart: null,
+      activeHoursEnd: null,
     })
   })
 
@@ -309,6 +315,9 @@ describe('resolveAllocation — decision metadata', () => {
       policyId: p.id,
       slaSeconds: 240,
       aiRole: 'setter',
+      confidenceThreshold: null,
+      activeHoursStart: null,
+      activeHoursEnd: null,
     })
   })
 
@@ -321,6 +330,31 @@ describe('resolveAllocation — decision metadata', () => {
       policyId: p.id,
       slaSeconds: null,
       aiRole: null,
+      confidenceThreshold: null,
+      activeHoursStart: null,
+      activeHoursEnd: null,
     })
+  })
+})
+
+describe('resolveAllocation — knob overrides', () => {
+  it('returns the matched policy knobs', () => {
+    const p = policy({ scope: 'stage', stage_id: 'stage-1', confidence_threshold: 0.9, active_hours_start: 9, active_hours_end: 17 })
+    const d = resolveAllocation([p], orgConfig(), ctx({ kind: 'inbound_reply', stageId: 'stage-1' }))
+    expect(d.confidenceThreshold).toBe(0.9)
+    expect(d.activeHoursStart).toBe(9)
+    expect(d.activeHoursEnd).toBe(17)
+  })
+  it('returns null knobs when unset', () => {
+    const p = policy({ scope: 'stage', stage_id: 'stage-1' })
+    const d = resolveAllocation([p], orgConfig(), ctx({ kind: 'inbound_reply', stageId: 'stage-1' }))
+    expect(d.confidenceThreshold).toBeNull()
+    expect(d.activeHoursStart).toBeNull()
+  })
+  it('legacy default carries null knobs', () => {
+    const d = resolveAllocation([], orgConfig(), ctx({ kind: 'inbound_reply', stageId: 'stage-1' }))
+    expect(d.confidenceThreshold).toBeNull()
+    expect(d.activeHoursStart).toBeNull()
+    expect(d.activeHoursEnd).toBeNull()
   })
 })
