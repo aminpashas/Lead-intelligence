@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
-import { getOwnProfile } from '@/lib/auth/active-org'
+import { requireAgencyCapability } from '@/lib/auth/active-org'
 
 export async function PATCH(
   request: NextRequest,
@@ -30,10 +30,8 @@ export async function PATCH(
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const { data: profile } = await getOwnProfile(supabase, 'role')
-  if (!profile || profile.role !== 'agency_admin') {
-    return NextResponse.json({ error: 'Forbidden — agency access required' }, { status: 403 })
-  }
+  const cap = await requireAgencyCapability(supabase, 'agency:enterprises_manage')
+  if ('error' in cap) return cap.error
 
   const body = (await request.json().catch(() => ({}))) as {
     name?: string

@@ -1,9 +1,12 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import { Building2, CheckCircle2, AlertCircle, Clock, Network } from 'lucide-react'
+import { Building2, CheckCircle2, AlertCircle, Clock, Network, Users } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { EnterAccountButton } from './enter-account-button'
 import { AddPracticeButton } from './add-practice-button'
+import { getAgencyLevel } from '@/lib/auth/active-org'
+import { agencyCan } from '@/lib/auth/permissions'
 
 export const metadata = {
   title: 'Practices | Agency | Lead Intelligence',
@@ -56,6 +59,11 @@ export default async function PracticesPage() {
     .select('active_org_id')
     .maybeSingle()
   const activeOrgId = active?.active_org_id ?? null
+
+  // Can this agency staffer manage a client practice's team directly (from here,
+  // without entering the account)? Owner + Manager only.
+  const { level } = await getAgencyLevel(supabase)
+  const canManageClientTeam = agencyCan(level, 'agency:client_team_manage')
 
   return (
     <div className="space-y-6">
@@ -129,12 +137,21 @@ export default async function PracticesPage() {
                   </dd>
                 </div>
               </dl>
-              <div className="mt-auto pt-4">
+              <div className="mt-auto pt-4 space-y-2">
                 <EnterAccountButton
                   orgId={org.id}
                   orgName={org.name}
                   isCurrent={org.id === activeOrgId}
                 />
+                {canManageClientTeam && (
+                  <Link
+                    href={`/agency/practices/${org.id}/team`}
+                    className="flex items-center justify-center gap-1.5 rounded-md border border-aurea-border px-3 py-1.5 text-xs font-medium text-aurea-ink-2 hover:bg-aurea-surface-2 hover:text-aurea-ink transition-colors"
+                  >
+                    <Users className="h-3.5 w-3.5" />
+                    Manage team
+                  </Link>
+                )}
               </div>
             </CardContent>
           </Card>

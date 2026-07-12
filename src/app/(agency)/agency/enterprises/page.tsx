@@ -1,9 +1,12 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Network, Building2, ChevronRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AddEnterpriseButton } from './add-enterprise-button'
+import { getAgencyLevel } from '@/lib/auth/active-org'
+import { agencyCan } from '@/lib/auth/permissions'
 
 export const metadata = {
   title: 'Enterprises | Agency | Lead Intelligence',
@@ -16,6 +19,10 @@ export const metadata = {
  */
 export default async function EnterprisesPage() {
   const supabase = await createClient()
+
+  // Owner-only (enterprise / DSO umbrella management).
+  const { level } = await getAgencyLevel(supabase)
+  if (!agencyCan(level, 'agency:enterprises_manage')) redirect('/agency')
 
   const { data: enterprises } = await supabase
     .from('enterprise_accounts')

@@ -63,6 +63,8 @@ export type UserProfile = {
     | 'manager'
     | 'member'
     | 'agency_admin'
+  /** Agency staff tier when role === 'agency_admin' (null = legacy → owner). */
+  agency_access_level: 'owner' | 'manager' | 'analyst' | null
   is_active: boolean
   last_seen_at: string | null
   job_title: string | null

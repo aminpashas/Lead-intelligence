@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAdminRole } from '@/lib/auth/permissions'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { provisionMember } from '@/lib/team/provision'
 
 /**
  * GET /api/team — List all team members in the current org
@@ -98,71 +99,27 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Check if user with this email already exists in the org
-  const { data: existing } = await supabase
-    .from('user_profiles')
-    .select('id')
-    .eq('organization_id', orgId)
-    .eq('email', email)
-    .single()
-
-  if (existing) {
-    return NextResponse.json(
-      { error: 'A team member with this email already exists in your organization' },
-      { status: 409 }
-    )
-  }
-
-  // Create auth user via Supabase service role (admin API)
-  // We generate a random password; the user will set their own via invite link
-  const tempPassword = crypto.randomUUID() + '!Aa1'
-
-  // Use the supabase admin client to create the user
-  // NOTE: In production, use the service role key for this
-  const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-    email,
-    password: tempPassword,
-    email_confirm: true,
-    user_metadata: {
-      full_name,
-      role,
-      organization_id: orgId,
-    },
-  })
-
-  if (authError) {
-    // If the auth user already exists, try to just add the profile
-    if (authError.message.includes('already been registered')) {
-      return NextResponse.json(
-        { error: 'This email is already registered. The user may need to be added manually.' },
-        { status: 409 }
-      )
-    }
-    return NextResponse.json({ error: authError.message }, { status: 500 })
-  }
-
-  // Create user profile
-  const { data: newProfile, error: profileError } = await supabase
-    .from('user_profiles')
-    .insert({
-      id: authUser.user.id,
-      organization_id: orgId,
-      full_name,
+  // Provision via the shared service-role helper. Creating the auth user
+  // requires the service role key (admin API) — doing it on the authed client
+  // silently fails in production — and the service client also cleanly bypasses
+  // the user_profiles privesc INSERT trigger now that the route has authorized
+  // the caller (admin) and validated the role.
+  const result = await provisionMember({
+    orgId,
+    invitedBy: user.id,
+    input: {
       email,
+      full_name,
       role,
       job_title: job_title || null,
       specialty: specialty || null,
       phone: phone || null,
-      invited_by: user.id,
-      invited_at: new Date().toISOString(),
-      is_active: true,
-    })
-    .select()
-    .single()
+    },
+  })
 
-  if (profileError) {
-    return NextResponse.json({ error: profileError.message }, { status: 500 })
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status })
   }
 
-  return NextResponse.json({ member: newProfile }, { status: 201 })
+  return NextResponse.json({ member: result.member }, { status: 201 })
 }

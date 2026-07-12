@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { getOwnProfile } from '@/lib/auth/active-org'
+import { requireAgencyCapability } from '@/lib/auth/active-org'
 import { generateUsageInvoice, currentMonthPeriod } from '@/lib/billing/invoicing'
 
 const bodySchema = z.object({
@@ -21,10 +21,9 @@ const bodySchema = z.object({
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
 
-  const { data: profile } = await getOwnProfile(supabase, 'role')
-  if (!profile || profile.role !== 'agency_admin') {
-    return NextResponse.json({ error: 'Forbidden — agency access required' }, { status: 403 })
-  }
+  // Issuing invoices is an owner-only agency-billing action.
+  const guard = await requireAgencyCapability(supabase, 'agency:billing_manage')
+  if ('error' in guard) return guard.error
 
   let parsed
   try {

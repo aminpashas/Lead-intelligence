@@ -1,6 +1,9 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Brain } from 'lucide-react'
 import { AgencyConfigClient } from './agency-config-client'
+import { getAgencyLevel } from '@/lib/auth/active-org'
+import { agencyCan } from '@/lib/auth/permissions'
 
 export const metadata = {
   title: 'AI Configuration | Agency | Lead Intelligence',
@@ -8,6 +11,11 @@ export const metadata = {
 
 export default async function AgencyAiConfigPage() {
   const supabase = await createClient()
+
+  // Owner-only: this page writes agency_settings client-side (RLS-gated), so a
+  // server redirect is the real gate for manager/analyst tiers reaching it by URL.
+  const { level } = await getAgencyLevel(supabase)
+  if (!agencyCan(level, 'agency:ai_config')) redirect('/agency')
 
   const { data: settings } = await supabase
     .from('agency_settings')

@@ -60,6 +60,124 @@ export const ASSIGNABLE_ROLES: PracticeRole[] = [
   'office_manager',
 ]
 
+// ── Agency Access Levels ────────────────────────────────────────
+//
+// Every agency staffer keeps `role = 'agency_admin'` so that all existing RLS,
+// enter-account, and privilege-escalation guards (migrations 018/020/038 +
+// 20260627/20260707) keep working unchanged. The *tier* within the agency lives
+// in `user_profiles.agency_access_level` and is enforced here in the app layer —
+// the same posture the app already uses for per-action gating (requirePermission).
+//
+//   owner   → full agency control (billing, pricing, AI config, agency team)
+//   manager → onboard/operate practices, manage client teams, integrations
+//   analyst → read-only (spend, analytics, practice list)
+//
+// NOTE: this is an application-layer boundary. At the DB/RLS layer all three are
+// `agency_admin`. A future phase can harden manager/analyst to DB-enforced roles.
+
+export type AgencyAccessLevel = 'owner' | 'manager' | 'analyst'
+
+export const AGENCY_LEVEL_LABELS: Record<AgencyAccessLevel, string> = {
+  owner: 'Agency Owner',
+  manager: 'Agency Manager',
+  analyst: 'Agency Analyst',
+}
+
+export const AGENCY_LEVEL_COLORS: Record<AgencyAccessLevel, string> = {
+  owner: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/25',
+  manager: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border-indigo-500/25',
+  analyst: 'bg-slate-500/15 text-slate-700 dark:text-slate-400 border-slate-500/25',
+}
+
+export const AGENCY_LEVEL_DESCRIPTIONS: Record<AgencyAccessLevel, string> = {
+  owner:
+    'Full agency control: billing, pricing, AI configuration & training, enterprises, and managing agency staff — plus everything a manager can do.',
+  manager:
+    'Onboard and operate practices, enter client accounts, manage each practice’s team, and configure integrations. No agency billing, pricing, AI config, or staff management.',
+  analyst:
+    'Read-only across the agency: spend & margin, analytics, and the practice roster. Cannot make changes or enter client accounts.',
+}
+
+export type AgencyCapability =
+  | 'agency:practices_read'      // see the practice roster + agency dashboards
+  | 'agency:practices_write'     // onboard / edit practices
+  | 'agency:client_team_manage'  // manage a client practice's staff
+  | 'agency:enter_account'       // "enter" a client account to operate inside it
+  | 'agency:integrations_manage' // agency-wide channel/integration config
+  | 'agency:spend_read'          // spend & margin
+  | 'agency:analytics_read'      // cross-practice analytics
+  | 'agency:ai_config'           // AI model / persona / training / learning
+  | 'agency:billing_manage'      // agency billing settings + invoices
+  | 'agency:pricing_manage'      // platform pricing
+  | 'agency:enterprises_manage'  // DSO / enterprise account management
+  | 'agency:team_manage'         // manage AGENCY staff (this feature)
+
+const ANALYST_CAPS: AgencyCapability[] = [
+  'agency:practices_read',
+  'agency:spend_read',
+  'agency:analytics_read',
+]
+
+const MANAGER_CAPS: AgencyCapability[] = [
+  ...ANALYST_CAPS,
+  'agency:practices_write',
+  'agency:client_team_manage',
+  'agency:enter_account',
+  'agency:integrations_manage',
+]
+
+const OWNER_CAPS: AgencyCapability[] = [
+  ...MANAGER_CAPS,
+  'agency:ai_config',
+  'agency:billing_manage',
+  'agency:pricing_manage',
+  'agency:enterprises_manage',
+  'agency:team_manage',
+]
+
+export const AGENCY_CAPABILITIES: Record<AgencyAccessLevel, AgencyCapability[]> = {
+  owner: OWNER_CAPS,
+  manager: MANAGER_CAPS,
+  analyst: ANALYST_CAPS,
+}
+
+/** True only for the platform agency role. Centralized so future agency roles
+ * (or a hardened DB model) have a single place to extend. */
+export function isAgencyRole(role: PracticeRole | string): boolean {
+  return role === 'agency_admin'
+}
+
+/**
+ * Resolve an agency staffer's effective access level from their stored role +
+ * level. A legacy `agency_admin` with no explicit level is treated as `owner`
+ * (backward compat: every pre-existing agency admin keeps full control). Any
+ * non-agency role — or an unrecognized level — resolves defensively:
+ * non-agency → null, unrecognized agency level → owner is NOT assumed for
+ * safety on writes elsewhere, but here we fall back to owner only for the
+ * legacy/unset case; unknown strings also collapse to owner to avoid locking a
+ * real admin out. (Levels are validated at write time by the DB CHECK.)
+ */
+export function resolveAgencyLevel(
+  role: PracticeRole | string,
+  level: AgencyAccessLevel | string | null | undefined
+): AgencyAccessLevel | null {
+  if (!isAgencyRole(role)) return null
+  if (level === 'manager' || level === 'analyst' || level === 'owner') return level
+  return 'owner'
+}
+
+/** Check whether an effective agency level carries a capability. */
+export function agencyCan(
+  level: AgencyAccessLevel | null,
+  capability: AgencyCapability
+): boolean {
+  if (!level) return false
+  return AGENCY_CAPABILITIES[level].includes(capability)
+}
+
+/** Levels an owner may assign when inviting or editing agency staff. */
+export const ASSIGNABLE_AGENCY_LEVELS: AgencyAccessLevel[] = ['owner', 'manager', 'analyst']
+
 // ── Permission Definitions ──────────────────────────────────────
 
 export type Permission =
