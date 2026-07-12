@@ -262,7 +262,9 @@ Available cross-channel tools:
 - send_before_after: Send before/after transformation photos via SMS or email
 
 WHEN TO USE:
-- Patient says "can you text me that?" → send_sms_to_lead
+${context.channel === 'sms'
+    ? '- You are ALREADY texting: your reply IS the SMS the patient receives. NEVER use send_sms_to_lead in this conversation — if they ask you to "text" them something, put it (links included) directly in your reply. Do not narrate a send ("Sent! Check your messages") — just say it.'
+    : '- Patient says "can you text me that?" → send_sms_to_lead'}
 - Patient says "send me an email" → send_email_to_lead
 - Patient asks "where are you located?" / "what's the address?" → send_practice_info
 - Patient asks about results, reviews, or testimonials → send_testimonial

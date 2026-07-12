@@ -92,7 +92,7 @@ const CROSS_CHANNEL_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'send_sms_to_lead',
-    description: 'Send a custom SMS text message to the patient. Use this when the patient asks you to text them information, or when you need to send something that\'s better in written form (e.g., a link, address, confirmation). Works from any channel — you can send a text while on a phone call.',
+    description: 'Send a custom SMS text message to the patient from a DIFFERENT channel — e.g., text them a link or address while on a phone call, or while emailing. Do NOT use this in an SMS conversation: there, your reply IS the text message, so put the content (links included) directly in your reply instead of calling this tool.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -1243,6 +1243,18 @@ async function executeSendSMSToLead(
   },
   message: string
 ): Promise<ToolResult> {
+  // Same-channel guard: this is a CROSS-channel tool (voice/email → SMS). In an
+  // SMS conversation the reply already IS a text, so a tool send here produces
+  // two back-to-back texts — the second oddly narrating the first ("Sent! Check
+  // your messages."). Soft-refuse so the model folds the content into its reply.
+  if (context.channel === 'sms') {
+    return {
+      success: false,
+      data: { same_channel: true },
+      message: 'Not sent — you are already texting with this patient, so do NOT use this tool. Put the content (including any links) directly in your reply; your reply IS the text message they receive. This tool is only for sending a text from a DIFFERENT channel (e.g., while on a phone call).',
+    }
+  }
+
   // Consent check
   if (!context.lead.sms_consent || context.lead.sms_opt_out) {
     return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Provide the information verbally instead.' }
