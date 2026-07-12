@@ -544,3 +544,19 @@ circle {
     border-radius: 0.5rem;
   }
 }
+/* Sidebar collapsed preference — pre-hydration guard.
+   An inline script in the dashboard layout stamps <html data-sidebar-collapsed>
+   from localStorage before first paint. The server always renders the sidebar
+   expanded (it cannot know the browser-only preference), so until React
+   hydrates and re-renders the rail (adding data-collapsed to the aside), these
+   rules clamp the expanded markup to the rail width and hide its contents —
+   collapsed-pref users never see the full labels flash, and the markup itself
+   is untouched so there is no hydration mismatch. Unlayered on purpose: it must
+   win over the Tailwind width utilities. */
+html[data-sidebar-collapsed] aside[data-sidebar-desktop]:not([data-collapsed]) {
+  width: 68px;
+  overflow: hidden;
+}
+html[data-sidebar-collapsed] aside[data-sidebar-desktop]:not([data-collapsed]) > * {
+  visibility: hidden;
+}

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { DashboardShell } from '@/components/dashboard/shell'
+import { SIDEBAR_COLLAPSED_PREHYDRATION_SCRIPT } from '@/components/dashboard/sidebar-collapsed'
 import { aureaFontVars } from '@/lib/fonts'
 
 export default async function DashboardLayout({
@@ -68,13 +69,21 @@ export default async function DashboardLayout({
   }
 
   return (
-    <DashboardShell
-      fontClassName={aureaFontVars}
-      userProfile={profile}
-      organization={organization}
-      actingAsClient={actingAsClient}
-    >
-      {children}
-    </DashboardShell>
+    <>
+      {/* Must precede the shell in the DOM: stamps the stored sidebar-collapsed
+          preference on <html> before the sidebar markup paints, so collapsed-pref
+          users never see the expanded sidebar flash (CSS guard in globals.css).
+          XSS-safe: the injected string is a compile-time constant with no
+          user-controlled input. */}
+      <script dangerouslySetInnerHTML={{ __html: SIDEBAR_COLLAPSED_PREHYDRATION_SCRIPT }} />
+      <DashboardShell
+        fontClassName={aureaFontVars}
+        userProfile={profile}
+        organization={organization}
+        actingAsClient={actingAsClient}
+      >
+        {children}
+      </DashboardShell>
+    </>
   )
 }
