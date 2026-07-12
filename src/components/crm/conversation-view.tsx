@@ -28,12 +28,16 @@ export function ConversationView({
   patientProfile = null,
   timeZone,
   embedded = false,
+  canTrainAi = false,
 }: {
   lead: Lead
   conversation: Conversation
   messages: Message[]
   calls: VoiceCall[]
   timeline: TimelineEntry[]
+  /** Admin roles only (computed server-side): shows the per-call "Use for AI
+   *  training" control, forwarded to the thread's call cards. */
+  canTrainAi?: boolean
   /** Account financing pre-qualification switch, forwarded to the action bar. */
   prequalEnabled?: boolean
   /** Practice no-show fee switch, forwarded to the action bar's "Card link". */
@@ -60,7 +64,7 @@ export function ConversationView({
 
       {mode === 'thread' ? (
         <div className="min-h-0 flex-1">
-          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} />
+          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} canTrainAi={canTrainAi} />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">

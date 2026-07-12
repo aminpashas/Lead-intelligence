@@ -178,10 +178,9 @@ export async function processAutoResponse(
       },
     })
 
-    // TODO(D5: notify): route a task notification to assignee.pool here.
-    // escalation.notifyStaff is escalation-shaped (module-private, escalation
-    // reasons/links) so it isn't trivially reusable — D5 builds the real
-    // notifier for tasks.
+    // Staff notification for this inbound is fired at the webhook layer
+    // (webhooks/twilio + webhooks/email-reply call notifyInboundMessage on the
+    // held_for_human result) so there is exactly one notify point per inbound.
 
     return {
       action: 'held_for_human',

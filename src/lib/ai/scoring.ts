@@ -4,6 +4,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildSafeLeadContext, buildSafeConversationHistory, checkResponseCompliance, logHIPAAEvent, scrubPHI } from './hipaa'
 import { getEnrichmentSummary } from '@/lib/enrichment'
 import type { EnrichmentSummary } from '@/lib/enrichment/types'
+import type { PatientProfile } from '@/types/database'
+import { formatPatientPsychologyForPrompt } from './agent-types'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -377,11 +379,26 @@ export async function generateLeadEngagement(
   context: {
     mode: 'education' | 'objection_handling' | 'appointment_scheduling' | 'follow_up'
     channel: 'sms' | 'email'
+    /**
+     * The analyzer's persisted read of this patient (the same row that powers
+     * the Lead Intelligence panel). When present, its narrative summary,
+     * next-best-action, and angry-lead tone override are woven into the prompt
+     * so even this fallback drafter can't produce a message that ignores what
+     * staff already see beside the composer.
+     */
+    patientProfile?: PatientProfile | null
   },
   supabase?: SupabaseClient
 ): Promise<{ message: string; confidence: number }> {
   // Use HIPAA-safe context — no direct identifiers sent to AI
   const leadContext = buildSafeLeadContext(lead as Record<string, unknown>)
+
+  // Ground the fallback in the same patient psychology the primary agents use.
+  // Without this, a fragile primary call degrades into a summary-blind, canned
+  // reply that reads as tone-deaf on an upset or mid-negotiation lead.
+  const psychologyBlock = context.patientProfile
+    ? `\n\nPatient Psychology (read this and act on it — do NOT ignore it):\n${formatPatientPsychologyForPrompt(context.patientProfile)}`
+    : ''
 
   // Scrub PHI from conversation history before sending to AI
   const safeHistory = conversationHistory.map((msg) => ({
@@ -403,7 +420,7 @@ Your goal: ${
   }
 
 Lead Profile:
-${leadContext}
+${leadContext}${psychologyBlock}
 
 Guidelines:
 - Be warm, professional, and empathetic
@@ -417,11 +434,25 @@ Guidelines:
 - HIPAA: Never include patient identifiers (full name, phone, email, SSN, DOB) in your response
 - HIPAA: Never ask patients to share sensitive information via text/email`
 
+  // The Anthropic Messages API rejects an empty `messages` array with a 400.
+  // First-touch outreach (compose dialog, campaign send) has no prior messages,
+  // so seed an operator instruction: the model writes the opening message from
+  // the system prompt's goal + lead profile above.
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> =
+    safeHistory.length > 0
+      ? safeHistory
+      : [
+          {
+            role: 'user',
+            content: `Write the opening ${context.channel === 'sms' ? 'text message' : 'email'} to send to this lead now, following the goal above. Reply with only the message content.`,
+          },
+        ]
+
   const response = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: context.channel === 'sms' ? 256 : 1024,
     system: systemPrompt,
-    messages: safeHistory,
+    messages,
   })
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''

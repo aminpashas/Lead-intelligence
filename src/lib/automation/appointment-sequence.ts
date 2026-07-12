@@ -26,6 +26,7 @@ import {
   getRescheduleUrl,
 } from '@/lib/campaigns/reminder-templates'
 import { formatAppointmentDateTime, type ReminderResult } from '@/lib/campaigns/reminders'
+import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 import { initiateConfirmationCall } from '@/lib/campaigns/confirmation-call'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
@@ -70,6 +71,8 @@ export async function runAppointmentSequence(
     .eq('id', orgId)
     .single()
   const practiceName = org?.name || 'our office'
+  // Pin reminder times to the practice's zone (server is UTC on Vercel).
+  const timeZone = await resolvePracticeTimeZone(supabase, orgId)
 
   // Look ahead far enough to cover the earliest (most negative) step.
   const maxAheadMs =
@@ -111,6 +114,7 @@ export async function runAppointmentSequence(
           practiceName,
           apt,
           step: step as OutreachSequenceStep,
+          timeZone,
         })
         await recordStepOutcome(supabase, orgId, apt, step as OutreachSequenceStep, stepTag, r)
         results.push({
@@ -149,13 +153,14 @@ async function executeAppointmentStep(
     practiceName: string
     apt: AppointmentRow
     step: OutreachSequenceStep
+    timeZone: string
   }
 ): Promise<StepOutcome> {
-  const { orgId, practiceName, apt, step } = params
+  const { orgId, practiceName, apt, step, timeZone } = params
   if (!apt.lead) return { status: 'skipped', detail: 'no_lead' }
   const lead = decryptLeadPII(apt.lead as never) as Record<string, unknown>
   const firstName = (lead.first_name as string) || 'there'
-  const dateTime = formatAppointmentDateTime(apt.scheduled_at)
+  const dateTime = formatAppointmentDateTime(apt.scheduled_at, timeZone)
   const legacyTag = (step.metadata?.legacy as string) || null
 
   // Human-owned steps (any channel) → tasks queue via the shared engine.

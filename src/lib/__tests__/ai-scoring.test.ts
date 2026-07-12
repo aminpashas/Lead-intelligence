@@ -315,4 +315,22 @@ describe('generateLeadEngagement', () => {
       expect(result.message).toBeTruthy()
     }
   })
+
+  // Fresh outreach (compose dialog, campaign send) has no prior messages. The
+  // Anthropic Messages API rejects an empty `messages` array with a 400, so the
+  // engagement generator must seed an opening-message turn.
+  it('sends a non-empty messages array when there is no conversation history', async () => {
+    setAnthropicResponse('Hi Sarah — quick note about All-on-4.')
+
+    const result = await generateLeadEngagement(
+      { first_name: 'Sarah' },
+      [], // no history — first-touch outreach
+      { mode: 'education', channel: 'sms' }
+    )
+
+    expect(result.message).toBeTruthy()
+    const callArgs = mockCreate.mock.calls[0][0]
+    expect(callArgs.messages.length).toBeGreaterThan(0)
+    expect(callArgs.messages[0].role).toBe('user')
+  })
 })

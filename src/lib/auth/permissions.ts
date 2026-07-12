@@ -321,6 +321,8 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/leads': 'leads:read',
   '/leads/lists': 'smart_lists:read',
   '/conversations': 'conversations:read',
+  // Org-wide live activity monitor — same read gate as the inbox it aggregates.
+  '/monitor': 'conversations:read',
   '/call-center': 'call_center:read',
   '/dialer': 'call_center:read',
   '/appointments': 'schedule:read',
@@ -347,6 +349,10 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   // Analytics + Agent KPI
   '/analytics': 'analytics:read',
   '/analytics/agents': 'analytics:read',
+  // Automation Command Center: visible to anyone who can read AI control
+  // (practice admins + agency); policy/settings writes are gated separately
+  // to ai_control:write in the API routes.
+  '/automation': 'ai_control:read',
   // Universal action timeline (staff + AI). Reuses broadcast_audit:read, the
   // closest existing "view audit log" permission, rather than introducing a
   // new permission for a single route.

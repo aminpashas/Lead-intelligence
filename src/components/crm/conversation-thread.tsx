@@ -48,6 +48,7 @@ import { CallCard } from './call-card'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
 import { useConversationPresence } from '@/lib/hooks/use-conversation-presence'
 import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
+import { SlaCountdown } from './sla-countdown'
 
 // ── Thread shaping ──────────────────────────────────────────
 // Consecutive messages from the same sender within this window render as one
@@ -155,6 +156,7 @@ export function ConversationThread({
   patientProfile = null,
   timeZone = DEFAULT_PRACTICE_TIMEZONE,
   embedded = false,
+  canTrainAi = false,
 }: {
   lead: Lead
   conversation: Conversation
@@ -162,6 +164,9 @@ export function ConversationThread({
   calls?: VoiceCall[]
   prequalEnabled?: boolean
   noShowFeeEnabled?: boolean
+  /** Admin roles only (computed server-side): shows the per-call "Use for AI
+   *  training" control on call cards. The API re-checks the role. */
+  canTrainAi?: boolean
   /** Where the header back-arrow returns to. Defaults to the conversations
    *  inbox; the lead surface passes '/leads' so the arrow retraces the click. */
   backHref?: string
@@ -207,6 +212,7 @@ export function ConversationThread({
   const [showPanel, setShowPanel] = useState(true)
   const [activeAgent, setActiveAgent] = useState<AgentType>(conversation.active_agent || 'setter')
   const [agentNotes, setAgentNotes] = useState<string | null>(null)
+  const [draftBlock, setDraftBlock] = useState<{ kind: string; reason: string; guidance: string | null } | null>(null)
   const [techniquesUsed, setTechniquesUsed] = useState<Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>>([])
   const [leadAssessment, setLeadAssessment] = useState<{ engagement_temperature: number; resistance_level: number; buying_readiness: number; emotional_state: string } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -333,6 +339,7 @@ export function ConversationThread({
   async function generateAIMessage() {
     setGenerating(true)
     setAgentNotes(null)
+    setDraftBlock(null)
     try {
       // Use agent system for smart routing between Setter/Closer
       const res = await fetch('/api/ai/agent-respond', {
@@ -346,6 +353,17 @@ export function ConversationThread({
       if (!res.ok) throw new Error('AI generation failed')
 
       const data = await res.json()
+
+      // The route can decline to draft: the lead needs a human (escalation) or
+      // the thread already closed. Surface that instead of a tone-deaf message.
+      if (data.blocked) {
+        setDraftBlock({ kind: data.block_kind, reason: data.reason, guidance: data.guidance ?? null })
+        toast.message(
+          data.block_kind === 'escalation' ? 'Draft held — this lead needs a human' : 'No draft — conversation already closed'
+        )
+        return
+      }
+
       setDraft(data.message)
       if (data.agent) setActiveAgent(data.agent)
       if (data.internal_notes) setAgentNotes(data.internal_notes)
@@ -572,6 +590,9 @@ export function ConversationThread({
         </div>
       </div>
 
+      {/* Human-response SLA countdown — renders only while a pending timer runs */}
+      <SlaCountdown conversationId={conversation.id} />
+
       {/* ── Messages ───────────────────────────────────────── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto bg-aurea-canvas px-4 py-5 lg:px-6">
         <div className="mx-auto w-full max-w-[720px] space-y-5">
@@ -583,7 +604,7 @@ export function ConversationThread({
                 <div className="h-px flex-1 bg-aurea-border" />
               </div>
             ) : item.type === 'call' ? (
-              <CallCard key={item.key} call={item.call} />
+              <CallCard key={item.key} call={item.call} canTrainAi={canTrainAi} />
             ) : (
               <MessageGroup key={item.key} messages={item.messages} lead={lead} timeZone={timeZone} />
             )
@@ -605,6 +626,42 @@ export function ConversationThread({
       {/* ── Compose ────────────────────────────────────────── */}
       <div className="border-t border-aurea-border px-4 py-4 lg:px-6">
         <div className="mx-auto w-full max-w-[720px] space-y-3">
+          {/* Draft suppressed — the lead needs a human, or the thread is closed.
+              We show the reason (and recovery guidance) instead of a draft. */}
+          {draftBlock && (
+            <div
+              className={`flex items-start gap-2 rounded-lg border p-2.5 text-sm ${
+                draftBlock.kind === 'escalation'
+                  ? 'border-aurea-rose/30 bg-aurea-rose/10'
+                  : 'border-aurea-border bg-aurea-surface-2'
+              }`}
+            >
+              <AlertTriangle
+                className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${draftBlock.kind === 'escalation' ? 'text-aurea-rose' : 'text-aurea-ink-3'}`}
+                strokeWidth={1.75}
+              />
+              <div className="min-w-0 flex-1">
+                <span className={`text-xs font-medium ${draftBlock.kind === 'escalation' ? 'text-aurea-rose' : 'text-aurea-ink-2'}`}>
+                  {draftBlock.kind === 'escalation' ? 'AI draft held — needs a human' : 'No draft generated'}
+                </span>
+                <p className="mt-0.5 text-xs text-aurea-ink-2">{draftBlock.reason}</p>
+                {draftBlock.guidance && (
+                  <p className="mt-1 text-xs text-aurea-ink-3">
+                    <span className="font-medium text-aurea-ink-2">Suggested next step: </span>
+                    {draftBlock.guidance}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDraftBlock(null)}
+                  className="mt-1.5 text-xs font-medium text-aurea-ink-3 underline underline-offset-2 hover:text-aurea-ink"
+                >
+                  Write manually
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Agent notes (staff-visible reasoning from the AI) */}
           {agentNotes && (
             <div className="flex items-start gap-2 rounded-lg border border-aurea-amber/30 bg-aurea-amber/10 p-2.5 text-sm">
@@ -830,6 +887,29 @@ export function ConversationThread({
 // from already-persisted rows (patient_profiles + lead), so it costs nothing to
 // render and refreshes whenever a new analysis is run.
 
+// The analyst writes next_best_action as prose with an embedded enumeration —
+// "... must: (1) apologize; (2) send a working link; (3) offer a time." Pull that
+// apart into discrete steps so a rep can scan it, not read it. Falls back to
+// plain prose (empty steps) when there's no clear (1)(2)… sequence.
+function parseActionSteps(text: string): { intro: string; steps: string[] } {
+  const cuts: Array<{ start: number; end: number }> = []
+  let expected = 1
+  for (const m of text.matchAll(/\(?(\d{1,2})\)\s+/g)) {
+    if (Number(m[1]) === expected && m.index != null) {
+      cuts.push({ start: m.index, end: m.index + m[0].length })
+      expected++
+    }
+  }
+  if (cuts.length < 2) return { intro: text.trim(), steps: [] }
+  const intro = text.slice(0, cuts[0].start).trim().replace(/[:;,—–-]\s*$/, '')
+  const steps = cuts.map((c, i) => {
+    const seg = text.slice(c.end, i + 1 < cuts.length ? cuts[i + 1].start : undefined).trim()
+    // Drop the connective tail a list item often ends on (";", "; and", ".").
+    return seg.replace(/[;.]\s*(?:and\b)?\s*$/i, '').trim()
+  })
+  return { intro, steps }
+}
+
 function LeadSummary({ lead, profile, timeZone }: { lead: Lead; profile: PatientProfile | null; timeZone: string }) {
   const qualification = lead.ai_qualification || 'unscored'
   const narrative = profile?.ai_summary || lead.ai_summary || null
@@ -861,73 +941,101 @@ function LeadSummary({ lead, profile, timeZone }: { lead: Lead; profile: Patient
     >
       {/* Vitals: funnel stage · engagement · quality — the fast "who is this" read */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="border-l border-aurea-border-strong/60 pl-3">
-          <div className="text-[10px] uppercase tracking-[0.1em] text-aurea-ink-3">Stage</div>
-          <div className="mt-0.5 flex items-center gap-1.5">
+        <div className="border-l-2 border-aurea-border-strong/60 pl-3">
+          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-aurea-ink-3">Stage</div>
+          <div className="mt-1 flex items-center gap-1.5">
             {stageColor && (
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stageColor }} />
             )}
-            <span className="truncate text-[13px] font-medium capitalize text-aurea-ink" title={stageName}>
+            <span className="truncate text-[14px] font-medium capitalize text-aurea-ink" title={stageName}>
               {stageName}
             </span>
           </div>
         </div>
-        <div className="border-l border-aurea-border-strong/60 pl-3">
-          <div className="text-[10px] uppercase tracking-[0.1em] text-aurea-ink-3">Engagement</div>
-          <div className="mt-0.5 flex items-baseline gap-0.5">
-            <span className="aurea-display text-[15px] tabular-nums text-aurea-ink">{engagement}</span>
-            <span className="text-[10px] text-aurea-ink-3">/100</span>
+        <div className="border-l-2 border-aurea-border-strong/60 pl-3">
+          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-aurea-ink-3">Engagement</div>
+          <div className="mt-1 flex items-baseline gap-0.5">
+            <span className="aurea-display text-[18px] tabular-nums text-aurea-ink">{engagement}</span>
+            <span className="text-[11px] text-aurea-ink-3">/100</span>
           </div>
         </div>
-        <div className="border-l border-aurea-border-strong/60 pl-3">
-          <div className="text-[10px] uppercase tracking-[0.1em] text-aurea-ink-3">Quality</div>
-          <div className="mt-0.5 truncate text-[13px] font-medium capitalize text-aurea-ink" title={qualification}>
+        <div className="border-l-2 border-aurea-border-strong/60 pl-3">
+          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-aurea-ink-3">Quality</div>
+          <div className="mt-1 truncate text-[14px] font-medium capitalize text-aurea-ink" title={qualification}>
             {qualification}
           </div>
         </div>
       </div>
 
-      {narrative ? (
-        <p className="text-[12.5px] leading-relaxed text-aurea-ink-2">{narrative}</p>
-      ) : (
-        <p className="text-[12px] italic leading-relaxed text-aurea-ink-3">
-          No summary yet — run Analyze to build a picture of where this lead stands.
-        </p>
-      )}
-
-      {/* Current emotional read — a fast at-a-glance state */}
+      {/* Current emotional read — a fast at-a-glance state, grouped with the vitals */}
       {profile && (profile.emotional_state || profile.personality_type) && (
-        <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
+        <div className="flex flex-wrap items-center gap-2 text-[13px]">
           {profile.emotional_state && (
             <span className="text-aurea-ink-3">
-              Feeling <span className="font-medium capitalize text-aurea-ink">{profile.emotional_state}</span>
+              Feeling{' '}
+              <span
+                className={`font-semibold text-aurea-ink ${profile.emotional_state.trim().split(/\s+/).length <= 2 ? 'capitalize' : 'first-letter:uppercase'}`}
+              >
+                {profile.emotional_state}
+              </span>
             </span>
           )}
           {profile.personality_type && (
-            <span className="inline-flex rounded border border-aurea-border bg-aurea-surface-2 px-1.5 py-0.5 font-medium capitalize text-aurea-ink-2">
+            <span className="inline-flex rounded-md border border-aurea-border bg-aurea-surface-2 px-2 py-0.5 text-[12px] font-medium capitalize text-aurea-ink-2">
               {profile.personality_type}
             </span>
           )}
         </div>
       )}
 
-      {/* Next best action — the whole point of "where things stand" */}
-      {profile?.next_best_action && (
-        <div className="rounded-lg border border-aurea-primary/20 bg-aurea-primary/10 px-3 py-2.5">
-          <div className="aurea-eyebrow mb-0.5 flex items-center gap-1.5 !text-aurea-primary">
-            <Zap className="h-3 w-3" strokeWidth={1.75} /> Pick Up From Here
-          </div>
-          <p className="text-[12.5px] leading-relaxed text-aurea-ink-2">{profile.next_best_action}</p>
-          {profile.recommended_tone && (
-            <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-aurea-primary">
-              <TrendingUp className="h-3 w-3" strokeWidth={1.75} /> Tone: {profile.recommended_tone}
-            </div>
-          )}
-        </div>
+      {/* The narrative — larger and airier so it reads, not squints */}
+      {narrative ? (
+        <p className="text-[14px] leading-[1.7] text-aurea-ink-2">{narrative}</p>
+      ) : (
+        <p className="text-[13px] italic leading-relaxed text-aurea-ink-3">
+          No summary yet — run Analyze to build a picture of where this lead stands.
+        </p>
       )}
 
+      {/* Next best action — the whole point of "where things stand".
+          Turn the AI's "(1)…(2)…" prose into a scannable checklist. */}
+      {profile?.next_best_action && (() => {
+        const { intro, steps } = parseActionSteps(profile.next_best_action)
+        return (
+          <div className="rounded-lg border border-aurea-primary/25 bg-aurea-primary/10 px-3.5 py-3">
+            <div className="aurea-eyebrow mb-2 flex items-center gap-1.5 !text-[11px] !text-aurea-primary">
+              <Zap className="h-3.5 w-3.5" strokeWidth={2} /> Pick Up From Here
+            </div>
+            {steps.length > 0 ? (
+              <>
+                {intro && (
+                  <p className="mb-2.5 text-[14px] font-medium leading-[1.6] text-aurea-ink">{intro}</p>
+                )}
+                <ol className="space-y-2">
+                  {steps.map((s, i) => (
+                    <li key={i} className="flex gap-2.5 text-[14px] leading-[1.55] text-aurea-ink-2">
+                      <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-aurea-primary/20 text-[11px] font-semibold tabular-nums text-aurea-primary">
+                        {i + 1}
+                      </span>
+                      <span>{s}</span>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            ) : (
+              <p className="text-[14px] leading-[1.65] text-aurea-ink-2">{profile.next_best_action}</p>
+            )}
+            {profile.recommended_tone && (
+              <div className="mt-3 flex items-center gap-1.5 border-t border-aurea-primary/15 pt-2.5 text-[12.5px] font-medium text-aurea-primary">
+                <TrendingUp className="h-3.5 w-3.5" strokeWidth={1.75} /> Tone: {profile.recommended_tone}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       {profile?.last_analyzed_at && (
-        <p className="text-[10.5px] text-aurea-ink-3">
+        <p className="text-[11px] text-aurea-ink-3">
           Updated {zonedDateTimeLabel(new Date(profile.last_analyzed_at), timeZone)}
         </p>
       )}

@@ -463,10 +463,39 @@ export type Campaign = {
   total_unsubscribed: number
   /** Re-permission override: may email consent-unknown leads. Never overrides opt-out/declined. Email only. */
   allow_unconsented_email: boolean
+  ai_enabled: boolean
+  autopilot_mode: 'review_first' | 'auto' | 'off'
+  send_mode: 'suppressed' | 'live'
+  playbook: CampaignPlaybook
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
   steps?: CampaignStep[]
+}
+
+export type CampaignPlaybook = {
+  goal?: string
+  tone?: string
+  hooks?: string[]
+  offer?: string
+  guardrails?: string[]
+  donts?: string[]
+  objection_notes?: string
+}
+
+export type CampaignReviewDraft = {
+  id: string
+  organization_id: string
+  campaign_id: string
+  lead_id: string
+  conversation_id: string | null
+  channel: 'sms' | 'email'
+  subject: string | null
+  body: string
+  status: 'pending' | 'approved' | 'rejected'
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
 }
 
 export type CampaignStep = {
@@ -1239,6 +1268,14 @@ export type VoiceCall = {
   transfer_bridged_at: string | null
   /** Seconds the AI held/qualified the live person before a rep picked up (or gave up). */
   hold_seconds: number
+
+  // AI training (admin "use for training" action; null = never submitted)
+  training_status: 'processing' | 'added' | 'failed' | null
+  training_added_by: string | null
+  training_added_at: string | null
+  /** The ai_memories / ai_knowledge_articles rows this call produced. */
+  training_item_ids: Array<{ type: 'memory' | 'article'; id: string; title: string }>
+  training_error: string | null
 
   metadata: Record<string, unknown>
   created_at: string

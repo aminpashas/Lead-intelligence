@@ -113,6 +113,17 @@ export async function POST(request: NextRequest) {
       } else {
       const result = { sid: sendRes.sid }
 
+      // "Reply YES to confirm" — mark that a YES from this lead now means
+      // "confirm this appointment", so the webhook doesn't misroute it.
+      const { setPendingReplyIntent } = await import('@/lib/messaging/pending-intent')
+      await setPendingReplyIntent(supabase, {
+        organizationId: orgId,
+        leadId: lead.id,
+        intent: 'appointment_confirm',
+        refType: 'appointment',
+        refId: appointment_id,
+      })
+
       await supabase.from('appointment_reminders').insert({
         organization_id: orgId,
         appointment_id,

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { enrichLead } from '@/lib/enrichment'
+import {
+  budgetConfigOverride,
+  getMonthlyEnrichmentCounts,
+  overBudgetTypes,
+  resolveMonthlyBudgets,
+} from '@/lib/enrichment/budgets'
 
 const MAX_LEADS_PER_RUN = 50
 const MAX_LEADS_PER_ORG = 10
@@ -26,6 +32,8 @@ export async function POST(request: NextRequest) {
   let totalEnriched = 0
   let totalFailed = 0
   const errors: string[] = []
+  const budgets = resolveMonthlyBudgets()
+  const budgetSkips: Record<string, string[]> = {}
 
   for (const org of orgs) {
     if (totalEnriched >= MAX_LEADS_PER_RUN) break
@@ -42,9 +50,22 @@ export async function POST(request: NextRequest) {
 
     if (!leads || leads.length === 0) continue
 
+    // Per-provider monthly budgets: disable any provider that already created
+    // its budgeted number of rows for this org this calendar month.
+    const counts = await getMonthlyEnrichmentCounts(supabase, org.id)
+    const exceeded = overBudgetTypes(counts, budgets)
+    const configOverride = budgetConfigOverride(exceeded)
+    if (exceeded.length > 0) {
+      budgetSkips[org.id] = exceeded
+      console.warn(
+        `[cron/enrich] org ${org.id}: monthly budget reached for ${exceeded.join(', ')} — skipping those providers`,
+        { counts, budgets }
+      )
+    }
+
     for (const lead of leads) {
       try {
-        await enrichLead(supabase, lead)
+        await enrichLead(supabase, lead, configOverride)
         totalEnriched++
       } catch (err) {
         totalFailed++
@@ -63,6 +84,7 @@ export async function POST(request: NextRequest) {
     enriched: totalEnriched,
     failed: totalFailed,
     errors: errors.slice(0, 10),
+    budget_skips: budgetSkips,
   })
 }
 

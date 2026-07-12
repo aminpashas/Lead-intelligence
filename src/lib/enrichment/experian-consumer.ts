@@ -15,6 +15,18 @@
  * - EXPERIAN_USERNAME: Experian account username
  * - EXPERIAN_PASSWORD: Experian account password
  * - EXPERIAN_SUBCODE: Account subcode (optional, for multi-location)
+ *
+ * FCRA RESTRICTION: ConsumerView is a marketing database, exempt from the
+ * Fair Credit Reporting Act ONLY as long as its output is used for marketing
+ * purposes (audience selection, personalization, lead prioritization). The
+ * moment this data influences an ELIGIBILITY determination — whether a
+ * consumer is offered, approved for, or priced credit/financing/insurance —
+ * it becomes a consumer report and both we and Experian would be in
+ * violation. Therefore nothing exported from this module, and nothing stored
+ * under enrichment_attributes `experian.*` keys, may ever be imported by or
+ * flow into financing/credit eligibility logic (financial-qualifier,
+ * lender pre-qual decisioning). Enforced by
+ * src/lib/enrichment/__tests__/fcra-guardrail.test.ts.
  */
 
 import { withRetry } from '@/lib/retry'
@@ -22,6 +34,18 @@ import { withRetry } from '@/lib/retry'
 const EXPERIAN_AUTH_URL = 'https://us-api.experian.com/oauth2/v1/token'
 const EXPERIAN_CONSUMERVIEW_URL = 'https://us-api.experian.com/consumerview/v1/enrich'
 const RETRY_CONFIG = { maxAttempts: 2, baseDelayMs: 2000, maxDelayMs: 10_000 }
+
+/**
+ * FCRA usage tag for everything this module returns.
+ *
+ * Experian ConsumerView is licensed as FCRA-EXEMPT marketing data: it may be
+ * used for marketing segmentation, lead scoring/prioritization, and
+ * personalization, but it is NOT a consumer report and MUST NOT be used to
+ * determine a consumer's eligibility for credit, financing, insurance, or
+ * employment (15 U.S.C. § 1681a(d)). Downstream consumers can (and the FCRA
+ * guardrail test does) check this tag to confirm the data classification.
+ */
+export const EXPERIAN_DATA_USAGE = 'marketing' as const
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -58,6 +82,11 @@ export type ExperianConsumerResult = {
   // Meta
   match_confidence: number  // 0-1, how well the input matched
   data_freshness: string | null
+
+  // Full raw payload, namespaced for enrichment_attributes storage.
+  // Every scalar variable Experian returned, keyed `experian.<snake_case>`.
+  // Marketing data only (see EXPERIAN_DATA_USAGE / module header).
+  attributes: Record<string, string>
 }
 
 // ── Authentication ─────────────────────────────────────────
@@ -138,7 +167,17 @@ export async function enrichWithExperian(input: {
     return buildFallbackResult()
   }
 
-  return withRetry(async () => {
+  // Short-lived memo: within one enrichLead run both the experian_consumer
+  // provider and the credit_prequal path (which pre-dates it) call this
+  // function with the same identity — bill Experian once, not twice.
+  const memoKey = JSON.stringify([
+    input.first_name, input.last_name, input.address, input.city,
+    input.state, input.zip_code, input.email, input.phone, input.date_of_birth,
+  ])
+  const cached = memoCache.get(memoKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.promise
+
+  const promise = withRetry(async () => {
     const token = await getExperianToken()
     const subcode = process.env.EXPERIAN_SUBCODE || ''
 
@@ -184,6 +223,61 @@ export async function enrichWithExperian(input: {
     const data = await response.json()
     return mapExperianResponse(data)
   }, RETRY_CONFIG)
+
+  memoCache.set(memoKey, { promise, expiresAt: Date.now() + MEMO_TTL_MS })
+  if (memoCache.size > MEMO_MAX_ENTRIES) {
+    const oldest = memoCache.keys().next().value
+    if (oldest !== undefined) memoCache.delete(oldest)
+  }
+  // Failed lookups shouldn't poison the memo — retry next call.
+  promise.catch(() => memoCache.delete(memoKey))
+  return promise
+}
+
+const MEMO_TTL_MS = 5 * 60 * 1000
+const MEMO_MAX_ENTRIES = 200
+const memoCache = new Map<string, { promise: Promise<ExperianConsumerResult>; expiresAt: number }>()
+
+// ── Raw Attribute Extraction ───────────────────────────────
+
+/** Convert camelCase / SCREAMING_SNAKE / kebab-case keys to snake_case. */
+function toSnakeCase(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[-\s]+/g, '_')
+    .replace(/_+/g, '_')
+    .toLowerCase()
+}
+
+/**
+ * Namespace the FULL Experian vars payload for enrichment_attributes storage.
+ * Iterates every returned variable: scalars are stringified, nulls/undefined
+ * and empty strings are skipped, nested objects/arrays are skipped (the typed
+ * parser handles the structured ones we care about).
+ *
+ * e.g. { mosaicGroup: 'A01', HOUSEHOLD_INCOME_CODE: 'G', foo: null }
+ *   →  { 'experian.mosaic_group': 'A01', 'experian.household_income_code': 'G' }
+ */
+export function experianAttributesFromVars(
+  vars: Record<string, unknown>
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  const walk = (obj: Record<string, unknown>, depth: number) => {
+    for (const [key, value] of Object.entries(obj)) {
+      if (value === null || value === undefined) continue
+      if (Array.isArray(value)) continue
+      if (typeof value === 'object') {
+        // Variable-group nesting (e.g. { INCOME: {...} }): flatten one level.
+        if (depth < 2) walk(value as Record<string, unknown>, depth + 1)
+        continue
+      }
+      const str = String(value)
+      if (str.trim() === '') continue
+      out[`experian.${toSnakeCase(key)}`] = str
+    }
+  }
+  walk(vars, 0)
+  return out
 }
 
 // ── Response Mapping ───────────────────────────────────────
@@ -258,6 +352,7 @@ function mapExperianResponse(data: Record<string, unknown>): ExperianConsumerRes
     investment_active: investmentActive === 'Y' || investmentActive === true || null,
     match_confidence: matchConfidence as number,
     data_freshness: (vars.dataDate || vars.DATA_DATE) as string | null,
+    attributes: experianAttributesFromVars(vars),
   }
 }
 
@@ -383,6 +478,7 @@ function buildFallbackResult(): ExperianConsumerResult {
     investment_active: null,
     match_confidence: 0,
     data_freshness: null,
+    attributes: {},
   }
 }
 
@@ -390,4 +486,36 @@ export function experianConfidence(result: ExperianConsumerResult): number {
   if (result.match_confidence <= 0) return 0
   if (result.credit_tier === 'unknown' && !result.estimated_income_range) return 0.2
   return result.match_confidence
+}
+
+// ── Typed Lead Columns (marketing data) ────────────────────
+
+/**
+ * Derive the typed marketing-data columns on `leads` from an Experian result.
+ * Only non-null values are returned so callers can spread into an update
+ * without clobbering existing values.
+ */
+export function experianLeadColumns(result: ExperianConsumerResult): {
+  household_income_band?: string
+  homeowner_status?: string
+  home_value_band?: string
+  mosaic_segment?: string
+} {
+  const cols: Record<string, string> = {}
+
+  if (result.estimated_income_range) {
+    cols.household_income_band =
+      `${result.estimated_income_range.min}-${result.estimated_income_range.max}`
+  }
+  if (result.homeowner === true) cols.homeowner_status = 'homeowner'
+  else if (result.homeowner === false) cols.homeowner_status = 'renter'
+
+  if (result.home_value_range) {
+    cols.home_value_band =
+      `${result.home_value_range.min}-${result.home_value_range.max}`
+  }
+  if (result.mosaic_group) cols.mosaic_segment = result.mosaic_group
+  else if (result.mosaic_type) cols.mosaic_segment = result.mosaic_type
+
+  return cols
 }

@@ -91,10 +91,15 @@ export async function GET(
     return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
   }
 
+  // FCRA guardrail: exclude credit_prequal rows. Their payload contains
+  // financing-eligibility-shaped artifacts (pre_qualified flags, recommended
+  // lender, credit tier); surfacing them here would let estimated-credit data
+  // leak into eligibility decisions. See fcra-guardrail.test.ts.
   const { data: enrichments, error } = await supabase
     .from('lead_enrichment')
     .select('*')
     .eq('lead_id', id)
+    .neq('enrichment_type', 'credit_prequal')
     .order('enriched_at', { ascending: false })
 
   if (error) {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,14 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet'
+import type { CallMetric } from '@/lib/voice/call-metrics'
+import {
   Phone, PhoneCall, PhoneOff, PhoneMissed,
   Radio, Loader2, Play, Pause, Plus,
   Clock, Calendar, TrendingUp,
@@ -31,6 +39,7 @@ import { toast } from 'sonner'
 import type { Lead } from '@/types/database'
 import { LeadActions } from '@/components/crm/lead-actions'
 import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
+import { recordingPlaybackUrl } from '@/lib/voice/recording-playback'
 import { toTranscriptLines } from '@/lib/voice/transcript'
 
 // ═══════════════════════════════════════════════════════════════
@@ -145,7 +154,7 @@ function prettifyOutcome(outcome: string): string {
  * config, unknown strings are prettified (never a silent blank), and a
  * completed call with no outcome yet reads "Needs Review".
  */
-function resolveOutcomeBadge(call: VoiceCallRow): { label: string; color: string; icon: LucideIcon } | null {
+function resolveOutcomeBadge(call: { outcome: string | null; status: string }): { label: string; color: string; icon: LucideIcon } | null {
   if (call.outcome) {
     return (
       outcomeConfig[call.outcome] ?? {
@@ -243,6 +252,7 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
           label="Today's Calls"
           value={stats.todayCalls}
           icon={Phone}
+          metric="today"
         />
         <StatCard
           index="/02"
@@ -251,6 +261,7 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
           icon={PhoneCall}
           subtext={stats.todayCalls > 0 ? `${Math.round(stats.todayConnected / stats.todayCalls * 100)}% connect rate` : undefined}
           accent
+          metric="connected"
         />
         <StatCard
           index="/03"
@@ -258,6 +269,7 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
           value={stats.todayAppointments}
           icon={Calendar}
           accent
+          metric="appointments"
         />
         <StatCard
           index="/04"
@@ -266,6 +278,7 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
           icon={Radio}
           pulse={stats.activeCalls > 0}
           accent={stats.activeCalls > 0}
+          metric="active"
         />
       </div>
 
@@ -629,7 +642,7 @@ function CallRow({
               <p className="aurea-eyebrow mb-2 flex items-center gap-1">
                 <Mic className="h-3 w-3" strokeWidth={1.75} /> Recording
               </p>
-              <CallRecordingPlayer url={call.recording_url} />
+              <CallRecordingPlayer url={recordingPlaybackUrl(call.id, call.recording_url)!} />
             </div>
           )}
         </div>
@@ -694,6 +707,7 @@ function StatCard({
   subtext,
   pulse,
   accent,
+  metric,
 }: {
   index: string
   label: string
@@ -702,9 +716,12 @@ function StatCard({
   subtext?: string
   pulse?: boolean
   accent?: boolean
+  metric?: CallMetric
 }) {
-  return (
-    <div className="aurea-card p-5">
+  const [open, setOpen] = useState(false)
+
+  const inner = (
+    <>
       <div className="flex items-center justify-between mb-4">
         <p className="aurea-eyebrow">{label}</p>
         <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">{index}</span>
@@ -714,8 +731,173 @@ function StatCard({
         {value}
       </p>
       {subtext && <p className="mt-2 text-[11.5px] text-aurea-ink-3 font-mono tabular-nums">{subtext}</p>}
+    </>
+  )
+
+  // No drill-down when the card can't map to a list, or the count is zero.
+  if (!metric || value === 0) {
+    return <div className="aurea-card p-5">{inner}</div>
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={`View ${label.toLowerCase()}`}
+        className="aurea-card group relative w-full p-5 text-left transition-colors cursor-pointer hover:bg-aurea-surface-2/50 hover:border-aurea-ink/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurea-primary/30"
+      >
+        {inner}
+        <span className="absolute bottom-4 right-4 inline-flex items-center gap-1 text-[11px] font-medium text-aurea-ink-3 opacity-0 transition-opacity group-hover:opacity-100">
+          View <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
+        </span>
+      </button>
+      <Sheet open={open} onOpenChange={setOpen}>
+        <CallMetricSheet metric={metric} label={label} open={open} />
+      </Sheet>
+    </>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STAT-CARD DRILL-DOWN — slide-over "smart list" of the calls behind
+// a stat card, each row linking through to the lead.
+// ═══════════════════════════════════════════════════════════════
+
+type DrillCall = {
+  id: string
+  direction: 'inbound' | 'outbound'
+  status: string
+  from_number: string
+  to_number: string
+  duration_seconds: number
+  outcome: string | null
+  agent_type: string | null
+  created_at: string
+  lead: Lead | null
+}
+
+function CallMetricSheet({ metric, label, open }: { metric: CallMetric; label: string; open: boolean }) {
+  const [calls, setCalls] = useState<DrillCall[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch(`/api/voice/calls/list?metric=${metric}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('Could not load this list'))))
+      .then((d) => { if (!cancelled) setCalls(d.calls as DrillCall[]) })
+      .catch((e) => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [open, metric])
+
+  const count = calls?.length ?? 0
+
+  return (
+    <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+      <SheetHeader className="border-b border-aurea-border p-4">
+        <SheetTitle className="text-aurea-ink">{label}</SheetTitle>
+        <SheetDescription className="text-aurea-ink-3">
+          {loading
+            ? 'Loading calls…'
+            : calls
+              ? `${count} ${count === 1 ? 'call' : 'calls'} — tap any to open the lead`
+              : 'Calls behind this number'}
+        </SheetDescription>
+      </SheetHeader>
+
+      <div className="flex-1 overflow-y-auto">
+        {loading && (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-5 w-5 animate-spin text-aurea-ink-3" strokeWidth={1.75} />
+          </div>
+        )}
+
+        {error && !loading && (
+          <div className="flex flex-col items-center gap-1 py-16 text-center">
+            <AlertCircle className="h-6 w-6 text-aurea-rose" strokeWidth={1.5} />
+            <p className="text-sm text-aurea-ink">{error}</p>
+          </div>
+        )}
+
+        {calls && !loading && calls.length === 0 && (
+          <div className="flex flex-col items-center gap-1 py-16 text-center">
+            <Phone className="h-6 w-6 text-aurea-ink-3" strokeWidth={1.5} />
+            <p className="text-sm text-aurea-ink-3">No calls to show</p>
+          </div>
+        )}
+
+        {calls && !loading && calls.length > 0 && (
+          <div className="divide-y divide-aurea-border">
+            {calls.map((call) => (
+              <DrillCallRow key={call.id} call={call} />
+            ))}
+          </div>
+        )}
+      </div>
+    </SheetContent>
+  )
+}
+
+function DrillCallRow({ call }: { call: DrillCall }) {
+  const statusCfg = callStatusConfig[call.status] || callStatusConfig.completed
+  const StatusIcon = statusCfg.icon
+  const outcomeCfg = resolveOutcomeBadge(call)
+  const live = call.status === 'in_progress'
+  const name = call.lead
+    ? `${call.lead.first_name} ${call.lead.last_name || ''}`.trim()
+    : call.direction === 'inbound' ? maskPhone(call.from_number) : maskPhone(call.to_number)
+
+  const body = (
+    <div className="flex items-center justify-between gap-3 px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${live ? 'bg-aurea-primary/10' : 'bg-aurea-surface-2'}`}>
+          {live
+            ? <Radio className="h-4 w-4 animate-pulse text-aurea-primary" strokeWidth={1.75} />
+            : call.direction === 'inbound'
+              ? <PhoneCall className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+              : <Phone className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />}
+        </div>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="truncate text-sm font-medium text-aurea-ink">{name || 'Unknown'}</p>
+            <Badge className={statusCfg.color + ' text-[10px] px-1.5 py-0'}>
+              <StatusIcon className="mr-0.5 h-2.5 w-2.5" />
+              {statusCfg.label}
+            </Badge>
+            {outcomeCfg && (
+              <Badge className={outcomeCfg.color + ' inline-flex items-center gap-1 text-[10px] px-1.5 py-0'}>
+                <outcomeCfg.icon className="h-2.5 w-2.5" />
+                {outcomeCfg.label}
+              </Badge>
+            )}
+          </div>
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-aurea-ink-3">
+            <span>{call.direction === 'inbound' ? '← Inbound' : '→ Outbound'}</span>
+            <span>·</span>
+            <span className="font-mono tabular-nums">{formatDuration(call.duration_seconds)}</span>
+            <span>·</span>
+            <span>{formatDate(call.created_at)}</span>
+          </div>
+        </div>
+      </div>
+      {call.lead && <ArrowRight className="h-4 w-4 shrink-0 text-aurea-ink-3" strokeWidth={1.75} />}
     </div>
   )
+
+  if (call.lead) {
+    return (
+      <a href={`/leads/${call.lead.id}`} className="block transition-colors hover:bg-aurea-surface-2">
+        {body}
+      </a>
+    )
+  }
+  // No linked lead — this number isn't in the CRM, so there's nowhere to go.
+  return <div className="cursor-default opacity-80">{body}</div>
 }
 
 // ═══════════════════════════════════════════════════════════════

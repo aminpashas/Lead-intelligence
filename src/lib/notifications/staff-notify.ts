@@ -12,8 +12,9 @@
  * 'message.received' in its subscribed events (explicit opt-in).
  *
  * Recipient chain (assignee-first): leads.assigned_to when active → active
- * users in the org's default role pool → org admins (cap 5) as the final
- * fallback — all via resolveAssignee (src/lib/automation/tasks.ts).
+ * users holding a requested role (when the caller passes one) → org admins
+ * (cap 5) as the final fallback — all via resolveAssignee
+ * (src/lib/automation/tasks.ts).
  *
  * Noise controls:
  *   - PRESENCE SUPPRESSION: recipients actively viewing the conversation
@@ -85,7 +86,8 @@ export type NotifyInboundMessageInput = {
   taskId?: string
   /**
    * Restrict which channels fire. Default: all of slack/push/sms.
-   * escalation.ts passes ['slack','push'] and keeps its own SMS/email copy.
+   * (escalation.ts keeps its own bespoke copy and calls sendPushToUser /
+   * logStaffNotification directly rather than routing through here.)
    */
   channels?: NotifyChannel[]
 }
@@ -123,17 +125,18 @@ function clampPreview(text: string): string {
 /**
  * Resolve who should be pinged about a lead's conversation, assignee-first:
  *   1. leads.assigned_to (when still an active user in the org)
- *   2. the org's default role pool
+ *   2. active users holding `assignedRole`, when a role is requested
  *   3. org admins (cap 5)
  * Returns full profile rows (name/phone/email/prefs) for the chosen users.
  */
 export async function resolveStaffRecipients(
   supabase: SupabaseClient,
   organizationId: string,
-  leadId?: string | null
+  leadId?: string | null,
+  assignedRole?: string | null
 ): Promise<StaffRecipient[]> {
   try {
-    const resolved = await resolveAssignee(supabase, organizationId, leadId)
+    const resolved = await resolveAssignee(supabase, organizationId, leadId, assignedRole)
     const ids = (resolved.userId ? [resolved.userId] : resolved.pool).slice(0, 5)
     if (ids.length === 0) return []
 

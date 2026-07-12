@@ -18,6 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import * as React from 'react'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
+import { setPendingReplyIntent } from '@/lib/messaging/pending-intent'
 import { sendEmail } from '@/lib/messaging/resend'
 import { initiateConfirmationCall } from './confirmation-call'
 import {
@@ -35,6 +36,7 @@ import { renderVisitLogistics } from '@/lib/branding/visit-logistics'
 import { BookingReminder } from '@/emails/BookingReminder'
 import { logger } from '@/lib/logger'
 import { decryptLeadPII } from '@/lib/encryption'
+import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -112,20 +114,25 @@ export async function sendAppointmentReminders(
   const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
   const brandLogistics = branding.logistics
 
+  // Resolve the practice timezone ONCE so every reminder tier renders the
+  // appointment time in the patient's local zone rather than the server's
+  // (UTC on Vercel). Without this an 11 AM Pacific consult goes out as "6 PM".
+  const timeZone = await resolvePracticeTimeZone(supabase, orgId)
+
   // ─── 72-HOUR REMINDERS (Email) ──────────────────────────────
-  const r72h = await send72hReminders(supabase, orgId, practiceName, now, brandLogistics)
+  const r72h = await send72hReminders(supabase, orgId, practiceName, now, brandLogistics, timeZone)
   results.push(...r72h)
 
   // ─── 24-HOUR REMINDERS (SMS + Email) ────────────────────────
-  const r24h = await send24hReminders(supabase, orgId, practiceName, now, brandLogistics)
+  const r24h = await send24hReminders(supabase, orgId, practiceName, now, brandLogistics, timeZone)
   results.push(...r24h)
 
   // ─── 2-HOUR CONFIRMATION CALLS (Voice) ──────────────────────
-  const r2h = await send2hConfirmationCalls(supabase, orgId, practiceName, now)
+  const r2h = await send2hConfirmationCalls(supabase, orgId, practiceName, now, timeZone)
   results.push(...r2h)
 
   // ─── 1-HOUR FINAL NUDGE (SMS) ──────────────────────────────
-  const r1h = await send1hReminders(supabase, orgId, practiceName, now)
+  const r1h = await send1hReminders(supabase, orgId, practiceName, now, timeZone)
   results.push(...r1h)
 
   return results
@@ -140,7 +147,8 @@ async function send72hReminders(
   orgId: string,
   practiceName: string,
   now: Date,
-  brandLogistics: BrandLogistics
+  brandLogistics: BrandLogistics,
+  timeZone: string
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
   const logistics = renderVisitLogistics({ logistics: brandLogistics })
@@ -166,7 +174,7 @@ async function send72hReminders(
       continue
     }
 
-    const dateTime = formatAppointmentDateTime(apt.scheduled_at)
+    const dateTime = formatAppointmentDateTime(apt.scheduled_at, timeZone)
     const confirmUrl = getConfirmationUrl(apt.id, orgId)
     const rescheduleUrl = getRescheduleUrl(apt.id, orgId)
 
@@ -237,7 +245,8 @@ async function send24hReminders(
   orgId: string,
   practiceName: string,
   now: Date,
-  brandLogistics: BrandLogistics
+  brandLogistics: BrandLogistics,
+  timeZone: string
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
 
@@ -259,7 +268,7 @@ async function send24hReminders(
     const lead = apt.lead ? decryptLeadPII(apt.lead) : apt.lead
     if (!lead) continue
 
-    const dateTime = formatAppointmentDateTime(apt.scheduled_at)
+    const dateTime = formatAppointmentDateTime(apt.scheduled_at, timeZone)
     const confirmUrl = getConfirmationUrl(apt.id, orgId)
     const rescheduleUrl = getRescheduleUrl(apt.id, orgId)
 
@@ -276,6 +285,17 @@ async function send24hReminders(
         const sendRes = await sendSMSToLead({ supabase, leadId: lead.id, to: lead.phone, body: smsBody, caller: 'reminders.24h' })
         if (!sendRes.sent) throw new Error(`sms_not_sent:${sendRes.reason}`)
         const result = { sid: sendRes.sid }
+
+        // The 24h reminder asks "Reply YES to confirm" — stamp the intent so the
+        // inbound webhook confirms THIS appointment on a YES, instead of a YES to
+        // some other flow (e.g. financing) being misread as a confirmation.
+        await setPendingReplyIntent(supabase, {
+          organizationId: orgId,
+          leadId: lead.id,
+          intent: 'appointment_confirm',
+          refType: 'appointment',
+          refId: apt.id,
+        })
 
         await supabase.from('appointment_reminders').insert({
           organization_id: orgId,
@@ -381,7 +401,8 @@ async function send2hConfirmationCalls(
   supabase: SupabaseClient,
   orgId: string,
   practiceName: string,
-  now: Date
+  now: Date,
+  timeZone: string
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
 
@@ -410,7 +431,7 @@ async function send2hConfirmationCalls(
       continue
     }
 
-    const dateTime = formatAppointmentDateTime(apt.scheduled_at)
+    const dateTime = formatAppointmentDateTime(apt.scheduled_at, timeZone)
 
     try {
       const callResult = await initiateConfirmationCall(supabase, {
@@ -458,7 +479,8 @@ async function send1hReminders(
   supabase: SupabaseClient,
   orgId: string,
   practiceName: string,
-  now: Date
+  now: Date,
+  timeZone: string
 ): Promise<ReminderResult[]> {
   const results: ReminderResult[] = []
 
@@ -484,6 +506,7 @@ async function send1hReminders(
     }
 
     const aptTime = new Date(apt.scheduled_at).toLocaleString('en-US', {
+      timeZone,
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
@@ -599,7 +622,8 @@ export async function confirmAppointment(
     .single()
 
   const orgName = org?.name || 'our office'
-  const dateTime = formatAppointmentDateTime(apt.scheduled_at)
+  const timeZone = await resolvePracticeTimeZone(supabase, orgId)
+  const dateTime = formatAppointmentDateTime(apt.scheduled_at, timeZone)
 
   // Notify the patient on every consented channel (text + email) regardless of
   // how the confirmation arrived. Consent/opt-out/quiet-hours are enforced inside
@@ -737,9 +761,18 @@ export async function calculateNoShowRisk(
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
 
-export function formatAppointmentDateTime(isoString: string): string {
+/**
+ * Human-readable appointment date+time pinned to the practice's IANA timezone.
+ *
+ * `timeZone` is REQUIRED: without it `toLocaleString` renders in the ambient
+ * runtime zone, which is UTC on Vercel — so an 11 AM Pacific consult would go
+ * out in the email as "6:00 PM". Callers resolve the zone via
+ * `resolvePracticeTimeZone(supabase, orgId)`.
+ */
+export function formatAppointmentDateTime(isoString: string, timeZone: string): string {
   const date = new Date(isoString)
   return date.toLocaleString('en-US', {
+    timeZone,
     weekday: 'long',
     month: 'long',
     day: 'numeric',

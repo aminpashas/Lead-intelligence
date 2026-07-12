@@ -52,6 +52,12 @@ const applySchema = z.object({
    * orgs resolve to 'ai', preserving today's behavior exactly.
    */
   executor: z.enum(['ai', 'human']).optional(),
+  /**
+   * C2 feedback loop: the recommendation's stable id ('kind:stageId' or
+   * 'analyst:<slug>') so the matching persisted row can be stamped 'applied'.
+   * Optional — live-computed recs with no persisted row still apply fine.
+   */
+  dedupeKey: z.string().max(200).optional(),
 })
 
 /** Ceiling on a single auto-apply run — a guard against a mis-scoped segment
@@ -72,8 +78,16 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
-  const { segmentName, actionType, toStageSlug, criteria, autoApply, suppressAutomations, executor } =
-    parsed.data
+  const {
+    segmentName,
+    actionType,
+    toStageSlug,
+    criteria,
+    autoApply,
+    suppressAutomations,
+    executor,
+    dedupeKey,
+  } = parsed.data
 
   if (autoApply && actionType !== 'bulk_stage') {
     return NextResponse.json(
@@ -84,6 +98,41 @@ export async function POST(request: NextRequest) {
 
   const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // ── C2 feedback loop: the persisted row this apply acts on (if any). ───────
+  // Live-computed recommendations may have no row yet — tolerated everywhere.
+  let recRowId: string | null = null
+  if (dedupeKey) {
+    const { data: recRow } = await supabase
+      .from('pipeline_recommendations')
+      .select('id')
+      .eq('organization_id', orgId)
+      .eq('dedupe_key', dedupeKey)
+      .eq('status', 'open')
+      .maybeSingle()
+    recRowId = recRow?.id ?? null
+  }
+
+  /**
+   * Stamp the persisted row 'applied'. acted_by='human' means the apply was
+   * ROUTED to a person (human-task lane — the actual send happens when they
+   * work the task); 'ai' covers the legacy redirect and auto-apply paths.
+   * Best-effort: a stamping failure never blocks the apply itself.
+   */
+  const stampApplied = async (actedBy: 'human' | 'ai') => {
+    if (!recRowId) return
+    const { error } = await supabase
+      .from('pipeline_recommendations')
+      .update({
+        status: 'applied',
+        acted_by: actedBy,
+        acted_by_user: profile.id,
+        acted_at: new Date().toISOString(),
+      })
+      .eq('id', recRowId)
+      .eq('status', 'open')
+    if (error) console.warn('[recommendations/apply] status stamp failed:', error.message)
+  }
 
   // Reuse an identically-named list so applying the same recommendation twice
   // refreshes it instead of spawning duplicates.
@@ -164,6 +213,8 @@ export async function POST(request: NextRequest) {
       source: 'recommendation_apply',
       assigned_to: assignee.userId,
       assigned_role: assignee.role,
+      // C2: link the task to the persisted recommendation row (FK).
+      recommendation_id: recRowId,
       // One live task per segment: re-applying the same recommendation
       // refreshes the task (and its count) instead of duplicating it.
       dedupe_key: `recommendation:${smartListId}`,
@@ -174,12 +225,18 @@ export async function POST(request: NextRequest) {
         action_type: actionType,
         to_stage_slug: toStageSlug ?? null,
         requested_by: profile.id,
+        recommendation_dedupe_key: dedupeKey ?? null,
+        // Nuance behind acted_by='human' on the recommendation row: routing to
+        // the human lane is the "act"; the send itself happens when this task
+        // is worked, so the timestamp is routed-at, not sent-at.
+        acted_semantics: 'routed_to_human_task',
       },
     })
 
     if (!taskId) {
       return NextResponse.json({ error: 'Failed to create task' }, { status: 500 })
     }
+    await stampApplied('human')
     return NextResponse.json({
       smartListId,
       leadCount: count,
@@ -190,6 +247,7 @@ export async function POST(request: NextRequest) {
 
   // Build the review-surface deep-link.
   if (actionType === 'broadcast') {
+    await stampApplied('ai')
     return NextResponse.json({
       smartListId,
       leadCount: count,
@@ -256,6 +314,7 @@ export async function POST(request: NextRequest) {
 
     // No silent truncation: tell the caller when the segment exceeded the cap.
     const capped = moved >= AUTO_APPLY_CAP && count > moved
+    await stampApplied('ai')
     return NextResponse.json({
       smartListId,
       autoApplied: true,
@@ -270,6 +329,7 @@ export async function POST(request: NextRequest) {
   }
 
   const stageParam = stage?.id ? `&action=change_stage&stage=${stage.id}` : ''
+  await stampApplied('ai')
   return NextResponse.json({
     smartListId,
     leadCount: count,

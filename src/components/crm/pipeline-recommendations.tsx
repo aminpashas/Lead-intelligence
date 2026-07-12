@@ -52,6 +52,11 @@ const KIND_ICON: Record<RecommendationKind, typeof Flame> = {
   advance_stage: MoveRight,
 }
 
+/** Persisted rows can carry 'analyst_insight' (LLM analyst, C2) — Sparkles. */
+function kindIcon(kind: Recommendation['kind']): typeof Flame {
+  return KIND_ICON[kind as RecommendationKind] ?? Sparkles
+}
+
 /** Accent by urgency tier — high-priority recs read hotter. */
 function tier(priority: number): { ring: string; icon: string; pill: string } {
   if (priority >= 70)
@@ -87,8 +92,9 @@ export function PipelineRecommendations({
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [previews, setPreviews] = useState<Record<string, PreviewState>>({})
 
-  // Dismissals persist locally so a recommendation the user waved off doesn't
-  // reappear on every navigation. (Server-side dismissal is a future refinement.)
+  // Dismissals persist locally (instant, works for live-computed recs with no
+  // DB row yet) AND server-side (C2: the persisted row is stamped 'dismissed'
+  // so it stays gone across devices and enters the outcome control group).
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DISMISS_KEY)
@@ -104,7 +110,8 @@ export function PipelineRecommendations({
     [recommendations, dismissed]
   )
 
-  function dismiss(id: string) {
+  function dismiss(id: string, notifyServer = false) {
+    // Optimistic local removal — the card disappears immediately.
     setDismissed((prev) => {
       const next = new Set(prev).add(id)
       try {
@@ -114,6 +121,15 @@ export function PipelineRecommendations({
       }
       return next
     })
+    // Best-effort server stamp (id = dedupe_key; no open row is fine). Only on
+    // an explicit user dismissal — apply paths stamp their own status.
+    if (notifyServer) {
+      fetch(`/api/pipeline/recommendations/${encodeURIComponent(id)}/dismiss`, {
+        method: 'POST',
+      }).catch(() => {
+        /* local dismissal stands; the row ages out via expires_at */
+      })
+    }
   }
 
   // Expand/collapse a card's lead list. Leads are fetched on first expand and
@@ -171,11 +187,23 @@ export function PipelineRecommendations({
           toStageSlug: a.type === 'bulk_stage' ? a.toStageSlug : undefined,
           criteria: a.criteria,
           autoApply: autoApply && a.type === 'bulk_stage' ? true : undefined,
+          // C2: lets the server stamp the persisted row 'applied'.
+          dedupeKey: rec.id,
         }),
       })
       const data = await res.json()
       if (!res.ok) {
         throw new Error(data.error || 'Could not prepare this recommendation')
+      }
+
+      // D2 human lane: the apply was routed to the task queue — nothing to
+      // redirect to. The server stamped the row 'applied'; drop the card.
+      if (data.taskCreated) {
+        toast.success('Routed to your team’s task queue for review.')
+        dismiss(rec.id)
+        router.refresh()
+        setApplyingId(null)
+        return
       }
 
       // Auto-applied stage move: nothing to redirect to — refresh the board so
@@ -231,7 +259,7 @@ export function PipelineRecommendations({
       {!collapsed && (
         <div className="flex gap-3 overflow-x-auto px-4 pb-4">
           {visible.map((rec) => {
-            const Icon = KIND_ICON[rec.kind]
+            const Icon = kindIcon(rec.kind)
             const t = tier(rec.priority)
             const busy = applyingId === rec.id
             const isOpen = expanded.has(rec.id)
@@ -261,7 +289,7 @@ export function PipelineRecommendations({
                       {rec.leadCount.toLocaleString()} leads
                     </span>
                     <button
-                      onClick={() => dismiss(rec.id)}
+                      onClick={() => dismiss(rec.id, true)}
                       className="text-aurea-ink-2 transition-colors hover:text-aurea-ink"
                       aria-label="Dismiss recommendation"
                     >

@@ -48,8 +48,9 @@ export async function executeWaterfall(
     throw new Error(`Application not found: ${applicationId}`)
   }
 
-  // Check if already completed
-  if (application.status === 'approved' || application.status === 'denied' || application.status === 'expired') {
+  // Check if already completed. `awaiting_patient` is terminal too: the links
+  // are already out and re-running would just regenerate the same URLs.
+  if (application.status === 'approved' || application.status === 'denied' || application.status === 'expired' || application.status === 'awaiting_patient') {
     return {
       application_id: applicationId,
       status: application.status,
@@ -125,6 +126,15 @@ export async function executeWaterfall(
     integration_type: string
   }>
   const totalSteps = lenders.length
+
+  // Track how the run actually resolved so the terminal state is truthful.
+  // A link-only run (or a mixed run where links were sent) must NOT be recorded
+  // as 'denied' — that would wrongly flag the lead un-financeable and fire the
+  // "sorry, we couldn't approve you" follow-up. We only report a genuine denial
+  // when at least one API lender actually declined and nothing else is pending.
+  let linksSent = 0        // link lenders that emitted a patient application URL
+  let apiDenials = 0       // API lenders that returned an explicit decline
+  let apiErrors = 0        // API lenders that errored (config/network/credential)
 
   for (let step = application.current_waterfall_step; step < totalSteps; step++) {
     const lenderEntry = lenders[step]
@@ -235,7 +245,11 @@ export async function executeWaterfall(
           }
         }
 
-        // Denied or error — log activity and continue to next lender
+        // Denied or error — log activity and continue to next lender.
+        // Distinguish a real decline from a transport/config error so the
+        // terminal state doesn't call a misconfiguration a "denial".
+        if (response.status === 'denied') apiDenials++
+        else apiErrors++
         await logFinancingActivity(supabase, organizationId, application.lead_id, 'financing_lender_denied', {
           lender: adapter.displayName,
           reason: response.denial_reason_code || response.error_message,
@@ -243,6 +257,7 @@ export async function executeWaterfall(
         })
 
       } catch (error) {
+        apiErrors++
         // API error — update submission and continue
         if (submissionId) {
           await supabase
@@ -267,6 +282,7 @@ export async function executeWaterfall(
       }
 
       const applicationUrl = adapter.generateApplicationUrl(leadBasicInfo, lenderConfig.config)
+      linksSent++
 
       if (submissionId) {
         await supabase
@@ -293,17 +309,69 @@ export async function executeWaterfall(
     await updateWaterfallStep(supabase, applicationId, step + 1)
   }
 
-  // All lenders exhausted with no approval
+  // ── Terminal decision ──────────────────────────────────────────
+  // The loop finished with no approval and nothing left pending. Resolve to a
+  // truthful terminal state based on what actually happened, NOT a blanket
+  // "denied":
+  //
+  //   • links were sent        → 'awaiting_patient' (the patient must finish on
+  //                              the lender's site — this is not a decline).
+  //   • a real API decline     → 'denied' (a lender actually said no).
+  //   • only errors, no links  → 'error' (misconfig/network — never call this a
+  //                              denial; that would slander the applicant's
+  //                              credit and fire a false "sorry" message).
+  //
+  // Only a genuine denial sets lead.financing_approved = false and fires the
+  // "we have other options" follow-up. `awaiting_patient` leaves the lead's
+  // financing flags untouched and surfaces to staff via the timeline instead.
+  const terminalStatus: FinancingApplication['status'] =
+    linksSent > 0 ? 'awaiting_patient'
+    : apiDenials > 0 ? 'denied'
+    : apiErrors > 0 ? 'error'
+    : 'denied' // no lenders ran at all (empty/misconfigured waterfall)
+
   await supabase
     .from('financing_applications')
     .update({
-      status: 'denied',
+      status: terminalStatus,
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq('id', applicationId)
 
-  // Update lead
+  if (terminalStatus === 'awaiting_patient') {
+    await logFinancingActivity(supabase, organizationId, application.lead_id, 'financing_links_sent', {
+      message: 'Application link(s) generated — awaiting patient completion on lender site',
+      links_sent: linksSent,
+      total_lenders_tried: totalSteps,
+    })
+    // No patient auto-message and no financing_approved change: the patient
+    // already saw "submitted, we'll be in touch", and staff follow up from the
+    // lead timeline. (Auto-texting third-party links is intentionally left to a
+    // staff-curated send, consistent with the approval kill-switch posture.)
+    return {
+      application_id: applicationId,
+      status: 'awaiting_patient',
+      current_step: totalSteps,
+      total_steps: totalSteps,
+    }
+  }
+
+  if (terminalStatus === 'error') {
+    await logFinancingActivity(supabase, organizationId, application.lead_id, 'financing_error', {
+      message: 'No lender returned a decision — all attempts errored (check lender configuration)',
+      total_lenders_tried: totalSteps,
+      errors: apiErrors,
+    })
+    return {
+      application_id: applicationId,
+      status: 'error',
+      current_step: totalSteps,
+      total_steps: totalSteps,
+    }
+  }
+
+  // Genuine denial — a lender declined (or the waterfall was empty).
   await supabase
     .from('leads')
     .update({ financing_approved: false })
@@ -422,6 +490,8 @@ function getActivityTitle(type: string, meta: Record<string, unknown>): string {
     case 'financing_approved': return `Financing approved by ${lender}`
     case 'financing_lender_denied': return `Financing denied by ${lender}`
     case 'financing_denied': return 'Financing denied by all lenders'
+    case 'financing_links_sent': return 'Financing links sent — awaiting patient'
+    case 'financing_error': return 'Financing could not be processed'
     case 'financing_link_sent': return `${lender} application link sent`
     case 'financing_submitted': return 'Financing application submitted'
     default: return 'Financing activity'
@@ -438,6 +508,10 @@ function getActivityDescription(type: string, meta: Record<string, unknown>): st
       return meta.reason ? `Reason: ${meta.reason}` : 'Application denied'
     case 'financing_denied':
       return `Tried ${meta.total_lenders_tried} lenders with no approval`
+    case 'financing_links_sent':
+      return `${meta.links_sent} application link(s) generated — patient must finish on the lender's site`
+    case 'financing_error':
+      return `No lender returned a decision (${meta.errors} error(s)) — check lender configuration`
     case 'financing_link_sent':
       return `Application link generated for ${meta.lender}`
     default:

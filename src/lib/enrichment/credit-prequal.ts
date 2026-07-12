@@ -4,10 +4,13 @@
  * Layered approach to auto-assess patient financing likelihood
  * during the enrichment pipeline — NO SSN required.
  *
- * Layer 1: Credit Tier Estimation (marketing-grade data)
- *   - Uses public/marketing data (name, address, age) to estimate
- *     credit tier without any credit pull. Experian ConsumerView or
- *     similar marketing data service.
+ * Layer 1: Credit Tier Estimation (internal model ONLY)
+ *   - Estimates a rough tier from data the lead provided themselves
+ *     (intake answers, budget range) plus operational validation signals.
+ *   - FCRA guardrail: Experian ConsumerView (or any CRA-sourced marketing
+ *     data) must NEVER feed this file. Using marketing data to influence
+ *     financing eligibility would convert it into a consumer report under
+ *     15 U.S.C. § 1681a(d). Enforced by fcra-guardrail.test.ts.
  *
  * Layer 2: Lender Soft Pre-Qualification
  *   - For leads with enough data (name + address + DOB), runs soft
@@ -21,7 +24,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { withRetry } from '@/lib/retry'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
-import { enrichWithExperian, experianConfidence, type ExperianConsumerResult } from './experian-consumer'
 import { LENDER_CREDIT_PROFILES } from '@/lib/financing/lender-profiles'
 import type { LenderSlug } from '@/lib/financing/types'
 
@@ -335,39 +337,11 @@ export async function autoPreQualify(
     distance_to_practice_miles?: number | null
   }
 ): Promise<PreQualificationResult> {
-  // Layer 1: Try Experian ConsumerView first (real data), fall back to internal model
-  let creditEstimation: CreditEstimation
-  let experianData: ExperianConsumerResult | null = null
-
-  if (process.env.EXPERIAN_CLIENT_ID) {
-    try {
-      // HIPAA audit: transmitting PII to Experian
-      await auditPHITransmission(
-        { supabase, organizationId, actorType: 'system' },
-        'lead', leadId, 'experian_consumerview', ['name', 'address', 'email', 'phone']
-      ).catch((err: unknown) => console.warn('[credit-prequal] Experian PHI audit failed:', err instanceof Error ? err.message : err))
-
-      experianData = await enrichWithExperian({
-        first_name: leadData.first_name,
-        last_name: leadData.last_name,
-        city: leadData.city,
-        state: leadData.state,
-        zip_code: leadData.zip_code,
-        email: leadData.email,
-        phone: leadData.phone,
-        date_of_birth: leadData.date_of_birth,
-      })
-
-      // Convert Experian result to our CreditEstimation format
-      creditEstimation = mapExperianToEstimation(experianData, leadData)
-    } catch {
-      // Experian failed — fall back to internal model
-      creditEstimation = estimateCreditTier(leadData)
-    }
-  } else {
-    // No Experian credentials — use internal estimation model
-    creditEstimation = estimateCreditTier(leadData)
-  }
+  // Layer 1: internal estimation model ONLY. Experian ConsumerView is
+  // marketing data — routing it into financing estimation would make it a
+  // consumer report under FCRA § 1681a(d), so it is banned from this path
+  // (see fcra-guardrail.test.ts).
+  const creditEstimation: CreditEstimation = estimateCreditTier(leadData)
 
   // HIPAA audit: analyzing financial data
   await auditPHITransmission(
@@ -450,60 +424,4 @@ export function preQualConfidence(result: PreQualificationResult): number {
   if (result.credit_estimation.financial_stress_indicators.length === 0) confidence += 0.1
 
   return Math.min(1.0, confidence)
-}
-
-// ── Experian → CreditEstimation Mapping ────────────────────
-
-/**
- * Convert Experian ConsumerView data into our internal CreditEstimation format.
- * This gives us real data instead of demographic guesses.
- */
-function mapExperianToEstimation(
-  experian: ExperianConsumerResult,
-  leadData: Record<string, unknown>
-): CreditEstimation {
-  // Map Experian credit tier to our tier
-  const tierMap: Record<string, CreditTier> = {
-    super_prime: 'excellent',
-    prime: 'good',
-    near_prime: 'fair',
-    sub_prime: 'poor',
-    deep_sub_prime: 'poor',
-    unknown: 'unknown',
-  }
-  const creditTier = tierMap[experian.credit_tier] || 'unknown'
-
-  // Map credit tier to estimated score range
-  const scoreRanges: Record<CreditTier, { min: number; max: number } | null> = {
-    excellent: { min: 750, max: 850 },
-    good: { min: 670, max: 749 },
-    fair: { min: 580, max: 669 },
-    poor: { min: 300, max: 579 },
-    unknown: null,
-  }
-
-  // Build stress indicators from Experian data
-  const stressIndicators: string[] = []
-  if (experian.credit_tier === 'sub_prime' || experian.credit_tier === 'deep_sub_prime') {
-    stressIndicators.push('low_credit_tier')
-  }
-  if (experian.estimated_income_range && experian.estimated_income_range.max < 35000) {
-    stressIndicators.push('low_income')
-  }
-  if (experian.homeowner === false) {
-    stressIndicators.push('renter')
-  }
-  // Also include enrichment signals
-  if (leadData.email_disposable === true) stressIndicators.push('disposable_email')
-  if (leadData.ip_is_proxy === true) stressIndicators.push('proxy_vpn')
-
-  return {
-    credit_tier: creditTier,
-    estimated_score_range: scoreRanges[creditTier] || null,
-    estimated_income_range: experian.estimated_income_range,
-    homeowner: experian.homeowner,
-    financial_stress_indicators: stressIndicators,
-    confidence: experian.match_confidence > 0.5 ? 0.9 : 0.6, // Experian data is high confidence
-    source: 'experian_consumerview',
-  }
 }

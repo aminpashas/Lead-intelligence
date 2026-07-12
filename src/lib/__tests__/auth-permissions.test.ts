@@ -61,16 +61,18 @@ describe('Role definitions', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('hasPermission', () => {
-  // Admin roles have full permissions
+  // Admin roles have full PRACTICE-side permissions. Agency-scale outbound and
+  // AI configuration are deliberately excluded — see the practice/agency
+  // capability split (8aa8dc5, SF Dentistry onboarding decision 2026-07-03).
   const fullAccessRoles: PracticeRole[] = ['doctor_admin', 'office_manager', 'owner', 'admin', 'agency_admin']
 
   fullAccessRoles.forEach((role) => {
-    it(`${role} has all permissions`, () => {
+    it(`${role} has all practice-side permissions`, () => {
       const permissions: Permission[] = [
         'dashboard:view', 'clinical:read', 'clinical:write',
         'leads:read', 'leads:write', 'billing:read', 'billing:write',
         'team:read', 'team:manage', 'settings:read', 'settings:write',
-        'ai_control:read', 'ai_control:write',
+        'ai_control:read',
         'cases:read', 'cases:create', 'cases:diagnose',
         'contracts:read', 'contracts:generate', 'contracts:approve', 'contracts:void',
         'contract_templates:manage', 'legal_settings:manage',
@@ -78,6 +80,33 @@ describe('hasPermission', () => {
 
       permissions.forEach((perm) => {
         expect(hasPermission(role, perm)).toBe(true)
+      })
+    })
+  })
+
+  // The agency-outbound half of the split: mass outreach, campaign activation,
+  // bulk actions, and AI tuning belong to agency_admin ONLY. A practice can
+  // never blast its own book or retune the AI.
+  const agencyOutboundPerms: Permission[] = [
+    'campaigns:write', 'reactivation:write',
+    'mass_sms:write', 'mass_email:write',
+    'bulk_actions:write', 'ai_control:write', 'funnel:write',
+  ]
+
+  it('agency_admin has the agency-outbound permissions', () => {
+    agencyOutboundPerms.forEach((perm) => {
+      expect(hasPermission('agency_admin', perm)).toBe(true)
+    })
+  })
+
+  it('no practice role (even full-access admins) has agency-outbound permissions', () => {
+    const practiceRoles: PracticeRole[] = [
+      'doctor_admin', 'office_manager', 'owner', 'admin', 'manager',
+      'doctor', 'nurse', 'assistant', 'treatment_coordinator', 'member',
+    ]
+    practiceRoles.forEach((role) => {
+      agencyOutboundPerms.forEach((perm) => {
+        expect(hasPermission(role, perm)).toBe(false)
       })
     })
   })
@@ -116,15 +145,17 @@ describe('hasPermission', () => {
     expect(hasPermission('doctor', 'contracts:void')).toBe(false)
   })
 
-  // Treatment coordinator permissions
-  it('treatment_coordinator can manage leads, campaigns, and financing', () => {
+  // Treatment coordinator: works leads 1:1 with read-only campaign visibility.
+  // Launching anything at scale (campaign activation, broadcasts) is agency-side.
+  it('treatment_coordinator can work leads and view campaigns, but not launch at scale', () => {
     expect(hasPermission('treatment_coordinator', 'leads:write')).toBe(true)
     expect(hasPermission('treatment_coordinator', 'campaigns:read')).toBe(true)
-    expect(hasPermission('treatment_coordinator', 'campaigns:write')).toBe(true)
+    expect(hasPermission('treatment_coordinator', 'campaigns:write')).toBe(false)
     expect(hasPermission('treatment_coordinator', 'smart_lists:read')).toBe(true)
-    expect(hasPermission('treatment_coordinator', 'mass_sms:write')).toBe(true)
+    expect(hasPermission('treatment_coordinator', 'mass_sms:write')).toBe(false)
     expect(hasPermission('treatment_coordinator', 'call_center:read')).toBe(true)
-    expect(hasPermission('treatment_coordinator', 'funnel:write')).toBe(true)
+    expect(hasPermission('treatment_coordinator', 'funnel:read')).toBe(true)
+    expect(hasPermission('treatment_coordinator', 'funnel:write')).toBe(false)
   })
 
   it('treatment_coordinator can generate but not approve contracts', () => {
@@ -264,14 +295,22 @@ describe('canAccessRoute', () => {
     expect(canAccessRoute('member', '/some/unknown/route')).toBe(true)
   })
 
-  it('treatment_coordinator can access campaign + broadcast routes', () => {
+  it('treatment_coordinator can access campaign visibility routes, but not launch broadcasts', () => {
     expect(canAccessRoute('treatment_coordinator', '/campaigns')).toBe(true)
     expect(canAccessRoute('treatment_coordinator', '/reactivation')).toBe(true)
     expect(canAccessRoute('treatment_coordinator', '/leads/lists')).toBe(true)
     expect(canAccessRoute('treatment_coordinator', '/call-center')).toBe(true)
     expect(canAccessRoute('treatment_coordinator', '/campaigns/playbook')).toBe(true)
-    expect(canAccessRoute('treatment_coordinator', '/broadcasts/sms')).toBe(true)
+    // Broadcast composers are gated on mass send perms — agency-only.
+    expect(canAccessRoute('treatment_coordinator', '/broadcasts/sms')).toBe(false)
+    // The audit trail stays readable (broadcast_audit:read).
     expect(canAccessRoute('treatment_coordinator', '/broadcasts/audit')).toBe(true)
+  })
+
+  it('only agency_admin can reach the broadcast composers', () => {
+    expect(canAccessRoute('agency_admin', '/broadcasts/sms')).toBe(true)
+    expect(canAccessRoute('agency_admin', '/broadcasts/email')).toBe(true)
+    expect(canAccessRoute('doctor_admin', '/broadcasts/sms')).toBe(false)
   })
 
   it('nurse cannot broadcast', () => {
@@ -328,13 +367,12 @@ describe('agency-only permissions', () => {
   })
 })
 
-// No red/green transition is observable here on the current role matrix:
-// campaigns:read is granted ONLY alongside the broadcast/audience perms
-// (in TC_PERMISSIONS and FULL_PERMISSIONS), so no existing role can witness the
-// looser /campaigns → campaigns:read gate "widening" access to a relocated
-// route. The explicit map entries lock the gates against a FUTURE role that
-// splits them (e.g. campaigns:read without mass_sms:write). The parity test
-// below encodes the real invariant: relocation preserves the access decision.
+// The explicit map entries lock the relocated routes to the same gates as
+// their legacy equivalents, so moving a page under /campaigns can never widen
+// access to it (e.g. via the looser /campaigns → campaigns:read prefix).
+// Since the practice/agency split, the broadcast composers under both paths
+// resolve to mass send perms — agency-only. The parity test below encodes the
+// real invariant: relocation preserves the access decision, role by role.
 describe('canAccessRoute — relocated campaigns-hub routes keep original permissions', () => {
   it('audiences inherits the smart_lists:read gate (same as old /leads/lists)', () => {
     expect(canAccessRoute('treatment_coordinator', '/campaigns/audiences')).toBe(true)
@@ -342,7 +380,8 @@ describe('canAccessRoute — relocated campaigns-hub routes keep original permis
   })
 
   it('broadcasts sms/email/audit keep their original write/read gates', () => {
-    expect(canAccessRoute('treatment_coordinator', '/campaigns/broadcasts/sms')).toBe(true)
+    expect(canAccessRoute('agency_admin', '/campaigns/broadcasts/sms')).toBe(true)
+    expect(canAccessRoute('treatment_coordinator', '/campaigns/broadcasts/sms')).toBe(false)
     expect(canAccessRoute('treatment_coordinator', '/campaigns/broadcasts/audit')).toBe(true)
     expect(canAccessRoute('nurse', '/campaigns/broadcasts/sms')).toBe(false)
   })

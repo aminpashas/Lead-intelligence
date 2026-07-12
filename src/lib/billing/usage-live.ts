@@ -8,6 +8,10 @@
  * re-bill markup (markup.ts), so pricing stays single-source in TypeScript and never drifts from
  * what the ledger writers would have produced.
  *
+ * The RPC counts only messages LI itself transmitted: rows carrying an import provenance marker
+ * (messages.metadata.source, e.g. 'ghl' mirrors) are excluded — GHL sent AND billed those on its
+ * own account. Importers must set metadata.source so their rows stay out of billing.
+ *
  * `loadLiveSpend` is dual-purpose:
  *   - organizationId omitted  → every practice (agency super-admin panel; RPC requires agency admin)
  *   - organizationId set      → that one practice (account page; RPC allows the org's own members)

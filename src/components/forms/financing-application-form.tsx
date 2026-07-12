@@ -26,10 +26,18 @@ type FormData = {
 }
 
 type FormResult = {
-  status: 'approved' | 'denied' | 'in_progress' | 'error'
+  status: 'approved' | 'denied' | 'in_progress' | 'error' | 'awaiting_patient'
   approved_lender?: string
   approved_amount?: number
+  /** Populated for `awaiting_patient`: the lender apply links the patient must finish. */
+  links?: Array<{ lender: string; url: string }>
 } | null
+
+// Client-side lender display names (the server's LENDER_INFO isn't importable here).
+const LENDER_NAMES: Record<string, string> = {
+  carecredit: 'CareCredit', sunbit: 'Sunbit', proceed: 'Proceed Finance',
+  lendingclub: 'LendingClub', cherry: 'Cherry', alpheon: 'Alpheon Credit', affirm: 'Affirm',
+}
 
 type StepConfig = { ok: (d: FormData) => boolean }
 
@@ -351,6 +359,37 @@ function ResultScreen({ result, firstName }: { result: FormResult; firstName: st
     )
   }
 
+  if (result.status === 'awaiting_patient') {
+    return (
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#fffbeb', border: '3px solid #fbbf24', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+          <span style={{ fontSize: '36px' }}>🔗</span>
+        </div>
+        <h2 style={{ fontSize: '24px', fontWeight: 800, color: '#1f1a15', marginBottom: '8px' }}>One Quick Step, {firstName}</h2>
+        <p style={{ fontSize: '16px', color: '#57534e', lineHeight: 1.6, margin: '16px 0' }}>
+          You&apos;re matched with {result.links && result.links.length > 1 ? 'these lending partners' : 'a lending partner'}. Tap below to finish your application on their secure site — it only takes a minute.
+        </p>
+        {result.links && result.links.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', margin: '20px 0', textAlign: 'left' }}>
+            {result.links.map((lnk) => (
+              <a key={lnk.url} href={lnk.url} target="_blank" rel="noopener noreferrer" style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+                padding: '16px 18px', borderRadius: '14px', border: '3px solid #d97706', background: '#fffbeb',
+                textDecoration: 'none', color: '#1f1a15', fontWeight: 700, fontSize: '16px',
+              }}>
+                <span>Continue with {lnk.lender}</span>
+                <span style={{ fontSize: '18px' }}>→</span>
+              </a>
+            ))}
+          </div>
+        )}
+        <p style={{ fontSize: '13px', color: '#78716c', lineHeight: 1.5, margin: '8px 0 0' }}>
+          We&apos;ll also follow up personally to help you through it. Questions? Just reply to our text.
+        </p>
+      </div>
+    )
+  }
+
   if (result.status === 'in_progress') {
     return (
       <div style={{ textAlign: 'center' }}>
@@ -488,15 +527,49 @@ export function FinancingApplicationFormPublic({
       }
 
       const data = await res.json()
-      setResult({
-        status: data.result?.status || 'in_progress',
-        approved_lender: data.result?.approved_lender,
-        approved_amount: data.result?.approved_amount,
-      })
+      // Show the optimistic "submitted" screen immediately, then poll for the
+      // real terminal outcome — the waterfall runs in the background (next/server
+      // after()), so the apply response is always "processing". Polling lets us
+      // upgrade the screen to approved / apply-links / etc. once it resolves.
+      setResult({ status: 'in_progress' })
+      const appId: string | undefined = data.application_id
+      if (appId) void pollForOutcome(appId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please call the office directly.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  // Poll the application until it reaches a terminal state (or we give up and
+  // leave the honest "we'll be in touch" screen up). Runs for ~30s.
+  async function pollForOutcome(appId: string) {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await sleep(2500)
+      try {
+        const r = await fetch(`/api/financing/${appId}`, { headers: { 'x-share-token': shareToken } })
+        if (!r.ok) continue
+        const d = await r.json()
+        const st: string = d.status
+        if (st === 'approved' || st === 'denied' || st === 'awaiting_patient' || st === 'error') {
+          const links = Array.isArray(d.submissions)
+            ? d.submissions
+                .filter((s: { status?: string; application_url?: string }) => s.status === 'link_sent' && s.application_url)
+                .map((s: { lender_slug: string; application_url: string }) => ({
+                  lender: LENDER_NAMES[s.lender_slug] || s.lender_slug,
+                  url: s.application_url,
+                }))
+            : []
+          setResult({
+            status: st as NonNullable<FormResult>['status'],
+            approved_lender: d.approved_lender_slug ? (LENDER_NAMES[d.approved_lender_slug] || d.approved_lender_slug) : undefined,
+            approved_amount: d.approved_amount ?? undefined,
+            links: links.length ? links : undefined,
+          })
+          return
+        }
+      } catch { /* transient — keep polling */ }
     }
   }
 

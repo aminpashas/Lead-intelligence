@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
 import { DEFAULT_PRACTICE_TIMEZONE, zonedDateLabel, zonedTimeLabel, zonedDateTimeLabel } from '@/lib/time/zoned'
@@ -10,10 +11,13 @@ import { LeadMessaging } from './lead-messaging'
 import { LogCallDialog } from './log-call-dialog'
 import {
   MessageSquare, Mail, Phone, PhoneIncoming, PhoneOutgoing,
-  StickyNote, GitBranch, Sparkles, Play, ChevronRight,
+  StickyNote, GitBranch, Sparkles, User,
 } from 'lucide-react'
 import type { Lead } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
+import { entryActor, type TimelineActor } from '@/lib/timeline/actor'
+import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
+import { recordingPlaybackUrl } from '@/lib/voice/recording-playback'
 
 const CHANNEL_ICON = {
   sms: MessageSquare,
@@ -84,10 +88,39 @@ export function LeadTimeline({ lead, entries, timeZone = DEFAULT_PRACTICE_TIMEZO
   )
 }
 
+/** Optional per-entry decorations. Only the org-wide activity monitor supplies
+ *  these — the per-conversation timeline passes neither and renders as before.
+ *  `hrefFor` returning a string makes the whole node a link to its source;
+ *  `metaFor` injects extra header content (e.g. the lead-name chip). */
+export type TimelineDecorations = {
+  hrefFor?: (entry: TimelineEntry) => string | null
+  metaFor?: (entry: TimelineEntry) => ReactNode
+}
+
+/** Small badge naming the team member or AI agent behind an event. */
+function ActorChip({ actor }: { actor: TimelineActor }) {
+  const Icon = actor.kind === 'ai' ? Sparkles : User
+  const tone = actor.kind === 'ai' ? 'text-aurea-primary' : 'text-aurea-ink-3'
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10.5px] font-medium ${tone}`}>
+      <Icon className="h-2.5 w-2.5" strokeWidth={2} />
+      {actor.name}
+    </span>
+  )
+}
+
 /** Presentational feed — the Summary/Detailed renderings, no actions or state.
  *  Shared by the patient card (with a toggle) and the conversations page. */
-export function TimelineFeed({ entries, variant, timeZone = DEFAULT_PRACTICE_TIMEZONE }: { entries: TimelineEntry[]; variant: ViewMode; timeZone?: string }) {
-  return variant === 'summary' ? <SummaryTimeline entries={entries} /> : <DetailedTimeline entries={entries} timeZone={timeZone} />
+export function TimelineFeed({
+  entries,
+  variant,
+  timeZone = DEFAULT_PRACTICE_TIMEZONE,
+  decorations,
+  userNameById,
+}: { entries: TimelineEntry[]; variant: ViewMode; timeZone?: string; decorations?: TimelineDecorations; userNameById?: Map<string, string> }) {
+  return variant === 'summary'
+    ? <SummaryTimeline entries={entries} userNameById={userNameById} />
+    : <DetailedTimeline entries={entries} timeZone={timeZone} decorations={decorations} userNameById={userNameById} />
 }
 
 // ── View toggle ─────────────────────────────────────────────
@@ -112,20 +145,21 @@ export function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: V
 }
 
 // ── Summary (compact) — the original list view ──────────────
-function SummaryTimeline({ entries }: { entries: TimelineEntry[] }) {
+function SummaryTimeline({ entries, userNameById }: { entries: TimelineEntry[]; userNameById?: Map<string, string> }) {
   return (
     <ol className="space-y-3">
       {entries.map((entry) => {
         const outbound = (entry.kind === 'message' || entry.kind === 'call') && entry.direction === 'outbound'
+        const actor = entryActor(entry, userNameById)
         return (
           <li key={`${entry.kind}-${entry.id}`} className={outbound ? 'flex justify-end' : 'flex justify-start'}>
             <div className={`max-w-[80%] rounded-lg border border-aurea-border px-3 py-2 ${outbound ? 'bg-aurea-surface-2' : 'bg-aurea-surface'}`}>
               <div className="mb-1 flex items-center gap-1.5 text-xs text-aurea-ink-3">
                 <IconFor entry={entry} />
                 <span>{labelFor(entry)}</span>
+                {actor && <><span>·</span><ActorChip actor={actor} /></>}
                 <span>·</span>
                 <span>{formatDistanceToNow(new Date(entry.at), { addSuffix: true })}</span>
-                {entry.kind === 'message' && entry.aiGenerated && <span className="rounded bg-aurea-border/40 px-1">AI</span>}
               </div>
               {entry.kind === 'message' && (
                 <>
@@ -167,13 +201,17 @@ function nodeTone(entry: TimelineEntry): string {
   return 'border-aurea-border text-aurea-ink-3'
 }
 
-function DetailedTimeline({ entries, timeZone }: { entries: TimelineEntry[]; timeZone: string }) {
+function DetailedTimeline({ entries, timeZone, decorations, userNameById }: { entries: TimelineEntry[]; timeZone: string; decorations?: TimelineDecorations; userNameById?: Map<string, string> }) {
   return (
     <div className="relative pl-9">
       {/* The spine — one hairline the whole column hangs from. */}
       <div className="absolute bottom-2 left-[14px] top-2 w-px bg-aurea-border" aria-hidden />
       <ol className="space-y-5">
-        {entries.map((entry) => (
+        {entries.map((entry) => {
+          const href = decorations?.hrefFor?.(entry) ?? null
+          const meta = decorations?.metaFor?.(entry)
+          const actor = entryActor(entry, userNameById)
+          return (
           <li key={`${entry.kind}-${entry.id}`} className="relative">
             {/* Node marker sitting on the spine */}
             <span
@@ -182,42 +220,52 @@ function DetailedTimeline({ entries, timeZone }: { entries: TimelineEntry[]; tim
               <NodeIcon entry={entry} />
             </span>
 
-            {/* Header line: type · badges · time */}
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="aurea-eyebrow leading-none">{typeLabel(entry)}</span>
-              {entry.kind === 'call' && entry.outcome && (
-                <span className="rounded-full border border-aurea-border px-1.5 py-px text-[10px] font-medium capitalize text-aurea-ink-2">
-                  {entry.outcome.replace(/_/g, ' ')}
+            {/* Stretched link: an overlay anchor covers the whole node so a
+                click anywhere navigates, while interactive body controls (the
+                recording player) sit above it and stay usable. */}
+            {href && (
+              <Link
+                href={href}
+                aria-label={`Open ${typeLabel(entry)} in conversations`}
+                className="absolute inset-0 z-[1] rounded-lg -mx-2 -my-1 transition-colors hover:bg-aurea-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurea-primary/40"
+              />
+            )}
+            <div className="relative">
+              {/* Header line: type · who · badges · time */}
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="aurea-eyebrow leading-none">{typeLabel(entry)}</span>
+                {meta}
+                {actor && <ActorChip actor={actor} />}
+                {entry.kind === 'call' && entry.outcome && (
+                  <span className="rounded-full border border-aurea-border px-1.5 py-px text-[10px] font-medium capitalize text-aurea-ink-2">
+                    {entry.outcome.replace(/_/g, ' ')}
+                  </span>
+                )}
+                <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3" title={zonedDateTimeLabel(new Date(entry.at), timeZone)}>
+                  {zonedDateLabel(new Date(entry.at), timeZone)} · {zonedTimeLabel(new Date(entry.at), timeZone)}
                 </span>
-              )}
-              {entry.kind === 'message' && entry.aiGenerated && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-aurea-primary">
-                  <Sparkles className="h-2.5 w-2.5" strokeWidth={2} /> AI
-                </span>
-              )}
-              <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3" title={zonedDateTimeLabel(new Date(entry.at), timeZone)}>
-                {zonedDateLabel(new Date(entry.at), timeZone)} · {zonedTimeLabel(new Date(entry.at), timeZone)}
-              </span>
-            </div>
+              </div>
 
-            {/* Body */}
-            <div className="mt-1.5">
-              {entry.kind === 'message' && <MessageBody entry={entry} />}
-              {entry.kind === 'call' && <CallBody entry={entry} />}
-              {entry.kind === 'note' && (
-                <div className="border-l-2 border-aurea-gold/60 pl-3">
-                  <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55] text-aurea-ink-2">{entry.body || entry.title}</p>
-                </div>
-              )}
-              {entry.kind === 'stage_change' && (
-                <p className="text-[13px] text-aurea-ink-2">
-                  {entry.title}
-                  {entry.body && entry.body !== entry.title && <span className="text-aurea-ink-3"> — {entry.body}</span>}
-                </p>
-              )}
+              {/* Body */}
+              <div className="mt-1.5">
+                {entry.kind === 'message' && <MessageBody entry={entry} />}
+                {entry.kind === 'call' && <CallBody entry={entry} />}
+                {entry.kind === 'note' && (
+                  <div className="border-l-2 border-aurea-gold/60 pl-3">
+                    <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55] text-aurea-ink-2">{entry.body || entry.title}</p>
+                  </div>
+                )}
+                {entry.kind === 'stage_change' && (
+                  <p className="text-[13px] text-aurea-ink-2">
+                    {entry.title}
+                    {entry.body && entry.body !== entry.title && <span className="text-aurea-ink-3"> — {entry.body}</span>}
+                  </p>
+                )}
+              </div>
             </div>
           </li>
-        ))}
+          )
+        })}
       </ol>
     </div>
   )
@@ -276,15 +324,14 @@ function CallBody({ entry }: { entry: Extract<TimelineEntry, { kind: 'call' }> }
         <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-[1.55] text-aurea-ink-2">{summary}</p>
       )}
       {entry.recordingUrl && (
-        <a
-          href={entry.recordingUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-aurea-border px-2.5 py-1 text-[11px] font-medium text-aurea-ink-2 transition-colors hover:bg-aurea-canvas"
-        >
-          <Play className="h-3 w-3" strokeWidth={1.75} /> Recording
-          <ChevronRight className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />
-        </a>
+        // `relative z-[2]` keeps the player above the monitor's stretched-link
+        // overlay (z-[1]); a no-op in the plain timeline where there's no overlay.
+        <div className="relative z-[2] mt-2">
+          <CallRecordingPlayer
+            url={recordingPlaybackUrl(entry.id, entry.recordingUrl)!}
+            size="compact"
+          />
+        </div>
       )}
     </div>
   )

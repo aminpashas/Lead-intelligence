@@ -280,7 +280,7 @@ export async function routeToAgent(
       const fallback = await generateLeadEngagement(
         context.lead,
         context.conversation_history,
-        { mode: 'follow_up', channel: context.channel === 'email' ? 'email' : 'sms' },
+        { mode: 'follow_up', channel: context.channel === 'email' ? 'email' : 'sms', patientProfile: context.patient_profile },
         supabase
       )
       response = {
@@ -297,7 +297,7 @@ export async function routeToAgent(
     const fallback = await generateLeadEngagement(
       context.lead,
       context.conversation_history,
-      { mode: 'education', channel: context.channel === 'email' ? 'email' : 'sms' },
+      { mode: 'education', channel: context.channel === 'email' ? 'email' : 'sms', patientProfile: context.patient_profile },
       supabase
     )
     response = {

@@ -14,12 +14,6 @@ import type { AutomationPolicy, AutomationPolicyOwner } from '@/types/database'
 
 type Row = { id: string; name: string }
 type Defaults = { confidence_threshold: number; active_hours_start: number; active_hours_end: number }
-type Direction = 'in' | 'out'
-
-// Inbound replies are one kind; outbound touches (speed-to-lead + nurture
-// follow-ups) are grouped so a single "outbound owner" choice covers both.
-const INBOUND_KINDS = ['inbound_reply']
-const OUTBOUND_KINDS = ['speed_to_lead', 'nurture_step']
 
 const OWNER_LABELS: Record<AutomationPolicyOwner, string> = {
   ai: 'AI',
@@ -27,26 +21,20 @@ const OWNER_LABELS: Record<AutomationPolicyOwner, string> = {
   hybrid: 'Hybrid',
 }
 
-function findPolicy(
-  policies: AutomationPolicy[],
-  scope: 'stage' | 'campaign',
-  targetId: string,
-  dir: Direction
-) {
-  const kind = dir === 'in' ? 'inbound_reply' : 'speed_to_lead'
+// The table allows one policy row per (scope, target) — so a stage/campaign has
+// a single owner covering all interaction kinds. Inbound-vs-outbound split is a
+// follow-up (needs a schema change to allow per-kind rows).
+function findPolicy(policies: AutomationPolicy[], scope: 'stage' | 'campaign', targetId: string) {
   return policies.find(
-    (p) =>
-      p.scope === scope &&
-      (scope === 'stage' ? p.stage_id === targetId : p.campaign_id === targetId) &&
-      (p.kinds.length === 0 || p.kinds.includes(kind))
+    (p) => p.scope === scope && (scope === 'stage' ? p.stage_id === targetId : p.campaign_id === targetId)
   )
 }
 
 /**
- * Per-stage / per-campaign overrides for who handles inbound replies and
- * outbound (speed-to-lead + nurture) touches — AI, human, or hybrid. Backed
- * by the CRUD API at /api/automation/policies. Cells left on "global" defer
- * to the org-wide autopilot settings above.
+ * Per-stage / per-campaign override for who handles automation — AI, human, or
+ * hybrid. Backed by the upsert CRUD API at /api/automation/policies. A row left
+ * on "Global" (no policy) defers to the org-wide autopilot settings above;
+ * choosing Global on a configured row deletes the override.
  */
 export function ScopedAutomationGrid({
   stages,
@@ -64,57 +52,70 @@ export function ScopedAutomationGrid({
   const [policies, setPolicies] = useState(initialPolicies)
   const [pendingKey, setPendingKey] = useState<string | null>(null)
 
-  async function upsert(scope: 'stage' | 'campaign', targetId: string, dir: Direction, owner: AutomationPolicyOwner) {
-    const key = `${scope}:${targetId}:${dir}`
-    const existing = findPolicy(policies, scope, targetId, dir)
-    const payload = {
-      scope,
-      kinds: dir === 'in' ? INBOUND_KINDS : OUTBOUND_KINDS,
-      owner,
-      stage_id: scope === 'stage' ? targetId : null,
-      campaign_id: scope === 'campaign' ? targetId : null,
-      ...(existing ? { id: existing.id } : {}),
-    }
-
+  async function setOwner(
+    scope: 'stage' | 'campaign',
+    targetId: string,
+    choice: AutomationPolicyOwner | 'global'
+  ) {
+    const key = `${scope}:${targetId}`
+    const existing = findPolicy(policies, scope, targetId)
     setPendingKey(key)
     try {
+      if (choice === 'global') {
+        // Revert to inheriting the org default: delete the policy row.
+        if (!existing) return
+        const res = await fetch(`/api/automation/policies?id=${existing.id}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          toast.error(body.error || 'Failed to remove override')
+          return
+        }
+        setPolicies((prev) => prev.filter((p) => p.id !== existing.id))
+        return
+      }
+
       const res = await fetch('/api/automation/policies', {
-        method: existing ? 'PATCH' : 'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          scope,
+          owner: choice,
+          stage_id: scope === 'stage' ? targetId : null,
+          campaign_id: scope === 'campaign' ? targetId : null,
+        }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        toast.error(body.error || 'Failed to save automation policy')
+        toast.error(body.error || 'Failed to save override')
         return
       }
       const { policy } = await res.json()
-      setPolicies((prev) =>
-        existing ? prev.map((p) => (p.id === policy.id ? policy : p)) : [...prev, policy]
-      )
+      setPolicies((prev) => {
+        const rest = prev.filter((p) => p.id !== policy.id)
+        return [...rest, policy]
+      })
     } catch {
-      toast.error('Failed to save automation policy')
+      toast.error('Failed to save override')
     } finally {
       setPendingKey(null)
     }
   }
 
-  function ownerCell(scope: 'stage' | 'campaign', targetId: string, dir: Direction) {
-    const key = `${scope}:${targetId}:${dir}`
-    const policy = findPolicy(policies, scope, targetId, dir)
+  function ownerCell(scope: 'stage' | 'campaign', targetId: string) {
+    const key = `${scope}:${targetId}`
+    const policy = findPolicy(policies, scope, targetId)
     const value = policy?.owner ?? 'global'
     return (
       <Select
-        items={{ global: '— Global (AI)', ai: 'AI', human: 'Human', hybrid: 'Hybrid' }}
         value={value}
-        onValueChange={(v) => v && v !== 'global' && upsert(scope, targetId, dir, v as AutomationPolicyOwner)}
+        onValueChange={(v) => v && setOwner(scope, targetId, v as AutomationPolicyOwner | 'global')}
         disabled={!isAdmin || pendingKey === key}
       >
         <SelectTrigger className="h-8 w-full text-xs">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="global">— Global (AI)</SelectItem>
+          <SelectItem value="global">— Global (inherit)</SelectItem>
           {(Object.keys(OWNER_LABELS) as AutomationPolicyOwner[]).map((o) => (
             <SelectItem key={o} value={o}>
               {OWNER_LABELS[o]}
@@ -130,19 +131,17 @@ export function ScopedAutomationGrid({
       <div className="space-y-2">
         <h3 className="text-[13px] font-medium text-aurea-ink">{label}</h3>
         <div className="overflow-hidden rounded-lg border border-aurea-border">
-          <div className="grid grid-cols-[1.6fr_1fr_1fr] gap-2 border-b border-aurea-border bg-aurea-surface-2 px-3 py-2 aurea-eyebrow font-normal">
+          <div className="grid grid-cols-[2fr_1fr] gap-2 border-b border-aurea-border bg-aurea-surface-2 px-3 py-2 aurea-eyebrow font-normal">
             <span>{scope === 'stage' ? 'Stage' : 'Campaign'}</span>
-            <span>Inbound owner</span>
-            <span>Outbound owner</span>
+            <span>Who handles it</span>
           </div>
           {rows.map((r) => (
             <div
               key={r.id}
-              className="grid grid-cols-[1.6fr_1fr_1fr] items-center gap-2 border-b border-aurea-border px-3 py-2 last:border-0"
+              className="grid grid-cols-[2fr_1fr] items-center gap-2 border-b border-aurea-border px-3 py-2 last:border-0"
             >
               <span className="truncate text-[13px] text-aurea-ink">{r.name}</span>
-              {ownerCell(scope, r.id, 'in')}
-              {ownerCell(scope, r.id, 'out')}
+              {ownerCell(scope, r.id)}
             </div>
           ))}
           {rows.length === 0 && (
@@ -162,7 +161,7 @@ export function ScopedAutomationGrid({
         <div>
           <h2 className="aurea-display text-[18px] text-aurea-ink">Scoped Automation</h2>
           <p className="text-[12px] text-aurea-ink-3">
-            Override who handles a stage or campaign. Cells left on &ldquo;Global&rdquo; inherit the
+            Override who handles a stage or campaign. Rows left on &ldquo;Global&rdquo; inherit the
             settings above (confidence {Math.round(globalDefaults.confidence_threshold * 100)}%, hours{' '}
             {globalDefaults.active_hours_start}:00–{globalDefaults.active_hours_end}:00).
           </p>

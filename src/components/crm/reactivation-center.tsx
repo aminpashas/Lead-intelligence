@@ -1,18 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
   RefreshCw, Plus, Play, Pause, Upload,
   Zap, Target, TrendingUp, Loader2,
   Gift, MessageSquare, ArrowRight, CheckCircle,
-  Clock, Eye,
+  Clock, Eye, Users, ChevronDown,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ReactivationBuilder } from './reactivation-builder'
 import { ReactivationUpload } from './reactivation-upload'
 import { ReactivationAnalytics } from './reactivation-analytics'
+import { ReactivationLeadsPanel } from './reactivation-leads-panel'
 import { REACTIVATION_TEMPLATES } from '@/lib/campaigns/reactivation-templates'
 import type { ReactivationCampaign } from '@/types/database'
 
@@ -39,7 +40,19 @@ export function ReactivationCenter({ campaigns: initial }: { campaigns: Reactiva
   const [togglingCampaign, setTogglingCampaign] = useState<string | null>(null)
   const [uploadingTo, setUploadingTo] = useState<string | null>(null)
   const [viewingAnalytics, setViewingAnalytics] = useState<string | null>(null)
+  // Smart-list-style audience previews: matching-lead counts per template,
+  // plus which template card / campaign row has its lead list expanded.
+  const [audienceCounts, setAudienceCounts] = useState<Record<string, number> | null>(null)
+  const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null)
+  const [expandedCampaign, setExpandedCampaign] = useState<string | null>(null)
   const router = useRouter()
+
+  useEffect(() => {
+    fetch('/api/reactivation/templates/counts')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data?.counts) setAudienceCounts(data.counts) })
+      .catch(() => {})
+  }, [])
 
   // Aggregate stats
   const totalUploaded = campaigns.reduce((s, c) => s + (c.total_uploaded || 0), 0)
@@ -226,11 +239,27 @@ export function ReactivationCenter({ campaigns: initial }: { campaigns: Reactiva
                   </div>
                 )}
 
-                {/* Footer: steps + deploy */}
+                {/* Footer: steps + audience + deploy */}
                 <div className="mt-5 flex items-center justify-between gap-3">
-                  <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
-                    {template.steps.length} steps
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                      {template.steps.length} steps
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedTemplate(expandedTemplate === template.id ? null : template.id)}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink"
+                    >
+                      <Users className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      <span className="tabular-nums">
+                        {audienceCounts ? `${(audienceCounts[template.id] || 0).toLocaleString()} leads` : 'Leads'}
+                      </span>
+                      <ChevronDown
+                        className={`h-3 w-3 transition-transform ${expandedTemplate === template.id ? 'rotate-180' : ''}`}
+                        strokeWidth={1.75}
+                      />
+                    </button>
+                  </div>
                   <Button
                     size="sm"
                     className="gap-1.5"
@@ -245,6 +274,13 @@ export function ReactivationCenter({ campaigns: initial }: { campaigns: Reactiva
                     Deploy
                   </Button>
                 </div>
+
+                {/* Matching-lead audience (smart-list-style, rows open the lead) */}
+                {expandedTemplate === template.id && (
+                  <div className="mt-4 border-t border-aurea-border pt-3">
+                    <ReactivationLeadsPanel endpoint={`/api/reactivation/templates/${template.id}/leads`} />
+                  </div>
+                )}
               </div>
             )
           })}
@@ -283,8 +319,9 @@ export function ReactivationCenter({ campaigns: initial }: { campaigns: Reactiva
                 <div
                   key={campaign.id}
                   id={`campaign-${campaign.id}`}
-                  className="flex flex-col gap-4 border-b border-aurea-border px-5 py-4 last:border-0 lg:flex-row lg:items-center"
+                  className="border-b border-aurea-border px-5 py-4 last:border-0"
                 >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
                   {/* Left: Info */}
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 text-aurea-ink-2 ring-1 ring-aurea-border">
@@ -335,6 +372,20 @@ export function ReactivationCenter({ campaigns: initial }: { campaigns: Reactiva
 
                   {/* Right: Actions */}
                   <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1.5"
+                      onClick={() => setExpandedCampaign(expandedCampaign === campaign.id ? null : campaign.id)}
+                    >
+                      <Users className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      Leads
+                      <ChevronDown
+                        className={`h-3 w-3 transition-transform ${expandedCampaign === campaign.id ? 'rotate-180' : ''}`}
+                        strokeWidth={1.75}
+                      />
+                    </Button>
+
                     <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setUploadingTo(campaign.id)}>
                       <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
                       Upload
@@ -376,6 +427,14 @@ export function ReactivationCenter({ campaigns: initial }: { campaigns: Reactiva
                       </Button>
                     ) : null}
                   </div>
+                </div>
+
+                {/* Enrolled leads (rows open the lead) */}
+                {expandedCampaign === campaign.id && (
+                  <div className="mt-4 border-t border-aurea-border pt-3">
+                    <ReactivationLeadsPanel endpoint={`/api/reactivation/${campaign.id}/leads`} />
+                  </div>
+                )}
                 </div>
               )
             })}

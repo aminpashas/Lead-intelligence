@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
+import { getOwnProfile } from '@/lib/auth/active-org'
+import { isAdminRole } from '@/lib/auth/permissions'
 import { LeadDetail } from '@/components/crm/lead-detail'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
@@ -80,7 +82,7 @@ export default async function LeadDetailPage({
   // Fetch logged voice calls for the unified timeline
   const { data: voiceCalls } = await supabase
     .from('voice_calls')
-    .select('id, created_at, started_at, direction, outcome, duration_seconds, outcome_notes, transcript_summary, recording_url, status')
+    .select('id, created_at, started_at, direction, outcome, duration_seconds, outcome_notes, transcript_summary, recording_url, status, call_mode, agent_type, staff_user_id')
     .eq('lead_id', id)
     .order('created_at', { ascending: true })
     .limit(300)
@@ -139,6 +141,10 @@ export default async function LeadDetailPage({
   // browser agree on day boundaries.
   const timeZone = await resolvePracticeTimeZone(supabase, lead.organization_id)
 
+  // Admins get the per-call "Use for AI training" control on call cards.
+  const { data: ownProfile } = await getOwnProfile(supabase, 'role')
+  const canTrainAi = !!ownProfile && isAdminRole(ownProfile.role)
+
   return (
     <LeadDetail
       lead={lead}
@@ -156,6 +162,7 @@ export default async function LeadDetailPage({
       prequalEnabled={prequalEnabled}
       noShowFeeEnabled={noShowFeeEnabled}
       timeZone={timeZone}
+      canTrainAi={canTrainAi}
     />
   )
 }
