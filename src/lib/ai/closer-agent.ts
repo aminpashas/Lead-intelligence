@@ -31,6 +31,7 @@ import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
+import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -637,7 +638,7 @@ export async function closerAgentRespond(
   // Inject the org's trained memories + knowledge base into the LIVE closer, so
   // trained guidance governs real conversations (not just the playground).
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, bookingSettings, rulesBlock, profileBlock] = await Promise.all([
+  const [knowledgeBlock, personaBlock, bookingSettings, rulesBlock, profileBlock, brandBlock] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     supabase
@@ -647,6 +648,12 @@ export async function closerAgentRespond(
       .maybeSingle(),
     buildAgencyRulesBlock(supabase),
     buildPracticeProfileBlock(supabase, context.organization_id),
+    // Closer is an implant-line agent — unsignalled leads get the implants DBA,
+    // never the TMJ/sleep brand unless the lead explicitly signals it.
+    buildBrandIdentityBlock(supabase, context.organization_id, {
+      lead: context.lead,
+      fallbackServiceLine: 'implants',
+    }),
   ])
 
   // Ground the closer in today's real date (practice timezone) — it books
@@ -669,7 +676,7 @@ export async function closerAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, dateBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, brandBlock, dateBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
   // in delimiters. The autopilot's injection scan only neutralized the NEWEST

@@ -37,6 +37,7 @@ import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
+import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -372,11 +373,18 @@ export async function setterAgentRespond(
   // "train your AI" actually governs real patient conversations (not just the
   // playground). Keyed on the latest inbound message for knowledge relevance.
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, rulesBlock, profileBlock] = await Promise.all([
+  const [knowledgeBlock, personaBlock, rulesBlock, profileBlock, brandBlock] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     buildAgencyRulesBlock(supabase),
     buildPracticeProfileBlock(supabase, context.organization_id),
+    // The setter is an implant-line agent: an unsignalled lead here is an
+    // implant lead, so the brand falls back to the implants DBA — never the
+    // TMJ/sleep brand unless the lead explicitly signals that service line.
+    buildBrandIdentityBlock(supabase, context.organization_id, {
+      lead: context.lead,
+      fallbackServiceLine: 'implants',
+    }),
   ])
 
   // Discovery-first guide + pricing integrity — on EVERY channel now (was
@@ -416,7 +424,7 @@ export async function setterAgentRespond(
     ? `## PROACTIVE OUTREACH STEP\nThere is no new inbound message. You are composing the practice's next OUTBOUND ${context.channel} touch in a follow-up cadence.\nStep goal: ${context.outreach_instruction}\nKeep it short, warm, and easy to reply to. Do not fabricate prior commitments or approvals.`
     : ''
 
-  const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, brandBlock, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
   // in delimiters. The autopilot's injection scan only neutralized the NEWEST

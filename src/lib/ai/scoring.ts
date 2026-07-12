@@ -6,6 +6,7 @@ import { getEnrichmentSummary } from '@/lib/enrichment'
 import type { EnrichmentSummary } from '@/lib/enrichment/types'
 import type { PatientProfile } from '@/types/database'
 import { formatPatientPsychologyForPrompt } from './agent-types'
+import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -406,6 +407,17 @@ export async function generateLeadEngagement(
     content: scrubPHI(msg.content),
   }))
 
+  // Pin the per-service-line DBA so even this fallback can't sign an implant
+  // email with the TMJ center's name (implant leads → the implants brand;
+  // TMJ/sleep brand only on explicit lead signal).
+  const brandBlock =
+    supabase && lead.organization_id
+      ? await buildBrandIdentityBlock(supabase, lead.organization_id, {
+          lead,
+          fallbackServiceLine: 'implants',
+        })
+      : ''
+
   const systemPrompt = `You are an AI assistant for a dental implant practice specializing in All-on-4 full arch implants.
 You are communicating with a potential patient via ${context.channel === 'sms' ? 'text message (keep messages under 160 chars when possible)' : 'email'}.
 
@@ -422,7 +434,7 @@ Your goal: ${
 Lead Profile:
 ${leadContext}${psychologyBlock}
 
-Guidelines:
+${brandBlock ? `${brandBlock}\n\n` : ''}Guidelines:
 - Be warm, professional, and empathetic
 - Use simple language, avoid medical jargon
 - Never make specific medical claims or diagnoses

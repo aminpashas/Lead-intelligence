@@ -32,6 +32,7 @@ import { verifyDob } from '@/lib/ai/identity-verification'
 import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
 import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
+import { resolveBrandIdentity } from '@/lib/branding/prompt-block'
 import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/treatment/treatment-closing'
 import { getOrCreateFinancingShareLink } from '@/lib/financing/share-link'
 import { buildQualificationStatus, isDiscoveryComplete } from '@/lib/ai/agent-types'
@@ -1345,10 +1346,19 @@ async function executeSendEmailToLead(
     return { success: false, data: {}, message: 'Cannot send email — no email address on file. Ask the patient for their email address.' }
   }
 
+  // Wrapper branding must match the body branding: resolve the lead's
+  // service-line DBA (implant leads → Dion Health; TMJ brand only for
+  // explicitly-signalled TMJ/sleep leads) instead of the raw org name.
+  const brand = await resolveBrandIdentity(supabase, context.organization_id, {
+    lead: context.lead as Partial<Lead>,
+    fallbackServiceLine: 'implants',
+  }).catch(() => null)
+
   const formatted = formatCustomEmail(message, leadName, orgName, {
     subject,
     leadId: context.lead_id,
     orgId: context.organization_id,
+    brandName: brand?.practiceName,
   })
 
   try {
