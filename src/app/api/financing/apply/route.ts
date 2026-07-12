@@ -11,6 +11,10 @@ import type { ApplicantData, WaterfallConfig, LenderSlug, LenderIntegrationType 
 import type { CreditTier } from '@/lib/enrichment/credit-prequal'
 import { checkRateLimit, FINANCING_APPLY_RATE_LIMIT, FINANCING_TOKEN_RATE_LIMIT } from '@/lib/financing/rate-limiter'
 
+// FCRA guardrail: real applications always run tier-neutral. Never replace
+// this with a tier read from leads/enrichment data (see fcra-guardrail.test.ts).
+const NEUTRAL_TIER: CreditTier = 'unknown'
+
 /**
  * POST /api/financing/apply
  *
@@ -98,12 +102,6 @@ export async function POST(request: NextRequest) {
         .eq('is_active', true)
         .order('priority_order', { ascending: true })
 
-      const { data: publicLeadEnrichment } = await serviceClient
-        .from('leads')
-        .select('credit_tier')
-        .eq('id', leadId)
-        .single()
-
       // serviceClient is not schema-generically typed, so annotate the rows.
       const publicLenderConfigs = (publicLenderConfigsRaw ?? []) as Array<{
         lender_slug: LenderSlug
@@ -111,8 +109,12 @@ export async function POST(request: NextRequest) {
         integration_type: LenderIntegrationType
       }>
       const publicActiveSlugs = publicLenderConfigs.map((lc) => lc.lender_slug)
-      const publicCreditTier = ((publicLeadEnrichment as { credit_tier?: CreditTier | null } | null)?.credit_tier) || 'unknown'
-      const publicOptimizedOrder = buildOptimalWaterfallOrder(publicActiveSlugs, publicCreditTier)
+      // FCRA guardrail: no estimated credit tier from lead enrichment may
+      // select or order lenders on a real application — that would be an
+      // eligibility use of marketing data (15 U.S.C. § 1681a(d)). The
+      // waterfall runs tier-neutral; lenders make their own credit decisions
+      // on the applicant's consented submission.
+      const publicOptimizedOrder = buildOptimalWaterfallOrder(publicActiveSlugs, NEUTRAL_TIER)
       const publicFinalOrder = publicOptimizedOrder.length > 0 ? publicOptimizedOrder : publicActiveSlugs
       const publicWaterfallConfig: WaterfallConfig = {
         lenders: publicFinalOrder.map((slug, idx) => {
@@ -320,20 +322,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Fetch the lead's estimated credit tier from enrichment data
-    // to build a credit-optimized waterfall order
-    const { data: leadEnrichment } = await supabase
-      .from('leads')
-      .select('credit_tier, financing_readiness_score')
-      .eq('id', leadId)
-      .single()
-
-    const creditTier = (leadEnrichment?.credit_tier as CreditTier | null) || 'unknown'
     const activeSlugs = lenderConfigs.map(lc => lc.lender_slug as LenderSlug)
 
-    // Build credit-aware ordering: highest approval-likelihood lenders first
-    const optimizedOrder = buildOptimalWaterfallOrder(activeSlugs, creditTier)
-    const strategyDescription = describeWaterfallStrategy(optimizedOrder, creditTier)
+    // FCRA guardrail: tier-neutral waterfall — see the public branch above.
+    const optimizedOrder = buildOptimalWaterfallOrder(activeSlugs, NEUTRAL_TIER)
+    const strategyDescription = describeWaterfallStrategy(optimizedOrder, NEUTRAL_TIER)
 
     // Fall back to manual priority_order if optimization produces no results
     const finalOrder = optimizedOrder.length > 0 ? optimizedOrder : activeSlugs
@@ -386,7 +379,7 @@ export async function POST(request: NextRequest) {
       ['ssn', 'financial', 'name', 'dob', 'address', 'phone', 'email']
     )
 
-    // Log activity — include credit tier and waterfall strategy for transparency
+    // Log activity — include waterfall strategy for transparency
     try {
       await supabase
         .from('lead_activities')
@@ -396,11 +389,10 @@ export async function POST(request: NextRequest) {
           user_id: user.id,
           activity_type: 'financing_submitted',
           title: 'Financing application submitted',
-          description: `Requested: $${validation.data.requested_amount.toLocaleString()} · Credit tier: ${creditTier} · ${strategyDescription}`,
+          description: `Requested: $${validation.data.requested_amount.toLocaleString()} · ${strategyDescription}`,
           metadata: {
             application_id: application.id,
             requested_amount: validation.data.requested_amount,
-            credit_tier: creditTier,
             waterfall_strategy: strategyDescription,
             lender_order: finalOrder,
             lender_count: finalOrder.length,
