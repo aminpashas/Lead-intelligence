@@ -77,4 +77,10 @@ describe('estimateSmsSegments', () => {
     expect(estimateSmsSegments('x'.repeat(306))).toBe(2)
     expect(estimateSmsSegments('x'.repeat(307))).toBe(3)
   })
+  it('switches to UCS-2 limits (70 single / 67 per part) when non-ASCII present', () => {
+    expect(estimateSmsSegments('👍' + 'x'.repeat(68))).toBe(1) // 70 chars (emoji = 2 UTF-16 units)
+    expect(estimateSmsSegments('é' + 'x'.repeat(70))).toBe(2) // 71 chars, UCS-2
+    expect(estimateSmsSegments('é' + 'x'.repeat(133))).toBe(2) // 134 = 2×67
+    expect(estimateSmsSegments('é' + 'x'.repeat(134))).toBe(3)
+  })
 })
