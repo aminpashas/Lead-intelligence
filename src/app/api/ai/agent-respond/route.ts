@@ -10,6 +10,7 @@ import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { Lead, Conversation, PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
 import { storeTechniqueUsage, storeLeadAssessment, updateConversationSummary, getLatestAssessment, getRecentTechniqueHistory } from '@/lib/ai/technique-tracker'
 import { processEncounter } from '@/lib/ai/encounter-processor'
+import { assessDraftGate } from '@/lib/ai/draft-gating'
 
 const agentRespondSchema = z.object({
   conversation_id: z.string().uuid(),
@@ -97,6 +98,28 @@ export async function POST(request: NextRequest) {
     message_count: conv.message_count || messages?.length || 0,
     previous_assessment: previousAssessment,
     technique_history: techniqueHistory,
+  }
+
+  // ── Pre-generation gate ─────────────────────────────────────────
+  // Before we spend a model call composing a closing message, decide whether a
+  // sales draft is even appropriate. An enraged lead needs a human, not an
+  // upbeat bot; a thread that already ended has nothing to reply to. This keeps
+  // the composer honest with the Lead Intelligence panel that sits beside it.
+  const gate = assessDraftGate({
+    patientProfile,
+    previousAssessment,
+    history: conversationHistory,
+    hasBookedAppointment: lead.status === 'consultation_scheduled',
+  })
+
+  if (gate.block) {
+    return NextResponse.json({
+      blocked: true,
+      block_kind: gate.kind,
+      reason: gate.reason,
+      guidance: gate.guidance,
+      message: null,
+    })
   }
 
   try {

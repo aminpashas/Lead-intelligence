@@ -59,7 +59,7 @@ export async function sendEmail(params: {
 
 export type SendEmailToLeadResult =
   | { sent: true; id: string }
-  | { sent: false; reason: ConsentDenyReason | 'compliance_blocked' | 'compliance_review_required' }
+  | { sent: false; reason: ConsentDenyReason | 'compliance_blocked' | 'compliance_review_required' | 'campaign_not_authorized' }
 
 /**
  * Email send with CAN-SPAM consent enforcement (HARD GATE per brief Section 2.2).
@@ -81,6 +81,12 @@ export async function sendEmailToLead(params: {
   /** When true, soft-flagged content (pricing claims, soft profanity) is also blocked. */
   blockOnReview?: boolean
 }): Promise<SendEmailToLeadResult> {
+  const { assertCampaignSendAllowed } = await import('@/lib/campaigns/send-authorization')
+  const campaignDecision = await assertCampaignSendAllowed(params.supabase, { leadId: params.leadId, caller: params.caller })
+  if (!campaignDecision.allowed) {
+    return { sent: false, reason: 'campaign_not_authorized' }
+  }
+
   const decision = await assertConsent(params.supabase, params.leadId, 'email')
   if (!decision.allowed) {
     await logConsentViolation(params.supabase, {

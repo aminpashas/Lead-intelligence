@@ -70,7 +70,7 @@ export async function sendSMS(to: string, body: string): Promise<{ sid: string; 
 
 export type SendSMSToLeadResult =
   | { sent: true; sid: string; status: string }
-  | { sent: false; reason: ConsentDenyReason | 'compliance_blocked' | 'compliance_review_required' | 'quiet_hours' | 'us_sms_disabled' }
+  | { sent: false; reason: ConsentDenyReason | 'compliance_blocked' | 'compliance_review_required' | 'quiet_hours' | 'us_sms_disabled' | 'campaign_not_authorized' }
 
 /**
  * SMS send with TCPA consent enforcement (HARD GATE per brief Section 2.2).
@@ -110,6 +110,12 @@ export async function sendSMSToLead(params: {
    */
   allowUnconsented?: boolean
 }): Promise<SendSMSToLeadResult> {
+  const { assertCampaignSendAllowed } = await import('@/lib/campaigns/send-authorization')
+  const campaignDecision = await assertCampaignSendAllowed(params.supabase, { leadId: params.leadId, caller: params.caller })
+  if (!campaignDecision.allowed) {
+    return { sent: false, reason: 'campaign_not_authorized' }
+  }
+
   const decision = await assertConsent(params.supabase, params.leadId, 'sms')
   if (!decision.allowed) {
     // With the re-permission override, re-evaluate through smsCampaignGate — it

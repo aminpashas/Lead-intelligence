@@ -2,7 +2,12 @@
 
 export type LenderSlug = 'carecredit' | 'sunbit' | 'proceed' | 'lendingclub' | 'cherry' | 'alpheon' | 'affirm'
 export type LenderIntegrationType = 'api' | 'link' | 'iframe'
-export type FinancingApplicationStatus = 'pending' | 'in_progress' | 'approved' | 'denied' | 'error' | 'expired'
+// `awaiting_patient` is a terminal-but-positive outcome: the waterfall ran, no
+// API lender auto-approved/declined, and one or more link-based lenders emitted
+// an application URL the patient must complete on the lender's site. It is NOT a
+// denial — leads must not be flagged un-financeable and the "sorry, denied"
+// follow-up must not fire. See executeWaterfall's terminal decision.
+export type FinancingApplicationStatus = 'pending' | 'in_progress' | 'approved' | 'denied' | 'error' | 'expired' | 'awaiting_patient'
 export type FinancingSubmissionStatus = 'pending' | 'submitted' | 'approved' | 'denied' | 'error' | 'timeout' | 'link_sent'
 
 // ── Database Row Types ──────────────────────────────────────────

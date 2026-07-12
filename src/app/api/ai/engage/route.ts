@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { generateLeadEngagement } from '@/lib/ai/scoring'
+import type { PatientProfile } from '@/types/database'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
@@ -61,10 +62,20 @@ export async function POST(request: NextRequest) {
     }))
   }
 
+  // Load the analyzer's persisted read of this patient so the fallback drafter
+  // grounds its reply in the same intelligence the Lead Intelligence panel shows
+  // (narrative summary, next-best-action, angry-lead tone override).
+  const { data: patientProfile } = await supabase
+    .from('patient_profiles')
+    .select('*')
+    .eq('lead_id', lead.id)
+    .maybeSingle()
+
   try {
     const result = await generateLeadEngagement(lead, history, {
       mode: parsed.data.mode,
       channel: parsed.data.channel,
+      patientProfile: patientProfile as PatientProfile | null,
     }, supabase)
 
     // Log AI interaction
