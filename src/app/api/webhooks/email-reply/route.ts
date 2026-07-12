@@ -179,28 +179,34 @@ export async function POST(request: NextRequest) {
     // must never fail the webhook response.
     try {
       const { openResponseSla, recordImmediateAiResponse } = await import('@/lib/automation/sla')
-      if (
-        result.action === 'held_for_human' &&
-        result.allocation?.owner === 'hold' &&
-        result.allocation.slaSeconds
-      ) {
-        await openResponseSla(supabase, {
+      if (result.action === 'held_for_human') {
+        if (result.allocation?.owner === 'hold' && result.allocation.slaSeconds) {
+          await openResponseSla(supabase, {
+            organizationId: orgId,
+            conversationId: convoId,
+            leadId,
+            inboundMessageId: inboundMessage?.id ?? null,
+            slaSeconds: result.allocation.slaSeconds,
+            takeoverPayload: {
+              organization_id: orgId,
+              conversation_id: convoId,
+              lead_id: leadId,
+              inbound_message: emailBody,
+              channel: 'email',
+              sender_contact: senderEmail,
+            },
+          })
+        }
+        // Alert the assignee pool that a lead is waiting on a human reply
+        // (with an SLA timer when owner === 'hold'). Suppresses anyone
+        // actively viewing the thread; never throws.
+        const { notifyInboundMessage } = await import('@/lib/notifications/staff-notify')
+        await notifyInboundMessage(supabase, {
           organizationId: orgId,
           conversationId: convoId,
           leadId,
-          inboundMessageId: inboundMessage?.id ?? null,
-          slaSeconds: result.allocation.slaSeconds,
-          takeoverPayload: {
-            organization_id: orgId,
-            conversation_id: convoId,
-            lead_id: leadId,
-            inbound_message: emailBody,
-            channel: 'email',
-            sender_contact: senderEmail,
-          },
+          messagePreview: emailBody,
         })
-        // TODO(D5: notifyInboundMessage): alert the assignee pool that a lead
-        // is waiting on a human reply with an SLA running.
       } else if (result.action === 'sent') {
         await recordImmediateAiResponse(supabase, {
           organizationId: orgId,

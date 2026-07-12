@@ -8,6 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead } from '@/types/database'
 import {
+  type EnrichmentAttributes,
   type EnrichmentConfig,
   type EnrichmentSummary,
   type EnrichmentType,
@@ -21,6 +22,7 @@ import { geolocateIP, ipGeolocationConfidence } from './ip-geolocation'
 import { extractGoogleAdsKeyword, googleAdsKeywordConfidence } from './google-ads-keyword'
 import { parseWebsiteBehavior, websiteBehaviorConfidence } from './website-behavior'
 import { autoPreQualify, preQualConfidence } from './credit-prequal'
+import { enrichWithExperian, experianConfidence, experianLeadColumns } from './experian-consumer'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 
 type EnrichmentResult = {
@@ -210,6 +212,60 @@ export async function enrichLead(
     }
   }
 
+  // Experian ConsumerView (marketing data — never feeds financing eligibility;
+  // see experian-consumer.ts header + fcra-guardrail test). Only runs when the
+  // provider key is configured and the lead has enough identity to match.
+  if (
+    mergedConfig.experian_consumer.enabled &&
+    process.env.EXPERIAN_CLIENT_ID &&
+    lead.first_name &&
+    (lead.zip_code || lead.state)
+  ) {
+    const shouldRun = await shouldEnrich(supabase, lead.id, 'experian_consumer')
+    if (shouldRun) {
+      tasks.push(async () => {
+        try {
+          await auditPHITransmission(
+            { supabase, organizationId: lead.organization_id, actorType: 'system' },
+            'lead', lead.id, 'experian_consumerview', ['name', 'address', 'email', 'phone']
+          )
+          const data = await enrichWithExperian({
+            first_name: lead.first_name,
+            last_name: lead.last_name,
+            city: lead.city,
+            state: lead.state,
+            zip_code: lead.zip_code,
+            email: lead.email,
+            phone: lead.phone,
+            date_of_birth: lead.date_of_birth,
+          })
+          if (data.match_confidence <= 0) {
+            return {
+              type: 'experian_consumer' as const,
+              status: 'skipped' as const,
+              data: {},
+              confidence: 0,
+            }
+          }
+          return {
+            type: 'experian_consumer' as const,
+            status: 'success' as const,
+            data: data as unknown as Record<string, unknown>,
+            confidence: experianConfidence(data),
+          }
+        } catch (err) {
+          return {
+            type: 'experian_consumer' as const,
+            status: 'failed' as const,
+            data: {},
+            confidence: 0,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          }
+        }
+      })
+    }
+  }
+
   // Run all enrichment tasks in parallel (except credit prequal which runs after)
   const settled = await Promise.allSettled(tasks.map((t) => t()))
   for (const result of settled) {
@@ -281,6 +337,8 @@ export async function enrichLead(
       enrichment_source: ENRICHMENT_SOURCES[result.type],
       status: result.status,
       data: result.data,
+      enrichment_attributes:
+        result.status === 'success' ? buildEnrichmentAttributes(result.type, result.data) : {},
       error_message: result.error || null,
       confidence_score: result.confidence,
       enriched_at: now.toISOString(),
@@ -333,6 +391,16 @@ export async function enrichLead(
     updateData.distance_to_practice_miles = ipResult.data.distance_to_practice_miles
   }
 
+  // Typed marketing-data columns from Experian (household_income_band,
+  // homeowner_status, home_value_band, mosaic_segment). Marketing use only.
+  const experianResult = results.find((r) => r.type === 'experian_consumer' && r.status === 'success')
+  if (experianResult) {
+    Object.assign(
+      updateData,
+      experianLeadColumns(experianResult.data as unknown as Parameters<typeof experianLeadColumns>[0])
+    )
+  }
+
   await supabase.from('leads').update(updateData).eq('id', lead.id)
 
   // Log activity
@@ -353,6 +421,58 @@ export async function enrichLead(
     summary: summary || buildEmptySummary(),
     enrichment_score: enrichmentScore,
   }
+}
+
+/**
+ * Namespace prefixes per provider for enrichment_attributes storage.
+ * credit_prequal is deliberately ABSENT: financing outputs stay in the typed
+ * `data` payload and never enter the marketing attribute store (FCRA hygiene —
+ * keeps the attribute surface strictly marketing/operational).
+ */
+const ATTRIBUTE_NAMESPACES: Partial<Record<EnrichmentType, string>> = {
+  email_validation: 'email',
+  phone_validation: 'phone',
+  ip_geolocation: 'geo',
+  google_ads_keyword: 'ads',
+  website_behavior: 'web',
+}
+
+/**
+ * Build the namespaced attribute map for a provider result — pulls from what
+ * the provider ALREADY returned (no extra external calls). Scalars only;
+ * nulls/undefined skipped; string arrays JSON-encoded. Experian results carry
+ * their own pre-namespaced `experian.*` attribute map.
+ */
+export function buildEnrichmentAttributes(
+  type: EnrichmentType,
+  data: Record<string, unknown>
+): EnrichmentAttributes {
+  if (type === 'experian_consumer') {
+    const attrs = data.attributes
+    if (attrs && typeof attrs === 'object' && !Array.isArray(attrs)) {
+      const out: EnrichmentAttributes = {}
+      for (const [k, v] of Object.entries(attrs as Record<string, unknown>)) {
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = v
+      }
+      return out
+    }
+    return {}
+  }
+
+  const ns = ATTRIBUTE_NAMESPACES[type]
+  if (!ns) return {}
+
+  const out: EnrichmentAttributes = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null || value === undefined) continue
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      if (typeof value === 'string' && value.trim() === '') continue
+      out[`${ns}.${key}`] = value
+    } else if (Array.isArray(value) && value.every((v) => typeof v === 'string')) {
+      out[`${ns}.${key}`] = JSON.stringify(value)
+    }
+  }
+  return out
 }
 
 /**

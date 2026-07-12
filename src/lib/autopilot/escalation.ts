@@ -10,6 +10,14 @@ import { sendSMS } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { escapeHtml } from '@/lib/utils'
+import {
+  resolveStaffRecipients,
+  logStaffNotification,
+} from '@/lib/notifications/staff-notify'
+import { sendPushToUser } from '@/lib/notifications/web-push'
+
+/** notification_log.event_type stamped on every escalation send. */
+const ESCALATION_EVENT_TYPE = 'escalation.created'
 
 export type EscalationReason =
   | 'low_confidence'
@@ -89,21 +97,35 @@ export async function createEscalation(
 }
 
 /**
- * Notify org admins about a new escalation via SMS/email.
+ * Notify staff about a new escalation via SMS/email/web-push, routed through
+ * the shared notification stack (Workstream D5):
+ *
+ *   - Recipients are assignee-first — leads.assigned_to when the escalated
+ *     lead has an active owner, then the org's default role pool, then org
+ *     admins (cap 5) as the final fallback (the pre-D5 behavior).
+ *   - Per-user channel toggles in user_profiles.notification_prefs are
+ *     honored (default ON; an explicit `false` opts out).
+ *   - Every send is appended to notification_log (event 'escalation.created')
+ *     so audits and future cooldowns see escalation traffic too.
+ *   - Slack is intentionally NOT dispatched here: ConnectorEventType has no
+ *     escalation event, and 'message.received' (the only staff-notify Slack
+ *     event) is reserved for inbound patient messages — reusing it would
+ *     mislabel escalations in orgs' Slack channels.
+ *
+ * SMS and email copy is unchanged from the pre-refactor implementation.
  */
 async function notifyStaff(
   supabase: SupabaseClient,
   input: CreateEscalationInput
 ): Promise<void> {
-  // Get org admins
-  const { data: admins } = await supabase
-    .from('user_profiles')
-    .select('id, full_name, phone, email')
-    .eq('organization_id', input.organization_id)
-    .eq('role', 'admin')
-    .limit(5)
+  // Assignee-first recipient chain (falls back to org admins, as before).
+  const recipients = await resolveStaffRecipients(
+    supabase,
+    input.organization_id,
+    input.lead_id
+  )
 
-  if (!admins || admins.length === 0) return
+  if (recipients.length === 0) return
 
   // Get lead name for context
   const { data: lead } = await supabase
@@ -125,25 +147,59 @@ async function notifyStaff(
   const priorityTag = isUrgent ? `[${priority.toUpperCase()}] ` : ''
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.example.com'
 
-  for (const admin of admins) {
-    // Send SMS notification
-    if (admin.phone) {
+  for (const recipient of recipients) {
+    const prefs = recipient.notification_prefs || {}
+
+    // Send web-push notification (default on)
+    if (prefs.push !== false) {
       try {
-        const phone = decryptField(admin.phone) || admin.phone
+        const delivered = await sendPushToUser(supabase, recipient.id, {
+          title: `${alertIcon} ${priorityTag}AI Escalation: ${leadName}`,
+          body: `${reasonText} — tap to review the conversation`,
+          url: `/conversations/${input.conversation_id}`,
+          tag: `escalation-${input.conversation_id}`,
+        })
+        if (delivered > 0) {
+          await logStaffNotification(supabase, {
+            organizationId: input.organization_id,
+            conversationId: input.conversation_id,
+            leadId: input.lead_id,
+            userId: recipient.id,
+            channel: 'push',
+            eventType: ESCALATION_EVENT_TYPE,
+          })
+        }
+      } catch {
+        // Non-critical — continue to the other channels
+      }
+    }
+
+    // Send SMS notification (default on)
+    if (recipient.phone && prefs.sms !== false) {
+      try {
+        const phone = decryptField(recipient.phone) || recipient.phone
         await sendSMS(
           phone,
           `${alertIcon} ${priorityTag}AI Escalation: ${leadName} needs human attention. Reason: ${reasonText}. ` +
           `Review: ${appUrl}/conversations/${input.conversation_id}`
         )
+        await logStaffNotification(supabase, {
+          organizationId: input.organization_id,
+          conversationId: input.conversation_id,
+          leadId: input.lead_id,
+          userId: recipient.id,
+          channel: 'sms',
+          eventType: ESCALATION_EVENT_TYPE,
+        })
       } catch {
-        // Non-critical — continue to next admin
+        // Non-critical — continue to next recipient
       }
     }
 
-    // Send email notification
-    if (admin.email) {
+    // Send email notification (default on)
+    if (recipient.email && prefs.email !== false) {
       try {
-        const email = decryptField(admin.email) || admin.email
+        const email = decryptField(recipient.email) || recipient.email
         await sendEmail({
           to: email,
           subject: `${alertIcon} ${priorityTag}AI Escalation: ${escapeHtml(leadName)} needs attention`,
@@ -163,6 +219,14 @@ async function notifyStaff(
             </div>
           `,
           text: `AI Escalation: ${leadName} needs attention. Reason: ${reasonText}. Review: ${appUrl}/conversations/${input.conversation_id}`,
+        })
+        await logStaffNotification(supabase, {
+          organizationId: input.organization_id,
+          conversationId: input.conversation_id,
+          leadId: input.lead_id,
+          userId: recipient.id,
+          channel: 'email',
+          eventType: ESCALATION_EVENT_TYPE,
         })
       } catch {
         // Non-critical

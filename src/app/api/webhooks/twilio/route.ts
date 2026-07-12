@@ -293,28 +293,34 @@ export async function POST(request: NextRequest) {
     // must never fail the webhook response.
     try {
       const { openResponseSla, recordImmediateAiResponse } = await import('@/lib/automation/sla')
-      if (
-        result.action === 'held_for_human' &&
-        result.allocation?.owner === 'hold' &&
-        result.allocation.slaSeconds
-      ) {
-        await openResponseSla(supabase, {
+      if (result.action === 'held_for_human') {
+        if (result.allocation?.owner === 'hold' && result.allocation.slaSeconds) {
+          await openResponseSla(supabase, {
+            organizationId: lead.organization_id,
+            conversationId: conversation.id,
+            leadId: lead.id,
+            inboundMessageId: inboundMessage?.id ?? null,
+            slaSeconds: result.allocation.slaSeconds,
+            takeoverPayload: {
+              organization_id: lead.organization_id,
+              conversation_id: conversation.id,
+              lead_id: lead.id,
+              inbound_message: body,
+              channel: 'sms',
+              sender_contact: from,
+            },
+          })
+        }
+        // Alert the assignee pool that a lead is waiting on a human reply
+        // (with an SLA timer when owner === 'hold'). Suppresses anyone
+        // actively viewing the thread; never throws.
+        const { notifyInboundMessage } = await import('@/lib/notifications/staff-notify')
+        await notifyInboundMessage(supabase, {
           organizationId: lead.organization_id,
           conversationId: conversation.id,
           leadId: lead.id,
-          inboundMessageId: inboundMessage?.id ?? null,
-          slaSeconds: result.allocation.slaSeconds,
-          takeoverPayload: {
-            organization_id: lead.organization_id,
-            conversation_id: conversation.id,
-            lead_id: lead.id,
-            inbound_message: body,
-            channel: 'sms',
-            sender_contact: from,
-          },
+          messagePreview: body,
         })
-        // TODO(D5: notifyInboundMessage): alert the assignee pool that a lead
-        // is waiting on a human reply with an SLA running.
       } else if (result.action === 'sent') {
         await recordImmediateAiResponse(supabase, {
           organizationId: lead.organization_id,

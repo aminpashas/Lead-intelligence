@@ -27,6 +27,7 @@ import {
   FileSignature,
   History,
   ListTodo,
+  SlidersHorizontal,
   ChevronsUpDown,
   PanelLeftClose,
   PanelLeftOpen,
@@ -87,6 +88,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Insights',
     items: [
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+      { name: 'Automation', href: '/automation', icon: SlidersHorizontal },
       { name: 'Audit Trail', href: '/audit', icon: History },
     ],
   },

@@ -48,6 +48,7 @@ import { CallCard } from './call-card'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
 import { useConversationPresence } from '@/lib/hooks/use-conversation-presence'
 import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
+import { SlaCountdown } from './sla-countdown'
 
 // ── Thread shaping ──────────────────────────────────────────
 // Consecutive messages from the same sender within this window render as one
@@ -571,6 +572,9 @@ export function ConversationThread({
           </Button>
         </div>
       </div>
+
+      {/* Human-response SLA countdown — renders only while a pending timer runs */}
+      <SlaCountdown conversationId={conversation.id} />
 
       {/* ── Messages ───────────────────────────────────────── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto bg-aurea-canvas px-4 py-5 lg:px-6">

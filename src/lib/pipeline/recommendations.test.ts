@@ -203,6 +203,76 @@ describe('buildRecommendations with EV', () => {
   })
 })
 
+// ── C3: execution descriptor ─────────────────────────────────────────────────
+
+describe('execution descriptor', () => {
+  // One signals fixture that fires every kind at least once.
+  const signals = makeSignals([
+    makeStage({
+      stageId: 'sales-1',
+      position: 1,
+      slug: 'consult',
+      hotWarmReachableSms: 10, // strike_hot
+      staleReachableSms: 20, // follow_up
+      deliberatingDue: 4, // follow_up_deliberating
+      readyToBook: 6, // advance_stage (needs a next sales stage)
+    }),
+    makeStage({ stageId: 'sales-2', position: 2, slug: 'closing' }),
+    makeStage({
+      stageId: 'no-comm',
+      kind: 'operational',
+      slug: RECOMMENDATION_CONFIG.noCommunicationSlug,
+      neverContacted: 30, // start_outreach
+    }),
+    makeStage({
+      stageId: 'nurture',
+      kind: 'operational',
+      slug: 'nurturing',
+      staleReachableSms: 20, // re_engage
+    }),
+  ])
+  const recs = buildRecommendations(signals)
+  const byKind = Object.fromEntries(recs.map((r) => [r.kind, r]))
+
+  it('fires every kind in the fixture', () => {
+    expect(Object.keys(byKind).sort()).toEqual([
+      'advance_stage', 'follow_up', 'follow_up_deliberating',
+      're_engage', 'start_outreach', 'strike_hot',
+    ])
+  })
+
+  it.each([
+    ['strike_hot', 'setter_ai', 'sms_broadcast', true, false, 500],
+    ['follow_up_deliberating', 'closer_ai', 'sms_broadcast', true, false, 200],
+    ['follow_up', 'setter_ai', 'sms_broadcast', true, false, 500],
+    ['re_engage', 'setter_ai', 'sms_broadcast', true, false, 500],
+    ['start_outreach', 'setter_ai', 'sms_broadcast', true, true, 1000],
+    ['advance_stage', 'bulk_system', 'stage_move', false, false, 5000],
+  ] as const)(
+    '%s → executor %s, action %s',
+    (kind, executor, action, consent, approval, maxLeads) => {
+      const rec = byKind[kind]
+      expect(rec.execution).toEqual({
+        version: 1,
+        executor,
+        action,
+        segment: rec.action.criteria,
+        guardrails: {
+          requiresConsentGate: consent,
+          requiresHumanApproval: approval,
+          maxLeads,
+        },
+      })
+    }
+  )
+
+  it('carries the SAME segment criteria in execution and the UI action', () => {
+    for (const rec of recs) {
+      expect(rec.execution.segment).toBe(rec.action.criteria)
+    }
+  })
+})
+
 // ── EV-eligibility pre-pass (bounds the RPC fan-out) ─────────────────────────
 
 describe('evEligibleSignals', () => {

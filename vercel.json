@@ -159,6 +159,14 @@
     {
       "path": "/api/cron/calibrate-scoring",
       "schedule": "0 2 * * 0"
+    },
+    {
+      "path": "/api/cron/pipeline-recommendations",
+      "schedule": "40 * * * *"
+    },
+    {
+      "path": "/api/cron/recommendation-outcomes",
+      "schedule": "50 1 * * *"
     }
   ]
 }

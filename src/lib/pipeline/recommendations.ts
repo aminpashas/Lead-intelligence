@@ -95,6 +95,86 @@ export type RecommendationKind =
   | 'advance_stage' // ready-to-book leads sitting too early → move forward
   | 'follow_up_deliberating' // deliberating deals whose follow-up date has arrived
 
+/** Every kind a Recommendation row can carry. The rules engine emits only
+ *  RecommendationKind; the LLM analyst (Workstream C2) adds 'analyst_insight'
+ *  rows when persisting to pipeline_recommendations. */
+export type AnyRecommendationKind = RecommendationKind | 'analyst_insight'
+
+// ── C3: execution descriptor ──────────────────────────────────────────────────
+// A machine-readable statement of WHO should execute a recommendation and HOW,
+// decoupled from the UI `action` (which describes the review hand-off surface).
+// Downstream automation (setter/closer agents, bulk systems) reads this instead
+// of parsing titles. Deterministic per kind — see EXECUTION_BY_KIND.
+
+export type RecommendationExecutor = 'setter_ai' | 'closer_ai' | 'human_task' | 'bulk_system'
+export type RecommendationExecutionAction = 'sms_broadcast' | 'stage_move' | 'call_task' | 'review'
+
+export type RecommendationExecution = {
+  version: 1
+  executor: RecommendationExecutor
+  action: RecommendationExecutionAction
+  /** The exact segment the executor operates on (same criteria as `action`). */
+  segment: SmartListCriteria
+  guardrails: {
+    /** Outbound messaging must pass the consent/A2P gate before sending. */
+    requiresConsentGate: boolean
+    /** A human must approve before the executor may act. */
+    requiresHumanApproval: boolean
+    /** Hard ceiling on leads touched in one execution. */
+    maxLeads: number
+  }
+}
+
+/** Deterministic executor/guardrail policy per kind. TUNE ME alongside
+ *  RECOMMENDATION_CONFIG — same "sales judgment lives in one block" rule. */
+const EXECUTION_BY_KIND: Record<
+  RecommendationKind,
+  Omit<RecommendationExecution, 'version' | 'segment'>
+> = {
+  // Hot leads: the setter AI texts them — consent-gated, no approval needed.
+  strike_hot: {
+    executor: 'setter_ai',
+    action: 'sms_broadcast',
+    guardrails: { requiresConsentGate: true, requiresHumanApproval: false, maxLeads: 500 },
+  },
+  // Due deliberating deals are a CLOSER conversation, not a setter blast.
+  follow_up_deliberating: {
+    executor: 'closer_ai',
+    action: 'sms_broadcast',
+    guardrails: { requiresConsentGate: true, requiresHumanApproval: false, maxLeads: 200 },
+  },
+  follow_up: {
+    executor: 'setter_ai',
+    action: 'sms_broadcast',
+    guardrails: { requiresConsentGate: true, requiresHumanApproval: false, maxLeads: 500 },
+  },
+  re_engage: {
+    executor: 'setter_ai',
+    action: 'sms_broadcast',
+    guardrails: { requiresConsentGate: true, requiresHumanApproval: false, maxLeads: 500 },
+  },
+  // First touch to a large cold pool: big blast radius → human approves first.
+  start_outreach: {
+    executor: 'setter_ai',
+    action: 'sms_broadcast',
+    guardrails: { requiresConsentGate: true, requiresHumanApproval: true, maxLeads: 1000 },
+  },
+  // Stage moves send nothing — no consent gate; cap mirrors AUTO_APPLY_CAP.
+  advance_stage: {
+    executor: 'bulk_system',
+    action: 'stage_move',
+    guardrails: { requiresConsentGate: false, requiresHumanApproval: false, maxLeads: 5000 },
+  },
+}
+
+/** Build the C3 descriptor for a rules-engine kind + segment. Pure. */
+export function buildExecution(
+  kind: RecommendationKind,
+  segment: SmartListCriteria
+): RecommendationExecution {
+  return { version: 1, segment, ...EXECUTION_BY_KIND[kind] }
+}
+
 /** What "Apply" does. All actions are review-first: they materialize a segment
  *  and hand off to an existing tool for the human to confirm. */
 export type RecommendationAction =
@@ -114,9 +194,9 @@ export type RecommendationAction =
     }
 
 export type Recommendation = {
-  /** Stable key (kind + stageId) — used for local "dismiss" persistence. */
+  /** Stable key (kind + stageId) — doubles as the persisted row's dedupe_key. */
   id: string
-  kind: RecommendationKind
+  kind: AnyRecommendationKind
   /** 0–100 impact score; the band renders highest-priority first. */
   priority: number
   title: string
@@ -134,6 +214,8 @@ export type Recommendation = {
   /** Deterministic explainability facts: the count that fired the rule plus,
    *  when present, the dollar expected value backing the priority boost. */
   evidence: RecommendationEvidence[]
+  /** C3: who executes this and under which guardrails (machine-readable). */
+  execution: RecommendationExecution
 }
 
 /**
@@ -293,9 +375,15 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // we track. Fires only in sales stages (deliberating is a closing state).
     if (s.kind === 'sales' && s.deliberatingDue >= cfg.minDeliberatingDue) {
       const ev = s.ev?.deliberatingDue ?? null
+      const criteria: SmartListCriteria = {
+        ...reachableSmsBase(s.stageId),
+        closing_temperatures: ['deliberating'],
+        closing_follow_up_before: signals.nowIso,
+      }
       recs.push({
         id: `follow_up_deliberating:${s.stageId}`,
         kind: 'follow_up_deliberating',
+        execution: buildExecution('follow_up_deliberating', criteria),
         priority: clampPriority(
           cfg.basePriority.follow_up_deliberating + Math.min(15, s.deliberatingDue / 2) * weight
         ),
@@ -317,11 +405,7 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
           type: 'broadcast',
           channel: 'sms',
           segmentName: `Due follow-up · ${s.stageName}`,
-          criteria: {
-            ...reachableSmsBase(s.stageId),
-            closing_temperatures: ['deliberating'],
-            closing_follow_up_before: signals.nowIso,
-          },
+          criteria,
         },
       })
     }
@@ -330,9 +414,14 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // SMS-reachable and haven't been nudged. Most urgent because intent decays.
     if (s.kind === 'sales' && s.hotWarmReachableSms >= cfg.minHotLeads) {
       const ev = s.ev?.hotWarmReachableSms ?? null
+      const criteria: SmartListCriteria = {
+        ...reachableSmsBase(s.stageId),
+        ai_qualifications: ['hot', 'warm'],
+      }
       recs.push({
         id: `strike_hot:${s.stageId}`,
         kind: 'strike_hot',
+        execution: buildExecution('strike_hot', criteria),
         priority: clampPriority(
           cfg.basePriority.strike_hot + Math.min(20, s.hotWarmReachableSms / 5) * weight
         ),
@@ -354,7 +443,7 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
           type: 'broadcast',
           channel: 'sms',
           segmentName: `Hot & warm · ${s.stageName}`,
-          criteria: { ...reachableSmsBase(s.stageId), ai_qualifications: ['hot', 'warm'] },
+          criteria,
         },
       })
     }
@@ -363,9 +452,14 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // with no contact in the staleness window.
     if (s.kind === 'sales' && s.staleReachableSms >= cfg.minStaleLeads) {
       const ev = s.ev?.staleReachableSms ?? null
+      const criteria: SmartListCriteria = {
+        ...reachableSmsBase(s.stageId),
+        last_contacted_before: signals.staleCutoffIso,
+      }
       recs.push({
         id: `follow_up:${s.stageId}`,
         kind: 'follow_up',
+        execution: buildExecution('follow_up', criteria),
         priority: clampPriority(
           cfg.basePriority.follow_up + Math.min(25, s.staleReachableSms / 20) * weight
         ),
@@ -387,10 +481,7 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
           type: 'broadcast',
           channel: 'sms',
           segmentName: `Needs follow-up · ${s.stageName}`,
-          criteria: {
-            ...reachableSmsBase(s.stageId),
-            last_contacted_before: signals.staleCutoffIso,
-          },
+          criteria,
         },
       })
     }
@@ -399,9 +490,14 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // recoverable pool. First touch beats everything.
     if (s.slug === cfg.noCommunicationSlug && s.neverContacted >= cfg.minNeverContacted) {
       const ev = s.ev?.neverContacted ?? null
+      const criteria: SmartListCriteria = {
+        ...reachableSmsBase(s.stageId),
+        never_contacted: true,
+      }
       recs.push({
         id: `start_outreach:${s.stageId}`,
         kind: 'start_outreach',
+        execution: buildExecution('start_outreach', criteria),
         priority: clampPriority(
           cfg.basePriority.start_outreach + Math.min(30, s.neverContacted / 50)
         ),
@@ -423,7 +519,7 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
           type: 'broadcast',
           channel: 'sms',
           segmentName: 'Never contacted',
-          criteria: { ...reachableSmsBase(s.stageId), never_contacted: true },
+          criteria,
         },
       })
     }
@@ -436,9 +532,14 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
       const next = nextSalesStage(s, signals.stages)
       if (next?.slug) {
         const ev = s.ev?.readyToBook ?? null
+        const criteria: SmartListCriteria = {
+          stages: [s.stageId],
+          conversation_intents: ['ready_to_book'],
+        }
         recs.push({
           id: `advance_stage:${s.stageId}`,
           kind: 'advance_stage',
+          execution: buildExecution('advance_stage', criteria),
           priority: clampPriority(
             cfg.basePriority.advance_stage + Math.min(20, s.readyToBook / 3) * weight
           ),
@@ -460,7 +561,7 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
             type: 'bulk_stage',
             toStageSlug: next.slug,
             segmentName: `Ready to book · ${s.stageName}`,
-            criteria: { stages: [s.stageId], conversation_intents: ['ready_to_book'] },
+            criteria,
           },
         })
       }
@@ -469,9 +570,14 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // R4 — Win back: a parked Nurturing/dormant bucket worth re-engaging.
     if (isNurtureStage(s.slug) && s.staleReachableSms >= cfg.minStaleLeads) {
       const ev = s.ev?.staleReachableSms ?? null
+      const criteria: SmartListCriteria = {
+        ...reachableSmsBase(s.stageId),
+        last_contacted_before: signals.staleCutoffIso,
+      }
       recs.push({
         id: `re_engage:${s.stageId}`,
         kind: 're_engage',
+        execution: buildExecution('re_engage', criteria),
         priority: clampPriority(
           cfg.basePriority.re_engage + Math.min(15, s.staleReachableSms / 40)
         ),
@@ -493,10 +599,7 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
           type: 'broadcast',
           channel: 'sms',
           segmentName: `Win-back · ${s.stageName}`,
-          criteria: {
-            ...reachableSmsBase(s.stageId),
-            last_contacted_before: signals.staleCutoffIso,
-          },
+          criteria,
         },
       })
     }

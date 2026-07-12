@@ -14,7 +14,8 @@ import {
 import { suggestStageMove, type StageSuggestion } from '@/lib/pipeline/suggest-stage'
 import { isPostCloseStage, isOperationalStage, isActiveContactStage, isOffFunnelStage } from '@/lib/pipeline/stage-groups'
 import { gatherPipelineSignals } from '@/lib/pipeline/pipeline-signals'
-import { buildRecommendations } from '@/lib/pipeline/recommendations'
+import { buildRecommendations, type Recommendation } from '@/lib/pipeline/recommendations'
+import { listOpenRecommendations } from '@/lib/pipeline/recommendation-store'
 import {
   DERIVED_COLUMNS,
   ACTIVE_COMMS_WINDOW_DAYS,
@@ -176,12 +177,25 @@ export default async function PipelinePage({
     }
   }
 
-  // Board-level AI recommendations (Google/Meta-Ads-style band). Computed from
-  // cheap aggregate COUNT signals over the whole book — deliberately NOT the
-  // capped card sample above — so a suggestion like "142 cooling leads" reflects
-  // the real population, and its count matches what Apply will target.
-  const signals = await gatherPipelineSignals(supabase, orgId, allStages, serviceOr, nowMs)
-  const recommendations = buildRecommendations(signals)
+  // Board-level AI recommendations (Google/Meta-Ads-style band). Preferred
+  // source: the PERSISTED rows the hourly pipeline-recommendations cron writes
+  // (rules engine + LLM-analyst reranks/insights, with server-side
+  // apply/dismiss status) — one indexed read instead of a whole-book count
+  // fan-out. Fallback when no persisted rows exist yet (new org, cron hasn't
+  // run, rows expired): live compute exactly as before. Persisted rows are
+  // whole-book, so an active treatment chip always live-computes — the band
+  // must describe the same filtered population as the board it sits on.
+  let recommendations: Recommendation[] = serviceOr
+    ? []
+    : await listOpenRecommendations(supabase, orgId, nowMs)
+  if (recommendations.length === 0) {
+    // Live path: cheap aggregate COUNT signals over the whole book —
+    // deliberately NOT the capped card sample above — so a suggestion like
+    // "142 cooling leads" reflects the real population, and its count matches
+    // what Apply will target.
+    const signals = await gatherPipelineSignals(supabase, orgId, allStages, serviceOr, nowMs)
+    recommendations = buildRecommendations(signals)
+  }
 
   const baseRate = computeCloseBaseRate(allLeads.map((l) => l.status))
   const probabilityByLead: Record<string, number> = {}

@@ -110,7 +110,9 @@ export async function triggerSpeedToLead(
       },
     })
 
-    // TODO(D5: notify): route a task notification to assignee.pool here.
+    // No conversation exists yet at first touch, so notifyInboundMessage
+    // (conversation-keyed) can't run here; the /tasks inbox badge surfaces the
+    // first_touch task. Wire a lead-keyed staff ping here if that proves slow.
 
     return { action: 'skipped', reason: 'allocated_to_human' }
   }

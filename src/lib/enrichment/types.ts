@@ -12,6 +12,7 @@ export const ENRICHMENT_TYPES = [
   'google_ads_keyword',
   'website_behavior',
   'credit_prequal',
+  'experian_consumer',
 ] as const
 
 export type EnrichmentType = (typeof ENRICHMENT_TYPES)[number]
@@ -23,7 +24,18 @@ export const ENRICHMENT_SOURCES: Record<EnrichmentType, string> = {
   google_ads_keyword: 'google_ads_api',
   website_behavior: 'client_js',
   credit_prequal: 'internal_model',
+  experian_consumer: 'experian_consumerview',
 }
+
+/**
+ * Namespaced attribute map persisted to lead_enrichment.enrichment_attributes.
+ * Keys are `<namespace>.<snake_case_attribute>` (email.*, phone.*, geo.*,
+ * ads.*, web.*, experian.*). Values are scalars only.
+ *
+ * FCRA: these are MARKETING/operational attributes. They must never be read
+ * by credit/financing eligibility logic (see fcra-guardrail.test.ts).
+ */
+export type EnrichmentAttributes = Record<string, string | number | boolean>
 
 // Database row type
 export type LeadEnrichment = {
@@ -34,6 +46,7 @@ export type LeadEnrichment = {
   enrichment_source: string
   status: 'pending' | 'success' | 'failed' | 'skipped'
   data: Record<string, unknown>
+  enrichment_attributes: EnrichmentAttributes
   error_message: string | null
   confidence_score: number | null
   enriched_at: string
@@ -135,6 +148,7 @@ export const DEFAULT_ENRICHMENT_CONFIG: EnrichmentConfig = {
   google_ads_keyword: { enabled: true },
   website_behavior: { enabled: true },
   credit_prequal: { enabled: true },
+  experian_consumer: { enabled: true },
 }
 
 export const ENRICHMENT_TTL_DAYS = 30

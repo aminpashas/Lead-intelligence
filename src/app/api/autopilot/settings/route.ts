@@ -43,6 +43,9 @@ const autopilotSettingsSchema = z.object({
   // automation_policies.human_response_sla_seconds).
   human_first_sla_enabled: z.boolean().optional(),
   human_first_sla_seconds: z.number().int().min(30).max(3600).optional(),
+  // Shadow mode: agents score/draft but never send. Toggled from the
+  // Automation Command Center (with an explicit go-live confirm).
+  autopilot_outreach_suppressed: z.boolean().optional(),
 }).refine(
   (data) => {
     // Ensure delay_min <= delay_max when both provided
@@ -95,6 +98,7 @@ export async function GET(request: NextRequest) {
       autopilot_stop_words,
       autopilot_speed_to_lead,
       autopilot_schedule,
+      autopilot_outreach_suppressed,
       human_first_sla_enabled,
       human_first_sla_seconds
     `)

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Copy, Check } from 'lucide-react'
 import { useState } from 'react'
 import { BookingProtocolSettings } from '@/components/settings/booking-protocol-settings'
+import { NotificationSettings } from '@/components/settings/notification-settings'
 
 export default function SettingsPage() {
   const { organization } = useOrgStore()
@@ -200,6 +201,9 @@ export default function SettingsPage() {
         </div>
         <BookingProtocolSettings />
       </section>
+
+      {/* ── Staff notifications (push + channel prefs) ───────── */}
+      <NotificationSettings />
     </div>
   )
 }
