@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
+import { getOwnProfile } from '@/lib/auth/active-org'
+import { isAdminRole } from '@/lib/auth/permissions'
 import { LeadDetail } from '@/components/crm/lead-detail'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
@@ -139,6 +141,10 @@ export default async function LeadDetailPage({
   // browser agree on day boundaries.
   const timeZone = await resolvePracticeTimeZone(supabase, lead.organization_id)
 
+  // Admins get the per-call "Use for AI training" control on call cards.
+  const { data: ownProfile } = await getOwnProfile(supabase, 'role')
+  const canTrainAi = !!ownProfile && isAdminRole(ownProfile.role)
+
   return (
     <LeadDetail
       lead={lead}
@@ -156,6 +162,7 @@ export default async function LeadDetailPage({
       prequalEnabled={prequalEnabled}
       noShowFeeEnabled={noShowFeeEnabled}
       timeZone={timeZone}
+      canTrainAi={canTrainAi}
     />
   )
 }

@@ -69,6 +69,7 @@ export function LeadDetail({
   prequalEnabled = false,
   noShowFeeEnabled = false,
   timeZone,
+  canTrainAi = false,
 }: {
   lead: Lead
   activities: LeadActivity[]
@@ -86,6 +87,9 @@ export function LeadDetail({
   noShowFeeEnabled?: boolean
   /** Practice IANA timezone, forwarded so thread timestamps render zone-fixed. */
   timeZone?: string
+  /** Admin roles only (computed server-side): shows the per-call "Use for AI
+   *  training" control, forwarded to the thread's call cards. */
+  canTrainAi?: boolean
 }) {
   const [lead, setLead] = useState(initialLead)
   const [scoring, setScoring] = useState(false)
@@ -246,6 +250,7 @@ export function LeadDetail({
                 savedAnalysis={latestAnalysis}
                 patientProfile={patientProfile}
                 timeZone={timeZone}
+                canTrainAi={canTrainAi}
               />
             ) : (
               <div className="h-full overflow-y-auto px-5 py-6">

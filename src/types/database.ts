@@ -1240,6 +1240,14 @@ export type VoiceCall = {
   /** Seconds the AI held/qualified the live person before a rep picked up (or gave up). */
   hold_seconds: number
 
+  // AI training (admin "use for training" action; null = never submitted)
+  training_status: 'processing' | 'added' | 'failed' | null
+  training_added_by: string | null
+  training_added_at: string | null
+  /** The ai_memories / ai_knowledge_articles rows this call produced. */
+  training_item_ids: Array<{ type: 'memory' | 'article'; id: string; title: string }>
+  training_error: string | null
+
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string

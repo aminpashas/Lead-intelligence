@@ -156,6 +156,7 @@ export function ConversationThread({
   patientProfile = null,
   timeZone = DEFAULT_PRACTICE_TIMEZONE,
   embedded = false,
+  canTrainAi = false,
 }: {
   lead: Lead
   conversation: Conversation
@@ -163,6 +164,9 @@ export function ConversationThread({
   calls?: VoiceCall[]
   prequalEnabled?: boolean
   noShowFeeEnabled?: boolean
+  /** Admin roles only (computed server-side): shows the per-call "Use for AI
+   *  training" control on call cards. The API re-checks the role. */
+  canTrainAi?: boolean
   /** Where the header back-arrow returns to. Defaults to the conversations
    *  inbox; the lead surface passes '/leads' so the arrow retraces the click. */
   backHref?: string
@@ -587,7 +591,7 @@ export function ConversationThread({
                 <div className="h-px flex-1 bg-aurea-border" />
               </div>
             ) : item.type === 'call' ? (
-              <CallCard key={item.key} call={item.call} />
+              <CallCard key={item.key} call={item.call} canTrainAi={canTrainAi} />
             ) : (
               <MessageGroup key={item.key} messages={item.messages} lead={lead} timeZone={timeZone} />
             )

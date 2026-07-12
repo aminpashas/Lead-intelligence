@@ -10,10 +10,12 @@ import { LeadMessaging } from './lead-messaging'
 import { LogCallDialog } from './log-call-dialog'
 import {
   MessageSquare, Mail, Phone, PhoneIncoming, PhoneOutgoing,
-  StickyNote, GitBranch, Sparkles, Play, ChevronRight,
+  StickyNote, GitBranch, Sparkles,
 } from 'lucide-react'
 import type { Lead } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
+import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
+import { recordingPlaybackUrl } from '@/lib/voice/recording-playback'
 
 const CHANNEL_ICON = {
   sms: MessageSquare,
@@ -276,15 +278,12 @@ function CallBody({ entry }: { entry: Extract<TimelineEntry, { kind: 'call' }> }
         <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-[1.55] text-aurea-ink-2">{summary}</p>
       )}
       {entry.recordingUrl && (
-        <a
-          href={entry.recordingUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-aurea-border px-2.5 py-1 text-[11px] font-medium text-aurea-ink-2 transition-colors hover:bg-aurea-canvas"
-        >
-          <Play className="h-3 w-3" strokeWidth={1.75} /> Recording
-          <ChevronRight className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />
-        </a>
+        <div className="mt-2">
+          <CallRecordingPlayer
+            url={recordingPlaybackUrl(entry.id, entry.recordingUrl)!}
+            size="compact"
+          />
+        </div>
       )}
     </div>
   )

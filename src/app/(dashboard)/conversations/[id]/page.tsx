@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
+import { getOwnProfile } from '@/lib/auth/active-org'
+import { isAdminRole } from '@/lib/auth/permissions'
 import { ConversationView } from '@/components/crm/conversation-view'
 import { notFound } from 'next/navigation'
 import { decryptLeadPII } from '@/lib/encryption'
@@ -97,6 +99,10 @@ export default async function ConversationDetailPage({
   // with the browser on day boundaries.
   const timeZone = await resolvePracticeTimeZone(supabase, conversation.organization_id as string | null)
 
+  // Admins get the per-call "Use for AI training" control on call cards.
+  const { data: ownProfile } = await getOwnProfile(supabase, 'role')
+  const canTrainAi = !!ownProfile && isAdminRole(ownProfile.role)
+
   return (
     <ConversationView
       lead={decryptLeadPII(conversation.lead as Record<string, unknown>) as any}
@@ -110,6 +116,7 @@ export default async function ConversationDetailPage({
       patientProfile={(patientProfile as PatientProfile | null) ?? null}
       timeZone={timeZone}
       embedded
+      canTrainAi={canTrainAi}
     />
   )
 }

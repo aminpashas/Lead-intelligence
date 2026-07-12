@@ -2,9 +2,20 @@
 
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { Phone, PhoneIncoming, PhoneOutgoing, Bot, User, ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  PhoneIncoming,
+  PhoneOutgoing,
+  Bot,
+  User,
+  ChevronDown,
+  ChevronRight,
+  GraduationCap,
+  Loader2,
+  X,
+} from 'lucide-react'
 import type { VoiceCall } from '@/types/database'
 import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
+import { recordingPlaybackUrl } from '@/lib/voice/recording-playback'
 
 const AGENT_LABEL: Record<string, string> = { setter: 'Setter', closer: 'Closer' }
 
@@ -53,11 +64,106 @@ function fmtDuration(seconds: number | null): string | null {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+type TrainingState =
+  | { phase: 'idle' }
+  | { phase: 'working' }
+  | { phase: 'added'; count: number }
+  | { phase: 'transcribing' }
+  | { phase: 'error'; message: string }
+
+/**
+ * Admin-only "Use for AI training" control. Sends the call to
+ * /api/voice/calls/[id]/train, which distills it into the org's AI knowledge
+ * base (the same entries injected into live agent prompts). Shows the
+ * persisted state from the call row and tracks transitions locally.
+ */
+function TrainingControl({ call }: { call: VoiceCall }) {
+  const [state, setState] = useState<TrainingState>(() =>
+    call.training_status === 'added'
+      ? { phase: 'added', count: (call.training_item_ids ?? []).length }
+      : { phase: 'idle' }
+  )
+
+  const run = async () => {
+    setState({ phase: 'working' })
+    try {
+      const res = await fetch(`/api/voice/calls/${call.id}/train`, { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (res.status === 202) {
+        setState({ phase: 'transcribing' })
+      } else if (res.ok) {
+        setState({ phase: 'added', count: (body.items ?? []).length })
+      } else {
+        setState({ phase: 'error', message: body.error || 'Something went wrong — try again.' })
+      }
+    } catch {
+      setState({ phase: 'error', message: 'Network error — try again.' })
+    }
+  }
+
+  const undo = async () => {
+    setState({ phase: 'working' })
+    try {
+      const res = await fetch(`/api/voice/calls/${call.id}/train`, { method: 'DELETE' })
+      setState(res.ok ? { phase: 'idle' } : { phase: 'error', message: 'Could not remove — try again.' })
+    } catch {
+      setState({ phase: 'error', message: 'Network error — try again.' })
+    }
+  }
+
+  if (state.phase === 'added') {
+    return (
+      <div className="mt-3 flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-aurea-emerald/30 bg-aurea-emerald/10 px-2.5 py-1 text-[11px] font-medium text-aurea-emerald">
+          <GraduationCap className="h-3 w-3" strokeWidth={1.75} />
+          In AI knowledge base{state.count > 0 ? ` · ${state.count} item${state.count === 1 ? '' : 's'}` : ''}
+        </span>
+        <button
+          type="button"
+          onClick={undo}
+          aria-label="Remove from AI training"
+          className="inline-flex items-center gap-1 rounded-full px-1.5 py-1 text-[11px] text-aurea-ink-3 transition-colors hover:text-aurea-ink-2"
+        >
+          <X className="h-3 w-3" strokeWidth={1.75} /> Undo
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={run}
+        disabled={state.phase === 'working'}
+        className="inline-flex items-center gap-1.5 rounded-full border border-aurea-border bg-aurea-canvas px-2.5 py-1 text-[11px] font-medium text-aurea-ink-2 transition-colors enabled:hover:bg-aurea-surface-2 disabled:opacity-60"
+      >
+        {state.phase === 'working' ? (
+          <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.75} />
+        ) : (
+          <GraduationCap className="h-3 w-3" strokeWidth={1.75} />
+        )}
+        {state.phase === 'working' ? 'Analyzing call…' : 'Use for AI training'}
+      </button>
+      {state.phase === 'transcribing' && (
+        <p className="mt-1.5 text-[11px] text-aurea-ink-3">
+          Transcribing the recording — try again in a minute.
+        </p>
+      )}
+      {state.phase === 'error' && (
+        <p className="mt-1.5 text-[11px] text-aurea-rose">{state.message}</p>
+      )}
+    </div>
+  )
+}
+
 /**
  * A completed voice call rendered in the conversation timeline. Collapsed by
  * default (summary line); expands to show the full transcript and recording.
+ * `canTrainAi` (admin roles only — set by the server page) reveals the
+ * "Use for AI training" control.
  */
-export function CallCard({ call }: { call: VoiceCall }) {
+export function CallCard({ call, canTrainAi = false }: { call: VoiceCall; canTrainAi?: boolean }) {
   const [open, setOpen] = useState(false)
 
   const outbound = call.direction === 'outbound'
@@ -78,8 +184,9 @@ export function CallCard({ call }: { call: VoiceCall }) {
         : ''
   const lines = transcriptText ? parseTranscript(transcriptText) : []
   // Human calls carry no AI transcript — the composed summary (and the staffer's
-  // notes it folds in) is the content, so the card must still expand to reveal it.
-  const expandable = lines.length > 0 || !!call.transcript_summary
+  // notes it folds in) is the content, so the card must still expand to reveal
+  // it. A recording alone is also worth expanding for (listen + train).
+  const expandable = lines.length > 0 || !!call.transcript_summary || !!call.recording_url
 
   return (
     <div className="mx-auto w-full max-w-[540px]">
@@ -171,9 +278,14 @@ export function CallCard({ call }: { call: VoiceCall }) {
 
             {call.recording_url && (
               <div className="mt-3">
-                <CallRecordingPlayer url={call.recording_url} size="compact" />
+                <CallRecordingPlayer
+                  url={recordingPlaybackUrl(call.id, call.recording_url)!}
+                  size="compact"
+                />
               </div>
             )}
+
+            {canTrainAi && <TrainingControl call={call} />}
           </div>
         )}
       </div>
