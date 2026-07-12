@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -13,7 +13,14 @@ import {
   X,
   Bot,
   Check,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
+
+// Persisted so the collapsed/expanded choice survives a full page reload.
+// (Across thread navigation the sidebar lives in the layout and never
+//  remounts, so React state alone already holds — this covers hard reloads.)
+const COLLAPSE_KEY = 'conversations:inbox-collapsed'
 
 // ── Shape ────────────────────────────────────────────────────
 // A PII-safe, render-ready projection of a conversation row. The server layout
@@ -97,6 +104,28 @@ export function ConversationsSidebar({
   const [aiOnly, setAiOnly] = useState(false)
   const [sort, setSort] = useState<SortKey>('recent')
   const [showFilters, setShowFilters] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
+
+  // Rehydrate the collapsed preference after mount (avoids SSR/client mismatch).
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === '1')
+    } catch {
+      /* localStorage unavailable — default to expanded */
+    }
+  }, [])
+
+  function toggleCollapsed() {
+    setCollapsed((v) => {
+      const next = !v
+      try {
+        window.localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0')
+      } catch {
+        /* best-effort persistence */
+      }
+      return next
+    })
+  }
 
   // Opening a thread marks it read server-side; mirror that here so the unread
   // badge clears immediately without waiting for a list refetch.
@@ -162,6 +191,36 @@ export function ConversationsSidebar({
     0
   )
 
+  // ── Collapsed rail ─────────────────────────────────────────
+  // A thin strip that hands the width back to the center pane while keeping
+  // the inbox one click away. Surfaces the unread count so nothing is hidden.
+  if (collapsed) {
+    return (
+      <aside className="flex h-full w-[52px] shrink-0 flex-col items-center border-r border-aurea-border bg-aurea-surface py-4">
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label="Expand inbox"
+          title="Expand inbox"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-aurea-border text-aurea-ink-3 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
+        >
+          <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
+        </button>
+        <div className="mt-4 flex flex-col items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+          {totalUnread > 0 && (
+            <span
+              title={`${totalUnread} unread`}
+              className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-aurea-primary px-1 text-[10px] font-semibold tabular-nums text-white"
+            >
+              {totalUnread}
+            </span>
+          )}
+        </div>
+      </aside>
+    )
+  }
+
   return (
     <aside className="flex h-full w-[320px] shrink-0 flex-col border-r border-aurea-border bg-aurea-surface lg:w-[380px]">
       {/* ── Header ───────────────────────────────────────────── */}
@@ -176,12 +235,23 @@ export function ConversationsSidebar({
               )}
             </span>
           </div>
-          {totalUnread > 0 && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-aurea-primary">
-              <span className="h-1.5 w-1.5 rounded-full bg-aurea-primary" />
-              {totalUnread} unread
-            </span>
-          )}
+          <div className="flex items-center gap-2.5">
+            {totalUnread > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-aurea-primary">
+                <span className="h-1.5 w-1.5 rounded-full bg-aurea-primary" />
+                {totalUnread} unread
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              aria-label="Collapse inbox"
+              title="Collapse inbox"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-aurea-ink-3 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
+            >
+              <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </div>
         </div>
 
         {/* Search */}
