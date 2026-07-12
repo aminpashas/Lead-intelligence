@@ -161,6 +161,14 @@ export async function triggerSpeedToLead(
 
   if (!lead) return { action: 'skipped' }
 
+  const { resolveActiveCampaignPolicy } = await import('@/lib/campaigns/policy')
+  const campaignPolicy = await resolveActiveCampaignPolicy(supabase, leadId, organizationId)
+  // Proactive first-touch is only for leads in an AI-enabled, auto, live campaign.
+  // New/unenrolled leads have no policy -> speed-to-lead stays silent for them.
+  if (!campaignPolicy || !campaignPolicy.aiEnabled || campaignPolicy.autopilotMode !== 'auto' || campaignPolicy.sendMode !== 'live') {
+    return { action: 'skipped', reason: 'no_ai_campaign' }
+  }
+
   // Existing-patient gate: a contact who already exists as a synced EHR patient
   // belongs to the front-desk / Dion Desk flow, not the sales setter — never
   // auto-outreach them. The flag is normally set at ingestion; fall back to a
