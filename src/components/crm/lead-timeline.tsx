@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
 import { DEFAULT_PRACTICE_TIMEZONE, zonedDateLabel, zonedTimeLabel, zonedDateTimeLabel } from '@/lib/time/zoned'
@@ -86,10 +87,26 @@ export function LeadTimeline({ lead, entries, timeZone = DEFAULT_PRACTICE_TIMEZO
   )
 }
 
+/** Optional per-entry decorations. Only the org-wide activity monitor supplies
+ *  these — the per-conversation timeline passes neither and renders as before.
+ *  `hrefFor` returning a string makes the whole node a link to its source;
+ *  `metaFor` injects extra header content (e.g. the lead-name chip). */
+export type TimelineDecorations = {
+  hrefFor?: (entry: TimelineEntry) => string | null
+  metaFor?: (entry: TimelineEntry) => ReactNode
+}
+
 /** Presentational feed — the Summary/Detailed renderings, no actions or state.
  *  Shared by the patient card (with a toggle) and the conversations page. */
-export function TimelineFeed({ entries, variant, timeZone = DEFAULT_PRACTICE_TIMEZONE }: { entries: TimelineEntry[]; variant: ViewMode; timeZone?: string }) {
-  return variant === 'summary' ? <SummaryTimeline entries={entries} /> : <DetailedTimeline entries={entries} timeZone={timeZone} />
+export function TimelineFeed({
+  entries,
+  variant,
+  timeZone = DEFAULT_PRACTICE_TIMEZONE,
+  decorations,
+}: { entries: TimelineEntry[]; variant: ViewMode; timeZone?: string; decorations?: TimelineDecorations }) {
+  return variant === 'summary'
+    ? <SummaryTimeline entries={entries} />
+    : <DetailedTimeline entries={entries} timeZone={timeZone} decorations={decorations} />
 }
 
 // ── View toggle ─────────────────────────────────────────────
@@ -169,13 +186,16 @@ function nodeTone(entry: TimelineEntry): string {
   return 'border-aurea-border text-aurea-ink-3'
 }
 
-function DetailedTimeline({ entries, timeZone }: { entries: TimelineEntry[]; timeZone: string }) {
+function DetailedTimeline({ entries, timeZone, decorations }: { entries: TimelineEntry[]; timeZone: string; decorations?: TimelineDecorations }) {
   return (
     <div className="relative pl-9">
       {/* The spine — one hairline the whole column hangs from. */}
       <div className="absolute bottom-2 left-[14px] top-2 w-px bg-aurea-border" aria-hidden />
       <ol className="space-y-5">
-        {entries.map((entry) => (
+        {entries.map((entry) => {
+          const href = decorations?.hrefFor?.(entry) ?? null
+          const meta = decorations?.metaFor?.(entry)
+          return (
           <li key={`${entry.kind}-${entry.id}`} className="relative">
             {/* Node marker sitting on the spine */}
             <span
@@ -184,42 +204,56 @@ function DetailedTimeline({ entries, timeZone }: { entries: TimelineEntry[]; tim
               <NodeIcon entry={entry} />
             </span>
 
-            {/* Header line: type · badges · time */}
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="aurea-eyebrow leading-none">{typeLabel(entry)}</span>
-              {entry.kind === 'call' && entry.outcome && (
-                <span className="rounded-full border border-aurea-border px-1.5 py-px text-[10px] font-medium capitalize text-aurea-ink-2">
-                  {entry.outcome.replace(/_/g, ' ')}
+            {/* Stretched link: an overlay anchor covers the whole node so a
+                click anywhere navigates, while interactive body controls (the
+                recording player) sit above it and stay usable. */}
+            {href && (
+              <Link
+                href={href}
+                aria-label={`Open ${typeLabel(entry)} in conversations`}
+                className="absolute inset-0 z-[1] rounded-lg -mx-2 -my-1 transition-colors hover:bg-aurea-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurea-primary/40"
+              />
+            )}
+            <div className="relative">
+              {/* Header line: type · who · badges · time */}
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="aurea-eyebrow leading-none">{typeLabel(entry)}</span>
+                {meta}
+                {entry.kind === 'call' && entry.outcome && (
+                  <span className="rounded-full border border-aurea-border px-1.5 py-px text-[10px] font-medium capitalize text-aurea-ink-2">
+                    {entry.outcome.replace(/_/g, ' ')}
+                  </span>
+                )}
+                {entry.kind === 'message' && entry.aiGenerated && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-aurea-primary">
+                    <Sparkles className="h-2.5 w-2.5" strokeWidth={2} /> AI
+                  </span>
+                )}
+                <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3" title={zonedDateTimeLabel(new Date(entry.at), timeZone)}>
+                  {zonedDateLabel(new Date(entry.at), timeZone)} · {zonedTimeLabel(new Date(entry.at), timeZone)}
                 </span>
-              )}
-              {entry.kind === 'message' && entry.aiGenerated && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-aurea-primary">
-                  <Sparkles className="h-2.5 w-2.5" strokeWidth={2} /> AI
-                </span>
-              )}
-              <span className="ml-auto font-mono text-[11px] tabular-nums text-aurea-ink-3" title={zonedDateTimeLabel(new Date(entry.at), timeZone)}>
-                {zonedDateLabel(new Date(entry.at), timeZone)} · {zonedTimeLabel(new Date(entry.at), timeZone)}
-              </span>
-            </div>
+              </div>
 
-            {/* Body */}
-            <div className="mt-1.5">
-              {entry.kind === 'message' && <MessageBody entry={entry} />}
-              {entry.kind === 'call' && <CallBody entry={entry} />}
-              {entry.kind === 'note' && (
-                <div className="border-l-2 border-aurea-gold/60 pl-3">
-                  <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55] text-aurea-ink-2">{entry.body || entry.title}</p>
-                </div>
-              )}
-              {entry.kind === 'stage_change' && (
-                <p className="text-[13px] text-aurea-ink-2">
-                  {entry.title}
-                  {entry.body && entry.body !== entry.title && <span className="text-aurea-ink-3"> — {entry.body}</span>}
-                </p>
-              )}
+              {/* Body */}
+              <div className="mt-1.5">
+                {entry.kind === 'message' && <MessageBody entry={entry} />}
+                {entry.kind === 'call' && <CallBody entry={entry} />}
+                {entry.kind === 'note' && (
+                  <div className="border-l-2 border-aurea-gold/60 pl-3">
+                    <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55] text-aurea-ink-2">{entry.body || entry.title}</p>
+                  </div>
+                )}
+                {entry.kind === 'stage_change' && (
+                  <p className="text-[13px] text-aurea-ink-2">
+                    {entry.title}
+                    {entry.body && entry.body !== entry.title && <span className="text-aurea-ink-3"> — {entry.body}</span>}
+                  </p>
+                )}
+              </div>
             </div>
           </li>
-        ))}
+          )
+        })}
       </ol>
     </div>
   )
@@ -278,7 +312,9 @@ function CallBody({ entry }: { entry: Extract<TimelineEntry, { kind: 'call' }> }
         <p className="mt-1 whitespace-pre-wrap text-[13.5px] leading-[1.55] text-aurea-ink-2">{summary}</p>
       )}
       {entry.recordingUrl && (
-        <div className="mt-2">
+        // `relative z-[2]` keeps the player above the monitor's stretched-link
+        // overlay (z-[1]); a no-op in the plain timeline where there's no overlay.
+        <div className="relative z-[2] mt-2">
           <CallRecordingPlayer
             url={recordingPlaybackUrl(entry.id, entry.recordingUrl)!}
             size="compact"
