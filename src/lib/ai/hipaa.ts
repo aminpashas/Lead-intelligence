@@ -131,6 +131,41 @@ export function detectPHI(text: string): PHIDetection[] {
 }
 
 /**
+ * Drop detections that match practice-OWNED values (the practice's own public
+ * phone number or street address). PHI protection covers PATIENT identifiers;
+ * the practice's contact info is public and must survive in outbound messages —
+ * otherwise "Call us at <real number>" gets redacted to "[PHONE_REDACTED]"
+ * in the SMS the patient receives.
+ */
+export function filterAllowlistedDetections(
+  detections: PHIDetection[],
+  allowlist: string[]
+): PHIDetection[] {
+  const entries = allowlist.map((a) => a.trim()).filter(Boolean)
+  if (entries.length === 0) return detections
+
+  const digits = (s: string) => s.replace(/\D/g, '')
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+
+  return detections.filter((d) => {
+    return !entries.some((a) => {
+      if (d.category === 'phone') {
+        // Formats differ ("+15104089331" vs "(510) 408-9331") and the regex can
+        // match a 7-digit tail — compare digit suffixes, min 7 digits.
+        const ad = digits(a)
+        const dd = digits(d.value)
+        if (ad.length < 7 || dd.length < 7) return false
+        return ad.endsWith(dd) || dd.endsWith(ad)
+      }
+      // Address (and anything else): substring match either way, whitespace-insensitive.
+      const an = norm(a)
+      const dn = norm(d.value)
+      return an.length > 0 && dn.length > 0 && (an.includes(dn) || dn.includes(an))
+    })
+  })
+}
+
+/**
  * Scrub PHI from text, replacing with safe placeholders.
  * Used before sending conversation data to AI models.
  */
@@ -240,7 +275,10 @@ export function buildSafeConversationHistory(
 /**
  * Check AI-generated response for HIPAA compliance before sending.
  */
-export function checkResponseCompliance(response: string): ComplianceIssue[] {
+export function checkResponseCompliance(
+  response: string,
+  opts?: { allowlist?: string[] }
+): ComplianceIssue[] {
   const issues: ComplianceIssue[] = []
 
   // Check for specific medical diagnoses (AI shouldn't diagnose)
@@ -265,8 +303,9 @@ export function checkResponseCompliance(response: string): ComplianceIssue[] {
     })
   }
 
-  // Check for PHI in response (shouldn't echo back sensitive data)
-  const phiInResponse = detectPHI(response)
+  // Check for PHI in response (shouldn't echo back sensitive data).
+  // Practice-owned contact values (its own phone/address) are exempt.
+  const phiInResponse = filterAllowlistedDetections(detectPHI(response), opts?.allowlist ?? [])
   if (phiInResponse.length > 0) {
     issues.push({
       severity: 'violation',
