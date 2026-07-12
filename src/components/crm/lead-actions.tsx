@@ -15,7 +15,7 @@
  * here too — checked, whoever set them.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Phone, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone, HandCoins, CreditCard } from 'lucide-react'
+import { Phone, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone, HandCoins, CreditCard, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
@@ -39,7 +39,27 @@ import { DND_CHANNELS, type DndChannel } from '@/lib/consent/capture'
 
 type Variant = 'bar' | 'compact'
 
+/** Mirror of GET /api/leads/[id]/prequal — the pre-qual lifecycle for the chip. */
+type PrequalStatus = {
+  state: 'none' | 'awaiting' | 'completed' | 'expired'
+  first_sent_at: string | null
+  last_sent_at: string | null
+  submitted_at: string | null
+  reminder_count: number
+}
+
 const CHANNEL_LABEL: Record<DndChannel, string> = { sms: 'SMS', email: 'Email', call: 'Calls' }
+
+/** Compact elapsed-time label ("just now", "3h", "2d") — TZ-agnostic (ms delta). */
+function sinceLabel(iso: string | null): string {
+  if (!iso) return ''
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
 
 /** Per-channel DND state read straight off the lead's opt-out columns. */
 function dndOf(lead: Lead): Record<DndChannel, boolean> {
@@ -90,9 +110,23 @@ export function LeadActions({
   const [sendingCard, setSendingCard] = useState(false)
   const [msgOpen, setMsgOpen] = useState(false)
   const [msgChannel, setMsgChannel] = useState<'sms' | 'email'>('sms')
+  // Pre-qual lifecycle, loaded lazily only when the feature is on for this org.
+  const [prequal, setPrequal] = useState<PrequalStatus | null>(null)
 
   // Resync if the lead prop changes (e.g. after router.refresh or realtime).
   useEffect(() => { setDnd(dndOf(lead)) }, [lead.id, lead.sms_opt_out, lead.email_opt_out, lead.voice_opt_out])
+
+  // Pull the pre-qual status so the chip + button label reflect reality (sent /
+  // awaiting / completed). Only when the account has pre-qual enabled.
+  const loadPrequal = useCallback(async () => {
+    if (!prequalEnabled) return
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/prequal`)
+      if (res.ok) setPrequal(await res.json())
+    } catch { /* status chip is best-effort */ }
+  }, [prequalEnabled, lead.id])
+
+  useEffect(() => { void loadPrequal() }, [loadPrequal])
 
   const compact = variant === 'compact'
   const iconSize = compact ? 'h-3.5 w-3.5' : 'h-4 w-4'
@@ -201,11 +235,24 @@ export function LeadActions({
     try {
       const res = await fetch(`/api/leads/${lead.id}/prequal`, { method: 'POST' })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Could not send pre-qualification')
+      if (!res.ok) {
+        // Patient already completed — refresh the chip so the button reflects it.
+        if (data?.code === 'already_completed') {
+          toast.info('This patient already completed their pre-qualification.')
+          void loadPrequal()
+          return
+        }
+        throw new Error(data?.error || 'Could not send pre-qualification')
+      }
       const via = Array.isArray(data.sent_via) && data.sent_via.length
         ? data.sent_via.join(' & ')
         : 'message'
-      toast.success(`Pre-qualification sent to ${lead.first_name || 'lead'} via ${via}`)
+      toast.success(
+        data.is_follow_up
+          ? `Follow-up sent to ${lead.first_name || 'lead'} via ${via}`
+          : `Pre-qualification sent to ${lead.first_name || 'lead'} via ${via}`
+      )
+      void loadPrequal()
       router.refresh()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not send pre-qualification')
@@ -311,14 +358,54 @@ export function LeadActions({
       </div>
       {showMessaging && action({ label: 'SMS', icon: <MessageSquare className={iconSize} strokeWidth={1.75} />, block: smsBlock, onClick: () => openMessage('sms') })}
       {showMessaging && action({ label: 'Email', icon: <Mail className={iconSize} strokeWidth={1.75} />, block: emailBlock, onClick: () => openMessage('email') })}
-      {/* Only rendered when the account has pre-qualification enabled. */}
-      {prequalEnabled && action({
-        label: 'Pre-Qual',
-        icon: <HandCoins className={iconSize} strokeWidth={1.75} />,
-        block: prequalBlock,
-        onClick: sendPrequal,
-        busy: sendingPrequal,
-      })}
+      {/* Only rendered when the account has pre-qualification enabled. The chip
+          shows the lifecycle right in the chat; the button adapts:
+            • no link out yet → "Pre-Qual"   (first send)
+            • link out, unfilled → "Follow up" (reuses the link, follow-up copy)
+            • patient completed → disabled "Completed" */}
+      {prequalEnabled && (() => {
+        const state = prequal?.state ?? 'none'
+        const done = state === 'completed'
+        const awaiting = state === 'awaiting' || state === 'expired'
+        return (
+          <div className="flex items-center gap-1.5">
+            {prequal && state !== 'none' && (
+              <span
+                title={
+                  done
+                    ? `Pre-qual completed${prequal.submitted_at ? ` ${sinceLabel(prequal.submitted_at)}` : ''}`
+                    : state === 'expired'
+                      ? 'Pre-qual link expired without being filled out'
+                      : `Pre-qual sent ${sinceLabel(prequal.first_sent_at)}` +
+                        (prequal.reminder_count > 0
+                          ? ` · ${prequal.reminder_count} reminder${prequal.reminder_count > 1 ? 's' : ''}`
+                          : '')
+                }
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium whitespace-nowrap',
+                  done
+                    ? 'border-aurea-primary/20 bg-aurea-primary/10 text-aurea-primary'
+                    : state === 'expired'
+                      ? 'border-aurea-rose/20 bg-aurea-rose/10 text-aurea-rose'
+                      : 'border-aurea-amber/20 bg-aurea-amber/10 text-aurea-amber'
+                )}
+              >
+                {done ? <Check className="h-3 w-3" strokeWidth={2} /> : <Clock className="h-3 w-3" strokeWidth={2} />}
+                {done ? 'Pre-qual done' : state === 'expired' ? 'Pre-qual expired' : `Sent ${sinceLabel(prequal.first_sent_at)}`}
+              </span>
+            )}
+            {action({
+              label: done ? 'Completed' : awaiting ? 'Follow up' : 'Pre-Qual',
+              icon: done
+                ? <Check className={iconSize} strokeWidth={1.75} />
+                : <HandCoins className={iconSize} strokeWidth={1.75} />,
+              block: done ? 'Patient already completed pre-qualification' : prequalBlock,
+              onClick: sendPrequal,
+              busy: sendingPrequal,
+            })}
+          </div>
+        )
+      })()}
 
       {/* Only rendered when the practice charges a no-show fee. Texts/resends the
           card-on-file link for the lead's upcoming appointment. */}

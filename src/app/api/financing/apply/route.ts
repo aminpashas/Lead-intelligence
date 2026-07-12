@@ -162,6 +162,11 @@ export async function POST(request: NextRequest) {
           applicant_relationship: relationship,
           consent_given_at: new Date().toISOString(),
           consent_ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || null,
+          // The moment the patient (or co-signer) actually filled it out. This is
+          // what stops the reminder cron from ever nudging a completed link — set
+          // here, before the async waterfall flips `status` off `pending`, so
+          // there is no window where a submitted link still looks "awaiting".
+          submitted_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('id', tokenData.id)
