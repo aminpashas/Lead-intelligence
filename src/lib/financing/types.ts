@@ -58,6 +58,15 @@ export type FinancingApplication = {
   share_token: string | null
   expires_at: string
   completed_at: string | null
+  /** First time a link was sent to the patient; never overwritten. */
+  first_sent_at: string | null
+  /** Most recent send/follow-up touch (initial send, manual follow-up, or reminder). */
+  last_sent_at: string | null
+  /** Count of automated reminder nudges sent for this pending link. */
+  reminder_count: number
+  last_reminder_at: string | null
+  /** When the patient (or co-signer) actually completed the form. Distinct from completed_at (which also covers expiry). */
+  submitted_at: string | null
   created_at: string
   updated_at: string
 }
