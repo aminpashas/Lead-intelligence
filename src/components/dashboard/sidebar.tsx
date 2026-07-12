@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -37,6 +37,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AccountMenu } from './account-menu'
+import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_COLLAPSED_ATTR } from './sidebar-collapsed'
 
 type NavItem = {
   name: string
@@ -68,7 +69,6 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Call Center', href: '/call-center', icon: Phone },
       { name: 'Dialer', href: '/dialer', icon: PhoneOutgoing },
       { name: 'Appointments', href: '/appointments', icon: Calendar },
-      { name: 'Tasks', href: '/tasks', icon: ListTodo },
     ],
   },
   {
@@ -104,24 +104,49 @@ const SETTINGS_ITEM: NavItem = { name: 'Settings', href: '/settings', icon: Sett
 // staff server-side, so this is the nav mirror of that guard, not the guard.
 const FOCUSED_STAFF_HIDDEN_HREFS = new Set(['/pipeline', '/closing', '/post-close', '/leads'])
 
-const SIDEBAR_COLLAPSED_KEY = 'li:sidebar-collapsed'
+// Persist the collapsed choice across route changes and reloads. The server
+// (and hydration) render expanded so markup always matches; the real stored
+// preference takes over right after hydration via useSyncExternalStore. The
+// pre-hydration frames are handled by SIDEBAR_COLLAPSED_PREHYDRATION_SCRIPT
+// (dashboard layout) + CSS on the <html data-sidebar-collapsed> attribute,
+// which clamps the expanded markup to the rail so collapsed-pref users never
+// see the labels flash. The toggle keeps that attribute in sync so the CSS
+// guard never fights a user who expands the sidebar again.
+const collapsedListeners = new Set<() => void>()
 
-// Persist the collapsed choice across route changes and reloads. We initialize
-// to `false` (expanded) so the server and first client render agree, then read
-// the stored preference in an effect — avoiding a hydration mismatch.
+// In-memory store value, lazily seeded from localStorage. Memory is the source
+// of truth so toggling still works when localStorage is unavailable.
+let collapsedPref: boolean | null = null
+
+function readCollapsedPref(): boolean {
+  if (collapsedPref === null) {
+    try {
+      collapsedPref = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+    } catch {
+      collapsedPref = false
+    }
+  }
+  return collapsedPref
+}
+
+function subscribeCollapsed(listener: () => void): () => void {
+  collapsedListeners.add(listener)
+  return () => collapsedListeners.delete(listener)
+}
+
 function useSidebarCollapsed(): [boolean, () => void] {
-  const [collapsed, setCollapsed] = useState(false)
-
-  useEffect(() => {
-    setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1')
-  }, [])
+  const collapsed = useSyncExternalStore(subscribeCollapsed, readCollapsedPref, () => false)
 
   const toggle = () => {
-    setCollapsed((prev) => {
-      const next = !prev
+    const next = !readCollapsedPref()
+    collapsedPref = next
+    try {
       localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0')
-      return next
-    })
+    } catch {
+      /* private mode etc. — the choice still applies for this page */
+    }
+    document.documentElement.toggleAttribute(SIDEBAR_COLLAPSED_ATTR, next)
+    collapsedListeners.forEach((notify) => notify())
   }
 
   return [collapsed, toggle]
@@ -358,6 +383,12 @@ export function Sidebar() {
 
   return (
     <aside
+      // data-sidebar-desktop + data-collapsed drive the pre-hydration CSS guard
+      // in globals.css: while <html data-sidebar-collapsed> is set but React has
+      // not yet rendered the collapsed rail, the expanded markup stays clamped
+      // and invisible instead of flashing full labels.
+      data-sidebar-desktop=""
+      data-collapsed={collapsed ? '' : undefined}
       className={cn(
         'hidden lg:flex h-full flex-col border-r bg-card transition-[width] duration-200 ease-in-out',
         collapsed ? 'w-[68px]' : 'w-64'
