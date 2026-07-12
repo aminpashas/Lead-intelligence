@@ -85,6 +85,8 @@ export async function POST(req: NextRequest) {
     is_new_lead: 'true',
     is_returning: 'false',
     practice_name: practiceName,
+    doctor_name: '',
+    brand_website: '',
     personality_type: '',
     communication_style: '',
   }
@@ -148,7 +150,7 @@ export async function POST(req: NextRequest) {
 
         let { data: existingLead } = await supabase
           .from('leads')
-          .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile')
+          .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile, tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
           .eq('organization_id', orgId)
           .in('phone_hash', phoneHashes)
           .limit(1)
@@ -158,7 +160,7 @@ export async function POST(req: NextRequest) {
           // Legacy fallback: pre-encryption rows may still hold plaintext.
           const { data: plainLead } = await supabase
             .from('leads')
-            .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile')
+            .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile, tags, custom_fields, utm_campaign, utm_source, campaign_attribution')
             .eq('organization_id', orgId)
             .or([
               ...phoneVariants.map(p => `phone.eq.${p}`),
@@ -210,6 +212,15 @@ export async function POST(req: NextRequest) {
         if (lead) {
           leadId = lead.id
           const personality = lead.personality_profile as Record<string, unknown> | null
+
+          // Per-service-line branding: source the spoken practice name (and
+          // doctor/website) from the brand resolver keyed on the matched lead's
+          // service line, instead of always speaking the org name.
+          const { getBrandingForOrg } = await import('@/lib/branding/store')
+          const { resolveBrandForContext } = await import('@/lib/branding/resolve-brand')
+          const { branding, orgName } = await getBrandingForOrg(supabase, orgId)
+          const brand = resolveBrandForContext(branding, orgName, { lead: (lead as never) })
+
           dynamicVariables = {
             call_direction: 'inbound',
             caller_phone: from,
@@ -223,7 +234,9 @@ export async function POST(req: NextRequest) {
             lead_notes: (lead.notes || '').slice(0, 500),
             is_new_lead: String(isNewLead),
             is_returning: String(!isNewLead),
-            practice_name: practiceName,
+            practice_name: brand.practiceName,
+            doctor_name: brand.doctorName || '',
+            brand_website: brand.website || '',
             personality_type: (personality?.type as string) || '',
             communication_style: (personality?.communication_style as string) || '',
           }
