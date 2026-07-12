@@ -167,6 +167,10 @@
     {
       "path": "/api/cron/recommendation-outcomes",
       "schedule": "50 1 * * *"
+    },
+    {
+      "path": "/api/cron/dgs-lead-quality",
+      "schedule": "0 7 * * *"
     }
   ]
 }

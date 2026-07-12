@@ -115,6 +115,7 @@ export const EXPECTED_CRONS: Record<string, number> = {
   'sla-takeover': 10, // every minute — tight: a stalled sweep breaks the 3-min SLA promise
   'pipeline-recommendations': 90, // hourly :40 + grace
   'recommendation-outcomes': 26 * 60, // daily 01:50 UTC + grace
+  'dgs-lead-quality': 26 * 60, // daily 07:00 UTC
 }
 
 export type CronHealthIssue = {
