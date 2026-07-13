@@ -28,7 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Loader2, UserPlus, UserRoundSearch } from 'lucide-react'
+import { CheckCircle2, Loader2, UserPlus, UserRoundSearch } from 'lucide-react'
 import { toast } from 'sonner'
 import { LeadActions } from './lead-actions'
 import type { ClosingTemperature } from '@/lib/pipeline/closing'
@@ -251,11 +251,17 @@ export function ClosingBoard({
                 <tr
                   key={row.id}
                   onClick={openLead}
-                  className={`group border-b border-aurea-border/60 last:border-0 hover:bg-aurea-surface-2/40 ${
-                    openLead ? 'cursor-pointer' : ''
-                  }`}
+                  className={`group border-b border-aurea-border/60 last:border-0 ${
+                    row.won
+                      ? 'bg-emerald-500/[0.06] hover:bg-emerald-500/[0.11]'
+                      : 'hover:bg-aurea-surface-2/40'
+                  } ${openLead ? 'cursor-pointer' : ''}`}
                 >
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td
+                    className={`whitespace-nowrap px-4 py-3 ${
+                      row.won ? 'border-l-2 border-l-emerald-500' : ''
+                    }`}
+                  >
                     <span
                       className={`font-medium text-aurea-ink ${openLead ? 'group-hover:text-aurea-primary' : ''}`}
                       title={openLead ? undefined : 'Not yet linked to a patient — use “Link patient” to enable call/text/email'}
@@ -263,8 +269,9 @@ export function ClosingBoard({
                       {name}
                     </span>
                     {row.won ? (
-                      <span className="ml-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
-                        Closed
+                      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} />
+                        Closed · Won
                       </span>
                     ) : null}
                   </td>
