@@ -8,6 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SmartListCriteria } from '@/types/database'
 import { combineTermMatches, sanitizeTerm } from './keyword-match'
+import { serviceLineOrFilter } from '@/lib/leads/service-line'
 
 const LEAD_TEXT_COLUMNS = [
   'first_name', 'last_name', 'city',
@@ -129,6 +130,15 @@ export function applySmartListCriteria(
   // Pipeline stage filter
   if (criteria.stages && criteria.stages.length > 0) {
     query = query.in('stage_id', criteria.stages)
+  }
+
+  // Service line (treatment) filter. Not a column — a lead's line is derived
+  // from treatment_interest + intake tags + campaign keywords, with implants as
+  // the residual default. serviceLineOrFilter builds the PostgREST .or() group;
+  // it ANDs with every other criterion (an unknown key yields null → no filter).
+  if (typeof criteria.service_line === 'string' && criteria.service_line) {
+    const orGroup = serviceLineOrFilter(criteria.service_line)
+    if (orGroup) query = query.or(orGroup)
   }
 
   // Source type filter

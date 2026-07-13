@@ -20,6 +20,13 @@ export default async function CampaignsPage({
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
+  // Pipeline stages power the campaign builder's "target by stage" audience mode.
+  const { data: stages } = await supabase
+    .from('pipeline_stages')
+    .select('id, name, slug, position')
+    .eq('organization_id', orgId)
+    .order('position', { ascending: true })
+
   // Flatten smart_list join for easier consumption
   const enriched = (campaigns || []).map((c: any) => ({
     ...c,
@@ -28,6 +35,6 @@ export default async function CampaignsPage({
   }))
 
   return (
-    <CampaignsList campaigns={enriched} initialSmartListId={smart_list_id} />
+    <CampaignsList campaigns={enriched} initialSmartListId={smart_list_id} stages={stages || []} />
   )
 }

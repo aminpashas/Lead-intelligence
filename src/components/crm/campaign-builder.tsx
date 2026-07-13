@@ -48,6 +48,12 @@ const DELAY_PRESETS = [
 
 const TEMPLATE_VARS = '{{first_name}}, {{practice_name}}, {{consultation_link}}'
 
+export type PipelineStageOption = { id: string; name: string; slug: string; position: number }
+
+// How a campaign's audience is scoped. A saved Smart List (reusable, rich
+// criteria) or an ad-hoc set of pipeline stages (quick, no list to create).
+type AudienceMode = 'smart_list' | 'stages'
+
 // Base UI's <SelectValue> renders the raw value, so map each value → trigger label.
 const TYPE_LABELS = {
   drip: 'Drip (timed sequence)',
@@ -57,14 +63,16 @@ const TYPE_LABELS = {
 const CHANNEL_LABELS = { sms: 'SMS', email: 'Email' }
 const DELAY_LABELS = Object.fromEntries(DELAY_PRESETS.map((d) => [String(d.value), d.label]))
 
-export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmartListId?: string; autoOpen?: boolean } = {}) {
+export function CampaignBuilder({ initialSmartListId, autoOpen, stages = [] }: { initialSmartListId?: string; autoOpen?: boolean; stages?: PipelineStageOption[] } = {}) {
   const [open, setOpen] = useState(autoOpen ?? false)
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState<string>('drip')
   const [channel, setChannel] = useState<string>('multi')
+  const [audienceMode, setAudienceMode] = useState<AudienceMode>('smart_list')
   const [smartListId, setSmartListId] = useState<string>(initialSmartListId ?? '')
+  const [stageIds, setStageIds] = useState<string[]>([])
   const [smartLists, setSmartLists] = useState<any[]>([])
   const [steps, setSteps] = useState<Step[]>([
     {
@@ -118,9 +126,18 @@ export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmart
     setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, ...updates } : s)))
   }
 
+  function toggleStage(id: string) {
+    setStageIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
+  }
+
   async function handleSave() {
     if (!name) { toast.error('Campaign name is required'); return }
     if (steps.some((s) => !s.body_template)) { toast.error('All steps need message content'); return }
+
+    // Audience: a Smart List OR a set of pipeline stages. Exactly one is sent so
+    // enrollment has a single, unambiguous source (smart_list_id wins server-side).
+    const hasSmartList = audienceMode === 'smart_list' && !!smartListId.trim()
+    const hasStages = audienceMode === 'stages' && stageIds.length > 0
 
     setSaving(true)
     try {
@@ -132,7 +149,8 @@ export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmart
           description,
           type,
           channel,
-          smart_list_id: smartListId || undefined,
+          smart_list_id: hasSmartList ? smartListId : undefined,
+          target_criteria: hasStages ? { stages: stageIds } : undefined,
           steps: steps.map((s) => ({
             ...s,
             subject: s.channel === 'email' ? s.subject : undefined,
@@ -206,36 +224,86 @@ export function CampaignBuilder({ initialSmartListId, autoOpen }: { initialSmart
             />
           </div>
 
-          {/* Target Audience */}
+          {/* Target Audience — a saved Smart List or a set of pipeline stages */}
           <div className="space-y-2">
             <Label className="flex items-center gap-1.5">
               <ListFilter className="h-4 w-4" />
-              Target Audience (Smart List)
+              Target Audience
             </Label>
-            <Select value={smartListId} onValueChange={(v) => setSmartListId(v || '')}>
-              <SelectTrigger>
-                <SelectValue placeholder="All leads (no Smart List)">
-                  {(value) => smartLists.find((sl: any) => sl.id === value)?.name ?? 'All leads (manual targeting)'}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value=" ">All leads (manual targeting)</SelectItem>
-                {smartLists.map((sl: any) => (
-                  <SelectItem key={sl.id} value={sl.id}>
-                    <span className="flex items-center gap-1.5">
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: sl.color }} />
-                      {sl.name}
-                      <span className="text-muted-foreground">({sl.lead_count} leads)</span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {smartListId && smartListId.trim() && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                <Users className="h-3 w-3" />
-                Campaign will target leads matching this Smart List&apos;s criteria
-              </p>
+
+            {/* Mode toggle */}
+            <div className="inline-flex rounded-md border border-aurea-border p-0.5 text-sm">
+              <button
+                type="button"
+                onClick={() => setAudienceMode('smart_list')}
+                className={`rounded px-3 py-1.5 transition-colors ${audienceMode === 'smart_list' ? 'bg-aurea-ink text-aurea-surface' : 'text-aurea-ink-2 hover:text-aurea-ink'}`}
+              >
+                Smart List
+              </button>
+              <button
+                type="button"
+                onClick={() => setAudienceMode('stages')}
+                className={`rounded px-3 py-1.5 transition-colors ${audienceMode === 'stages' ? 'bg-aurea-ink text-aurea-surface' : 'text-aurea-ink-2 hover:text-aurea-ink'}`}
+              >
+                Pipeline stages
+              </button>
+            </div>
+
+            {audienceMode === 'smart_list' ? (
+              <>
+                <Select value={smartListId} onValueChange={(v) => setSmartListId(v || '')}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All leads (no Smart List)">
+                      {(value) => smartLists.find((sl: any) => sl.id === value)?.name ?? 'All leads (manual targeting)'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">All leads (manual targeting)</SelectItem>
+                    {smartLists.map((sl: any) => (
+                      <SelectItem key={sl.id} value={sl.id}>
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: sl.color }} />
+                          {sl.name}
+                          <span className="text-muted-foreground">({sl.lead_count} leads)</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {smartListId && smartListId.trim() && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Users className="h-3 w-3" />
+                    Campaign will target leads matching this Smart List&apos;s criteria
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  {stages.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No pipeline stages found for this account.</p>
+                  )}
+                  {stages.map((stage) => {
+                    const selected = stageIds.includes(stage.id)
+                    return (
+                      <button
+                        key={stage.id}
+                        type="button"
+                        onClick={() => toggleStage(stage.id)}
+                        className={`rounded-full border px-3 py-1 text-xs transition-colors ${selected ? 'border-aurea-ink bg-aurea-ink text-aurea-surface' : 'border-aurea-border text-aurea-ink-2 hover:border-aurea-ink hover:text-aurea-ink'}`}
+                      >
+                        {stage.name}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  {stageIds.length > 0
+                    ? `Campaign will enroll leads currently in ${stageIds.length} selected stage${stageIds.length > 1 ? 's' : ''}`
+                    : 'Select one or more stages to enroll leads sitting in them'}
+                </p>
+              </>
             )}
           </div>
 

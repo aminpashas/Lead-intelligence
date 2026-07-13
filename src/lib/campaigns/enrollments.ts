@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { SmartListCriteria } from '@/types/database'
 import { computeReplyStepIncrements } from './reply-attribution'
+import { resolveSmartListLeads } from './smart-list-resolver'
 
 // ════════════════════════════════════════════════════════════════
 // CAMPAIGN EXIT ON REPLY
@@ -123,81 +125,128 @@ export async function exitAllCampaigns(
 // AUTO-ENROLLMENT
 // ════════════════════════════════════════════════════════════════
 
+/** Legacy `target_criteria` used flat, singular keys that predate SmartListCriteria.
+ *  These map onto the modern plural-key shape the shared resolver understands. */
+const SMART_LIST_KEYS = [
+  'tags', 'statuses', 'ai_qualifications', 'conversation_intents',
+  'conversation_sentiments', 'primary_objections', 'conversation_red_flag',
+  'score_min', 'score_max', 'stages', 'service_line', 'source_types',
+  'engagement_min', 'engagement_max', 'states', 'created_after', 'created_before',
+  'last_contacted_before', 'closing_temperatures', 'closing_follow_up_before',
+  'never_contacted', 'has_phone', 'has_email', 'sms_consent', 'email_consent',
+  'is_existing_patient', 'keywords',
+] as const
+
 /**
- * Match leads against a campaign's target_criteria and create enrollments.
- * Returns the number of newly enrolled leads.
+ * Normalize a campaign's raw `target_criteria` JSON into `SmartListCriteria`.
+ *
+ * Campaigns accumulated two vocabularies over time: the modern plural-key
+ * `SmartListCriteria` (written when a campaign is launched from a Smart List or
+ * the stage picker), and a legacy flat/singular shape from the original
+ * auto-enroller (`status`, `ai_qualification`, `source_type`, `min_score`…).
+ * We pass modern keys through untouched and translate the legacy ones, so a
+ * single resolver serves every campaign regardless of when it was created.
+ */
+export function normalizeTargetCriteria(raw: Record<string, unknown>): SmartListCriteria {
+  const c = raw || {}
+  const out: SmartListCriteria = {}
+
+  // Modern keys pass through verbatim.
+  for (const key of SMART_LIST_KEYS) {
+    if (c[key] !== undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(out as any)[key] = c[key]
+    }
+  }
+
+  // Legacy singular → modern plural (only when the modern form is absent).
+  // `status` (original auto-enroller) and `status_in` (blueprint targetCriteria)
+  // both map onto `statuses`.
+  if (out.statuses === undefined && Array.isArray(c.status)) out.statuses = c.status as string[]
+  if (out.statuses === undefined && Array.isArray(c.status_in)) out.statuses = c.status_in as string[]
+  if (out.ai_qualifications === undefined && Array.isArray(c.ai_qualification)) out.ai_qualifications = c.ai_qualification as string[]
+  if (out.source_types === undefined && Array.isArray(c.source_type)) out.source_types = c.source_type as string[]
+  if (out.score_min === undefined && typeof c.min_score === 'number') out.score_min = c.min_score
+  if (out.score_max === undefined && typeof c.max_score === 'number') out.score_max = c.max_score
+
+  return out
+}
+
+/**
+ * Resolve a campaign's audience and create enrollments.
+ *
+ * Audience precedence:
+ *   1. `smart_list_id` — dereferenced live so edits to the list propagate.
+ *   2. `target_criteria` — normalized to SmartListCriteria (stages, tags,
+ *      keywords, consent, etc.).
+ *   3. Neither — enroll nobody (a campaign must declare an audience; this is
+ *      the safe default that prevents accidental blasts to the whole DB).
+ *
+ * Selection runs through the shared `resolveSmartListLeads` engine so campaign
+ * targeting is identical to Smart Lists, mass SMS/email, and pipeline recos.
+ * Returns the number of NEWLY enrolled leads.
  */
 export async function autoEnrollLeads(
   supabase: SupabaseClient,
   campaign: {
     id: string
     organization_id: string
+    channel?: 'sms' | 'email' | 'multi' | null
+    smart_list_id?: string | null
+    allow_unconsented_email?: boolean | null
     target_criteria: Record<string, unknown>
     send_window: Record<string, unknown> | null
   },
   firstStepDelay: number // delay_minutes of step 1
 ): Promise<number> {
-  const criteria = campaign.target_criteria
+  // Resolve which criteria drive this campaign's audience.
+  let criteria: SmartListCriteria | null = null
+
+  if (campaign.smart_list_id) {
+    const { data: smartList } = await supabase
+      .from('smart_lists')
+      .select('criteria')
+      .eq('id', campaign.smart_list_id)
+      .eq('organization_id', campaign.organization_id)
+      .maybeSingle<{ criteria: SmartListCriteria }>()
+    if (smartList?.criteria) criteria = smartList.criteria
+  }
+
+  if (!criteria) {
+    const raw = campaign.target_criteria
+    if (raw && Object.keys(raw).length > 0) criteria = normalizeTargetCriteria(raw)
+  }
+
+  // No audience configured → enroll nobody (safe default).
   if (!criteria || Object.keys(criteria).length === 0) return 0
 
-  // Build lead query from target_criteria
-  let query = supabase
+  // Shared resolver: handles stages, tags, keywords, states, consent flags, etc.
+  const { leadIds } = await resolveSmartListLeads(
+    supabase,
+    campaign.organization_id,
+    criteria,
+    { limit: 500 }
+  )
+  if (leadIds.length === 0) return 0
+
+  // Safety pass over the resolved set: never enroll terminal-state leads, and
+  // enforce TCPA/CAN-SPAM consent for single-channel campaigns. (Multi-channel
+  // campaigns are gated per-channel by the executor at send time.)
+  let safety = supabase
     .from('leads')
     .select('id')
     .eq('organization_id', campaign.organization_id)
+    .in('id', leadIds)
+    .not('status', 'in', '("disqualified","lost","completed")')
 
-  // Filter by status
-  if (criteria.status && Array.isArray(criteria.status)) {
-    query = query.in('status', criteria.status)
+  if (campaign.channel === 'sms') {
+    safety = safety.eq('sms_consent', true).eq('sms_opt_out', false)
+  }
+  if (campaign.channel === 'email' && !campaign.allow_unconsented_email) {
+    safety = safety.eq('email_consent', true).eq('email_opt_out', false)
   }
 
-  // Filter by AI qualification
-  if (criteria.ai_qualification && Array.isArray(criteria.ai_qualification)) {
-    query = query.in('ai_qualification', criteria.ai_qualification)
-  }
-
-  // Filter by source type
-  if (criteria.source_type && Array.isArray(criteria.source_type)) {
-    query = query.in('source_type', criteria.source_type)
-  }
-
-  // Filter by score range
-  if (typeof criteria.min_score === 'number') {
-    query = query.gte('ai_score', criteria.min_score)
-  }
-  if (typeof criteria.max_score === 'number') {
-    query = query.lte('ai_score', criteria.max_score)
-  }
-
-  // Filter by has phone (for SMS campaigns)
-  if (criteria.has_phone === true) {
-    query = query.not('phone_formatted', 'is', null)
-  }
-
-  // Filter by has email (for email campaigns)
-  if (criteria.has_email === true) {
-    query = query.not('email', 'is', null)
-  }
-
-  // Filter by created_after (only leads created after a certain date)
-  if (criteria.created_after) {
-    query = query.gte('created_at', criteria.created_after as string)
-  }
-
-  // Exclude already disqualified/lost
-  query = query.not('status', 'in', '("disqualified","lost","completed")')
-
-  // TCPA/CAN-SPAM: Only enroll leads with proper consent
-  if (criteria.has_phone === true) {
-    // SMS campaigns require explicit SMS consent and no opt-out
-    query = query.eq('sms_consent', true).eq('sms_opt_out', false)
-  }
-  if (criteria.has_email === true) {
-    // Email campaigns require email consent and no opt-out
-    query = query.eq('email_consent', true).eq('email_opt_out', false)
-  }
-
-  const { data: matchingLeads } = await query.limit(500)
+  const { data: matchingLeads } = await safety
   if (!matchingLeads || matchingLeads.length === 0) return 0
 
   // Get already enrolled lead IDs for this campaign
@@ -236,10 +285,12 @@ export async function autoEnrollLeads(
     if (!error) enrolled += batch.length
   }
 
-  // Update campaign stats
+  // Update campaign stats. The cron re-runs daily and only new leads are
+  // inserted each pass, so the counter must accumulate — not overwrite with
+  // this run's delta (which previously reset total_enrolled to the daily count).
   await supabase
     .from('campaigns')
-    .update({ total_enrolled: enrolled })
+    .update({ total_enrolled: enrolledIds.size + enrolled })
     .eq('id', campaign.id)
 
   return enrolled
