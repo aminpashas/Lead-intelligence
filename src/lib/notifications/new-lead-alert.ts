@@ -43,6 +43,35 @@ import { logger } from '@/lib/logger'
 /** Fallback staff recipients when NEW_LEAD_ALERT_EMAILS is unset. */
 const DEFAULT_ALERT_EMAILS = ['asamadian@dionhealth.com', 'hhawes@dionhealth.com']
 
+/**
+ * Replay/backfill guard. A "New Lead" alert is only meaningful for a genuinely
+ * fresh submission — when a bridge REPLAYS its history (e.g. the 2026-07-13 DGS
+ * push that re-ingested all 54,699 inbound leads), each first-time insert would
+ * otherwise blast a staff alert for a lead that's weeks or months old. When the
+ * caller supplies the source's original submission time and it's older than this
+ * window, the alert is suppressed (the lead is still ingested normally).
+ *
+ * Real-time paths (public form webhook) pass no timestamp → never suppressed.
+ */
+const DEFAULT_ALERT_MAX_AGE_HOURS = 48
+
+/**
+ * True when `sourceCreatedAt` is a valid timestamp older than `maxAgeHours` — i.e.
+ * this is a backfilled/replayed lead that should NOT trigger a fresh-lead alert.
+ * Unparseable/absent timestamps return false (fail-open: alert as normal).
+ */
+export function isStaleForAlert(
+  sourceCreatedAt: string | null | undefined,
+  now: Date = new Date(),
+  maxAgeHours: number = Number(process.env.NEW_LEAD_ALERT_MAX_AGE_HOURS) || DEFAULT_ALERT_MAX_AGE_HOURS,
+): boolean {
+  if (!sourceCreatedAt) return false
+  const t = Date.parse(sourceCreatedAt)
+  if (Number.isNaN(t)) return false
+  const ageMs = now.getTime() - t
+  return ageMs > maxAgeHours * 3_600_000
+}
+
 /** Slack channel-ID shape: public 'C…', private 'G…'/'C…', DMs excluded. */
 const SLACK_CHANNEL_ID_RE = /^[CG][A-Z0-9]{6,}$/
 /** Slack Incoming Webhook URL shape. */
@@ -257,9 +286,28 @@ function escapeHtml(s: string): string {
  */
 export async function notifyNewLead(
   _supabase: SupabaseClient,
-  params: { lead: NewLeadAlertInput; organizationId: string },
+  params: {
+    lead: NewLeadAlertInput
+    organizationId: string
+    /**
+     * The source's ORIGINAL submission time (e.g. DGS inbound_leads.created_at),
+     * when the caller knows it. Used to suppress alerts for backfilled/replayed
+     * leads. Omit for real-time ingest (public form) → always alerts.
+     */
+    sourceCreatedAt?: string | null
+  },
 ): Promise<void> {
   const { lead } = params
+
+  // Backfill/replay guard: an old submission being (re)ingested must not blast a
+  // fresh-lead alert. The lead itself is already persisted; we only skip the ping.
+  if (isStaleForAlert(params.sourceCreatedAt)) {
+    logger.info('new-lead alert suppressed — backfilled lead older than alert window', {
+      lead_id: lead.id,
+      source_created_at: params.sourceCreatedAt,
+    })
+    return
+  }
 
   // Classify service line(s) from the same signals the pipeline/leads filters
   // use, so Slack routing agrees with the rest of the app.

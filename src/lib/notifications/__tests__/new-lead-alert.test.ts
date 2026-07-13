@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@/lib/messaging/resend', () => ({
   sendEmail: vi.fn().mockResolvedValue({ id: 'email_1' }),
+  transactionalFrom: vi.fn().mockReturnValue('alerts@dionhealth.com'),
 }))
 
 import { sendEmail } from '@/lib/messaging/resend'
@@ -10,6 +11,7 @@ import {
   parseSlackRoutes,
   resolveSlackTargets,
   notifyNewLead,
+  isStaleForAlert,
 } from '@/lib/notifications/new-lead-alert'
 
 const FULL_ARCH_HOOK = 'https://hooks.slack.com/services/T000/B000/fullarch'
@@ -200,5 +202,47 @@ describe('notifyNewLead', () => {
     ).resolves.toBeUndefined()
     // Slack still fires despite the email failure.
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('suppresses the alert entirely for a backfilled (old) lead', async () => {
+    process.env.NEW_LEAD_SLACK_ROUTES = JSON.stringify({ implants: FULL_ARCH_HOOK })
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      // Submitted long before the 48h window → backfill replay, not a fresh lead.
+      sourceCreatedAt: '2026-06-01T00:00:00.000Z',
+      lead: { id: 'old1', firstName: 'Donald', utm_campaign: 'implants' },
+    })
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('still alerts for a fresh lead even when sourceCreatedAt is present', async () => {
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      sourceCreatedAt: new Date().toISOString(),
+      lead: { id: 'fresh1', firstName: 'Jane', email: 'jane@x.com' },
+    })
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('isStaleForAlert', () => {
+  const now = new Date('2026-07-13T20:00:00.000Z')
+
+  it('is false when no timestamp is given (fail-open → alert as normal)', () => {
+    expect(isStaleForAlert(undefined, now, 48)).toBe(false)
+    expect(isStaleForAlert(null, now, 48)).toBe(false)
+  })
+
+  it('is false for an unparseable timestamp', () => {
+    expect(isStaleForAlert('not-a-date', now, 48)).toBe(false)
+  })
+
+  it('is false for a recent submission (within the window)', () => {
+    expect(isStaleForAlert('2026-07-13T00:00:00.000Z', now, 48)).toBe(false)
+  })
+
+  it('is true for a submission older than the window', () => {
+    expect(isStaleForAlert('2026-06-26T13:57:00.000Z', now, 48)).toBe(true)
   })
 })

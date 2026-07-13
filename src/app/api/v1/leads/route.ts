@@ -33,6 +33,7 @@ import { deriveConsentFields } from '@/lib/consent/ingest'
 import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
 import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
 import { isJunkCallerContact } from '@/lib/leads/junk-contact'
+import { classifyTestOrSpamLead, spamDisqualifiedReason } from '@/lib/leads/test-spam-contact'
 import { routedIntakeStageSlug } from '@/lib/leads/intake-routing'
 
 function asBool(v: unknown): boolean | undefined {
@@ -289,6 +290,12 @@ export async function POST(request: NextRequest) {
   // Cross-system correlation id (DGS inbound_leads.id). Stored in its own
   // indexed column so the writeback trigger can match without notes-regex.
   const externalRef = asStr(b?.external_ref)
+  // The source's ORIGINAL submission time, when the caller sends it (accept a few
+  // spellings). Used only to suppress the staff alert on backfilled/replayed
+  // leads — never affects ingestion. Absent → treated as fresh (alerts normally).
+  const sourceCreatedAt =
+    asStr(b?.source_created_at) ?? asStr(b?.external_created_at) ??
+    asStr(b?.created_at) ?? asStr(b?.submitted_at)
 
   const supabase = serviceRoleClient()
 
@@ -403,9 +410,14 @@ export async function POST(request: NextRequest) {
     phone_valid: null, // unknown at ingestion; enrichment/cron catches location-shaped noise later
     source_type: sourceName,
   })
+  // Cross-source test/QA + B2B-solicitation guard (see test-spam-contact.ts).
+  // High-precision: this is what auto-parks the "Donald" marketing-pitch spam and
+  // staff "test test" records instead of letting them ride the New-Lead funnel
+  // (and fire a staff alert). null → looks like a genuine contact.
+  const spamCategory = classifyTestOrSpamLead({ first_name, last_name, notes })
   const route: 'existing_patient' | 'junk' | 'lead' = patientMatch
     ? 'existing_patient'
-    : isJunk
+    : isJunk || spamCategory
       ? 'junk'
       : 'lead'
   // Final stage: off-funnel routing (existing-patient / junk) takes precedence —
@@ -436,7 +448,9 @@ export async function POST(request: NextRequest) {
     ...(route === 'existing_patient' && patientMatch
       ? { is_existing_patient: true, matched_patient_id: patientMatch.patientId }
       : {}),
-    ...(route === 'junk' ? { status: 'disqualified' } : {}),
+    ...(route === 'junk'
+      ? { status: 'disqualified', ...(spamCategory ? { disqualified_reason: spamDisqualifiedReason(spamCategory) } : {}) }
+      : {}),
     source_id,
     notes,
     source_type: sourceName,
@@ -574,6 +588,7 @@ export async function POST(request: NextRequest) {
       const { notifyNewLead } = await import('@/lib/notifications/new-lead-alert')
       await notifyNewLead(supabase, {
         organizationId: customerId,
+        sourceCreatedAt,
         lead: {
           id: String(lead.id),
           firstName: first_name,

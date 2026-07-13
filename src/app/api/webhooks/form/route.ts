@@ -7,6 +7,7 @@ import { verifyWebhookSignature, validateOrgId, getRawBodyAndParsed, validateCus
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { formatToE164 } from '@/lib/leads/phone'
+import { classifyTestOrSpamLead, spamDisqualifiedReason } from '@/lib/leads/test-spam-contact'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
 import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
 import { logger } from '@/lib/logger'
@@ -125,6 +126,26 @@ export async function POST(request: NextRequest) {
     request.headers.get('x-real-ip') ||
     null
 
+  // Cross-source test/QA + B2B-solicitation guard (see test-spam-contact.ts).
+  // A public form is an open spam vector: park flagged submissions as
+  // disqualified junk so they never ride the New-Lead funnel, get AI-scored,
+  // trigger auto-outreach, or fire a staff alert. High-precision; null = genuine.
+  const spamCategory = classifyTestOrSpamLead({
+    first_name: parsed.data.first_name,
+    last_name: parsed.data.last_name,
+    notes: parsed.data.notes,
+  })
+  let junkStageId: string | undefined
+  if (spamCategory) {
+    const { data: junkStage } = await supabase
+      .from('pipeline_stages')
+      .select('id')
+      .eq('organization_id', orgResult.orgId)
+      .eq('slug', 'junk')
+      .maybeSingle()
+    junkStageId = junkStage?.id
+  }
+
   // Create lead with PII encryption
   const leadData = encryptLeadPII({
     organization_id: orgResult.orgId,
@@ -155,8 +176,9 @@ export async function POST(request: NextRequest) {
     dental_condition: parsed.data.dental_condition as any,
     notes: parsed.data.notes,
     custom_fields: parsed.data.custom_fields || {},
-    stage_id: defaultStage?.id,
-    status: 'new',
+    stage_id: spamCategory ? (junkStageId ?? defaultStage?.id) : defaultStage?.id,
+    status: spamCategory ? 'disqualified' : 'new',
+    ...(spamCategory ? { disqualified_reason: spamDisqualifiedReason(spamCategory) } : {}),
     // TCPA: Consent must be explicitly granted via form checkbox, not implied by providing contact info
     sms_consent: parsed.data.sms_consent === true,
     sms_consent_at: parsed.data.sms_consent ? new Date().toISOString() : null,
@@ -240,6 +262,10 @@ export async function POST(request: NextRequest) {
   //   3. speed-to-lead — setter agent consumes ai_score/ai_qualification, so it
   //      must run AFTER scoring or it sends an "unscored" first message.
   after(async () => {
+    // Parked test/spam records get NO enrichment, scoring, auto-outreach, or
+    // staff alert — they're already disqualified in the junk stage.
+    if (spamCategory) return
+
     // 1. Enrich (external providers — slowest step)
     try {
       await enrichLead(supabase, lead)
