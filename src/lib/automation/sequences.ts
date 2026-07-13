@@ -31,6 +31,12 @@ import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import {
+  claimConversationWorkflow,
+  releaseConversationWorkflow,
+  getOrCreateThread,
+  touchThread,
+} from '@/lib/conversations/threads'
 import { logger } from '@/lib/logger'
 
 export type SequenceWithSteps = OutreachSequence & { steps: OutreachSequenceStep[] }
@@ -264,10 +270,43 @@ async function executeAIMessageStep(
     return { status: 'skipped', channel, detail: 'no_contact_or_consent' }
   }
 
+  // Single-flight coordination: if the lead already has an active conversation and
+  // another workflow (an inbound auto-respond, a campaign) is mid-send into it,
+  // stand this nurture touch down rather than delivering a second message on top
+  // of theirs. A brand-new lead with no conversation yet has nothing to collide
+  // with, so we proceed unlocked. The lease auto-expires, so a crash can't wedge
+  // the cadence permanently — the next cron pass retries.
+  const lockConversationId = await findActiveConversationId(supabase, leadId, channel)
+  if (lockConversationId) {
+    const claim = await claimConversationWorkflow(supabase, {
+      conversationId: lockConversationId,
+      organizationId,
+      workflow: 'sequence',
+    })
+    if (!claim.acquired) {
+      logger.info('Sequence step deferred — conversation held by another workflow', {
+        leadId,
+        conversationId: lockConversationId,
+        heldBy: claim.holder,
+      })
+      return { status: 'skipped', channel, detail: `conversation_busy:${claim.holder ?? ''}` }
+    }
+  }
+
+  try {
+    return await sendComposedStep(recipient)
+  } finally {
+    if (lockConversationId) {
+      await releaseConversationWorkflow(supabase, lockConversationId, 'sequence')
+    }
+  }
+
+  // ── compose + send, executed while holding the conversation lease (if any) ──
+  async function sendComposedStep(recipient: string): Promise<StepExecutionResult> {
   // Resolve copy: prepared (appointment templates) > fixed template > AI compose.
   let body: string | null = ctx.prepared?.smsBody ?? ctx.prepared?.text ?? null
-  let subject = ctx.prepared?.subject ?? step.template_subject ?? 'Following up'
-  let html = ctx.prepared?.html ?? null
+  const subject = ctx.prepared?.subject ?? step.template_subject ?? 'Following up'
+  const html = ctx.prepared?.html ?? null
   let aiConfidence: number | null = null
   let conversationId: string | null = null
 
@@ -347,10 +386,20 @@ async function executeAIMessageStep(
 
     // Thread AI-composed sends into the conversation like speed-to-lead does.
     if (conversationId) {
+      // Attribute the nurture touch to a 'nurture' topic thread so it stays
+      // distinct from a scheduling/financing exchange in the same conversation.
+      const thread = await getOrCreateThread(supabase, {
+        conversationId,
+        organizationId,
+        leadId,
+        topic: 'nurture',
+        openedBy: 'sequence',
+      })
       const agentId = await getAgentIdForRole(supabase, organizationId, 'setter')
       await supabase.from('messages').insert({
         organization_id: organizationId,
         conversation_id: conversationId,
+        thread_id: thread?.id ?? null,
         lead_id: leadId,
         agent_id: agentId,
         direction: 'outbound',
@@ -363,6 +412,7 @@ async function executeAIMessageStep(
         ai_confidence: aiConfidence,
         metadata: { sequence_step_id: step.id, source: ctx.source },
       })
+      if (thread?.id) await touchThread(supabase, thread.id, body.substring(0, 100))
     }
 
     await supabase
@@ -379,6 +429,24 @@ async function executeAIMessageStep(
     )
     return { status: 'failed', channel, detail: error instanceof Error ? error.message : 'unknown' }
   }
+  } // end sendComposedStep
+}
+
+/** Find the lead's active conversation on a channel (for lock coordination). */
+async function findActiveConversationId(
+  supabase: SupabaseClient,
+  leadId: string,
+  channel: 'sms' | 'email'
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('conversations')
+    .select('id')
+    .eq('lead_id', leadId)
+    .eq('channel', channel)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+  return (data?.id as string | undefined) ?? null
 }
 
 /**
