@@ -29,6 +29,13 @@ export type OrgFeatureFlag =
   //     let financing go out without a click.
   | 'financing_prequal_enabled'
   | 'financing_auto_send_enabled'
+  // Human send-pacing. When ON, AI-generated SMS replies are enqueued into
+  // public.pending_outbound_sms with a realistic delay and delivered by the
+  // drain-outbound-sms cron, instead of sent inline the instant the model
+  // finishes. DEFAULT-OFF and fully inert until flipped: with it off the send
+  // path is unchanged. Requires the pending_outbound_sms migration + the
+  // drain-outbound-sms cron to be live before enabling.
+  | 'sms_human_pacing'
 
 export type OrgFlags = Partial<Record<OrgFeatureFlag, boolean>>
 

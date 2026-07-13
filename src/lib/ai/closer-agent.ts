@@ -32,6 +32,7 @@ import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
+import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
 import { resolvePracticeContact, formatPracticeContactBlock } from '@/lib/ai/practice-contact'
 
 function getAnthropic() {
@@ -428,6 +429,16 @@ function buildCloserSystemPrompt(context: AgentContext, opts?: CloserRespondOpti
   const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>, { disclosePHI: !gated })
   const { skill, instructions } = selectActiveSkill(context)
   const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile)
+  // Read how THIS patient actually texts and turn it into concrete mirroring
+  // rules. SMS only — length-matching is the strongest human tell there.
+  const textingStyleBlock =
+    context.channel === 'sms'
+      ? formatTextingStyleBlock(
+          analyzeTextingStyle(
+            context.conversation_history.filter((m) => m.role === 'user').map((m) => m.content)
+          )
+        )
+      : ''
 
   const base = `You are a senior treatment coordinator for an All-on-4 dental implant practice.
 You work with patients who have completed their consultation and are making their treatment decision.
@@ -483,11 +494,16 @@ ${context.channel === 'voice' ? `- VOICE CALL: You are speaking on a LIVE phone 
 - If they need a human: "Let me connect you with someone who can walk you through that."
 - MID-CALL: the call is already in progress — never restart with "Hi"/"Hello" or re-introduce yourself. Just continue.
 - WRAP UP CLEANLY: once everything is handled, give ONE warm sign-off ("Thanks so much, [Name] — take care!") and STOP. Don't add another question or keep talking after saying goodbye.` :
-context.channel === 'sms' ? `- SMS: Keep messages under 400 characters. Be direct but warm.
-- You can be more substantive than the Setter — this patient is further along.
-- One clear point per message.` : `- Email: Professional, confident tone. You're their trusted advisor.
+context.channel === 'sms' ? `- SMS — TEXT LIKE A REAL PERSON, NOT A SCRIPT. Even at the closing stage, a paragraph to a one-word texter reads as automated and kills momentum.
+- You can be a touch more substantive than the Setter (this patient is further along) — but "substantive" means clearer, not longer. Still one clear point per text.
+- MIRROR THEIR LENGTH (see THIS PATIENT'S TEXTING STYLE below). If they've gone short/cold, go short too — don't answer a "yes" or "ok" with four sentences.
+- No walls of text, no bullet lists, no stacked mini-paragraphs in one message.
+- Natural but polished: contractions, plain words, real punctuation. Sound like a trusted coordinator texting from her phone. Always correct spelling.
+- Emoji: at most one, and only if the patient uses them. Never an emoji on every line — that's the clearest bot tell.
+- Answer, then at most one next step or question. Let them set the pace; a short reply is a cue to write less, not more.` : `- Email: Professional, confident tone. You're their trusted advisor.
 - Clear paragraphs with a single call-to-action.
 - 2-4 paragraphs max.`}
+${textingStyleBlock ? `\n${textingStyleBlock}\n` : ''}
 
 ═══ CLOSING PHILOSOPHY ═══
 

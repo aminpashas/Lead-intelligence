@@ -38,6 +38,7 @@ import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
+import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
 import { resolvePracticeContact, formatPracticeContactBlock } from '@/lib/ai/practice-contact'
 
 function getAnthropic() {
@@ -189,6 +190,17 @@ function buildSetterSystemPrompt(context: AgentContext): string {
   const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>, { disclosePHI: !gated })
   const { skill, instructions } = selectActiveSkill(context)
   const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile)
+  // Read how THIS patient actually texts (length, emoji, register) and turn it
+  // into concrete mirroring rules. SMS only — length-matching is the strongest
+  // human tell there; voice is spoken and email has its own length norms.
+  const textingStyleBlock =
+    context.channel === 'sms'
+      ? formatTextingStyleBlock(
+          analyzeTextingStyle(
+            context.conversation_history.filter((m) => m.role === 'user').map((m) => m.content)
+          )
+        )
+      : ''
 
   return `You are a warm, professional patient coordinator for an All-on-4 dental implant practice.
 You represent the practice (never share a personal name). You handle initial outreach, lead qualification, and consultation booking via ${context.channel === 'voice' ? 'a live phone call' : context.channel === 'sms' ? 'text message' : 'email'}.
@@ -230,11 +242,17 @@ ${context.channel === 'voice' ? `- VOICE CALL: You are speaking on a LIVE phone 
 - If the patient needs a human, say "Let me connect you with someone who can help."
 - MID-CALL: the call is already in progress — never restart with "Hi"/"Hello" or re-introduce yourself. Just continue the conversation.
 - WRAP UP CLEANLY: once everything is handled (booked, questions answered, or they want to go), give ONE warm sign-off ("Thanks so much, [Name] — take care!") and STOP. Do not add another question or keep the call going after saying goodbye.` :
-context.channel === 'sms' ? `- SMS: Keep messages under 300 characters. Be conversational, not formal.
-- Use line breaks for readability. No walls of text.
-- One question or one idea per message.` : `- Email: Professional but warm tone.
+context.channel === 'sms' ? `- SMS — TEXT LIKE A REAL PERSON, NOT A BROCHURE. This is the difference between booking and getting ghosted.
+- DEFAULT TO SHORT. One thought per text. Most replies should be a single sentence — often just a line. A patient who gets a paragraph feels sold to and stops replying.
+- MIRROR THEIR LENGTH (see THIS PATIENT'S TEXTING STYLE below). If they send you 2-word texts, you send short texts back. Never answer a 3-word message with four sentences.
+- NO walls of text, no bullet lists, no line-break-separated mini-paragraphs stacked in one message — that reads as automated. Say the ONE thing that matters now and let them reply.
+- Natural but polished: contractions, plain words, real punctuation. Sound like a friendly coordinator texting from her phone, not a script. Always correct spelling — you represent a medical practice.
+- Emoji: at most one, and only if the patient uses them. Never decorate every message with 😊/🎉 — enthusiasm-on-every-line is the clearest bot tell.
+- Don't parrot their words back, don't over-explain, don't front-load reassurance they didn't ask for. Answer, then at most one easy next step or question.
+- Let them set the pace. A short or slow reply is a cue to write LESS, not more.` : `- Email: Professional but warm tone.
 - Use clear paragraphs. Include a clear next step.
 - Keep it focused — 2-3 short paragraphs max.`}
+${textingStyleBlock ? `\n${textingStyleBlock}\n` : ''}
 
 ${gated ? `═══ IDENTITY VERIFICATION (MANDATORY) ═══
 
