@@ -7,6 +7,7 @@ import type { EnrichmentSummary } from '@/lib/enrichment/types'
 import type { PatientProfile } from '@/types/database'
 import { formatPatientPsychologyForPrompt } from './agent-types'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
+import { createServiceClient } from '@/lib/supabase/server'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -337,9 +338,23 @@ export async function rescoreAndPersistLead(
   supabase: SupabaseClient,
   lead: Partial<Lead>
 ): Promise<ScoreResult> {
+  if (!lead.id || !lead.organization_id) {
+    throw new Error('rescoreAndPersistLead requires lead.id and lead.organization_id')
+  }
+
+  // Reads (enrichment + HIPAA audit) use the caller's client. The PERSIST does
+  // not: scoring runs from agency-admin (cross-org), setter, and cron paths
+  // whose ambient RLS context — `organization_id = get_user_org_id()` — often
+  // won't resolve to the lead's org. An RLS-gated `.update().eq('id', …)` then
+  // matches 0 rows and *silently* no-ops (Supabase returns no error for a 0-row
+  // update), so a lead that logged "AI Score: N" in history reads as Unscored.
+  // Persist via a service-role client keyed on organization_id, then verify a
+  // row came back so a genuinely failed write throws instead of vanishing.
   const scoreResult = await scoreLead(lead, supabase)
 
-  await supabase
+  const db = createServiceClient()
+
+  const { data: updated, error: updateError } = await db
     .from('leads')
     .update({
       ai_score: scoreResult.total_score,
@@ -351,9 +366,21 @@ export async function rescoreAndPersistLead(
       ai_score_updated_at: new Date().toISOString(),
       ai_summary: scoreResult.summary,
     })
-    .eq('id', lead.id!)
+    .eq('id', lead.id)
+    .eq('organization_id', lead.organization_id)
+    .select('id')
+    .maybeSingle()
 
-  await supabase.from('lead_activities').insert({
+  if (updateError) {
+    throw new Error(`Failed to persist lead score: ${updateError.message}`)
+  }
+  if (!updated) {
+    throw new Error(
+      `Lead score computed but not persisted: no leads row matched id=${lead.id} org=${lead.organization_id}`
+    )
+  }
+
+  await db.from('lead_activities').insert({
     organization_id: lead.organization_id,
     lead_id: lead.id,
     activity_type: 'score_updated',
@@ -362,7 +389,7 @@ export async function rescoreAndPersistLead(
     metadata: scoreResult,
   })
 
-  await supabase.from('ai_interactions').insert({
+  await db.from('ai_interactions').insert({
     organization_id: lead.organization_id,
     lead_id: lead.id,
     interaction_type: 'scoring',

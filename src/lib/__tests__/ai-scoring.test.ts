@@ -32,7 +32,29 @@ vi.mock('@/lib/enrichment', () => ({
   getEnrichmentSummary: vi.fn().mockResolvedValue(null),
 }))
 
-import { scoreLead, generateLeadEngagement, type ScoreResult } from '@/lib/ai/scoring'
+// Service-role client used by rescoreAndPersistLead for the persist. The leads
+// UPDATE resolves through mockMaybeSingle so tests can simulate a landed write
+// ({ data: { id } }) vs. an RLS/cross-org 0-row no-op ({ data: null }).
+const mockMaybeSingle = vi.fn()
+const mockInsert = vi.fn()
+vi.mock('@/lib/supabase/server', () => ({
+  createServiceClient: () => ({
+    from: (table: string) =>
+      table === 'leads'
+        ? {
+            update: () => ({
+              eq: () => ({
+                eq: () => ({
+                  select: () => ({ maybeSingle: mockMaybeSingle }),
+                }),
+              }),
+            }),
+          }
+        : { insert: mockInsert },
+  }),
+}))
+
+import { scoreLead, generateLeadEngagement, rescoreAndPersistLead, type ScoreResult } from '@/lib/ai/scoring'
 import { getEnrichmentSummary } from '@/lib/enrichment'
 import { logHIPAAEvent, checkResponseCompliance } from '@/lib/ai/hipaa'
 
@@ -221,6 +243,51 @@ describe('scoreLead', () => {
     await scoreLead({ id: 'lead-1', first_name: 'Test' }, mockSupabase)
 
     expect(getEnrichmentSummary).toHaveBeenCalledWith(mockSupabase, 'lead-1')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
+// rescoreAndPersistLead
+// ═══════════════════════════════════════════════════════════════
+
+describe('rescoreAndPersistLead', () => {
+  const lead = { id: 'lead-1', organization_id: 'org-1', first_name: 'Test' }
+
+  beforeEach(() => {
+    mockInsert.mockResolvedValue({ error: null })
+  })
+
+  it('persists the score and logs activity + interaction when the write lands', async () => {
+    setAnthropicResponse(makeScoringResponse())
+    mockMaybeSingle.mockResolvedValue({ data: { id: 'lead-1' }, error: null })
+
+    const result = await rescoreAndPersistLead({} as any, lead)
+
+    expect(result.total_score).toBeGreaterThan(0)
+    expect(mockInsert).toHaveBeenCalledTimes(2) // lead_activities + ai_interactions
+  })
+
+  it('throws instead of silently succeeding when the write matches 0 rows (RLS/cross-org no-op)', async () => {
+    setAnthropicResponse(makeScoringResponse())
+    mockMaybeSingle.mockResolvedValue({ data: null, error: null })
+
+    await expect(rescoreAndPersistLead({} as any, lead)).rejects.toThrow('not persisted')
+    // The exact bug this guards: no phantom "AI Score" activity when the score never landed.
+    expect(mockInsert).not.toHaveBeenCalled()
+  })
+
+  it('throws when the update returns an error', async () => {
+    setAnthropicResponse(makeScoringResponse())
+    mockMaybeSingle.mockResolvedValue({ data: null, error: { message: 'boom' } })
+
+    await expect(rescoreAndPersistLead({} as any, lead)).rejects.toThrow('Failed to persist lead score: boom')
+  })
+
+  it('throws before scoring when organization_id is missing', async () => {
+    await expect(
+      rescoreAndPersistLead({} as any, { id: 'lead-1', first_name: 'Test' })
+    ).rejects.toThrow('requires lead.id and lead.organization_id')
+    expect(mockCreate).not.toHaveBeenCalled() // never even calls the model
   })
 })
 
