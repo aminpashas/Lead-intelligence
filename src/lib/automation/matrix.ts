@@ -162,6 +162,8 @@ export const CRON_SCHEDULES: Record<string, string> = {
   'sla-takeover': 'Every minute',
   'pipeline-recommendations': 'Hourly at :40',
   'recommendation-outcomes': 'Daily 01:50 UTC',
+  'batch-15m': 'Every 15 min (dispatcher)',
+  'batch-10m': 'Every 10 min (dispatcher)',
 }
 
 export type CronRunSnapshot = {

@@ -20,9 +20,7 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { getCallDetail } from '@/lib/voice/retell-client'
 import { logger } from '@/lib/logger'
-
-// Statuses that mean "a call is happening right now".
-const ACTIVE_STATUSES = ['initiated', 'ringing', 'in_progress']
+import { ACTIVE_CALL_STATUSES, activeCallFreshnessCutoffISO } from '@/lib/voice/call-metrics'
 
 type LiveEntry = { role: 'agent' | 'lead'; content: string }
 
@@ -44,7 +42,10 @@ export async function GET(request: NextRequest) {
     .eq('lead_id', leadId)
     .eq('organization_id', orgId)
     .is('ended_at', null)
-    .in('status', ACTIVE_STATUSES)
+    .in('status', ACTIVE_CALL_STATUSES)
+    // A row stranded past the freshness window is a missed-webhook phantom, not a
+    // live call — don't light up the thread's "ongoing call" indicator for it.
+    .gte('created_at', activeCallFreshnessCutoffISO())
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()

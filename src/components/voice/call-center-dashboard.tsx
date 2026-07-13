@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,7 +22,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import type { CallMetric } from '@/lib/voice/call-metrics'
+import { ACTIVE_CALL_STATUSES, ACTIVE_CALL_MAX_AGE_MINUTES, type CallMetric } from '@/lib/voice/call-metrics'
 import {
   Phone, PhoneCall, PhoneOff, PhoneMissed,
   Radio, Loader2, Play, Pause, Plus,
@@ -143,6 +142,27 @@ const outcomeConfig: Record<string, { label: string; color: string; icon: Lucide
 const reviewStatusConfig: Record<string, { label: string; color: string }> = {
   escalated: { label: 'Escalated', color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
   flagged: { label: 'Flagged', color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
+}
+
+// Neutral badge for a row stuck in an active status past the live-freshness bound:
+// its terminal event never arrived, so it's a phantom, not a live call.
+const strandedStatusConfig = { label: 'Ended', color: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border', icon: PhoneOff }
+
+/**
+ * A `voice_calls` row in an active status (initiated/ringing/in_progress) but older
+ * than the live-freshness bound is a stranded phantom — the reconciler will close it
+ * out of band, but until then the list must not advertise it as "Live"/"Ringing".
+ * Mirrors the guard the Live Now stat card uses (see applyCallMetric 'active').
+ */
+function isStrandedActiveCall(call: { status: string; created_at: string }): boolean {
+  if (!(ACTIVE_CALL_STATUSES as readonly string[]).includes(call.status)) return false
+  return new Date(call.created_at).getTime() < Date.now() - ACTIVE_CALL_MAX_AGE_MINUTES * 60_000
+}
+
+/** Status badge config, downgrading stranded active rows to a neutral "Ended". */
+function effectiveStatusConfig(call: { status: string; created_at: string }) {
+  if (isStrandedActiveCall(call)) return strandedStatusConfig
+  return callStatusConfig[call.status] || callStatusConfig.completed
 }
 
 function prettifyOutcome(outcome: string): string {
@@ -463,13 +483,13 @@ function CallRow({
   expanded: boolean
   onToggle: () => void
 }) {
-  const statusCfg = callStatusConfig[call.status] || callStatusConfig.completed
+  const statusCfg = effectiveStatusConfig(call)
   const StatusIcon = statusCfg.icon
   const outcomeCfg = resolveOutcomeBadge(call)
   const reviewCfg = call.review_status ? reviewStatusConfig[call.review_status] : null
   const reviewFlags = (call.review_flags ?? []).filter((f) => f && f.summary)
   const lines = toTranscriptLines(call)
-  const live = call.status === 'in_progress'
+  const live = call.status === 'in_progress' && !isStrandedActiveCall(call)
 
   return (
     <div className={live ? 'bg-aurea-primary/[0.03]' : undefined}>
@@ -844,10 +864,10 @@ function CallMetricSheet({ metric, label, open }: { metric: CallMetric; label: s
 }
 
 function DrillCallRow({ call }: { call: DrillCall }) {
-  const statusCfg = callStatusConfig[call.status] || callStatusConfig.completed
+  const statusCfg = effectiveStatusConfig(call)
   const StatusIcon = statusCfg.icon
   const outcomeCfg = resolveOutcomeBadge(call)
-  const live = call.status === 'in_progress'
+  const live = call.status === 'in_progress' && !isStrandedActiveCall(call)
   const name = call.lead
     ? `${call.lead.first_name} ${call.lead.last_name || ''}`.trim()
     : call.direction === 'inbound' ? maskPhone(call.from_number) : maskPhone(call.to_number)

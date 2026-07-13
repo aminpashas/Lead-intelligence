@@ -36,10 +36,26 @@ type Chainable = {
   gt: (column: string, value: unknown) => Chainable
   gte: (column: string, value: unknown) => Chainable
   in: (column: string, values: readonly unknown[]) => Chainable
+  is: (column: string, value: unknown) => Chainable
 }
 
 /** Statuses that mean "a call is happening right now". */
 export const ACTIVE_CALL_STATUSES = ['initiated', 'ringing', 'in_progress'] as const
+
+/**
+ * How long a row may sit in an active status before "Live Now" stops trusting it.
+ * A real call — even a long AI voice call — is over well inside this window, so a
+ * row older than this with no terminal event is a stranded phantom (missed
+ * webhook), not a live call. The voice-reconcile cron heals such rows out of band;
+ * this bound just makes sure the UI never advertises them as live in the meantime.
+ * Comfortably larger than the reconciler's 10-min grace so the two never fight.
+ */
+export const ACTIVE_CALL_MAX_AGE_MINUTES = 30
+
+/** ISO cutoff: rows created before this are too old to count as "live". */
+export function activeCallFreshnessCutoffISO(): string {
+  return new Date(Date.now() - ACTIVE_CALL_MAX_AGE_MINUTES * 60 * 1000).toISOString()
+}
 
 /**
  * Narrow a `voice_calls` query to the rows a given stat card counts.
@@ -61,6 +77,12 @@ export function applyCallMetric<Q>(query: Q, metric: CallMetric, todayISO: strin
     case 'appointments':
       return q.eq('outcome', 'appointment_booked').gte('created_at', todayISO) as Q
     case 'active':
-      return q.in('status', ACTIVE_CALL_STATUSES) as Q
+      // "Happening right now" = active status AND not yet finalized AND recent
+      // enough to plausibly still be live. The last two guards keep rows whose
+      // terminal webhook never arrived from showing as phantom live calls.
+      return q
+        .in('status', ACTIVE_CALL_STATUSES)
+        .is('ended_at', null)
+        .gte('created_at', activeCallFreshnessCutoffISO()) as Q
   }
 }
