@@ -65,7 +65,6 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Leads', href: '/leads', icon: Users },
       { name: 'Tasks', href: '/tasks', icon: ListTodo },
       { name: 'Conversations', href: '/conversations', icon: MessageSquare },
-      { name: 'Monitor', href: '/monitor', icon: Activity },
       { name: 'Call Center', href: '/call-center', icon: Phone },
       { name: 'Dialer', href: '/dialer', icon: PhoneOutgoing },
       { name: 'Appointments', href: '/appointments', icon: Calendar },
@@ -91,6 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
       { name: 'Automation', href: '/automation', icon: SlidersHorizontal },
+      { name: 'Monitor', href: '/monitor', icon: Activity },
       { name: 'Audit Trail', href: '/audit', icon: History },
     ],
   },
