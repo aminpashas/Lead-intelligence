@@ -28,6 +28,7 @@ const COLLAPSE_KEY = 'conversations:inbox-collapsed'
 // never touches ciphertext and filtering stays instant (in-memory).
 export type ConversationListItem = {
   id: string
+  leadId: string | null
   channel: string
   unread: number
   lastAt: string | null
@@ -43,6 +44,11 @@ export type ConversationListItem = {
   score: number | null
   qualification: string | null
 }
+
+// One inbox card per person. A lead with SMS + voice + email collapses into a
+// single row: `id` points at the most-recent thread (where the card links),
+// `convIds` holds every thread it stands for, `channels` drives the icon cluster.
+type GroupedRow = ConversationListItem & { convIds: string[]; channels: string[] }
 
 type ChannelFilter = 'all' | 'sms' | 'email' | 'voice'
 type SortKey = 'recent' | 'unread' | 'score'
@@ -172,9 +178,36 @@ export function ConversationsSidebar({
     })
 
     const withUnread = (c: ConversationListItem) => (readLocally.has(c.id) ? 0 : c.unread)
-    rows.sort((a, b) => {
+
+    // Collapse threads to one row per lead so the same person never appears
+    // twice. Leads without an id (shouldn't happen) fall back to their own
+    // thread id so they still render as a standalone row.
+    const groups = new Map<string, ConversationListItem[]>()
+    for (const c of rows) {
+      const key = c.leadId ?? c.id
+      const arr = groups.get(key)
+      if (arr) arr.push(c)
+      else groups.set(key, [c])
+    }
+
+    const grouped: GroupedRow[] = Array.from(groups.values()).map((convs) => {
+      const byRecency = [...convs].sort(
+        (a, b) => new Date(b.lastAt ?? 0).getTime() - new Date(a.lastAt ?? 0).getTime()
+      )
+      const rep = byRecency[0]
+      const channels: string[] = []
+      for (const c of byRecency) if (!channels.includes(c.channel)) channels.push(c.channel)
+      return {
+        ...rep,
+        unread: convs.reduce((n, c) => n + withUnread(c), 0),
+        convIds: convs.map((c) => c.id),
+        channels,
+      }
+    })
+
+    grouped.sort((a, b) => {
       if (sort === 'unread') {
-        const d = withUnread(b) - withUnread(a)
+        const d = b.unread - a.unread
         if (d !== 0) return d
       } else if (sort === 'score') {
         const d = (b.score ?? -1) - (a.score ?? -1)
@@ -183,7 +216,7 @@ export function ConversationsSidebar({
       // Tie-break (and default) on recency.
       return new Date(b.lastAt ?? 0).getTime() - new Date(a.lastAt ?? 0).getTime()
     })
-    return rows
+    return grouped
   }, [conversations, query, channel, quals, sentiments, unreadOnly, aiOnly, sort, readLocally])
 
   const totalUnread = conversations.reduce(
@@ -412,14 +445,19 @@ export function ConversationsSidebar({
         ) : (
           <ul className="py-1">
             {filtered.map((c) => {
-              const unread = readLocally.has(c.id) ? 0 : c.unread
-              const active = c.id === activeId
+              // `unread` is already summed across the lead's threads in the memo.
+              const unread = c.unread
+              const active = activeId ? c.convIds.includes(activeId) : false
               return (
-                <li key={c.id}>
+                <li key={c.leadId ?? c.id}>
                   <Link
                     href={`/conversations/${c.id}`}
                     onClick={() =>
-                      setReadLocally((prev) => new Set(prev).add(c.id))
+                      setReadLocally((prev) => {
+                        const next = new Set(prev)
+                        c.convIds.forEach((id) => next.add(id))
+                        return next
+                      })
                     }
                     className={`group relative flex gap-3 px-4 py-3 transition-colors ${
                       active ? 'bg-aurea-surface-2' : 'hover:bg-aurea-surface-2/60'
@@ -462,9 +500,21 @@ export function ConversationsSidebar({
                         >
                           {c.name}
                         </span>
-                        <span className="shrink-0 text-[11px] tabular-nums text-aurea-ink-3">
-                          {shortAgo(c.lastAt)}
-                        </span>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {c.channels.length > 1 && (
+                            <span
+                              className="flex items-center gap-0.5 text-aurea-ink-3"
+                              title={`Channels: ${c.channels.join(', ')}`}
+                            >
+                              {c.channels.map((ch) => (
+                                <ChannelIcon key={ch} channel={ch} className="h-3 w-3" />
+                              ))}
+                            </span>
+                          )}
+                          <span className="text-[11px] tabular-nums text-aurea-ink-3">
+                            {shortAgo(c.lastAt)}
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-0.5 flex items-center justify-between gap-2">
                         <p

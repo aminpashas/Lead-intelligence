@@ -35,6 +35,9 @@ export default async function ConversationsLayout({
         lead:leads(id, first_name, last_name, phone, email, ai_score, ai_qualification)
       `)
       .eq('organization_id', orgId)
+      // Archived threads are resolved/put-away — keep them out of the live inbox
+      // so a lead that was texted twice doesn't show a stale second SMS row.
+      .neq('status', 'archived')
       .order('last_message_at', { ascending: false })
       .limit(300)
 
@@ -57,6 +60,7 @@ export default async function ConversationsLayout({
 
       return {
         id: c.id as string,
+        leadId: (lead?.id as string) ?? null,
         channel: (c.channel as string) ?? 'sms',
         unread: (c.unread_count as number) ?? 0,
         lastAt: (c.last_message_at as string) ?? null,
