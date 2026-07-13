@@ -270,10 +270,29 @@ export function formatQualificationForPrompt(status: QualificationStatus): strin
  * Formats patient psychology profile for inclusion in agent system prompts.
  * Used by both Setter and Closer to personalize their communication style.
  */
-export function formatPatientPsychologyForPrompt(profile: PatientProfile | null): string {
+/**
+ * Which slice of the psychology profile a prompt gets.
+ * - 'full'   — everything, including sales/financing context (Closer + scoring).
+ * - 'setter' — interpersonal + tone ONLY. The Setter's job is concern → history
+ *   → booking; financing/qualification is a SEPARATE, button-triggered workflow,
+ *   so the sales-oriented fields (pain points, desires, objections framing,
+ *   recommended tone, topics to emphasize, next best action, analyst narrative)
+ *   must NOT reach it. Without this guard a financing-heavy profile written by
+ *   the hourly sweep bleeds "$0 down" and "send the financing link" directives —
+ *   and its "a human must reach out" next-action — straight into a booking reply,
+ *   drifting the flow and self-escalating it into silence.
+ */
+export type PsychologyScope = 'full' | 'setter'
+
+export function formatPatientPsychologyForPrompt(
+  profile: PatientProfile | null,
+  opts?: { scope?: PsychologyScope }
+): string {
   if (!profile || !profile.personality_type) {
     return 'No patient psychology profile available yet. Use a warm, neutral tone until you learn more about this person.'
   }
+
+  const salesAllowed = (opts?.scope ?? 'full') !== 'setter'
 
   const lines: string[] = [
     `Personality type: ${profile.personality_type} (${profile.communication_style || 'unknown style'})`,
@@ -282,37 +301,43 @@ export function formatPatientPsychologyForPrompt(profile: PatientProfile | null)
     `Emotional state: ${profile.emotional_state} | Anxiety: ${profile.anxiety_level}/10 | Motivation: ${profile.motivation_level}/10`,
   ]
 
-  if (profile.pain_points?.length > 0) {
-    const topPains = profile.pain_points.slice(0, 3).map(p => p.point).join(', ')
-    lines.push(`Key pain points: ${topPains}`)
+  // Sales-oriented context — Closer/scoring only. The Setter gathers the
+  // patient's situation fresh rather than inheriting a sales read of it.
+  if (salesAllowed) {
+    if (profile.pain_points?.length > 0) {
+      const topPains = profile.pain_points.slice(0, 3).map(p => p.point).join(', ')
+      lines.push(`Key pain points: ${topPains}`)
+    }
+
+    if (profile.desires?.length > 0) {
+      const topDesires = profile.desires.slice(0, 3).map(d => d.desire).join(', ')
+      lines.push(`Key desires: ${topDesires}`)
+    }
+
+    if (profile.recommended_tone) {
+      lines.push(`Recommended tone: ${profile.recommended_tone}`)
+    }
+
+    if (profile.topics_to_emphasize?.length > 0) {
+      lines.push(`Topics to emphasize: ${profile.topics_to_emphasize.join(', ')}`)
+    }
   }
 
-  if (profile.desires?.length > 0) {
-    const topDesires = profile.desires.slice(0, 3).map(d => d.desire).join(', ')
-    lines.push(`Key desires: ${topDesires}`)
-  }
-
-  if (profile.recommended_tone) {
-    lines.push(`Recommended tone: ${profile.recommended_tone}`)
-  }
-
-  if (profile.topics_to_emphasize?.length > 0) {
-    lines.push(`Topics to emphasize: ${profile.topics_to_emphasize.join(', ')}`)
-  }
-
+  // Kept for the Setter too: knowing what NOT to raise can only help it stay in lane.
   if (profile.topics_to_avoid?.length > 0) {
     lines.push(`Topics to AVOID: ${profile.topics_to_avoid.join(', ')}`)
   }
 
-  if (profile.next_best_action) {
+  if (salesAllowed && profile.next_best_action) {
     lines.push(`Recommended next action: ${profile.next_best_action}`)
   }
 
   // The analyzer's narrative read of this person. It carries context the
   // structured fields flatten out (history of broken promises, what actually
   // matters to them). Ground the reply in it so the draft matches the same
-  // read of the lead that staff see in the Lead Intelligence panel.
-  if (profile.ai_summary) {
+  // read of the lead that staff see in the Lead Intelligence panel. Sales-laden
+  // by nature, so it is Closer/scoring-only.
+  if (salesAllowed && profile.ai_summary) {
     lines.push(`Analyst read of this patient: ${profile.ai_summary}`)
   }
 

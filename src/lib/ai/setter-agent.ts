@@ -189,7 +189,9 @@ function buildSetterSystemPrompt(context: AgentContext): string {
   const gated = context.disclose_phi === false
   const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>, { disclosePHI: !gated })
   const { skill, instructions } = selectActiveSkill(context)
-  const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile)
+  // Setter scope: interpersonal + tone only. Financing/sales psychology belongs
+  // to the Closer/qualification workflow and must not bleed into booking.
+  const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile, { scope: 'setter' })
   // Read how THIS patient actually texts (length, emoji, register) and turn it
   // into concrete mirroring rules. SMS only — length-matching is the strongest
   // human tell there; voice is spoken and email has its own length norms.
