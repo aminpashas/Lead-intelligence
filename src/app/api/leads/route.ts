@@ -6,6 +6,7 @@ import { auditPHIRead, auditPHIWrite } from '@/lib/hipaa-audit'
 import { safeParseBody } from '@/lib/body-size'
 import { formatToE164 } from '@/lib/leads/phone'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { deriveConsentFields } from '@/lib/consent/ingest'
 
 // Allowlisted sort columns to prevent column enumeration via sort_by parameter
 const ALLOWED_SORT_COLUMNS = new Set([
@@ -156,8 +157,21 @@ export async function POST(request: NextRequest) {
 
   const phoneFormatted = formatToE164(parsed.data.phone) ?? undefined
 
+  // Staff manually adding a lead in the CRM implies an express-consent basis to
+  // contact them (unlike an anonymous inbound/import), so stamp call/text/email
+  // consent at creation — otherwise the lead lands unconsented and the very next
+  // action (call/SMS/email) is blocked by the consent gate. Tagged with a distinct
+  // source for the audit trail; opt-out / DNC remain safety-dominant downstream.
+  const consentFields = deriveConsentFields({
+    sms_consent: true,
+    email_consent: true,
+    voice_consent: true,
+    consent_source: 'staff_manual_entry',
+  })
+
   const insertData = encryptLeadPII({
     ...parsed.data,
+    ...consentFields,
     organization_id: orgId,
     stage_id: defaultStage?.id,
     phone_formatted: phoneFormatted,
