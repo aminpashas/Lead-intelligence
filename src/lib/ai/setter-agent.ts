@@ -37,6 +37,8 @@ import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
+import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
+import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -147,6 +149,12 @@ Your approach:
 - Address any last-minute hesitations gently
 - If they're not ready, don't push — offer to be available when they are
 
+OFFERING TIMES — offer few, narrow down (do NOT overwhelm):
+- Once they're ready, offer only TWO specific slots at a time, each as ONE combined date + time (e.g. "I've got Tuesday the 14th at 9 AM or Wednesday the 15th at 10 AM — which works better?").
+- NEVER list a menu of days in one message and a menu of times in another. A slot the patient can pick is always a single date AND time together, so they just reply with one choice.
+- If neither of the two works, offer the next two — keep narrowing two at a time until one lands. Never paste the whole week's availability.
+- Use the availability tool for real open times; offer the soonest two first unless they've told you a preference.
+
 Framing that works:
 - "Based on what you've shared, a quick consultation would give you the specific answers about [their situation]. We have openings [timeframe] — what works for you?"
 - "A lot of folks in your situation find that just coming in to chat with the doctor really helps clarify things. No pressure, just information."
@@ -180,7 +188,20 @@ function buildSetterSystemPrompt(context: AgentContext): string {
   const gated = context.disclose_phi === false
   const leadContext = buildSafeLeadContext(context.lead as Record<string, unknown>, { disclosePHI: !gated })
   const { skill, instructions } = selectActiveSkill(context)
-  const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile)
+  // Setter scope: interpersonal + tone only. Financing/sales psychology belongs
+  // to the Closer/qualification workflow and must not bleed into booking.
+  const psychologyContext = formatPatientPsychologyForPrompt(context.patient_profile, { scope: 'setter' })
+  // Read how THIS patient actually texts (length, emoji, register) and turn it
+  // into concrete mirroring rules. SMS only — length-matching is the strongest
+  // human tell there; voice is spoken and email has its own length norms.
+  const textingStyleBlock =
+    context.channel === 'sms'
+      ? formatTextingStyleBlock(
+          analyzeTextingStyle(
+            context.conversation_history.filter((m) => m.role === 'user').map((m) => m.content)
+          )
+        )
+      : ''
 
   return `You are a warm, professional patient coordinator for an All-on-4 dental implant practice.
 You represent the practice (never share a personal name). You handle initial outreach, lead qualification, and consultation booking via ${context.channel === 'voice' ? 'a live phone call' : context.channel === 'sms' ? 'text message' : 'email'}.
@@ -222,12 +243,17 @@ ${context.channel === 'voice' ? `- VOICE CALL: You are speaking on a LIVE phone 
 - If the patient needs a human, say "Let me connect you with someone who can help."
 - MID-CALL: the call is already in progress — never restart with "Hi"/"Hello" or re-introduce yourself. Just continue the conversation.
 - WRAP UP CLEANLY: once everything is handled (booked, questions answered, or they want to go), give ONE warm sign-off ("Thanks so much, [Name] — take care!") and STOP. Do not add another question or keep the call going after saying goodbye.` :
-context.channel === 'sms' ? `- SMS: Keep messages under 300 characters. Be conversational, not formal.
-- Use line breaks for readability. No walls of text.
-- One question or one idea per message.` : `- Email: Professional but warm tone.
+context.channel === 'sms' ? `- SMS — TEXT LIKE A REAL PERSON, NOT A BROCHURE. This is the difference between booking and getting ghosted.
+- DEFAULT TO SHORT. One thought per text. Most replies should be a single sentence — often just a line. A patient who gets a paragraph feels sold to and stops replying.
+- MIRROR THEIR LENGTH (see THIS PATIENT'S TEXTING STYLE below). If they send you 2-word texts, you send short texts back. Never answer a 3-word message with four sentences.
+- NO walls of text, no bullet lists, no line-break-separated mini-paragraphs stacked in one message — that reads as automated. Say the ONE thing that matters now and let them reply.
+- Natural but polished: contractions, plain words, real punctuation. Sound like a friendly coordinator texting from her phone, not a script. Always correct spelling — you represent a medical practice.
+- Emoji: at most one, and only if the patient uses them. Never decorate every message with 😊/🎉 — enthusiasm-on-every-line is the clearest bot tell.
+- Don't parrot their words back, don't over-explain, don't front-load reassurance they didn't ask for. Answer, then at most one easy next step or question.
+- Let them set the pace. A short or slow reply is a cue to write LESS, not more.` : `- Email: Professional but warm tone.
 - Use clear paragraphs. Include a clear next step.
 - Keep it focused — 2-3 short paragraphs max.`}
-
+${textingStyleBlock ? `\n${textingStyleBlock}\n` : ''}
 ${gated ? `═══ IDENTITY VERIFICATION (MANDATORY) ═══
 
 You have NOT confirmed the person on the other end is this patient. Until you do:
@@ -372,11 +398,18 @@ export async function setterAgentRespond(
   // "train your AI" actually governs real patient conversations (not just the
   // playground). Keyed on the latest inbound message for knowledge relevance.
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, rulesBlock, profileBlock] = await Promise.all([
+  const [knowledgeBlock, personaBlock, rulesBlock, profileBlock, brandBlock] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     buildAgencyRulesBlock(supabase),
     buildPracticeProfileBlock(supabase, context.organization_id),
+    // The setter is an implant-line agent: an unsignalled lead here is an
+    // implant lead, so the brand falls back to the implants DBA — never the
+    // TMJ/sleep brand unless the lead explicitly signals that service line.
+    buildBrandIdentityBlock(supabase, context.organization_id, {
+      lead: context.lead,
+      fallbackServiceLine: 'implants',
+    }),
   ])
 
   // Discovery-first guide + pricing integrity — on EVERY channel now (was
@@ -416,7 +449,7 @@ export async function setterAgentRespond(
     ? `## PROACTIVE OUTREACH STEP\nThere is no new inbound message. You are composing the practice's next OUTBOUND ${context.channel} touch in a follow-up cadence.\nStep goal: ${context.outreach_instruction}\nKeep it short, warm, and easy to reply to. Do not fabricate prior commitments or approvals.`
     : ''
 
-  const systemPrompt = [composedPrompt, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, brandBlock, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
   // in delimiters. The autopilot's injection scan only neutralized the NEWEST

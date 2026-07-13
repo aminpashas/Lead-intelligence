@@ -37,6 +37,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/drain-outbound-sms",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/pull-gbp-reviews",
       "schedule": "15 7 * * *"
     },
