@@ -28,6 +28,9 @@ export type HumanTaskKind =
   | 'recommendation'
   | 'sla_breach_review'
   | 'call_review'
+  // On-demand call task generated from a Smart List (the call-queue action),
+  // as opposed to the automatic allocation-engine kinds above.
+  | 'list_call'
 
 export type HumanTaskStatus =
   | 'open'
@@ -83,6 +86,10 @@ export type CreateHumanTaskInput = {
   due_at?: string | null
   dedupe_key?: string | null
   metadata?: Record<string, unknown>
+  /** The Smart List a 'list_call' task was generated from (traceability). */
+  source_smart_list_id?: string | null
+  /** The staff user who created the task (null for allocation-created tasks). */
+  created_by?: string | null
 }
 
 export type CreateHumanTaskResult = {
@@ -115,6 +122,17 @@ export function taskDedupeKeyForInbound(conversationId: string): string {
 /** A lead only ever needs one live first-touch task. */
 export function taskDedupeKeyForFirstTouch(leadId: string): string {
   return `first_touch:${leadId}`
+}
+
+/**
+ * One live call task per (Smart List, lead): re-running the call-queue action
+ * on the same list collapses onto the existing open/claimed task rather than
+ * piling up duplicates. Scoped to the list — the same lead can still hold a
+ * live call task from a different list. Once the task is completed/dismissed it
+ * leaves the partial index, so a later run can re-queue that lead.
+ */
+export function taskDedupeKeyForListCall(smartListId: string, leadId: string): string {
+  return `list_call:${smartListId}:${leadId}`
 }
 
 // ── Create (upsert-on-dedupe) ────────────────────────────────────────
@@ -207,6 +225,8 @@ async function insertTask(supabase: SupabaseClient, input: CreateHumanTaskInput)
       source: input.source,
       dedupe_key: input.dedupe_key ?? null,
       metadata: input.metadata ?? {},
+      source_smart_list_id: input.source_smart_list_id ?? null,
+      created_by: input.created_by ?? null,
     })
     .select('id')
     .single()
