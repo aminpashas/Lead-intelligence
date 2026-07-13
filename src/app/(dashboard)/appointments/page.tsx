@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, type ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -116,6 +116,12 @@ export default function AppointmentsPage() {
     Promise.all([fetchAppointments(), fetchReminders()]).finally(() => setLoading(false))
   }, [fetchAppointments, fetchReminders])
 
+  // ── KPI card → drill-down into the matching tab + filter ──
+  const selectKpi = (tab: TabKey, filter: string) => {
+    setActiveTab(tab)
+    setStatusFilter(filter)
+  }
+
   // ── Actions ──
   const handleConfirm = async (id: string) => {
     setActionLoading(id)
@@ -218,61 +224,66 @@ export default function AppointmentsPage() {
         </Button>
       </div>
 
-      {/* ── KPI Cards ── */}
+      {/* ── KPI Cards (click to drill into the matching leads) ── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="aurea-card p-4">
-          <div className="flex items-center gap-3">
-            <Calendar className="text-aurea-ink-3 h-[17px] w-[17px]" strokeWidth={1.75} />
-            <div>
-              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{todayApts.length}</p>
-              <p className="aurea-eyebrow">Today</p>
-            </div>
+        <KpiCard
+          active={activeTab === 'today'}
+          onClick={() => selectKpi('today', 'all')}
+        >
+          <Calendar className="text-aurea-ink-3 h-[17px] w-[17px]" strokeWidth={1.75} />
+          <div>
+            <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{todayApts.length}</p>
+            <p className="aurea-eyebrow">Today</p>
           </div>
-        </div>
+        </KpiCard>
 
-        <div className="aurea-card p-4">
-          <div className="flex items-center gap-3">
-            <CheckCircle2 className="text-aurea-primary h-[17px] w-[17px]" strokeWidth={1.75} />
-            <div>
-              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{confirmedRate}%</p>
-              <p className="aurea-eyebrow">Confirmed</p>
-            </div>
+        <KpiCard
+          active={activeTab === 'upcoming' && statusFilter === 'confirmed'}
+          onClick={() => selectKpi('upcoming', 'confirmed')}
+        >
+          <CheckCircle2 className="text-aurea-primary h-[17px] w-[17px]" strokeWidth={1.75} />
+          <div>
+            <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{confirmedRate}%</p>
+            <p className="aurea-eyebrow">Confirmed</p>
           </div>
-        </div>
+        </KpiCard>
 
-        <div className="aurea-card p-4">
-          <div className="flex items-center gap-3">
-            <Clock className="text-aurea-amber h-[17px] w-[17px]" strokeWidth={1.75} />
-            <div>
-              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{pendingCount}</p>
-              <p className="aurea-eyebrow">Pending</p>
-            </div>
+        <KpiCard
+          active={activeTab === 'upcoming' && statusFilter === 'pending'}
+          onClick={() => selectKpi('upcoming', 'pending')}
+        >
+          <Clock className="text-aurea-amber h-[17px] w-[17px]" strokeWidth={1.75} />
+          <div>
+            <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{pendingCount}</p>
+            <p className="aurea-eyebrow">Pending</p>
           </div>
-        </div>
+        </KpiCard>
 
-        <div className="aurea-card p-4">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="text-aurea-rose h-[17px] w-[17px]" strokeWidth={1.75} />
-            <div>
-              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{atRiskCount}</p>
-              <p className="aurea-eyebrow">At Risk</p>
-            </div>
+        <KpiCard
+          active={activeTab === 'upcoming' && statusFilter === 'at_risk'}
+          onClick={() => selectKpi('upcoming', 'at_risk')}
+        >
+          <AlertTriangle className="text-aurea-rose h-[17px] w-[17px]" strokeWidth={1.75} />
+          <div>
+            <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{atRiskCount}</p>
+            <p className="aurea-eyebrow">At Risk</p>
           </div>
-        </div>
+        </KpiCard>
 
-        <div className="aurea-card p-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-aurea-surface-2 rounded-lg p-1.5 flex items-center justify-center">
-              {noShowRate > 10
-                ? <TrendingDown className="h-[17px] w-[17px] text-aurea-rose" strokeWidth={1.75} />
-                : <TrendingUp className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />}
-            </div>
-            <div>
-              <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{noShowRate}%</p>
-              <p className="aurea-eyebrow">No-Show Rate</p>
-            </div>
+        <KpiCard
+          active={activeTab === 'analytics'}
+          onClick={() => selectKpi('analytics', 'all')}
+        >
+          <div className="bg-aurea-surface-2 rounded-lg p-1.5 flex items-center justify-center">
+            {noShowRate > 10
+              ? <TrendingDown className="h-[17px] w-[17px] text-aurea-rose" strokeWidth={1.75} />
+              : <TrendingUp className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />}
           </div>
-        </div>
+          <div>
+            <p className="aurea-display text-[32px] tabular-nums text-aurea-ink">{noShowRate}%</p>
+            <p className="aurea-eyebrow">No-Show Rate</p>
+          </div>
+        </KpiCard>
       </div>
 
       {/* ── Tabs ── */}
@@ -827,6 +838,29 @@ function NoShowAnalyticsTab({
 // ═══════════════════════════════════════════════════════════════
 // SUB-COMPONENTS
 // ═══════════════════════════════════════════════════════════════
+
+function KpiCard({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`aurea-card p-4 text-left w-full cursor-pointer transition-all hover:border-aurea-primary/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurea-primary/40 ${
+        active ? 'border-aurea-primary/60 ring-1 ring-aurea-primary/30' : ''
+      }`}
+    >
+      <div className="flex items-center gap-3">{children}</div>
+    </button>
+  )
+}
 
 function ChannelEffectivenessBar({ label, icon: Icon, total, confirmed, color }: { label: string; icon: LucideIcon; total: number; confirmed: number; color: string }) {
   const pct = total > 0 ? Math.round((confirmed / total) * 100) : 0
