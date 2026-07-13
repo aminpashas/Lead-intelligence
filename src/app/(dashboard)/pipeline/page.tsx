@@ -90,8 +90,15 @@ export default async function PipelinePage({
         .eq('stage_id', s.id)
       if (excludeDead) q = q.not('status', 'in', '("disqualified","lost")')
       if (serviceOr) q = q.or(serviceOr)
+      // created_at is a deterministic tiebreaker: when a stage's leads share an
+      // ai_score (New Lead is entirely ai_score=0 until the score-sweep runs), a
+      // sole ai_score sort is a total tie and Postgres returns an arbitrary,
+      // unstable 80-row slice — so freshly-arrived leads never surfaced as cards
+      // even though the header counted them. Freshest-first within a tie makes
+      // "New Lead" actually show the newest leads.
       const { data, count } = await q
         .order('ai_score', { ascending: false })
+        .order('created_at', { ascending: false })
         .range(0, CARD_CAP - 1)
 
       // Unfiltered stage total feeds the "All" grand total. Without a treatment
@@ -239,7 +246,12 @@ export default async function PipelinePage({
         .in('stage_id', boardStageIds)
       dq = applyDerivedFilter(dq, col.key, signalCutoffIso)
       if (serviceOr) dq = dq.or(serviceOr)
-      const { data } = await dq.order('ai_score', { ascending: false }).range(0, SIGNAL_CARD_CAP - 1)
+      // Same tie-break as the stage columns above — freshest-first so a bucket of
+      // equally-scored leads renders its newest cards, not an arbitrary slice.
+      const { data } = await dq
+        .order('ai_score', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(0, SIGNAL_CARD_CAP - 1)
 
       // "View all" deep-links into /leads with the same signal filter (and the
       // active treatment, so a filtered board's links stay filtered).
