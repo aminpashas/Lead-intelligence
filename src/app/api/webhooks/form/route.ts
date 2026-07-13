@@ -271,6 +271,29 @@ export async function POST(request: NextRequest) {
     } catch {
       // Speed-to-lead failure is non-fatal
     }
+
+    // 4. Staff new-lead alert (email to ops + service-line-routed Slack).
+    // Uses the plaintext form fields (parsed.data) so no decryption is needed;
+    // best-effort and never throws.
+    try {
+      const { notifyNewLead } = await import('@/lib/notifications/new-lead-alert')
+      await notifyNewLead(supabase, {
+        organizationId: orgResult.orgId,
+        lead: {
+          id: lead.id,
+          firstName: parsed.data.first_name || 'Unknown',
+          lastName: parsed.data.last_name,
+          email: parsed.data.email,
+          phone: phoneFormatted ?? parsed.data.phone,
+          source: parsed.data.source_type || 'website_form',
+          custom_fields: parsed.data.custom_fields as Record<string, unknown> | undefined,
+          utm_source: parsed.data.utm_source,
+          utm_campaign: parsed.data.utm_campaign,
+        },
+      })
+    } catch {
+      // Staff alert failure is non-fatal
+    }
   })
 
   // Dispatch to external connectors (non-blocking)

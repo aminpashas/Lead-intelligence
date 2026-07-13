@@ -565,6 +565,30 @@ export async function POST(request: NextRequest) {
     } catch {
       // Best-effort: a speed-to-lead failure must never affect ingestion.
     }
+
+    // Staff new-lead alert (email to ops + service-line-routed Slack). This is
+    // the bulk ingest path (DGS bridge), so without it most leads would never
+    // alert. Only genuine leads reach here (existing-patient/junk returned
+    // above). Built from local plaintext fields — no decryption needed.
+    try {
+      const { notifyNewLead } = await import('@/lib/notifications/new-lead-alert')
+      await notifyNewLead(supabase, {
+        organizationId: customerId,
+        lead: {
+          id: String(lead.id),
+          firstName: first_name,
+          lastName: last_name,
+          email,
+          phone: phoneFormatted ?? phoneRaw ?? null,
+          source: sourceName,
+          utm_source,
+          utm_campaign,
+          campaign_attribution: campaignAttribution,
+        },
+      })
+    } catch {
+      // Best-effort: a staff-alert failure must never affect ingestion.
+    }
   })
 
   return NextResponse.json({ id: lead.id, lead_id: lead.id }, { status: 201 })
