@@ -562,6 +562,35 @@ async function sendAgentResponse(
   // CRIT-1: TCPA consent check enforced inside sendSMSToLead / sendEmailToLead.
   // Gate refusal returns { sent: false } with a logged events row; we throw to escalate.
   if (channel === 'sms') {
+    // Human send-pacing (per-org `sms_human_pacing` flag, default-off): schedule
+    // the reply a realistic beat later instead of firing it inline the instant
+    // the model finishes — instant, perfectly-timed replies are a top bot tell.
+    // The drain-outbound-sms cron delivers it and records it on the thread. Falls
+    // back to the inline send below if pacing is off OR enqueue fails, so pacing
+    // can never drop a reply. Skipped on SLA takeovers — those are already late.
+    if (!takeover) {
+      try {
+        const { isFlagEnabled } = await import('@/lib/org/flags')
+        if (await isFlagEnabled(supabase, organization_id, 'sms_human_pacing')) {
+          const { enqueueDeferredSms } = await import('@/lib/messaging/send-pacing')
+          const enq = await enqueueDeferredSms(supabase, {
+            organization_id,
+            conversation_id,
+            lead_id,
+            to_contact: sender_contact,
+            body: agentResponse.message,
+            agent: agentResponse.agent,
+            action_taken: agentResponse.action_taken,
+            confidence: agentResponse.confidence,
+          })
+          // Delivery + thread recording happen in the drain cron; nothing else here.
+          if (enq.queued) return
+        }
+      } catch {
+        /* pacing unavailable (flag/table/queue) — fall through to inline send */
+      }
+    }
+
     const result = await sendSMSToLead({
       supabase,
       leadId: lead_id,
