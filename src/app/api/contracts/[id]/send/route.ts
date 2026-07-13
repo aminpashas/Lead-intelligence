@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { hasPermission } from '@/lib/auth/permissions'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { renderEmail } from '@/emails/render'
 import { ContractReady } from '@/emails/ContractReady'
@@ -161,6 +161,7 @@ export async function POST(
       )
       const sendResult = await sendEmail({
         to: caseRow.patient_email,
+        from: transactionalFrom(),
         subject: `Your treatment agreement from ${orgName} — please review & sign`,
         html,
         text,

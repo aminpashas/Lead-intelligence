@@ -29,7 +29,7 @@ import { formatAppointmentDateTime, type ReminderResult } from '@/lib/campaigns/
 import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 import { initiateConfirmationCall } from '@/lib/campaigns/confirmation-call'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { decryptLeadPII } from '@/lib/encryption'
 import { logger } from '@/lib/logger'
 
@@ -226,6 +226,7 @@ async function executeAppointmentStep(
   const body = step.template_body?.replace(/\{first(_name)?\}/g, firstName)
   const result = await sendEmail({
     to: lead.email as string,
+    from: transactionalFrom(),
     subject,
     html: body ? `<div style="font-family: -apple-system, sans-serif; padding: 24px;">${body.replace(/\n/g, '<br>')}</div>` : tpl.html,
     text: body || tpl.text,

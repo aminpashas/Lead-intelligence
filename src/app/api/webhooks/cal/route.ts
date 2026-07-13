@@ -25,7 +25,7 @@ import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { exitAllCampaigns } from '@/lib/campaigns/enrollments'
 import { logger } from '@/lib/logger'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { renderEmail } from '@/emails/render'
 import { BookingConfirmation } from '@/emails/BookingConfirmation'
@@ -198,6 +198,7 @@ export async function POST(request: NextRequest) {
 
           await sendEmail({
             to: recipientEmail,
+            from: transactionalFrom(),
             subject: `Confirmed: your ${parsed.payload.title || 'consultation'} with ${orgName}`,
             html,
             text,

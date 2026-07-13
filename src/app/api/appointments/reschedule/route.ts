@@ -18,7 +18,7 @@ import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
 import { renderVisitLogistics } from '@/lib/branding/visit-logistics'
 import { decryptField } from '@/lib/encryption'
 import { sendSMS } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { escapeHtml } from '@/lib/utils'
 
 // An appointment can be self-rescheduled only while it is still upcoming.
@@ -322,6 +322,7 @@ async function sendRescheduleConfirmation(
       try {
         await sendEmail({
           to: email,
+          from: transactionalFrom(),
           subject: `Appointment Rescheduled — ${escapeHtml(orgName)}`,
           html: `
             <div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">

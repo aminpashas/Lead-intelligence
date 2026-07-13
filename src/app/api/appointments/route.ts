@@ -253,11 +253,12 @@ export async function POST(request: NextRequest) {
       // Rich confirmation email — the address/directions/"what to expect" the
       // patient needs to actually show up. Consent-gated like the SMS.
       if (email) {
-        const { sendEmailToLead } = await import('@/lib/messaging/resend')
+        const { sendEmailToLead, transactionalFrom } = await import('@/lib/messaging/resend')
         const { escapeHtml } = await import('@/lib/utils')
         await sendEmailToLead({
           supabase,
           leadId: parsed.data.lead_id,
+          from: transactionalFrom(),
           to: email,
           subject: `Appointment Confirmed — ${brand.practiceName}`,
           html: `

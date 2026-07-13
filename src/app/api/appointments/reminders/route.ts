@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       // Route through sendEmailToLead (consent + opt-out + kill-switch), matching
       // the SMS sibling above. The raw sendEmail path skipped every gate, so a lead
       // who unsubscribed still received reminder emails.
-      const { sendEmailToLead } = await import('@/lib/messaging/resend')
+      const { sendEmailToLead, transactionalFrom } = await import('@/lib/messaging/resend')
       const { generate24hEmailTemplate, getConfirmationUrl, getRescheduleUrl } = await import('@/lib/campaigns/reminder-templates')
 
       const template = generate24hEmailTemplate({
@@ -165,6 +165,7 @@ export async function POST(request: NextRequest) {
         supabase,
         leadId: lead.id,
         to: lead.email,
+        from: transactionalFrom(),
         subject: template.subject,
         html: template.html,
         text: template.text,

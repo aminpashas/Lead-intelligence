@@ -19,7 +19,7 @@ import React from 'react'
 import { pdf } from '@react-pdf/renderer'
 import type { PatientContract } from '@/types/database'
 import { ContractDocument } from './pdf/ContractDocument'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { renderEmail } from '@/emails/render'
 import { ContractExecuted } from '@/emails/ContractExecuted'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
@@ -267,6 +267,7 @@ export async function executeSignedContract(input: ExecuteInput): Promise<Execut
       )
       await sendEmail({
         to: caseRow.patient_email,
+        from: transactionalFrom(),
         subject: `Your signed treatment agreement with ${orgName}`,
         html,
         text,

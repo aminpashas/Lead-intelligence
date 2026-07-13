@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { sendSMS } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { generateAvailableSlots, type BookingConfig, type ExistingAppointment, formatTimeDisplay } from '@/lib/booking/availability'
 import { zonedTimeToUtc } from '@/lib/booking/timezone'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
@@ -287,6 +287,7 @@ export async function POST(
   try {
     await sendEmail({
       to: email,
+      from: transactionalFrom(),
       subject: `Consultation Confirmed — ${escapeHtml(orgName)}`,
       html: `
         <div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">

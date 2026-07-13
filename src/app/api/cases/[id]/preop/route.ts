@@ -4,7 +4,7 @@ import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { hasPermission } from '@/lib/auth/permissions'
 import { defaultPreopContent, renderPreopHtml } from '@/lib/preop/template'
 import { getTreatmentClosingByCase, advanceStepByCase } from '@/lib/treatment/treatment-closing'
-import { sendEmail, sendEmailToLead } from '@/lib/messaging/resend'
+import { sendEmail, sendEmailToLead, transactionalFrom } from '@/lib/messaging/resend'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { searchHash } from '@/lib/encryption'
 
@@ -146,7 +146,7 @@ export async function POST(
       emailSent = result.sent
     } else {
       try {
-        await sendEmail({ to: caseRow.patient_email, subject, html })
+        await sendEmail({ to: caseRow.patient_email, from: transactionalFrom(), subject, html })
         emailSent = true
       } catch (err) {
         console.error('[preop] transactional email failed', err)
