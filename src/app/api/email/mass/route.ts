@@ -26,7 +26,17 @@ const massEmailSchema = z.object({
   // Re-permission override (email only): include consent-unknown leads.
   // Opted-out and declined leads are still excluded — see emailCampaignGate.
   allow_unconsented_email: z.boolean().optional().default(false),
+  // Reputation "sunset" override: include chronically unengaged recipients
+  // (sent >= SUNSET_MIN_SENDS in the window with zero opens/clicks). Re-permission
+  // / win-back sends deliberately target dormant contacts, so they set this true.
+  allow_unengaged: z.boolean().optional().default(false),
 })
+
+// Sunset rule: a recipient who was sent this many marketing emails in the window
+// with ZERO opens/clicks is "graymail" — re-mailing them drags domain reputation
+// down and buries deliverability for everyone. Skip them unless allow_unengaged.
+const SUNSET_WINDOW_DAYS = 180
+const SUNSET_MIN_SENDS = 3
 
 export async function POST(request: NextRequest) {
   const rlError = await applyDistributedRateLimit(request, RATE_LIMITS.api, 'email-mass')
@@ -45,7 +55,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { smart_list_id, lead_ids: directLeadIds, subject_template, body_template, html_body_template, broadcast_name, allow_unconsented_email } = parsed.data
+  const { smart_list_id, lead_ids: directLeadIds, subject_template, body_template, html_body_template, broadcast_name, allow_unconsented_email, allow_unengaged } = parsed.data
 
   if (!smart_list_id && (!directLeadIds || directLeadIds.length === 0)) {
     return NextResponse.json({ error: 'Provide either smart_list_id or lead_ids' }, { status: 400 })
@@ -123,6 +133,59 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No sendable leads (no email consent, opted out, or missing email)' }, { status: 400 })
   }
 
+  // Reputation "sunset" filter: drop chronic non-openers so we stop dragging
+  // domain reputation down. GUARDED: the rule only fires when open/click tracking
+  // is actually recording — if the org has zero engagement signal in the window,
+  // "0 opens" is meaningless (it would suppress everyone), so we skip the filter
+  // and report tracking as unavailable. Auto-activates once tracking is flowing.
+  let engaged = sendable
+  let droppedUnengaged = 0
+  let engagementTracking: 'active' | 'unavailable' | 'skipped' = 'skipped'
+  if (!allow_unengaged) {
+    const sinceIso = new Date(Date.now() - SUNSET_WINDOW_DAYS * 86_400_000).toISOString()
+    const { count: signalCount } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('channel', 'email')
+      .eq('direction', 'outbound')
+      .gte('created_at', sinceIso)
+      .or('opened_at.not.is.null,clicked_at.not.is.null')
+
+    if ((signalCount ?? 0) > 0) {
+      engagementTracking = 'active'
+      const { data: stats } = await supabase.rpc('email_engagement_stats', {
+        p_org: orgId,
+        p_lead_ids: sendable.map((l) => l.id),
+        p_since: sinceIso,
+      })
+      const byLead = new Map<string, { sent: number; engaged: number }>(
+        ((stats as { lead_id: string; sent_count: number; engaged_count: number }[]) || []).map((s) => [
+          s.lead_id,
+          { sent: Number(s.sent_count), engaged: Number(s.engaged_count) },
+        ])
+      )
+      engaged = sendable.filter((l) => {
+        const s = byLead.get(l.id)
+        if (!s) return true // never emailed in window → give them a chance
+        return !(s.sent >= SUNSET_MIN_SENDS && s.engaged === 0)
+      })
+      droppedUnengaged = sendable.length - engaged.length
+    } else {
+      engagementTracking = 'unavailable' // open/click tracking not recording yet
+    }
+  }
+
+  if (engaged.length === 0) {
+    return NextResponse.json(
+      {
+        error: 'All recipients were suppressed as chronically unengaged (no opens/clicks). Set allow_unengaged for a re-permission / win-back send.',
+        dropped_for_unengaged: droppedUnengaged,
+      },
+      { status: 400 }
+    )
+  }
+
   // Per-org daily email cap. Trim observably (reported in the response).
   const sentToday = await countTodaysOutbound(supabase, orgId, 'email')
   const remainingToday = Math.max(0, DAILY_EMAIL_CAP - sentToday)
@@ -132,8 +195,8 @@ export async function POST(request: NextRequest) {
       { status: 429 }
     )
   }
-  const capped = sendable.length > remainingToday
-  const recipients = capped ? sendable.slice(0, remainingToday) : sendable
+  const capped = engaged.length > remainingToday
+  const recipients = capped ? engaged.slice(0, remainingToday) : engaged
 
   const { data: campaign } = await supabase
     .from('campaigns')
@@ -177,7 +240,9 @@ export async function POST(request: NextRequest) {
     failed: 0,
     skipped: 0,
     capped,
-    dropped_for_daily_cap: capped ? sendable.length - recipients.length : 0,
+    dropped_for_daily_cap: capped ? engaged.length - recipients.length : 0,
+    dropped_for_unengaged: droppedUnengaged,
+    engagement_tracking: engagementTracking,
     daily_cap: DAILY_EMAIL_CAP,
     errors: [] as { lead_id: string; error: string }[],
     campaign_id: campaign?.id || null,

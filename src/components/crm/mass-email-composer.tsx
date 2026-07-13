@@ -147,6 +147,7 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
   const [activeField, setActiveField] = useState<'subject' | 'body'>('body')
   // Re-permission override: include consent-unknown leads (opted-out still excluded).
   const [allowUnconsented, setAllowUnconsented] = useState(false)
+  const [allowUnengaged, setAllowUnengaged] = useState(false)
 
   useEffect(() => { fetchSmartLists() }, [])
 
@@ -221,6 +222,7 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
           body_template: body,
           broadcast_name: broadcastName || undefined,
           allow_unconsented_email: allowUnconsented,
+          allow_unengaged: allowUnengaged,
         }),
       })
 
@@ -402,6 +404,27 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
                   </div>
                 </div>
               )}
+
+              {/* Reputation "sunset" override — by default we skip chronic
+                  non-openers (sent 3+ emails, never opened) to protect domain
+                  reputation. Win-back / re-permission sends deliberately target
+                  dormant contacts, so they opt in here. */}
+              <div className="flex items-start gap-3 p-3 rounded-lg border border-aurea-border bg-aurea-canvas">
+                <Switch
+                  checked={allowUnengaged}
+                  onCheckedChange={setAllowUnengaged}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <p className="text-[12px] font-medium text-aurea-ink">
+                    Include chronically unengaged contacts (win-back)
+                  </p>
+                  <p className="text-[11px] text-aurea-ink-3 mt-0.5">
+                    Off by default: recipients sent 3+ emails with no opens/clicks in 180 days are
+                    skipped to protect deliverability. Turn on for re-permission / win-back sends.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
