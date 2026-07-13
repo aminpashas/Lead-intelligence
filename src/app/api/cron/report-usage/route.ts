@@ -84,3 +84,7 @@ export const POST = withCron('report-usage', async ({ supabase }) => {
     data: { date, orgsBilled, eventsSent: sent, errors: errors.length },
   }
 })
+
+// Vercel Cron invokes cron routes with a GET request; alias it to the POST
+// handler so this scheduled route actually runs (matches every other cron route).
+export const GET = POST

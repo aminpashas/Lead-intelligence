@@ -177,3 +177,7 @@ export const POST = withCron('voice-transcribe', async ({ supabase }) => {
     data: { checked: rows?.length ?? 0, candidates: candidates.length, transcribed, processing, failed },
   }
 })
+
+// Vercel Cron invokes cron routes with a GET request; alias it to the POST
+// handler so this scheduled route actually runs (matches every other cron route).
+export const GET = POST

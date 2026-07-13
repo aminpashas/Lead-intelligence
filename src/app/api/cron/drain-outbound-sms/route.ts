@@ -19,3 +19,7 @@ export const POST = withCron('drain-outbound-sms', async ({ supabase }) => {
     data: { scanned: result.scanned, sent: result.sent, failed: result.failed },
   }
 })
+
+// Vercel Cron invokes cron routes with a GET request; alias it to the POST
+// handler so this scheduled route actually runs (matches every other cron route).
+export const GET = POST

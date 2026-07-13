@@ -137,3 +137,7 @@ export async function POST(request: NextRequest) {
     results,
   })
 }
+
+// Vercel Cron invokes cron routes with a GET request; alias it to the POST
+// handler so this scheduled route actually runs (matches every other cron route).
+export const GET = POST
