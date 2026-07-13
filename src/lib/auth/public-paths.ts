@@ -17,6 +17,7 @@ export const PUBLIC_PREFIXES = [
   '/qualify',
   '/optin',
   '/book',
+  '/reschedule', // patient self-serve reschedule calendar (token in query string)
   '/all-on-4',
   '/contract/',
   '/case/',   // patient treatment-plan portal (share-token gated in the API)
@@ -39,6 +40,11 @@ export const PUBLIC_PREFIXES = [
   // Email-link actions clicked from a mail client (no session). The handler
   // authenticates the request via a signed token in the query string.
   '/api/email/unsubscribe',
+  // Appointment email-link actions (no session; a signed token in the query
+  // string is the capability). Scoped to the exact subpaths — the rest of
+  // /api/appointments stays behind the auth gate.
+  '/api/appointments/confirm',
+  '/api/appointments/reschedule',
   '/_next',
 ] as const
 

@@ -26,7 +26,10 @@ export function getConfirmationUrl(appointmentId: string, orgId: string): string
 
 export function getRescheduleUrl(appointmentId: string, orgId: string): string {
   const token = generateConfirmationToken(appointmentId, orgId)
-  return `${getPublicAppUrl()}/api/appointments/confirm?token=${token}&action=reschedule`
+  // Self-serve reschedule calendar (patient picks a new slot). The legacy
+  // /api/appointments/confirm?action=reschedule endpoint still works and
+  // redirects here, so links already sent keep functioning.
+  return `${getPublicAppUrl()}/reschedule?token=${token}`
 }
 
 // ═══════════════════════════════════════════════════════════════

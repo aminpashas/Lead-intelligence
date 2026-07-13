@@ -521,7 +521,7 @@ export type CampaignStep = {
   created_at: string
 }
 
-export type AppointmentConfirmedVia = 'sms_reply' | 'email_click' | 'voice_call' | 'manual'
+export type AppointmentConfirmedVia = 'sms_reply' | 'email_click' | 'voice_call' | 'manual' | 'reschedule_link'
 
 export type EhrSyncStatus = 'pending' | 'synced' | 'failed' | 'skipped'
 

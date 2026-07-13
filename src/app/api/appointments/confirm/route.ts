@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { confirmAppointment } from '@/lib/campaigns/reminders'
+import { decodeAppointmentToken } from '@/lib/appointments/token'
+import { getPublicAppUrl } from '@/lib/app-url'
 
 /**
  * GET /api/appointments/confirm?token=xxx&action=confirm|reschedule
@@ -14,24 +16,20 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('token')
   const action = searchParams.get('action') || 'confirm'
 
-  if (!token) {
-    return renderHtml('Invalid Link', 'The confirmation link is invalid or has expired.', 'error')
+  // Legacy reschedule links pointed here; the flow is now a self-serve calendar.
+  // Redirect (preserving the token) so any already-sent email keeps working.
+  if (action === 'reschedule') {
+    return NextResponse.redirect(`${getPublicAppUrl()}/reschedule?token=${encodeURIComponent(token ?? '')}`)
   }
 
-  // Decode the token
-  let appointmentId: string
-  let orgId: string
-  try {
-    const decoded = Buffer.from(token, 'base64url').toString()
-    const parts = decoded.split(':')
-    if (parts.length < 3 || parts[0] !== 'apt') {
-      throw new Error('Invalid token format')
-    }
-    appointmentId = parts[1]
-    orgId = parts[2]
-  } catch {
-    return renderHtml('Invalid Link', 'The confirmation link is invalid or has expired.', 'error')
+  const decoded = decodeAppointmentToken(token)
+  if (!decoded.ok) {
+    const msg = decoded.reason === 'expired'
+      ? 'This confirmation link has expired. Please call our office to confirm your appointment.'
+      : 'The confirmation link is invalid or has expired.'
+    return renderHtml('Link Expired', msg, 'error')
   }
+  const { appointmentId, orgId } = decoded.token
 
   const supabase = await createClient()
 
@@ -51,39 +49,6 @@ export async function GET(request: NextRequest) {
         'error'
       )
     }
-  } else if (action === 'reschedule') {
-    // Flag the appointment for reschedule
-    await supabase
-      .from('appointments')
-      .update({
-        reschedule_requested: true,
-        no_show_risk_score: 25,
-      })
-      .eq('id', appointmentId)
-      .eq('organization_id', orgId)
-
-    // Get lead for activity logging
-    const { data: apt } = await supabase
-      .from('appointments')
-      .select('lead_id')
-      .eq('id', appointmentId)
-      .single()
-
-    if (apt) {
-      await supabase.from('lead_activities').insert({
-        organization_id: orgId,
-        lead_id: apt.lead_id,
-        activity_type: 'appointment_reschedule_requested',
-        title: 'Reschedule requested via email link',
-        metadata: { appointment_id: appointmentId },
-      })
-    }
-
-    return renderHtml(
-      'Reschedule Request Received 📅',
-      'We\'ve received your request to reschedule. Our team will contact you shortly to find a new time that works for you. You can close this page now.',
-      'info'
-    )
   }
 
   return renderHtml('Invalid Action', 'The requested action is not recognized.', 'error')
