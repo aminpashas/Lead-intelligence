@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   claimConversationWorkflow,
   releaseConversationWorkflow,
@@ -7,59 +8,51 @@ import {
   inferTopic,
 } from '@/lib/conversations/threads'
 
+type DbResult = { data: unknown; error: unknown }
+type RpcCall = { name: string; args: Record<string, unknown> }
+
 /**
- * Minimal Supabase stub: routes `.rpc(name, args)` to a handler map and gives a
+ * Minimal Supabase stub: routes `.rpc(name, args)` to a handler and gives a
  * chainable query builder whose terminal (`maybeSingle`/`single`) resolves to a
  * per-table scripted result. Enough to exercise the lock RPCs and thread
- * get-or-create without a real database.
+ * get-or-create without a real database. Returns the recorded rpc calls
+ * alongside the client so assertions don't need to reach into the stub.
  */
 function fakeSupabase(opts: {
-  rpc?: (name: string, args: any) => { data: any; error: any }
-  onInsert?: (table: string, row: any) => void
-  selectResult?: (table: string) => { data: any; error: any }
-  insertResult?: (table: string) => { data: any; error: any }
-}) {
-  const rpcCalls: Array<{ name: string; args: any }> = []
-  const supabase: any = {
-    rpc(name: string, args: any) {
+  rpc?: (name: string, args: Record<string, unknown>) => DbResult
+  onInsert?: (table: string, row: unknown) => void
+  selectResult?: (table: string) => DbResult
+  insertResult?: (table: string) => DbResult
+}): { supabase: SupabaseClient; rpcCalls: RpcCall[] } {
+  const rpcCalls: RpcCall[] = []
+  const stub = {
+    rpc(name: string, args: Record<string, unknown>) {
       rpcCalls.push({ name, args })
-      const r = opts.rpc?.(name, args) ?? { data: null, error: null }
-      return Promise.resolve(r)
+      return Promise.resolve(opts.rpc?.(name, args) ?? { data: null, error: null })
     },
     from(table: string) {
-      const builder: any = {
-        _insertRow: null as any,
-        insert(row: any) {
-          builder._insertRow = row
+      const builder = {
+        insert(row: unknown) {
           opts.onInsert?.(table, row)
           return builder
         },
-        select() {
-          return builder
-        },
-        eq() {
-          return builder
-        },
-        limit() {
-          return builder
-        },
-        maybeSingle() {
-          return Promise.resolve(opts.selectResult?.(table) ?? { data: null, error: null })
-        },
-        single() {
-          return Promise.resolve(opts.insertResult?.(table) ?? { data: null, error: null })
-        },
+        select: () => builder,
+        eq: () => builder,
+        limit: () => builder,
+        maybeSingle: () =>
+          Promise.resolve(opts.selectResult?.(table) ?? { data: null, error: null }),
+        single: () =>
+          Promise.resolve(opts.insertResult?.(table) ?? { data: null, error: null }),
       }
       return builder
     },
-    __rpcCalls: rpcCalls,
   }
-  return supabase
+  return { supabase: stub as unknown as SupabaseClient, rpcCalls }
 }
 
 describe('claimConversationWorkflow', () => {
   it('reports acquired when the RPC grants the lease', async () => {
-    const supabase = fakeSupabase({
+    const { supabase, rpcCalls } = fakeSupabase({
       rpc: () => ({
         data: [{ acquired: true, holder: 'auto_respond', expires_at: '2026-07-13T00:02:00Z' }],
         error: null,
@@ -72,12 +65,12 @@ describe('claimConversationWorkflow', () => {
     })
     expect(r.acquired).toBe(true)
     expect(r.holder).toBe('auto_respond')
-    expect(supabase.__rpcCalls[0].name).toBe('claim_conversation_workflow')
-    expect(supabase.__rpcCalls[0].args.p_workflow).toBe('auto_respond')
+    expect(rpcCalls[0].name).toBe('claim_conversation_workflow')
+    expect(rpcCalls[0].args.p_workflow).toBe('auto_respond')
   })
 
   it('reports NOT acquired (with the incumbent) when a live lease is held by another workflow', async () => {
-    const supabase = fakeSupabase({
+    const { supabase } = fakeSupabase({
       rpc: () => ({
         data: [{ acquired: false, holder: 'sequence', expires_at: '2026-07-13T00:02:00Z' }],
         error: null,
@@ -93,7 +86,7 @@ describe('claimConversationWorkflow', () => {
   })
 
   it('fails OPEN when the RPC errors — a broken lock must never wedge sends', async () => {
-    const supabase = fakeSupabase({
+    const { supabase } = fakeSupabase({
       rpc: () => ({ data: null, error: { message: 'function does not exist' } }),
     })
     const r = await claimConversationWorkflow(supabase, {
@@ -107,7 +100,7 @@ describe('claimConversationWorkflow', () => {
 
 describe('withConversationWorkflowLock', () => {
   it('runs fn while holding the lease and releases afterward', async () => {
-    const supabase = fakeSupabase({
+    const { supabase, rpcCalls } = fakeSupabase({
       rpc: (name) =>
         name === 'claim_conversation_workflow'
           ? { data: [{ acquired: true, holder: 'auto_respond', expires_at: 'x' }], error: null }
@@ -122,13 +115,13 @@ describe('withConversationWorkflowLock', () => {
     expect(out).toEqual({ ran: true, result: 'sent' })
     expect(fn).toHaveBeenCalledOnce()
     // Both claim + release RPCs fired.
-    const names = supabase.__rpcCalls.map((c: any) => c.name)
+    const names = rpcCalls.map((c) => c.name)
     expect(names).toContain('claim_conversation_workflow')
     expect(names).toContain('release_conversation_workflow')
   })
 
   it('does NOT run fn when another workflow holds the conversation', async () => {
-    const supabase = fakeSupabase({
+    const { supabase } = fakeSupabase({
       rpc: () => ({
         data: [{ acquired: false, holder: 'sequence', expires_at: 'x' }],
         error: null,
@@ -145,7 +138,7 @@ describe('withConversationWorkflowLock', () => {
   })
 
   it('releases the lease even when fn throws', async () => {
-    const supabase = fakeSupabase({
+    const { supabase, rpcCalls } = fakeSupabase({
       rpc: (name) =>
         name === 'claim_conversation_workflow'
           ? { data: [{ acquired: true, holder: 'auto_respond', expires_at: 'x' }], error: null }
@@ -159,15 +152,15 @@ describe('withConversationWorkflowLock', () => {
         fn
       )
     ).rejects.toThrow('boom')
-    expect(supabase.__rpcCalls.map((c: any) => c.name)).toContain('release_conversation_workflow')
+    expect(rpcCalls.map((c) => c.name)).toContain('release_conversation_workflow')
   })
 })
 
 describe('releaseConversationWorkflow', () => {
   it('calls the release RPC with the conversation + holder', async () => {
-    const supabase = fakeSupabase({ rpc: () => ({ data: true, error: null }) })
+    const { supabase, rpcCalls } = fakeSupabase({ rpc: () => ({ data: true, error: null }) })
     await releaseConversationWorkflow(supabase, 'c1', 'sequence')
-    expect(supabase.__rpcCalls[0]).toEqual({
+    expect(rpcCalls[0]).toEqual({
       name: 'release_conversation_workflow',
       args: { p_conversation_id: 'c1', p_workflow: 'sequence' },
     })
@@ -178,7 +171,7 @@ describe('getOrCreateThread', () => {
   it('returns the existing open thread for a topic without inserting', async () => {
     const onInsert = vi.fn()
     const existing = { id: 't1', topic: 'scheduling', status: 'open' }
-    const supabase = fakeSupabase({
+    const { supabase } = fakeSupabase({
       selectResult: () => ({ data: existing, error: null }),
       onInsert,
     })
@@ -194,7 +187,7 @@ describe('getOrCreateThread', () => {
 
   it('creates a thread when none is open for the topic', async () => {
     const created = { id: 't2', topic: 'nurture', status: 'open' }
-    const supabase = fakeSupabase({
+    const { supabase } = fakeSupabase({
       selectResult: () => ({ data: null, error: null }),
       insertResult: () => ({ data: created, error: null }),
     })
@@ -211,7 +204,7 @@ describe('getOrCreateThread', () => {
   it('re-selects the winner when a concurrent insert loses the unique race', async () => {
     const winner = { id: 't3', topic: 'scheduling', status: 'open' }
     let selectCall = 0
-    const supabase = fakeSupabase({
+    const { supabase } = fakeSupabase({
       // First select (pre-insert) finds nothing; second (post-conflict) finds the winner.
       selectResult: () => {
         selectCall++
