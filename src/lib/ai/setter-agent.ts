@@ -33,13 +33,15 @@ import { buildDiscoveryPromptBlock } from '@/lib/ai/discovery-script'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { formatFinancingContextForPrompt } from './financial-coach'
 import { SETTER_TOOLS } from '@/lib/autopilot/agent-tools'
-import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
+import { runAgentToolLoop, deriveConfidence, shouldSuppressFinalMessage } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
 import { resolvePracticeContact, formatPracticeContactBlock } from '@/lib/ai/practice-contact'
+import { getActiveUpcomingAppointment, buildAlreadyBookedBlock } from '@/lib/appointments/upcoming'
+import { getRescheduleUrl } from '@/lib/campaigns/reminder-templates'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -135,8 +137,15 @@ ${patient_profile.personal_details && Object.keys(patient_profile.personal_detai
     }
   }
 
-  // Skill 4: Appointment Scheduling — when qualified and ready
-  if ((lead_status === 'qualified' || (lead.ai_score && lead.ai_score > 60)) && unknowns.length <= 1) {
+  // Skill 4: Appointment Scheduling — when qualified and ready.
+  // Excludes consultation_scheduled: a booked lead must NOT get the "time to
+  // book" skill (that's what made the setter re-offer slots after booking). The
+  // ALREADY-BOOKED block, injected from real appointment state, governs those.
+  if (
+    lead_status !== 'consultation_scheduled' &&
+    (lead_status === 'qualified' || (lead.ai_score && lead.ai_score > 60)) &&
+    unknowns.length <= 1
+  ) {
     return {
       skill: 'appointment_scheduling',
       instructions: `ACTIVE SKILL: Appointment Scheduling
@@ -307,6 +316,7 @@ PROACTIVELY offer to send them when:
 - After booking an appointment → "I'll send you a testimonial video to watch before your consultation — it'll give you a great idea of what to expect!"
 
 RULES:
+- SAME-CHANNEL SENDS ALREADY REACH THE PATIENT AS THEIR OWN MESSAGE. On ${context.channel === 'sms' ? 'SMS' : 'this channel'}, send_testimonial / send_practice_info / send_before_after / send_sms_to_lead deliver the content as a SEPARATE ${context.channel === 'sms' ? 'text' : 'message'} — it is NOT part of your final reply. So after using one of them, your final reply this turn must be a brief, natural one-liner (or add nothing new). Do NOT restate the link, and do NOT start a new topic or offer appointment times in the same turn — that double-texts the patient with two disconnected messages.
 - Always confirm what you're sending: "I'll text that right over to you!"
 - Only claim you sent something AFTER the tool returns success. If the tool reports a failure (no consent, no phone/email, a broken link, or any error), do NOT say "I sent it" — tell the truth ("I wasn't able to send that just now") and offer an alternative or a team-member follow-up. Never say a link/message was sent when it was not.
 - If we don't have their phone/email for the delivery channel, ask for it naturally.
@@ -440,6 +450,27 @@ export async function setterAgentRespond(
   // guessing days and never offers a date that already passed.
   const dateBlock = buildCurrentDateBlock(bs?.timezone as string | null | undefined)
 
+  // Booking awareness: if this patient already has a live upcoming consultation,
+  // inject a hard "do NOT re-schedule" block. Without it the setter — still the
+  // routed agent for consultation_scheduled — keeps re-opening scheduling and
+  // contradicts the time it already confirmed. Empty string when not booked, so
+  // leads who still need to book are unaffected. Best-effort: never block a reply.
+  const upcomingAppointment = await getActiveUpcomingAppointment(
+    supabase,
+    context.organization_id,
+    context.lead.id as string
+  ).catch(() => null)
+  // Hand the patient the self-serve reschedule link if they want to change the
+  // time — the agent pastes it into its own reply (one text, no booking tool).
+  const rescheduleUrl = upcomingAppointment
+    ? getRescheduleUrl(upcomingAppointment.id, context.organization_id)
+    : null
+  const alreadyBookedBlock = buildAlreadyBookedBlock(
+    upcomingAppointment,
+    bs?.timezone as string | null | undefined,
+    { rescheduleUrl }
+  )
+
   const discoveryBlock = buildDiscoveryPromptBlock({
     script: bs?.discovery_script as string | null | undefined,
     priceRange: bs?.consult_price_range_text as string | null | undefined,
@@ -463,7 +494,9 @@ export async function setterAgentRespond(
     ? `## PROACTIVE OUTREACH STEP\nThere is no new inbound message. You are composing the practice's next OUTBOUND ${context.channel} touch in a follow-up cadence.\nStep goal: ${context.outreach_instruction}\nKeep it short, warm, and easy to reply to. Do not fabricate prior commitments or approvals.`
     : ''
 
-  const systemPrompt = [composedPrompt, brandBlock, dateBlock, contactBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
+  // alreadyBookedBlock goes near the top (right after the base role) so its
+  // "do NOT re-schedule" directive dominates the booking-oriented base prompt.
+  const systemPrompt = [composedPrompt, alreadyBookedBlock, brandBlock, dateBlock, contactBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
   // in delimiters. The autopilot's injection scan only neutralized the NEWEST
@@ -611,6 +644,9 @@ export async function setterAgentRespond(
       hitRoundCap: loop.hitRoundCap,
     }),
     agent: 'setter',
+    // Suppress the separate final text when a same-channel send already reached
+    // the patient this turn (prevents the "video + second text" double-send).
+    suppress_final_message: shouldSuppressFinalMessage(loop.sameChannelSend, finalMessage),
     action_taken: (parsed.action_taken || 'responded') as AgentResponse['action_taken'],
     should_handoff: parsed.should_handoff || false,
     handoff_reason: parsed.handoff_reason || undefined,

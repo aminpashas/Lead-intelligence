@@ -398,6 +398,26 @@ export async function processAutoResponse(
     }
   }
 
+  // 7d. Same-channel double-text guard. The agent already delivered this turn's
+  // substance via a content-send tool on THIS channel (e.g. texted a testimonial
+  // mid-SMS), and its final `message` is only a short acknowledgment. Delivering
+  // it too would double-text the patient, so skip the separate send — the tool's
+  // message already recorded itself on the thread. The response still counts as
+  // 'sent' (something reached the patient) for SLA/first-response bookkeeping.
+  if (agentResponse.suppress_final_message) {
+    logger.info('Autopilot: suppressed redundant final message (same-channel send)', {
+      conversation_id,
+      lead_id,
+      agent: agentResponse.agent,
+    })
+    return {
+      action: 'sent',
+      message: agentResponse.message,
+      confidence: agentResponse.confidence,
+      agent: agentResponse.agent,
+    }
+  }
+
   // 8. Send the response
   try {
     await sendAgentResponse(supabase, {

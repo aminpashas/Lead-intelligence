@@ -44,6 +44,13 @@ export interface AgentLoopResult {
   rounds: number
   /** True if the loop stopped because it hit MAX_AGENT_ROUNDS while still asking for tools. */
   hitRoundCap: boolean
+  /**
+   * True if a content-send tool delivered on the SAME channel this conversation
+   * is on (e.g. texted a testimonial during an SMS thread). The patient already
+   * has that message, so the agent's separate final reply is redundant — the
+   * caller uses this to suppress the double-text.
+   */
+  sameChannelSend: boolean
   /** Summed token usage across every model call in the loop. */
   usage: { input_tokens: number; output_tokens: number }
 }
@@ -82,6 +89,7 @@ export async function runAgentToolLoop(params: {
   const usage = { input_tokens: 0, output_tokens: 0 }
   let rounds = 0
   let hitRoundCap = false
+  let sameChannelSend = false
 
   let response = await anthropic.messages.create({
     model,
@@ -118,6 +126,9 @@ export async function runAgentToolLoop(params: {
           success: result.success ?? true,
           message: result.message,
         })
+        if ((result.data as Record<string, unknown> | undefined)?.same_channel_delivery === true) {
+          sameChannelSend = true
+        }
         toolResults.push({
           type: 'tool_result',
           tool_use_id: block.id,
@@ -142,7 +153,24 @@ export async function runAgentToolLoop(params: {
   const textBlock = response.content.find((b) => b.type === 'text')
   const responseText = textBlock && textBlock.type === 'text' ? textBlock.text : ''
 
-  return { finalResponse: response, responseText, toolCalls, rounds, hitRoundCap, usage }
+  return { finalResponse: response, responseText, toolCalls, rounds, hitRoundCap, usage, sameChannelSend }
+}
+
+/**
+ * Decide whether to DROP the agent's separate final reply to avoid double-texting.
+ *
+ * Only when a content-send tool already delivered on this same channel AND the
+ * agent's final text is a short, non-question acknowledgment. A substantive
+ * answer (long) or a question is always delivered, so we never silently lose
+ * patient-facing content — worst case is one extra "just sent that!" text, which
+ * the same-channel prompt rule already discourages.
+ */
+export function shouldSuppressFinalMessage(sameChannelSend: boolean, message: string): boolean {
+  if (!sameChannelSend) return false
+  const trimmed = (message || '').trim()
+  if (trimmed.length > 160) return false // substantive reply — keep it
+  if (trimmed.includes('?')) return false // asking the patient something — keep it
+  return true
 }
 
 /**

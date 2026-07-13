@@ -27,7 +27,7 @@ import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-re
 import { formatFinancingContextForPrompt } from './financial-coach'
 import { getTreatmentClosing, formatClosingForPrompt } from '@/lib/treatment/treatment-closing'
 import { CLOSER_TOOLS } from '@/lib/autopilot/agent-tools'
-import { runAgentToolLoop, deriveConfidence } from '@/lib/ai/agent-loop'
+import { runAgentToolLoop, deriveConfidence, shouldSuppressFinalMessage } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
@@ -839,6 +839,9 @@ export async function closerAgentRespond(
       hitRoundCap: loop.hitRoundCap,
     }),
     agent: 'closer',
+    // Suppress the separate final text when a same-channel send already reached
+    // the patient this turn (prevents double-texting the patient).
+    suppress_final_message: shouldSuppressFinalMessage(loop.sameChannelSend, finalMessage),
     action_taken: (parsed.action_taken || 'responded') as AgentResponse['action_taken'],
     should_handoff: parsed.should_handoff || false,
     handoff_reason: parsed.handoff_reason || undefined,

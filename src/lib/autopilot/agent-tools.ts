@@ -392,12 +392,65 @@ export async function executeAgentTool(
     }
   }
 
+  const result = await dispatchAgentTool(supabase, toolName, toolInput, context)
+
+  // Double-text guard: when a content-send tool delivered on the SAME channel
+  // the conversation is already on, the patient just received that content as
+  // its own message. Flag it so the agent can suppress its now-redundant final
+  // reply (see the suppress_final_message logic in the agents). Cross-channel
+  // sends (voice call → SMS, SMS → email) are NOT flagged — there the separate
+  // send is exactly the point.
+  const deliveryChannel = sameChannelSendChannel(toolName, toolInput)
+  if (deliveryChannel && result.success && deliveryChannel === (context.channel || 'sms')) {
+    result.data = { ...(result.data as Record<string, unknown>), same_channel_delivery: true }
+  }
+  return result
+}
+
+/**
+ * The delivery channel a content-send tool uses, or null if the tool isn't a
+ * content send. Used to detect same-channel double-texting.
+ */
+function sameChannelSendChannel(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): 'sms' | 'email' | null {
+  switch (toolName) {
+    case 'send_sms_to_lead':
+    case 'send_financing_link':
+      return 'sms'
+    case 'send_email_to_lead':
+      return 'email'
+    case 'send_practice_info':
+    case 'send_testimonial':
+      return (toolInput.channel as string) === 'email' ? 'email' : 'sms'
+    case 'send_before_after':
+      return (toolInput.channel as string) === 'sms' ? 'sms' : 'email'
+    default:
+      return null
+  }
+}
+
+async function dispatchAgentTool(
+  supabase: SupabaseClient,
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  context: {
+    organization_id: string
+    lead_id: string
+    lead: Record<string, unknown>
+    conversation_id: string
+    channel?: string
+    agent_role?: 'setter' | 'closer'
+    disclose_phi?: boolean
+  }
+): Promise<ToolResult> {
   switch (toolName) {
     case 'verify_identity':
       return executeVerifyIdentity(supabase, context, toolInput.date_of_birth as string)
 
     case 'check_availability':
-      return executeCheckAvailability(supabase, context.organization_id, toolInput.preferred_day as string | undefined)
+      return executeCheckAvailability(supabase, context.organization_id, toolInput.preferred_day as string | undefined, context.lead_id)
 
     case 'create_booking':
       return executeCreateBooking(supabase, context, toolInput.date as string, toolInput.time as string)
@@ -662,8 +715,27 @@ async function executePrepareContractDraft(
 async function executeCheckAvailability(
   supabase: SupabaseClient,
   organizationId: string,
-  preferredDay?: string
+  preferredDay?: string,
+  leadId?: string
 ): Promise<ToolResult> {
+  // Backstop for the "already booked" state: if this patient has a live upcoming
+  // consultation, do NOT surface open slots. Re-offering availability here is
+  // exactly what made the setter contradict a time it had already confirmed.
+  if (leadId) {
+    const { getActiveUpcomingAppointment } = await import('@/lib/appointments/upcoming')
+    const existing = await getActiveUpcomingAppointment(supabase, organizationId, leadId).catch(() => null)
+    if (existing) {
+      return {
+        success: false,
+        data: { already_booked: true, scheduled_at: existing.scheduled_at },
+        message:
+          'This patient already has a confirmed consultation on the books. Do NOT offer new appointment times. ' +
+          'Confirm their existing time back to them (see the ALREADY-BOOKED note in your instructions). ' +
+          'If they explicitly want to change it, tell them a coordinator will help reschedule — do not book here.',
+      }
+    }
+  }
+
   // Get booking settings
   const { data: settings } = await supabase
     .from('booking_settings')
@@ -775,6 +847,23 @@ async function executeCreateBooking(
   // Validate date format
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
     return { success: false, data: {}, message: 'Invalid date or time format. Use YYYY-MM-DD for date and HH:MM for time.' }
+  }
+
+  // Already-booked guard: never silently create a SECOND consultation. If the
+  // patient wants a different time that's a reschedule (coordinator-handled),
+  // not a fresh booking — otherwise a stray "yes" double-books them.
+  {
+    const { getActiveUpcomingAppointment } = await import('@/lib/appointments/upcoming')
+    const existing = await getActiveUpcomingAppointment(supabase, context.organization_id, context.lead_id).catch(() => null)
+    if (existing) {
+      return {
+        success: false,
+        data: { already_booked: true, scheduled_at: existing.scheduled_at },
+        message:
+          'This patient already has a confirmed consultation. Do NOT create another booking. ' +
+          'Confirm their existing time back to them. If they want a different time, tell them a coordinator will help them reschedule.',
+      }
+    }
   }
 
   // Get booking settings

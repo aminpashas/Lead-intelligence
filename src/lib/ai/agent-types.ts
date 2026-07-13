@@ -45,6 +45,13 @@ export type AgentResponse = {
   internal_notes?: string
   techniques_used?: TechniqueUsage[]
   lead_assessment?: LeadEngagementAssessment
+  /**
+   * When true, the agent already delivered this turn's substance via a
+   * same-channel content-send tool (e.g. texted a testimonial during an SMS
+   * thread), and `message` is only a short acknowledgment. The sender should
+   * SKIP delivering `message` to avoid double-texting the patient.
+   */
+  suppress_final_message?: boolean
 }
 
 // ════════════════════════════════════════════════════════════════
