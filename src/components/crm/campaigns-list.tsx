@@ -7,7 +7,7 @@ import {
   BarChart3, ListFilter, TrendingUp, ArrowRight, LayoutGrid, List, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { CampaignBuilder } from './campaign-builder'
+import { CampaignBuilder, type PipelineStageOption } from './campaign-builder'
 import { CampaignAnalytics } from './campaign-analytics'
 import { CampaignPerformance } from './campaign-performance'
 import { CAMPAIGN_TEMPLATES } from '@/lib/campaigns/templates'
@@ -30,7 +30,7 @@ const STATUS_META: Record<string, { dot: string; text: string; label: string }> 
   completed: { dot: 'bg-aurea-gold', text: 'text-aurea-gold', label: 'Completed' },
 }
 
-export function CampaignsList({ campaigns: initial, initialSmartListId }: { campaigns: Campaign[]; initialSmartListId?: string }) {
+export function CampaignsList({ campaigns: initial, initialSmartListId, stages = [] }: { campaigns: Campaign[]; initialSmartListId?: string; stages?: PipelineStageOption[] }) {
   const [campaigns, setCampaigns] = useState(initial)
   const [deploying, setDeploying] = useState<string | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
@@ -148,7 +148,7 @@ export function CampaignsList({ campaigns: initial, initialSmartListId }: { camp
             <TrendingUp className="h-4 w-4" strokeWidth={1.75} />
             Performance
           </button>
-          <CampaignBuilder initialSmartListId={initialSmartListId} autoOpen={!!initialSmartListId} />
+          <CampaignBuilder initialSmartListId={initialSmartListId} autoOpen={!!initialSmartListId} stages={stages} />
         </div>
       </header>
 

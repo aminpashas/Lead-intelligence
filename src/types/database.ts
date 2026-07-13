@@ -1080,6 +1080,10 @@ export type SmartListCriteria = {
   score_min?: number
   score_max?: number
   stages?: string[]
+  /** Treatment/service line (implants, cosmetic, tmj, sleep_apnea, lanap).
+   *  Not a column — resolved via serviceLineOrFilter (implants is the residual
+   *  default). Single-select, matching the /leads filter + blueprint criteria. */
+  service_line?: string
   source_types?: string[]
   engagement_min?: number
   engagement_max?: number
