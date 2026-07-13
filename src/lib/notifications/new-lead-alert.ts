@@ -17,14 +17,18 @@
  * Configuration (Vercel env — secrets never live in code or the DB by hand):
  *   NEW_LEAD_ALERT_EMAILS   Comma-separated staff recipients. Defaults to the
  *                           SF Dentistry ops list when unset.
- *   NEW_LEAD_SLACK_ROUTES   JSON mapping a service-line key → Slack Incoming
- *                           Webhook URL, e.g.
- *                             {"implants":"https://hooks.slack.com/…",
- *                              "tmj":"https://hooks.slack.com/…",
- *                              "default":"https://hooks.slack.com/…"}
+ *   NEW_LEAD_SLACK_ROUTES   JSON mapping a service-line key → a Slack target,
+ *                           where each target is EITHER:
+ *                             • a channel ID  ("C0B4LJXQZ4Z")  — posted via the
+ *                               Slack Web API using SLACK_BOT_TOKEN, or
+ *                             • an Incoming Webhook URL ("https://hooks.slack.com/…")
+ *                           e.g. {"implants":"C0B4LJXQZ4Z","tmj":"C0B4LJUCFLZ"}
  *                           The optional "default" key catches leads whose
  *                           service line has no dedicated channel. Absent/blank
- *                           → Slack alerts are simply skipped (email still sends).
+ *                           → Slack alerts are skipped (email still sends).
+ *   SLACK_BOT_TOKEN         Bot token (xoxb-…) used when a route is a channel
+ *                           ID. The bot must be a member of each target channel.
+ *                           Unused when routes are webhook URLs.
  *
  * Everything here is best-effort: a failure in one channel never throws and
  * never blocks lead ingestion (callers invoke it inside `after()`).
@@ -38,6 +42,11 @@ import { logger } from '@/lib/logger'
 
 /** Fallback staff recipients when NEW_LEAD_ALERT_EMAILS is unset. */
 const DEFAULT_ALERT_EMAILS = ['asamadian@dionhealth.com', 'hhawes@dionhealth.com']
+
+/** Slack channel-ID shape: public 'C…', private 'G…'/'C…', DMs excluded. */
+const SLACK_CHANNEL_ID_RE = /^[CG][A-Z0-9]{6,}$/
+/** Slack Incoming Webhook URL shape. */
+const SLACK_WEBHOOK_RE = /^https:\/\/hooks\.slack\.com\//
 
 /** Human labels for service-line keys, for the email/Slack copy. */
 const SERVICE_LABEL: Record<string, string> = Object.fromEntries(
@@ -60,6 +69,11 @@ export type NewLeadAlertInput = {
   campaign_attribution?: { campaign_name?: string | null } | null
 }
 
+/** A resolved Slack destination — either a bot-token channel or a webhook. */
+type SlackTarget =
+  | { kind: 'channel'; id: string }
+  | { kind: 'webhook'; url: string }
+
 /**
  * Parse NEW_LEAD_ALERT_EMAILS → a de-duplicated, trimmed recipient list.
  * Falls back to DEFAULT_ALERT_EMAILS when the env var is unset/blank.
@@ -74,10 +88,10 @@ export function parseAlertRecipients(raw = process.env.NEW_LEAD_ALERT_EMAILS): s
 }
 
 /**
- * Parse NEW_LEAD_SLACK_ROUTES → a { serviceLineKey → webhookUrl } map.
+ * Parse NEW_LEAD_SLACK_ROUTES → a { serviceLineKey → target } map. A target is
+ * kept only when it's a recognizable Slack channel ID or Incoming Webhook URL —
+ * a defensive filter so a typo can't turn into a POST to an arbitrary host.
  * Invalid JSON or a non-object yields an empty map (Slack silently skipped).
- * Only https Slack-shaped URLs are kept — a defensive filter so a typo can't
- * turn into an SSRF-ish POST to an arbitrary host.
  */
 export function parseSlackRoutes(raw = process.env.NEW_LEAD_SLACK_ROUTES): Record<string, string> {
   if (!raw || !raw.trim()) return {}
@@ -91,41 +105,51 @@ export function parseSlackRoutes(raw = process.env.NEW_LEAD_SLACK_ROUTES): Recor
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (typeof value === 'string' && /^https:\/\/hooks\.slack\.com\//.test(value)) {
+    if (typeof value === 'string' && (SLACK_WEBHOOK_RE.test(value) || SLACK_CHANNEL_ID_RE.test(value))) {
       out[key] = value
     }
   }
   return out
 }
 
+/** Classify a route value into a Slack target (channel ID vs webhook URL). */
+function toSlackTarget(value: string): SlackTarget | null {
+  if (SLACK_CHANNEL_ID_RE.test(value)) return { kind: 'channel', id: value }
+  if (SLACK_WEBHOOK_RE.test(value)) return { kind: 'webhook', url: value }
+  return null
+}
+
 /**
- * Which Slack webhook URLs should receive this lead, given the parsed routes.
- * A lead is routed to every configured channel whose service-line key it
- * matches; if it matches none, the optional "default" route catches it. The
- * result is de-duplicated by URL so two service lines pointing at the same
- * channel only post once.
+ * Which Slack targets should receive this lead, given the parsed routes. A lead
+ * is routed to every configured target whose service-line key it matches; if it
+ * matches none, the optional "default" route catches it. De-duplicated by the
+ * raw route value so two service lines pointing at the same channel post once.
  */
 export function resolveSlackTargets(
   serviceLines: string[],
   routes: Record<string, string>,
 ): string[] {
-  const urls = new Set<string>()
+  const values = new Set<string>()
   for (const line of serviceLines) {
-    const url = routes[line]
-    if (url) urls.add(url)
+    const v = routes[line]
+    if (v) values.add(v)
   }
-  if (urls.size === 0 && routes.default) urls.add(routes.default)
-  return Array.from(urls)
+  if (values.size === 0 && routes.default) values.add(routes.default)
+  return Array.from(values)
 }
 
-/** Build the Slack Block Kit payload for a new-lead card. */
-function buildSlackPayload(input: NewLeadAlertInput, serviceLines: string[]): Record<string, unknown> {
+/** Build the Slack Block Kit blocks (+ notification fallback text) for a lead. */
+function buildSlackMessage(
+  input: NewLeadAlertInput,
+  serviceLines: string[],
+): { blocks: Record<string, unknown>[]; text: string } {
   const name = `${input.firstName} ${input.lastName ?? ''}`.trim() || 'Unknown'
   const treatments =
     serviceLines.map((k) => SERVICE_LABEL[k] ?? k).join(', ') || 'Unspecified'
   const contact = [input.phone, input.email].filter(Boolean).join('  ·  ') || 'No contact info'
 
   return {
+    text: `🆕 New Lead: ${name} (${treatments})`,
     blocks: [
       {
         type: 'header',
@@ -141,6 +165,44 @@ function buildSlackPayload(input: NewLeadAlertInput, serviceLines: string[]): Re
         ],
       },
     ],
+  }
+}
+
+/** Post a message to one Slack target (bot-token channel or webhook URL). */
+async function postToSlack(
+  target: SlackTarget,
+  message: { blocks: Record<string, unknown>[]; text: string },
+): Promise<void> {
+  if (target.kind === 'webhook') {
+    await fetch(target.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ blocks: message.blocks, text: message.text }),
+      signal: AbortSignal.timeout(5000),
+    })
+    return
+  }
+  // Channel target → Slack Web API (chat.postMessage) with the bot token.
+  const token = process.env.SLACK_BOT_TOKEN
+  if (!token) {
+    logger.warn('NEW_LEAD_SLACK_ROUTES has a channel ID but SLACK_BOT_TOKEN is unset', {
+      channel: target.id,
+    })
+    return
+  }
+  const res = await fetch('https://slack.com/api/chat.postMessage', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ channel: target.id, blocks: message.blocks, text: message.text }),
+    signal: AbortSignal.timeout(5000),
+  })
+  // chat.postMessage returns HTTP 200 even on logical failure (ok:false).
+  const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+  if (!body?.ok) {
+    logger.error('Slack chat.postMessage failed', { channel: target.id, error: body?.error ?? 'unknown' })
   }
 }
 
@@ -230,18 +292,11 @@ export async function notifyNewLead(
   try {
     const routes = parseSlackRoutes()
     const targets = resolveSlackTargets(serviceLines, routes)
+      .map(toSlackTarget)
+      .filter((t): t is SlackTarget => t !== null)
     if (targets.length > 0) {
-      const payload = buildSlackPayload(lead, serviceLines)
-      await Promise.allSettled(
-        targets.map((url) =>
-          fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(5000),
-          }),
-        ),
-      )
+      const message = buildSlackMessage(lead, serviceLines)
+      await Promise.allSettled(targets.map((t) => postToSlack(t, message)))
     }
   } catch (err) {
     logger.error('new-lead alert Slack failed', {

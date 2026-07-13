@@ -14,6 +14,8 @@ import {
 
 const FULL_ARCH_HOOK = 'https://hooks.slack.com/services/T000/B000/fullarch'
 const TMJ_HOOK = 'https://hooks.slack.com/services/T000/B111/tmj'
+const FULL_ARCH_CHANNEL = 'C0B4LJXQZ4Z'
+const TMJ_CHANNEL = 'C0B4LJUCFLZ'
 
 describe('parseAlertRecipients', () => {
   it('falls back to the ops default list when unset', () => {
@@ -48,66 +50,73 @@ describe('parseSlackRoutes', () => {
     expect(parseSlackRoutes('{not json')).toEqual({})
   })
 
-  it('keeps only https Slack-shaped webhook URLs', () => {
+  it('keeps webhook URLs and channel IDs, drops anything else', () => {
     const raw = JSON.stringify({
-      implants: FULL_ARCH_HOOK,
+      implants: FULL_ARCH_CHANNEL,
       tmj: TMJ_HOOK,
       bad: 'https://evil.example.com/hook',
       alsoBad: 'not-a-url',
+      dm: 'D123',
     })
     expect(parseSlackRoutes(raw)).toEqual({
-      implants: FULL_ARCH_HOOK,
+      implants: FULL_ARCH_CHANNEL,
       tmj: TMJ_HOOK,
     })
   })
 })
 
 describe('resolveSlackTargets', () => {
-  const routes = { implants: FULL_ARCH_HOOK, tmj: TMJ_HOOK, default: FULL_ARCH_HOOK }
+  const routes = { implants: FULL_ARCH_CHANNEL, tmj: TMJ_CHANNEL, default: FULL_ARCH_CHANNEL }
 
   it('routes an implants lead to the full-arch channel', () => {
-    expect(resolveSlackTargets(['implants'], routes)).toEqual([FULL_ARCH_HOOK])
+    expect(resolveSlackTargets(['implants'], routes)).toEqual([FULL_ARCH_CHANNEL])
   })
 
   it('routes a TMJ lead to the TMJ channel only', () => {
-    expect(resolveSlackTargets(['tmj'], routes)).toEqual([TMJ_HOOK])
+    expect(resolveSlackTargets(['tmj'], routes)).toEqual([TMJ_CHANNEL])
   })
 
-  it('posts to both channels for a multi-line lead, de-duplicated by URL', () => {
+  it('posts to both channels for a multi-line lead, de-duplicated by value', () => {
     expect(resolveSlackTargets(['implants', 'tmj'], routes).sort()).toEqual(
-      [FULL_ARCH_HOOK, TMJ_HOOK].sort(),
+      [FULL_ARCH_CHANNEL, TMJ_CHANNEL].sort(),
     )
   })
 
   it('falls back to the default route when no service line matches', () => {
-    expect(resolveSlackTargets(['cosmetic'], { default: TMJ_HOOK })).toEqual([TMJ_HOOK])
+    expect(resolveSlackTargets(['cosmetic'], { default: TMJ_CHANNEL })).toEqual([TMJ_CHANNEL])
   })
 
   it('skips entirely when no match and no default', () => {
-    expect(resolveSlackTargets(['cosmetic'], { implants: FULL_ARCH_HOOK })).toEqual([])
+    expect(resolveSlackTargets(['cosmetic'], { implants: FULL_ARCH_CHANNEL })).toEqual([])
   })
 })
 
 describe('notifyNewLead', () => {
-  const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ ok: true }),
+  })
 
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubGlobal('fetch', fetchMock)
     process.env.NEW_LEAD_ALERT_EMAILS = 'ops@dionhealth.com'
-    process.env.NEW_LEAD_SLACK_ROUTES = JSON.stringify({
-      implants: FULL_ARCH_HOOK,
-      tmj: TMJ_HOOK,
-    })
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
     delete process.env.NEW_LEAD_ALERT_EMAILS
     delete process.env.NEW_LEAD_SLACK_ROUTES
+    delete process.env.SLACK_BOT_TOKEN
   })
 
-  it('emails every recipient and posts to the full-arch channel for an implant lead', async () => {
+  it('posts a full-arch implant lead to its channel via chat.postMessage (bot token)', async () => {
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test'
+    process.env.NEW_LEAD_SLACK_ROUTES = JSON.stringify({
+      implants: FULL_ARCH_CHANNEL,
+      tmj: TMJ_CHANNEL,
+    })
+
     await notifyNewLead({} as any, {
       organizationId: 'org1',
       lead: {
@@ -123,43 +132,70 @@ describe('notifyNewLead', () => {
 
     expect(sendEmail).toHaveBeenCalledTimes(1)
     expect((sendEmail as any).mock.calls[0][0].to).toBe('ops@dionhealth.com')
-    expect((sendEmail as any).mock.calls[0][0].subject).toContain('Jane Doe')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://slack.com/api/chat.postMessage')
+    expect(init.headers.Authorization).toBe('Bearer xoxb-test')
+    expect(JSON.parse(init.body).channel).toBe(FULL_ARCH_CHANNEL)
+  })
+
+  it('routes a TMJ lead to the TMJ channel', async () => {
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test'
+    process.env.NEW_LEAD_SLACK_ROUTES = JSON.stringify({
+      implants: FULL_ARCH_CHANNEL,
+      tmj: TMJ_CHANNEL,
+    })
+
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      lead: { id: 'lead2', firstName: 'Sam', email: 'sam@x.com', utm_campaign: 'tmj jaw pain relief' },
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).channel).toBe(TMJ_CHANNEL)
+  })
+
+  it('posts to a webhook URL route (no bot token needed)', async () => {
+    process.env.NEW_LEAD_SLACK_ROUTES = JSON.stringify({ implants: FULL_ARCH_HOOK })
+
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      lead: { id: 'lead3', firstName: 'Pat', utm_campaign: 'implants' },
+    })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][0]).toBe(FULL_ARCH_HOOK)
   })
 
-  it('routes a TMJ lead to the TMJ channel', async () => {
+  it('skips a channel route when SLACK_BOT_TOKEN is missing, but still emails', async () => {
+    process.env.NEW_LEAD_SLACK_ROUTES = JSON.stringify({ implants: FULL_ARCH_CHANNEL })
+
     await notifyNewLead({} as any, {
       organizationId: 'org1',
-      lead: {
-        id: 'lead2',
-        firstName: 'Sam',
-        email: 'sam@x.com',
-        utm_campaign: 'tmj jaw pain relief',
-      },
+      lead: { id: 'lead4', firstName: 'Kim', utm_campaign: 'implants' },
     })
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0][0]).toBe(TMJ_HOOK)
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('still emails when Slack is not configured', async () => {
-    delete process.env.NEW_LEAD_SLACK_ROUTES
+  it('still emails when Slack is not configured at all', async () => {
     await notifyNewLead({} as any, {
       organizationId: 'org1',
-      lead: { id: 'lead3', firstName: 'Pat', email: 'pat@x.com' },
+      lead: { id: 'lead5', firstName: 'Lee', email: 'lee@x.com' },
     })
     expect(sendEmail).toHaveBeenCalledTimes(1)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('never throws when email delivery fails', async () => {
+    process.env.NEW_LEAD_SLACK_ROUTES = JSON.stringify({ implants: FULL_ARCH_HOOK })
     ;(sendEmail as any).mockRejectedValueOnce(new Error('resend down'))
     await expect(
       notifyNewLead({} as any, {
         organizationId: 'org1',
-        lead: { id: 'lead4', firstName: 'Kim', utm_campaign: 'implants' },
+        lead: { id: 'lead6', firstName: 'Kim', utm_campaign: 'implants' },
       }),
     ).resolves.toBeUndefined()
     // Slack still fires despite the email failure.
