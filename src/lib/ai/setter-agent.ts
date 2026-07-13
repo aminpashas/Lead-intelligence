@@ -36,6 +36,7 @@ import { SETTER_TOOLS } from '@/lib/autopilot/agent-tools'
 import { runAgentToolLoop, deriveConfidence, shouldSuppressFinalMessage } from '@/lib/ai/agent-loop'
 import { buildLiveAgentKnowledgeBlock, buildAgencyPersonaBlock } from '@/lib/ai/training-context'
 import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
+import { buildCampaignPlaybookBlock } from '@/lib/ai/campaign-playbook'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
@@ -412,10 +413,11 @@ export async function setterAgentRespond(
   // "train your AI" actually governs real patient conversations (not just the
   // playground). Keyed on the latest inbound message for knowledge relevance.
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, rulesBlock, profileBlock, brandBlock, practiceContact] = await Promise.all([
+  const [knowledgeBlock, personaBlock, rulesBlock, playbookBlock, profileBlock, brandBlock, practiceContact] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     buildAgencyRulesBlock(supabase),
+    buildCampaignPlaybookBlock(supabase, context.lead.id, context.organization_id),
     buildPracticeProfileBlock(supabase, context.organization_id),
     // The setter is an implant-line agent: an unsignalled lead here is an
     // implant lead, so the brand falls back to the implants DBA — never the
@@ -496,7 +498,7 @@ export async function setterAgentRespond(
 
   // alreadyBookedBlock goes near the top (right after the base role) so its
   // "do NOT re-schedule" directive dominates the booking-oriented base prompt.
-  const systemPrompt = [composedPrompt, alreadyBookedBlock, brandBlock, dateBlock, contactBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, alreadyBookedBlock, brandBlock, dateBlock, contactBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, playbookBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
   // in delimiters. The autopilot's injection scan only neutralized the NEWEST

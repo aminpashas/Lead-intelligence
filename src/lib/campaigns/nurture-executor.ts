@@ -26,6 +26,7 @@ import { processTemplate, buildTemplateContext } from './template'
 import { checkSendWindow } from './send-window'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
+import { enqueueCampaignReviewDraft } from '@/lib/campaigns/review-drafts'
 import { decryptField } from '@/lib/encryption'
 import { closerAgentRespond } from '@/lib/ai/closer-agent'
 import { getPatientProfile } from '@/lib/ai/patient-psychology'
@@ -221,6 +222,21 @@ export async function executeNurtureStep(
       await escalateDraft(supabase, { orgId, conversationId, leadId: lead.id, reason: 'compliance_flag', confidence, internalNotes, note: 'Autopilot disabled/paused — nurture draft held for review.' })
       return await advance(supabase, campaign, enrollment, stepNumber, base, 'escalated_autopilot_disabled')
     }
+  }
+
+  // review_first campaign mode: queue for human approval instead of sending,
+  // then advance (same draft-and-move-on semantics as the allocation path above).
+  if (campaign.autopilot_mode === 'review_first') {
+    await enqueueCampaignReviewDraft(supabase, {
+      organizationId: orgId,
+      campaignId: campaign.id,
+      leadId: lead.id,
+      conversationId,
+      channel: step.channel,
+      subject: step.channel === 'email' ? (subject ?? null) : null,
+      body: messageBody,
+    })
+    return await advance(supabase, campaign, enrollment, stepNumber, base, 'queued_for_review')
   }
 
   // ── Send ──────────────────────────────────────────────────────────

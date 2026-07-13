@@ -24,6 +24,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { isFlagEnabled } from '@/lib/org/flags'
+import { resolveActiveCampaignPolicy } from '@/lib/campaigns/policy'
+import { resolvePrequalEligibility } from '@/lib/campaigns/prequal-policy'
 import { getOrCreateFinancingShareLink } from '@/lib/financing/share-link'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
@@ -110,11 +112,23 @@ export async function POST(
   const { data: profile } = await getOwnProfile(supabase, 'id')
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Gate 1 — the account-level toggle. Fail closed.
-  const prequalOn = await isFlagEnabled(supabase, orgId, 'financing_prequal_enabled')
+  // Gate 1 — the account-level toggle, narrowed/overridden by the lead's active
+  // campaign. Fail closed. A campaign marked prequal_mode:'disabled' blocks the
+  // send even when the account switch is on; see resolvePrequalEligibility for
+  // the full precedence rule.
+  const orgPrequalOn = await isFlagEnabled(supabase, orgId, 'financing_prequal_enabled')
+  const campaignPolicy = await resolveActiveCampaignPolicy(supabase, id, orgId)
+  const prequalOn = resolvePrequalEligibility({
+    orgFlagOn: orgPrequalOn,
+    campaignMode: campaignPolicy?.playbook?.prequal_mode ?? null,
+  })
   if (!prequalOn) {
     return NextResponse.json(
-      { error: 'Pre-qualification is turned off for this account. Enable it in Settings → Financing.' },
+      {
+        error: campaignPolicy?.playbook?.prequal_mode === 'disabled'
+          ? "Pre-qualification is turned off for this lead's active campaign."
+          : 'Pre-qualification is turned off for this account. Enable it in Settings → Financing.',
+      },
       { status: 403 }
     )
   }

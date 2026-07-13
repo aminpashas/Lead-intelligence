@@ -17,6 +17,8 @@ import { getPublicAppUrl } from '@/lib/app-url'
 import { escapeHtml } from '@/lib/utils'
 import { logger } from '@/lib/logger'
 import { isFlagEnabled } from '@/lib/org/flags'
+import { resolveActiveCampaignPolicy } from '@/lib/campaigns/policy'
+import { resolvePrequalEligibility } from '@/lib/campaigns/prequal-policy'
 
 export type ReadinessAssessment = {
   score: number          // 0-100
@@ -228,6 +230,20 @@ export async function checkAndTriggerFinancing(
   // a human clicks. See src/lib/org/flags.ts.
   const autoSendArmed = await isFlagEnabled(supabase, organizationId, 'financing_auto_send_enabled')
   if (!autoSendArmed) {
+    return { triggered: false, assessment }
+  }
+
+  // Per-campaign layer: the lead's active campaign can opt out of (or into)
+  // prequal independently of the account default. We pass the auto-send flag as
+  // the applicable "org gate" here (this is the AI path); the manual route
+  // passes `financing_prequal_enabled` instead. Same precedence resolver either
+  // way, so a campaign marked 'disabled' blocks prequal on both paths.
+  const campaignPolicy = await resolveActiveCampaignPolicy(supabase, leadId, organizationId)
+  const prequalAllowed = resolvePrequalEligibility({
+    orgFlagOn: autoSendArmed,
+    campaignMode: campaignPolicy?.playbook?.prequal_mode ?? null,
+  })
+  if (!prequalAllowed) {
     return { triggered: false, assessment }
   }
 

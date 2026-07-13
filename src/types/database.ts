@@ -481,6 +481,17 @@ export type CampaignPlaybook = {
   guardrails?: string[]
   donts?: string[]
   objection_notes?: string
+  /**
+   * Per-campaign financing pre-qualification control. Layers on top of the
+   * org-level `financing_prequal_enabled` flag so a single campaign can opt in
+   * or out independently of the account default.
+   *   • 'inherit'  — follow the org flag (default; preserves today's behavior).
+   *   • 'enabled'  — this campaign wants prequal.
+   *   • 'disabled' — this campaign never sends prequal, even if the org is on.
+   * Precedence semantics are resolved in resolvePrequalEligibility()
+   * (src/lib/campaigns/prequal-policy.ts).
+   */
+  prequal_mode?: 'inherit' | 'enabled' | 'disabled'
 }
 
 export type CampaignReviewDraft = {

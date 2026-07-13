@@ -329,6 +329,8 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   // Campaigns + Funnel Playbook
   '/campaigns': 'campaigns:read',
   '/campaigns/playbook': 'funnel:read',
+  // review_first draft queue — approving a draft sends it, so gate on write.
+  '/campaigns/review': 'campaigns:write',
   // Campaigns hub — relocated Audiences (Smart Lists) + Broadcasts (Phase 1 move).
   // Explicit keys keep the original, stricter gates instead of inheriting
   // the looser /campaigns → campaigns:read via prefix match.

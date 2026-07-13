@@ -13,6 +13,7 @@ import { executeNurtureStep } from './nurture-executor'
 import { checkCompliance } from '@/lib/ai/compliance-filter'
 import { createEscalation } from '@/lib/autopilot/escalation'
 import { resolveAutomationOwner } from '@/lib/automation/allocation'
+import { enqueueCampaignReviewDraft } from '@/lib/campaigns/review-drafts'
 
 export type ExecutionResult = {
   enrollment_id: string
@@ -271,6 +272,24 @@ async function executeOneStep(
       await advanceEnrollment(supabase, campaign, enrollment, nextStepNumber)
       return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'skipped', detail: `allocated_to_human: ${allocation.reason}` }
     }
+  }
+
+  // review_first campaign mode: don't auto-send — queue the composed touch for
+  // human approval and advance the enrollment (same "draft it and move on"
+  // semantics as the allocation-to-human path above). Only SMS/email are
+  // reviewable here; voice steps place calls and have no reviewable body.
+  if (campaign.autopilot_mode === 'review_first' && (step.channel === 'sms' || step.channel === 'email')) {
+    await enqueueCampaignReviewDraft(supabase, {
+      organizationId: campaign.organization_id,
+      campaignId: campaign.id,
+      leadId: lead.id,
+      conversationId: null,
+      channel: step.channel,
+      subject: step.channel === 'email' ? (subject ?? null) : null,
+      body: messageBody,
+    })
+    await advanceEnrollment(supabase, campaign, enrollment, nextStepNumber)
+    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'skipped', detail: 'queued_for_review' }
   }
 
   // Send the message

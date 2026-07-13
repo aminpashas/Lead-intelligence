@@ -10,6 +10,7 @@ export default function CampaignsLayout({ children }: { children: React.ReactNod
       <HubNav
         items={[
           { name: 'Campaigns', href: '/campaigns', exact: true },
+          { name: 'Review Queue', href: '/campaigns/review' },
           { name: 'Audiences', href: '/campaigns/audiences' },
           { name: 'Broadcasts', href: '/campaigns/broadcasts' },
           { name: 'Funnel Playbook', href: '/campaigns/playbook' },
