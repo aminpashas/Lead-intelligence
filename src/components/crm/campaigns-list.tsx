@@ -21,6 +21,60 @@ function channelMeta(channel: string) {
   return { Icon: Zap, label: 'Multi-channel' }
 }
 
+type PrequalMode = 'inherit' | 'enabled' | 'disabled'
+
+/**
+ * Compact per-campaign financing prequal control. 'inherit' follows the account
+ * default; 'enabled'/'disabled' scope this one campaign (tighten-only — a
+ * campaign can veto but never widen the account flag). PATCHes playbook.prequal_mode.
+ */
+function PrequalControl({ campaignId, initial }: { campaignId: string; initial: PrequalMode }) {
+  const [mode, setMode] = useState<PrequalMode>(initial)
+  const [saving, setSaving] = useState(false)
+
+  async function change(next: PrequalMode) {
+    const prev = mode
+    setMode(next) // optimistic
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prequal_mode: next }),
+      })
+      if (!res.ok) throw new Error('failed')
+      toast.success(
+        next === 'inherit'
+          ? 'Prequal follows the account default for this campaign.'
+          : next === 'disabled'
+            ? 'Prequal turned off for this campaign.'
+            : 'Prequal enabled for this campaign (still requires the account switch on).'
+      )
+    } catch {
+      setMode(prev) // revert
+      toast.error('Could not update prequal setting')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <label className="hidden items-center gap-1.5 text-[11px] text-aurea-ink-3 lg:inline-flex" title="Financing pre-qualification for this campaign">
+      <span className="uppercase tracking-[0.12em]">Prequal</span>
+      <select
+        value={mode}
+        disabled={saving}
+        onChange={(e) => change(e.target.value as PrequalMode)}
+        className="rounded-md bg-transparent px-1.5 py-1 text-[11px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:text-aurea-ink focus:outline-none disabled:opacity-60"
+      >
+        <option value="inherit">Account default</option>
+        <option value="enabled">On</option>
+        <option value="disabled">Off</option>
+      </select>
+    </label>
+  )
+}
+
 // Status as a dot + colored word: emerald = running, amber = paused,
 // gold = finished, muted ink = draft.
 const STATUS_META: Record<string, { dot: string; text: string; label: string }> = {
@@ -359,6 +413,11 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
                         </p>
                       )}
                     </div>
+
+                    <PrequalControl
+                      campaignId={campaign.id}
+                      initial={(campaign.playbook?.prequal_mode as PrequalMode) ?? 'inherit'}
+                    />
 
                     <button
                       onClick={() => setViewingAnalytics(campaign.id)}
