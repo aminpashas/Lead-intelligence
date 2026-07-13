@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import {
   Search,
   MessageSquare,
@@ -98,6 +98,7 @@ export function ConversationsSidebar({
   conversations: ConversationListItem[]
 }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const activeId = pathname?.startsWith('/conversations/')
     ? pathname.split('/')[2]
     : null
@@ -106,7 +107,10 @@ export function ConversationsSidebar({
   const [channel, setChannel] = useState<ChannelFilter>('all')
   const [quals, setQuals] = useState<Set<string>>(new Set())
   const [sentiments, setSentiments] = useState<Set<string>>(new Set())
-  const [unreadOnly, setUnreadOnly] = useState(false)
+  // Seed from the URL so the dashboard "Unread" KPI can deep-link straight into
+  // the unread-only inbox (`/conversations?filter=unread`). Initializer runs once
+  // on mount; the chip stays user-toggleable afterward.
+  const [unreadOnly, setUnreadOnly] = useState(searchParams.get('filter') === 'unread')
   const [aiOnly, setAiOnly] = useState(false)
   const [sort, setSort] = useState<SortKey>('recent')
   const [showFilters, setShowFilters] = useState(false)

@@ -113,7 +113,15 @@ export function DashboardHome({
           value={`+${kpis.weekLeads}`}
           sub={weekTrend(kpis.weekLeads, kpis.prevWeekLeads)}
           accent="emerald"
-          href="/leads?sort=created_at&dir=desc"
+          href="/leads?range=7d&channel=paid&sort=created&dir=desc"
+        />
+        <MiniKPI
+          icon={Bell}
+          label="Unread"
+          value={kpis.unreadThreads}
+          sub="conversations"
+          accent={kpis.unreadThreads > 0 ? 'rose' : undefined}
+          href="/conversations?filter=unread"
         />
         <MiniKPI
           icon={AlertCircle}
@@ -121,7 +129,7 @@ export function DashboardHome({
           value={kpis.awaitingContact}
           sub="new this week"
           accent={kpis.awaitingContact > 0 ? 'rose' : undefined}
-          href="/leads?status=new&sort=created_at&dir=desc"
+          href="/leads?range=7d&channel=paid&uncontacted=1&sort=created&dir=desc"
         />
         <MiniKPI
           icon={MessageSquare}
@@ -129,7 +137,7 @@ export function DashboardHome({
           value={kpis.engaged}
           sub="leads engaged"
           accent={kpis.engaged > 0 ? 'emerald' : undefined}
-          href="/conversations"
+          href="/leads?replied=7d&sort=created&dir=desc"
         />
         <MiniKPI
           icon={Calendar}
@@ -146,14 +154,6 @@ export function DashboardHome({
           sub="weighted forecast"
           accent="emerald"
           href="/closing"
-        />
-        <MiniKPI
-          icon={Bell}
-          label="Unread"
-          value={kpis.unreadThreads}
-          sub="conversations"
-          accent={kpis.unreadThreads > 0 ? 'rose' : undefined}
-          href="/conversations"
         />
         <MiniKPI
           icon={Users}

@@ -9,6 +9,7 @@ import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
 import { serviceLineOrFilter } from '@/lib/leads/service-line'
 import { resolveLeadDateRange } from '@/lib/leads/date-range'
+import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
 import {
   applyDerivedFilter,
   isDerivedColumnKey,
@@ -92,6 +93,25 @@ export default async function LeadsPage({
       query = query.gte('created_at', bounds.gte)
       if (bounds.lt) query = query.lt('created_at', bounds.lt)
     }
+  }
+  // Paid-ad acquisition filter — the dashboard "New Ad Leads" / "Not Contacted"
+  // KPIs count only genuine Meta/Google paid campaign leads (see attribution.ts).
+  // `?channel=paid` lets those cards deep-link into the exact same cohort.
+  if (params.channel === 'paid') {
+    query = query.or(PAID_AD_CHANNEL_OR_FILTER)
+  }
+  // Speed-to-lead gap — leads nobody has reached out to yet (`last_contacted_at`
+  // null). Pairs with `channel=paid` + `range` to reproduce the "Not Contacted" KPI.
+  if (params.uncontacted === '1') {
+    query = query.is('last_contacted_at', null)
+  }
+  // Recently-replied cohort for the "Replied · 7d" KPI: leads that responded to
+  // us within the range window. Applies the cutoff to `last_responded_at` rather
+  // than `created_at`; an unknown key falls back to "has ever replied".
+  if (params.replied) {
+    const bounds = resolveLeadDateRange(params.replied)
+    if (bounds) query = query.gte('last_responded_at', bounds.gte)
+    else query = query.not('last_responded_at', 'is', null)
   }
   if (params.campaign) {
     // Campaign names contain commas/brackets — PostgREST needs them quoted
