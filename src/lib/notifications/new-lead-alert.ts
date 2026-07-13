@@ -38,6 +38,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead } from '@/types/database'
 import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { classifyLeadServiceLines, SERVICE_LINES } from '@/lib/leads/service-line'
+import { getPublicAppUrl } from '@/lib/app-url'
+import { zonedDateTimeLabel, DEFAULT_PRACTICE_TIMEZONE } from '@/lib/time/zoned'
 import { logger } from '@/lib/logger'
 
 /** Fallback staff recipients when NEW_LEAD_ALERT_EMAILS is unset. */
@@ -82,7 +84,12 @@ const SERVICE_LABEL: Record<string, string> = Object.fromEntries(
   SERVICE_LINES.map((s) => [s.key, s.label]),
 )
 
-/** Minimal shape the alert needs — a subset of a decrypted lead row. */
+/**
+ * Shape the alert needs — a subset of a decrypted lead row. Callers pass only
+ * the fields they hold in plaintext at ingest time; every enrichment field is
+ * optional, so the real-time form path and the bulk DGS bridge can each
+ * contribute whatever they know and the builders render only what's present.
+ */
 export type NewLeadAlertInput = {
   id: string
   firstName: string
@@ -94,8 +101,29 @@ export type NewLeadAlertInput = {
   custom_fields?: Record<string, unknown> | null
   tags?: string[] | null
   utm_source?: string | null
+  utm_medium?: string | null
   utm_campaign?: string | null
   campaign_attribution?: { campaign_name?: string | null } | null
+
+  // ── Optional enrichment (rendered only when supplied) ────────────────
+  /** The lead's own words (form message / bridged notes). */
+  message?: string | null
+  city?: string | null
+  state?: string | null
+  /** AI qualification bucket — 'hot' | 'warm' | 'cold' | 'unqualified'. */
+  aiQualification?: string | null
+  /** AI score 0–100. */
+  aiScore?: number | null
+  /** One-line AI summary of the lead. */
+  aiSummary?: string | null
+  /** Financial pre-qual tier — 'tier_a' … 'tier_d'. */
+  financialTier?: string | null
+  /** Financing readiness 0–100. */
+  financingReadiness?: number | null
+  /** Self-reported preferred monthly payment budget, in dollars. */
+  monthlyBudget?: number | null
+  /** Original submission time (ISO) — rendered in the practice timezone. */
+  submittedAt?: string | null
 }
 
 /** A resolved Slack destination — either a bot-token channel or a webhook. */
@@ -167,34 +195,161 @@ export function resolveSlackTargets(
   return Array.from(values)
 }
 
+/** Visual treatment for each AI qualification bucket. */
+const QUAL_META: Record<string, { emoji: string; color: string; label: string }> = {
+  hot: { emoji: '🔥', color: '#dc2626', label: 'Hot' },
+  warm: { emoji: '🌤️', color: '#d97706', label: 'Warm' },
+  cold: { emoji: '❄️', color: '#2563eb', label: 'Cold' },
+  unqualified: { emoji: '🚫', color: '#6b7280', label: 'Unqualified' },
+}
+
+/** Human labels for financial pre-qual tiers. */
+const TIER_LABEL: Record<string, string> = {
+  tier_a: 'Tier A — strong',
+  tier_b: 'Tier B — good',
+  tier_c: 'Tier C — fair',
+  tier_d: 'Tier D — limited',
+}
+
+/** Format a dollar monthly-budget, or null when absent/invalid. */
+function formatMonthlyBudget(n: number | null | undefined): string | null {
+  if (n == null || !Number.isFinite(n) || n <= 0) return null
+  return `$${Math.round(n).toLocaleString('en-US')}/mo`
+}
+
+/** Format an ISO timestamp in the practice timezone, or null when unparseable. */
+function formatSubmittedAt(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  return zonedDateTimeLabel(new Date(t), DEFAULT_PRACTICE_TIMEZONE)
+}
+
+/**
+ * The normalized, render-ready content shared by the email and Slack builders.
+ * `shortRows`, `aiSummary`, and `message` are already emptiness-filtered, so
+ * each builder just lays out whatever survived.
+ */
+type AlertContent = {
+  name: string
+  treatments: string
+  qual: { emoji: string; color: string; label: string; score: number | null } | null
+  /** Short [label, value] pairs safe to show as compact two-column fields. */
+  shortRows: [string, string][]
+  aiSummary: string | null
+  message: string | null
+  leadUrl: string | null
+}
+
+/** Distil an alert input into the render-ready content both channels share. */
+function collectAlertContent(input: NewLeadAlertInput, serviceLines: string[]): AlertContent {
+  const name = `${input.firstName} ${input.lastName ?? ''}`.trim() || 'Unknown'
+  const treatments = serviceLines.map((k) => SERVICE_LABEL[k] ?? k).join(', ') || 'Unspecified'
+
+  const qualKey = (input.aiQualification ?? '').toLowerCase()
+  const qualMeta = QUAL_META[qualKey]
+  const qual = qualMeta
+    ? { ...qualMeta, score: typeof input.aiScore === 'number' ? input.aiScore : null }
+    : null
+
+  const campaign = input.campaign_attribution?.campaign_name || input.utm_campaign || null
+  const utm = [input.utm_source, input.utm_medium].filter(Boolean).join(' / ') || null
+  const location = [input.city, input.state].filter(Boolean).join(', ') || null
+  const financing =
+    [
+      input.financialTier ? (TIER_LABEL[input.financialTier] ?? input.financialTier) : null,
+      formatMonthlyBudget(input.monthlyBudget),
+      typeof input.financingReadiness === 'number' && input.financingReadiness > 0
+        ? `${input.financingReadiness}/100 ready`
+        : null,
+    ]
+      .filter(Boolean)
+      .join('  ·  ') || null
+
+  const shortRows: [string, string][] = (
+    [
+      ['Phone', input.phone],
+      ['Email', input.email],
+      ['Campaign', campaign],
+      ['Source', input.source],
+      ['UTM', utm],
+      ['Location', location],
+      ['Financing', financing],
+      ['Submitted', formatSubmittedAt(input.submittedAt)],
+    ] as [string, string | null | undefined][]
+  )
+    .map(([k, v]) => [k, (v ?? '').toString().trim()] as [string, string])
+    .filter(([, v]) => v !== '')
+
+  const leadUrl = input.id ? `${getPublicAppUrl()}/leads/${input.id}` : null
+
+  return {
+    name,
+    treatments,
+    qual,
+    shortRows,
+    aiSummary: input.aiSummary?.trim() || null,
+    message: input.message?.trim() || null,
+    leadUrl,
+  }
+}
+
+/** Chunk an array into sub-arrays of at most `size` (Slack caps fields at 10). */
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
+
 /** Build the Slack Block Kit blocks (+ notification fallback text) for a lead. */
 function buildSlackMessage(
   input: NewLeadAlertInput,
   serviceLines: string[],
 ): { blocks: Record<string, unknown>[]; text: string } {
-  const name = `${input.firstName} ${input.lastName ?? ''}`.trim() || 'Unknown'
-  const treatments =
-    serviceLines.map((k) => SERVICE_LABEL[k] ?? k).join(', ') || 'Unspecified'
-  const contact = [input.phone, input.email].filter(Boolean).join('  ·  ') || 'No contact info'
+  const c = collectAlertContent(input, serviceLines)
+  const headline = c.qual
+    ? `${c.qual.emoji} New ${c.qual.label} Lead${c.qual.score != null ? ` · ${c.qual.score}/100` : ''}`
+    : '🆕 New Lead'
 
-  return {
-    text: `🆕 New Lead: ${name} (${treatments})`,
-    blocks: [
-      {
-        type: 'header',
-        text: { type: 'plain_text', text: '🆕 New Lead', emoji: true },
-      },
-      {
-        type: 'section',
-        fields: [
-          { type: 'mrkdwn', text: `*Name:*\n${name}` },
-          { type: 'mrkdwn', text: `*Treatment:*\n${treatments}` },
-          { type: 'mrkdwn', text: `*Source:*\n${input.source || 'Unknown'}` },
-          { type: 'mrkdwn', text: `*Contact:*\n${contact}` },
-        ],
-      },
-    ],
+  const fieldPairs: [string, string][] = [
+    ['Name', c.name],
+    ['Treatment', c.treatments],
+    ...c.shortRows,
+  ]
+
+  const blocks: Record<string, unknown>[] = [
+    { type: 'header', text: { type: 'plain_text', text: headline, emoji: true } },
+  ]
+  // Slack allows at most 10 fields per section — chunk so nothing is dropped.
+  for (const group of chunk(fieldPairs, 10)) {
+    blocks.push({
+      type: 'section',
+      fields: group.map(([k, v]) => ({ type: 'mrkdwn', text: `*${k}:*\n${v}` })),
+    })
   }
+  if (c.aiSummary) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*AI summary:*\n${c.aiSummary}` } })
+  }
+  if (c.message) {
+    // Blockquote the lead's own words so they stand apart from CRM metadata.
+    const quoted = c.message.split('\n').map((l) => `> ${l}`).join('\n')
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*Message:*\n${quoted}` } })
+  }
+  if (c.leadUrl) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'View lead in CRM', emoji: true },
+          url: c.leadUrl,
+          style: 'primary',
+        },
+      ],
+    })
+  }
+
+  return { text: `${headline}: ${c.name} (${c.treatments})`, blocks }
 }
 
 /** Post a message to one Slack target (bot-token channel or webhook URL). */
@@ -241,30 +396,61 @@ function buildEmail(input: NewLeadAlertInput, serviceLines: string[]): {
   html: string
   text: string
 } {
-  const name = `${input.firstName} ${input.lastName ?? ''}`.trim() || 'Unknown'
-  const treatments = serviceLines.map((k) => SERVICE_LABEL[k] ?? k).join(', ') || 'Unspecified'
+  const c = collectAlertContent(input, serviceLines)
+
+  // Every field as a table row, in the order staff scan them.
   const rows: [string, string][] = [
-    ['Name', name],
-    ['Treatment', treatments],
-    ['Phone', input.phone || '—'],
-    ['Email', input.email || '—'],
-    ['Source', input.source || 'Unknown'],
+    ['Name', c.name],
+    ['Treatment', c.treatments],
+    ...c.shortRows,
+    ...(c.aiSummary ? ([['AI summary', c.aiSummary]] as [string, string][]) : []),
   ]
-  const subject = `🆕 New lead: ${name} (${treatments})`
+
+  const subjectPrefix = c.qual ? `${c.qual.emoji} New ${c.qual.label} lead` : '🆕 New lead'
+  const subject = `${subjectPrefix}: ${c.name} (${c.treatments})`
+
+  const badge = c.qual
+    ? `<span style="display:inline-block;padding:3px 12px;border-radius:999px;background:${c.qual.color};color:#fff;font-weight:700;font-size:13px">${c.qual.emoji} ${c.qual.label}${
+        c.qual.score != null ? ` · ${c.qual.score}/100` : ''
+      }</span>`
+    : ''
+  const messageBlock = c.message
+    ? `<div style="margin:16px 0;padding:12px 14px;background:#f9fafb;border-left:3px solid #d1d5db;border-radius:4px;color:#374151;white-space:pre-wrap">${escapeHtml(
+        c.message,
+      )}</div>`
+    : ''
+  const cta = c.leadUrl
+    ? `<a href="${escapeHtml(
+        c.leadUrl,
+      )}" style="display:inline-block;margin-top:8px;padding:10px 18px;background:#111827;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:14px">View lead in CRM →</a>`
+    : ''
+
   const html = `
-    <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px">
-      <h2 style="margin:0 0 12px">🆕 New Lead</h2>
-      <table style="border-collapse:collapse;width:100%">
+    <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:560px;color:#111827">
+      <div style="display:flex;align-items:center;gap:12px;margin:0 0 14px">
+        <h2 style="margin:0;font-size:20px">🆕 New Lead</h2>
+        ${badge}
+      </div>
+      <table style="border-collapse:collapse;width:100%;font-size:14px">
         ${rows
           .map(
             ([k, v]) =>
-              `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap">${k}</td><td style="padding:6px 0;font-weight:600">${escapeHtml(v)}</td></tr>`,
+              `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;vertical-align:top">${k}</td><td style="padding:6px 0;font-weight:600">${escapeHtml(v)}</td></tr>`,
           )
           .join('')}
       </table>
+      ${messageBlock}
+      ${cta}
     </div>`.trim()
-  const text = `New Lead\n\n${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}`
-  return { subject, html, text }
+
+  const textLines = [
+    subjectPrefix,
+    '',
+    ...rows.map(([k, v]) => `${k}: ${v}`),
+    ...(c.message ? ['', `Message:`, c.message] : []),
+    ...(c.leadUrl ? ['', `View lead: ${c.leadUrl}`] : []),
+  ]
+  return { subject, html, text: textLines.join('\n') }
 }
 
 function escapeHtml(s: string): string {

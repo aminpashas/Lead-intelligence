@@ -552,12 +552,19 @@ export async function POST(request: NextRequest) {
     // ('tier_c'), which is indistinguishable from a genuine assessment. Writing
     // `financial_signals` (with its `last_updated` stamp) is what lets the UI
     // tell "assessed, no signal yet" apart from "never assessed".
+    // Hoisted so the staff alert below can surface the financial pre-qual.
+    let financialTier: string | null = null
+    let monthlyBudget: number | null = null
+    let financingReadiness: number | null = null
     if (notes && notes.trim()) {
       try {
         const { extractFinancialSignals, mergeFinancialSignals, determineQualificationTier } =
           await import('@/lib/ai/financial-qualifier')
         const signals = mergeFinancialSignals(null, extractFinancialSignals(notes))
         const tier = determineQualificationTier(signals, {})
+        financialTier = tier
+        monthlyBudget = signals.budget_monthly ?? null
+        financingReadiness = signals.readiness_score ?? null
         const update: Record<string, unknown> = {
           financial_signals: signals,
           financial_qualification_tier: tier,
@@ -597,8 +604,14 @@ export async function POST(request: NextRequest) {
           phone: phoneFormatted ?? phoneRaw ?? null,
           source: sourceName,
           utm_source,
+          utm_medium,
           utm_campaign,
           campaign_attribution: campaignAttribution,
+          message: notes,
+          financialTier,
+          monthlyBudget,
+          financingReadiness,
+          submittedAt: sourceCreatedAt,
         },
       })
     } catch {

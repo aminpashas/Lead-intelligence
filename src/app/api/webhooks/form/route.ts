@@ -273,9 +273,11 @@ export async function POST(request: NextRequest) {
       // Enrichment failure is non-fatal
     }
 
-    // 2. Score (now with enrichment data available)
+    // 2. Score (now with enrichment data available). Hoisted so the staff
+    // alert (step 4) can surface the AI qualification/score/summary too.
+    let scoreResult: Awaited<ReturnType<typeof scoreLead>> | null = null
     try {
-      const scoreResult = await scoreLead(lead, supabase)
+      scoreResult = await scoreLead(lead, supabase)
       await supabase
         .from('leads')
         .update({
@@ -314,7 +316,13 @@ export async function POST(request: NextRequest) {
           source: parsed.data.source_type || 'website_form',
           custom_fields: parsed.data.custom_fields as Record<string, unknown> | undefined,
           utm_source: parsed.data.utm_source,
+          utm_medium: parsed.data.utm_medium,
           utm_campaign: parsed.data.utm_campaign,
+          message: parsed.data.notes,
+          aiQualification: scoreResult?.qualification ?? null,
+          aiScore: scoreResult?.total_score ?? null,
+          aiSummary: scoreResult?.summary ?? null,
+          submittedAt: new Date().toISOString(),
         },
       })
     } catch {

@@ -224,6 +224,78 @@ describe('notifyNewLead', () => {
     })
     expect(sendEmail).toHaveBeenCalledTimes(1)
   })
+
+  it('enriches the email with qualification, details, message and a CRM link', async () => {
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      lead: {
+        id: 'rich1',
+        firstName: 'Rich',
+        lastName: 'Lead',
+        email: 'rich@x.com',
+        phone: '+15551234567',
+        source: 'whatconverts',
+        utm_source: 'google',
+        utm_medium: 'cpc',
+        utm_campaign: 'all-on-4 full arch implants',
+        message: 'I lost 3 teeth and want implants asap',
+        city: 'San Francisco',
+        state: 'CA',
+        aiQualification: 'hot',
+        aiScore: 87,
+        aiSummary: 'Motivated full-arch prospect with urgency',
+        financialTier: 'tier_a',
+        monthlyBudget: 750,
+        financingReadiness: 90,
+        submittedAt: '2026-07-13T18:30:00.000Z',
+      },
+    })
+
+    const arg = (sendEmail as any).mock.calls[0][0]
+    // Qualification drives the subject line.
+    expect(arg.subject).toContain('Hot')
+    expect(arg.subject).toContain('Rich Lead')
+    // Rich fields land in the HTML body.
+    expect(arg.html).toContain('87/100')
+    expect(arg.html).toContain('all-on-4 full arch implants')
+    expect(arg.html).toContain('San Francisco, CA')
+    expect(arg.html).toContain('$750/mo')
+    expect(arg.html).toContain('Motivated full-arch prospect')
+    expect(arg.html).toContain('I lost 3 teeth')
+    // Deep link uses the stable public app URL, never a raw preview host.
+    expect(arg.html).toContain('/leads/rich1')
+    // Plaintext part carries the same detail.
+    expect(arg.text).toContain('Campaign: all-on-4 full arch implants')
+    expect(arg.text).toContain('View lead:')
+  })
+
+  it('enriches the Slack card with a summary, message blockquote and CTA button', async () => {
+    process.env.NEW_LEAD_SLACK_ROUTES = JSON.stringify({ implants: FULL_ARCH_HOOK })
+
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      lead: {
+        id: 'rich2',
+        firstName: 'Sam',
+        utm_campaign: 'implants',
+        aiQualification: 'warm',
+        aiScore: 61,
+        aiSummary: 'Comparing financing options',
+        message: 'What does it cost?',
+      },
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.text).toContain('Warm')
+    const flat = JSON.stringify(body.blocks)
+    expect(flat).toContain('AI summary')
+    expect(flat).toContain('Comparing financing options')
+    expect(flat).toContain('&gt; What does it cost?'.replace('&gt;', '>')) // blockquoted
+    // A primary "View lead in CRM" button links into the app.
+    expect(flat).toContain('View lead in CRM')
+    expect(flat).toContain('/leads/rich2')
+  })
 })
 
 describe('isStaleForAlert', () => {
