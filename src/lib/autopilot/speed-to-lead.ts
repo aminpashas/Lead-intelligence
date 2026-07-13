@@ -24,6 +24,7 @@ import type { ConversationChannel, LeadStatus } from '@/types/database'
 import { logger } from '@/lib/logger'
 import { createEscalation } from './escalation'
 import { resolveAutomationOwner } from '@/lib/automation/allocation'
+import { applyScopedKnobs } from '@/lib/automation/scoped-config'
 import {
   createHumanTask,
   resolveAssignee,
@@ -117,14 +118,18 @@ export async function triggerSpeedToLead(
     return { action: 'skipped', reason: 'allocated_to_human' }
   }
 
+  // Scoped knobs: a campaign/stage policy may tighten confidence or hours for
+  // this outbound touch. Null knobs inherit the org defaults already on config.
+  const effectiveConfig = applyScopedKnobs(config, allocation)
+
   // HIGH-3: Check active hours (TCPA quiet hours compliance).
   // Hour must be evaluated in the org's local timezone, not UTC (Vercel runs UTC).
   const { hour: currentHour } = getLocalHourAndDay(config.timezone)
-  if (currentHour < config.active_hours_start || currentHour >= config.active_hours_end) {
+  if (currentHour < effectiveConfig.active_hours_start || currentHour >= effectiveConfig.active_hours_end) {
     logger.info('Speed-to-lead: skipped outside active hours', {
       leadId,
       currentHour,
-      activeRange: `${config.active_hours_start}-${config.active_hours_end}`,
+      activeRange: `${effectiveConfig.active_hours_start}-${effectiveConfig.active_hours_end}`,
     })
     return { action: 'skipped' }
   }
@@ -276,7 +281,7 @@ export async function triggerSpeedToLead(
   }
 
   // 7. Confidence check
-  if (agentResponse.confidence < config.confidence_threshold) {
+  if (agentResponse.confidence < effectiveConfig.confidence_threshold) {
     await createEscalation(supabase, {
       organization_id: organizationId,
       conversation_id: conversationId,

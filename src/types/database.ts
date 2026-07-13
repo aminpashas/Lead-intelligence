@@ -521,7 +521,7 @@ export type CampaignStep = {
   created_at: string
 }
 
-export type AppointmentConfirmedVia = 'sms_reply' | 'email_click' | 'voice_call' | 'manual'
+export type AppointmentConfirmedVia = 'sms_reply' | 'email_click' | 'voice_call' | 'manual' | 'reschedule_link'
 
 export type EhrSyncStatus = 'pending' | 'synced' | 'failed' | 'skipped'
 
@@ -1109,6 +1109,11 @@ export type SmartListCriteria = {
     match: 'any' | 'all'
     scopes: ('conversation' | 'lead_fields' | 'inbound_sms' | 'tags')[]
   }
+  /** Static snapshot: restrict to exactly these lead IDs (max 1000). Powers
+   *  SQL-only cohorts (e.g. Action Center queues) that no attribute filter can
+   *  express — the cohort is resolved once and pinned. Combines with the other
+   *  filters (AND), so consent/contactability criteria still apply on top. */
+  lead_ids?: string[]
 }
 
 export type SmartList = {
@@ -2278,6 +2283,11 @@ export type AutomationPolicy = {
   human_schedule: Record<string, unknown> | null
   human_first: boolean
   human_response_sla_seconds: number
+  /** Per-scope min AI confidence (0-1). NULL inherits the org autopilot default. */
+  confidence_threshold: number | null
+  /** Per-scope active-hours window. NULL inherits the org autopilot default. */
+  active_hours_start: number | null
+  active_hours_end: number | null
   enabled: boolean
   created_at: string
   updated_at: string

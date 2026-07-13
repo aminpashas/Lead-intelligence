@@ -17,6 +17,7 @@ export const PUBLIC_PREFIXES = [
   '/qualify',
   '/optin',
   '/book',
+  '/reschedule', // patient self-serve reschedule calendar (token in query string)
   '/all-on-4',
   '/contract/',
   '/case/',   // patient treatment-plan portal (share-token gated in the API)
@@ -39,15 +40,35 @@ export const PUBLIC_PREFIXES = [
   // Email-link actions clicked from a mail client (no session). The handler
   // authenticates the request via a signed token in the query string.
   '/api/email/unsubscribe',
+  // Appointment email-link actions (no session; a signed token in the query
+  // string is the capability). Scoped to the exact subpaths — the rest of
+  // /api/appointments stays behind the auth gate.
+  '/api/appointments/confirm',
+  '/api/appointments/reschedule',
   '/_next',
-  '/widget.js',
 ] as const
 
 /**
- * True when `pathname` should bypass the auth gate. Mirrors the original inline
- * middleware condition: any public prefix, or any path containing a `.` (static
- * assets like `/favicon.ico`, `/widget.js`).
+ * Exact static-asset paths that bypass the auth gate. Deliberately NOT a
+ * "path contains a dot" heuristic (nor an extension regex): Next.js dynamic
+ * segments accept dots, so `/leads/123.css` or a page route like
+ * `/sidebar.preview` would ride any dot heuristic straight past the gate.
+ * The middleware matcher already excludes `/_next/*`, `favicon.ico`, and
+ * common asset extensions (.svg/.png/.js/.css/…) before this code runs, so
+ * this set only needs the stragglers. A new public file that's missing from
+ * here fails loudly (login redirect) instead of a private route leaking.
  */
+export const PUBLIC_FILES = new Set<string>([
+  '/favicon.ico',
+  '/widget.js',
+  '/qualify-widget.js',
+  '/sw.js',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/manifest.webmanifest', // served by src/app/manifest.ts
+])
+
+/** True when `pathname` should bypass the auth gate in `src/middleware.ts`. */
 export function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix)) || pathname.includes('.')
+  return PUBLIC_FILES.has(pathname) || PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }

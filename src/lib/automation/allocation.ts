@@ -56,6 +56,9 @@ export type AllocationDecision = {
   policyId: string | null
   slaSeconds: number | null
   aiRole: 'setter' | 'closer' | null
+  confidenceThreshold: number | null
+  activeHoursStart: number | null
+  activeHoursEnd: number | null
 }
 
 /** Org-level inputs the pure resolver needs (subset of organizations columns). */
@@ -72,6 +75,9 @@ const LEGACY_DEFAULT: AllocationDecision = {
   policyId: null,
   slaSeconds: null,
   aiRole: null,
+  confidenceThreshold: null,
+  activeHoursStart: null,
+  activeHoursEnd: null,
 }
 
 /**
@@ -137,12 +143,20 @@ export function resolveAllocation(
         policyId: null,
         slaSeconds: orgConfig.human_first_sla_seconds,
         aiRole: null,
+        confidenceThreshold: null,
+        activeHoursStart: null,
+        activeHoursEnd: null,
       }
     }
     return LEGACY_DEFAULT
   }
 
   const aiRole = policy.ai_role ?? null
+  const knobs = {
+    confidenceThreshold: policy.confidence_threshold,
+    activeHoursStart: policy.active_hours_start,
+    activeHoursEnd: policy.active_hours_end,
+  }
 
   // Human-first: hold for a human up to the SLA before the AI may take over
   // (SLA enforcement is D2/D3 — here we only return the decision).
@@ -153,6 +167,7 @@ export function resolveAllocation(
       policyId: policy.id,
       slaSeconds: policy.human_response_sla_seconds,
       aiRole,
+      ...knobs,
     }
   }
 
@@ -163,6 +178,7 @@ export function resolveAllocation(
       policyId: policy.id,
       slaSeconds: policy.human_response_sla_seconds,
       aiRole,
+      ...knobs,
     }
   }
 
@@ -179,6 +195,7 @@ export function resolveAllocation(
         policyId: policy.id,
         slaSeconds: policy.human_response_sla_seconds,
         aiRole,
+        ...knobs,
       }
     }
     return {
@@ -187,10 +204,18 @@ export function resolveAllocation(
       policyId: policy.id,
       slaSeconds: null,
       aiRole,
+      ...knobs,
     }
   }
 
-  return { owner: 'ai', reason: 'policy_ai', policyId: policy.id, slaSeconds: null, aiRole }
+  return {
+    owner: 'ai',
+    reason: 'policy_ai',
+    policyId: policy.id,
+    slaSeconds: null,
+    aiRole,
+    ...knobs,
+  }
 }
 
 /**

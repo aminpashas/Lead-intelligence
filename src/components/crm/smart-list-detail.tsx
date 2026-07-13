@@ -95,6 +95,7 @@ export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onB
   if (c.has_phone) criteriaLabels.push('Has phone')
   if (c.has_email) criteriaLabels.push('Has email')
   if (c.sms_consent) criteriaLabels.push('SMS consent')
+  if (c.lead_ids?.length) criteriaLabels.push(`Pinned snapshot: ${c.lead_ids.length} leads`)
 
   return (
     <div className="space-y-6 animate-in fade-in-0 duration-500">

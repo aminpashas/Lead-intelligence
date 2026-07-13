@@ -348,25 +348,49 @@ export function formatAssetForEmail(
   return { subject, html: bodyHtml, text: bodyText }
 }
 
+/** Does the body already open with its own greeting ("Hi Amin," / "Dear ...")? */
+export function hasOwnGreeting(message: string): boolean {
+  return /^\s*(hi|hey|hello|dear|good\s+(morning|afternoon|evening))\b/i.test(message)
+}
+
+/** Does the body already close with its own sign-off / signature block? */
+export function hasOwnSignOff(message: string): boolean {
+  return /(\bwarm(est)?\s+regards|\bkind\s+regards|\bbest\s+regards|\bregards,|\bsincerely|\bwarmly,|\bbest,|\bcheers,|\bthank\s+you,|—\s*the\b[^\n]*\bteam\b|\bthe\s+team\s+at\s)/i.test(
+    message
+  )
+}
+
 /**
  * Format a custom message for email delivery.
+ *
+ * AI-drafted bodies usually arrive as a COMPLETE email (own greeting + own
+ * signature). Wrapping those unconditionally produced "Hi Amin,\n\nHi Amin,"
+ * and a second, differently-branded footer — so the greeting and sign-off are
+ * only added when the body lacks them. `brandName` (the lead's resolved
+ * service-line DBA) wins over orgName for anything patient-visible.
  */
 export function formatCustomEmail(
   message: string,
   leadName: string,
   orgName: string,
-  options?: { subject?: string; leadId?: string; orgId?: string }
+  options?: { subject?: string; leadId?: string; orgId?: string; brandName?: string }
 ): { subject: string; html: string; text: string } {
   const name = leadName || 'there'
-  const subject = options?.subject || `Message from ${orgName}`
+  const displayName = options?.brandName?.trim() || orgName
+  const subject = options?.subject || `Message from ${displayName}`
+
+  const greetingHtml = hasOwnGreeting(message)
+    ? ''
+    : `<p style="color: #475569; font-size: 16px; line-height: 1.6;">Hi ${name},</p>\n      `
+  const signOffHtml = hasOwnSignOff(message)
+    ? ''
+    : `\n      <p style="color: #94a3b8; font-size: 14px; margin-top: 24px;">— The team at ${displayName}</p>`
 
   let html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; padding: 32px;">
-      <p style="color: #475569; font-size: 16px; line-height: 1.6;">Hi ${name},</p>
-      <div style="color: #1e293b; font-size: 16px; line-height: 1.6; margin: 16px 0;">
+      ${greetingHtml}<div style="color: #1e293b; font-size: 16px; line-height: 1.6; margin: 16px 0;">
         ${message.replace(/\n/g, '<br>')}
-      </div>
-      <p style="color: #94a3b8; font-size: 14px; margin-top: 24px;">— The team at ${orgName}</p>
+      </div>${signOffHtml}
     </div>
   `
 
@@ -374,7 +398,7 @@ export function formatCustomEmail(
     html = appendEmailFooter(html, {
       leadId: options.leadId,
       orgId: options.orgId,
-      orgName,
+      orgName: displayName,
     })
   }
 

@@ -57,4 +57,8 @@ export const smartListCriteriaSchema = z.object({
     match: z.enum(['any', 'all']),
     scopes: z.array(z.enum(KEYWORD_SCOPES)).min(1),
   }).optional(),
+  /** Static snapshot: restrict to exactly these lead IDs. Powers SQL-only
+   *  cohorts (Action Center queues) pinned at materialization time. Capped at
+   *  1000 — the PostgREST .in() practical limit used across the resolver. */
+  lead_ids: z.array(z.string().uuid()).min(1).max(1000).optional(),
 })

@@ -2,6 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "sidebar-flash-worktree",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/festive-wilbur-edb916' && exec /usr/local/bin/node '/Users/aminsamadian/Lead Intelligence/node_modules/.bin/next' dev -p 3130"
+      ],
+      "port": 3130
+    },
+    {
       "name": "action-center-worktree",
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
@@ -54,6 +63,15 @@
         "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/ai-first-dashboard' && exec /usr/local/bin/node '/Users/aminsamadian/Lead Intelligence/node_modules/.bin/next' dev -p 3100"
       ],
       "port": 3100
+    },
+    {
+      "name": "action-center-worktree",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/action-center-cohorts' && exec /usr/local/bin/node '/Users/aminsamadian/Lead Intelligence/node_modules/.bin/next' dev -p 3120"
+      ],
+      "port": 3120
     },
     {
       "name": "campaign-setup-worktree",

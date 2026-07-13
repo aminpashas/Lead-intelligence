@@ -62,6 +62,10 @@ const upsertSchema = z
     human_first: z.boolean().optional(),
     human_response_sla_seconds: z.number().int().min(30).max(3600).optional(),
     kinds: z.array(z.enum(KIND_VALUES)).max(KIND_VALUES.length).optional(),
+    // Per-scope knobs (NULL inherits the org autopilot default).
+    confidence_threshold: z.number().min(0).max(1).nullish(),
+    active_hours_start: z.number().int().min(0).max(23).nullish(),
+    active_hours_end: z.number().int().min(1).max(24).nullish(),
     enabled: z.boolean().optional(),
   })
   .refine(
@@ -80,6 +84,16 @@ const upsertSchema = z
       }
     },
     { message: 'scope and target id do not match' }
+  )
+  // active_hours must be set together (mirrors the DB paired-hours CHECK) and
+  // form a valid [start, end) window.
+  .refine(
+    (d) =>
+      (d.active_hours_start == null) === (d.active_hours_end == null) &&
+      (d.active_hours_start == null ||
+        d.active_hours_end == null ||
+        d.active_hours_start < d.active_hours_end),
+    { message: 'active_hours_start and active_hours_end must be set together with start < end' }
   )
 
 export async function GET(request: NextRequest) {
@@ -163,6 +177,9 @@ export async function POST(request: NextRequest) {
     human_first: input.human_first ?? false,
     human_response_sla_seconds: input.human_response_sla_seconds ?? 180,
     kinds: input.kinds ?? [],
+    confidence_threshold: input.confidence_threshold ?? null,
+    active_hours_start: input.active_hours_start ?? null,
+    active_hours_end: input.active_hours_end ?? null,
     enabled: input.enabled ?? true,
   }
 

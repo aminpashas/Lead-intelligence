@@ -32,6 +32,7 @@ import { verifyDob } from '@/lib/ai/identity-verification'
 import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
 import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
+import { resolveBrandIdentity } from '@/lib/branding/prompt-block'
 import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/treatment/treatment-closing'
 import { getOrCreateFinancingShareLink } from '@/lib/financing/share-link'
 import { buildQualificationStatus, isDiscoveryComplete } from '@/lib/ai/agent-types'
@@ -91,7 +92,7 @@ const CROSS_CHANNEL_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'send_sms_to_lead',
-    description: 'Send a custom SMS text message to the patient. Use this when the patient asks you to text them information, or when you need to send something that\'s better in written form (e.g., a link, address, confirmation). Works from any channel — you can send a text while on a phone call.',
+    description: 'Send a custom SMS text message to the patient from a DIFFERENT channel — e.g., text them a link or address while on a phone call, or while emailing. Do NOT use this in an SMS conversation: there, your reply IS the text message, so put the content (links included) directly in your reply instead of calling this tool.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -724,12 +725,15 @@ async function executeCheckAvailability(
     }
   }
 
-  // Format for AI consumption
-  const slotSummary = filteredSlots.slice(0, 5).map(day => {
-    const times = day.times.slice(0, 4).map(t => formatTimeDisplay(t)).join(', ')
-    const more = day.times.length > 4 ? ` (+${day.times.length - 4} more)` : ''
-    return `${day.dayLabel}: ${times}${more}`
-  }).join('\n')
+  // Flatten into individual date+time options, soonest first, so the agent
+  // offers COMBINED slots ("Tuesday, July 14 at 9:00 AM") rather than a menu of
+  // days and a separate menu of times — the split-menu style confuses patients.
+  const flatOptions = filteredSlots.flatMap(day =>
+    day.times.map(t => `${day.dayLabel} at ${formatTimeDisplay(t)}`)
+  )
+  const offerList = flatOptions.slice(0, 6).map(o => `- ${o}`).join('\n')
+  const first = flatOptions[0]
+  const second = flatOptions[1]
 
   return {
     success: true,
@@ -742,7 +746,17 @@ async function executeCheckAvailability(
       duration: settings.slot_duration_minutes,
       location: settings.location || null,
     },
-    message: `Available ${settings.slot_duration_minutes}-minute consultation slots:\n${slotSummary}`,
+    message: [
+      `Available ${settings.slot_duration_minutes}-minute consultation slots, soonest first:`,
+      offerList,
+      '',
+      'HOW TO OFFER — IMPORTANT:',
+      `- Offer only the FIRST 2 options as complete date+time slots${
+        first && second ? ` (e.g. "I've got ${first} or ${second} — which works better?")` : ''
+      }.`,
+      '- Never dump the whole list, and never split days and times into two separate menus. Every option the patient picks must be ONE specific date AND time together.',
+      '- If neither of the first two works, then offer the next 2 from the list — keep narrowing 2 at a time.',
+    ].join('\n'),
   }
 }
 
@@ -958,12 +972,13 @@ async function executeCreateBooking(
               ${settings.location ? `<p style="margin: 4px 0;"><strong>Location:</strong> ${escapeHtml(settings.location)}</p>` : ''}
             </div>
             <p>${escapeHtml(settings.booking_message || 'We look forward to seeing you!')}</p>
+            ${settings.youtube_testimonial_url ? `<p style="margin: 20px 0;">Before your visit, hear from patients who've been through the same procedure: <a href="${escapeHtml(settings.youtube_testimonial_url as string)}" style="color: #0a7d3c; font-weight: 600;">watch their stories →</a></p>` : ''}
             <p style="color: #666; font-size: 12px; margin-top: 24px;">
               Need to reschedule? Reply to this email or call us.
             </p>
           </div>
         `,
-        text: `Hi ${firstName}, your consultation at ${orgName} is confirmed for ${displayDate} at ${displayTime}. ${settings.location ? `Location: ${settings.location}. ` : ''}We look forward to seeing you!`,
+        text: `Hi ${firstName}, your consultation at ${orgName} is confirmed for ${displayDate} at ${displayTime}. ${settings.location ? `Location: ${settings.location}. ` : ''}We look forward to seeing you!${settings.youtube_testimonial_url ? `\n\nBefore your visit, hear from patients who've been through the same procedure: ${settings.youtube_testimonial_url}` : ''}`,
         })
       } catch (err) {
         await supabase.from('lead_activities').insert({
@@ -1242,6 +1257,18 @@ async function executeSendSMSToLead(
   },
   message: string
 ): Promise<ToolResult> {
+  // Same-channel guard: this is a CROSS-channel tool (voice/email → SMS). In an
+  // SMS conversation the reply already IS a text, so a tool send here produces
+  // two back-to-back texts — the second oddly narrating the first ("Sent! Check
+  // your messages."). Soft-refuse so the model folds the content into its reply.
+  if (context.channel === 'sms') {
+    return {
+      success: false,
+      data: { same_channel: true },
+      message: 'Not sent — you are already texting with this patient, so do NOT use this tool. Put the content (including any links) directly in your reply; your reply IS the text message they receive. This tool is only for sending a text from a DIFFERENT channel (e.g., while on a phone call).',
+    }
+  }
+
   // Consent check
   if (!context.lead.sms_consent || context.lead.sms_opt_out) {
     return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Provide the information verbally instead.' }
@@ -1345,10 +1372,19 @@ async function executeSendEmailToLead(
     return { success: false, data: {}, message: 'Cannot send email — no email address on file. Ask the patient for their email address.' }
   }
 
+  // Wrapper branding must match the body branding: resolve the lead's
+  // service-line DBA (implant leads → Dion Health; TMJ brand only for
+  // explicitly-signalled TMJ/sleep leads) instead of the raw org name.
+  const brand = await resolveBrandIdentity(supabase, context.organization_id, {
+    lead: context.lead as Partial<Lead>,
+    fallbackServiceLine: 'implants',
+  }).catch(() => null)
+
   const formatted = formatCustomEmail(message, leadName, orgName, {
     subject,
     leadId: context.lead_id,
     orgId: context.organization_id,
+    brandName: brand?.practiceName,
   })
 
   try {
@@ -2033,11 +2069,14 @@ async function executeScheduleFollowUp(
     }
   }
 
-  const slotSummary = filteredSlots.slice(0, 5).map(day => {
-    const times = day.times.slice(0, 4).map(t => formatTimeDisplay(t)).join(', ')
-    const more = day.times.length > 4 ? ` (+${day.times.length - 4} more)` : ''
-    return `${day.dayLabel}: ${times}${more}`
-  }).join('\n')
+  // Flatten to combined date+time options (soonest first) so the agent offers
+  // whole slots, not a day-menu plus a separate time-menu (confuses patients).
+  const flatOptions = filteredSlots.flatMap(day =>
+    day.times.map(t => `${day.dayLabel} at ${formatTimeDisplay(t)}`)
+  )
+  const offerList = flatOptions.slice(0, 6).map(o => `- ${o}`).join('\n')
+  const first = flatOptions[0]
+  const second = flatOptions[1]
 
   const typeLabel = consultationType === 'virtual' ? 'virtual video call' :
     consultationType === 'phone' ? 'phone consultation' : 'in-person follow-up'
@@ -2052,6 +2091,17 @@ async function executeScheduleFollowUp(
       })),
       consultation_type: consultationType,
     },
-    message: `Available ${typeLabel} slots:\n${slotSummary}\n\nThis is a follow-up consultation to address any remaining questions. Ask the patient which date and time works best, then use create_booking to confirm.`,
+    message: [
+      `Available ${typeLabel} slots, soonest first:`,
+      offerList,
+      '',
+      'This is a follow-up consultation to address any remaining questions.',
+      'HOW TO OFFER — IMPORTANT:',
+      `- Offer only the FIRST 2 options as complete date+time slots${
+        first && second ? ` (e.g. "I've got ${first} or ${second} — which works better?")` : ''
+      }.`,
+      '- Never dump the whole list, and never split days and times into two separate menus. Each option the patient picks must be ONE specific date AND time together.',
+      '- If neither works, offer the next 2 — keep narrowing 2 at a time. Then use create_booking to confirm.',
+    ].join('\n'),
   }
 }

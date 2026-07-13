@@ -26,6 +26,16 @@ describe('isPublicPath', () => {
     }
   })
 
+  it('keeps exact static-asset paths public', () => {
+    for (const p of [
+      '/favicon.ico', '/robots.txt', '/sitemap.xml',
+      '/manifest.webmanifest', // src/app/manifest.ts — NOT excluded by the middleware matcher
+      '/qualify-widget.js', '/sw.js',
+    ]) {
+      expect(isPublicPath(p), p).toBe(true)
+    }
+  })
+
   it('keeps the authenticated app gated', () => {
     for (const p of [
       '/dashboard', '/agency', '/pipeline', '/leads', '/conversations',
@@ -33,6 +43,24 @@ describe('isPublicPath', () => {
       // Deleted dead route + the formerly-unauthenticated service-role routes
       // are no longer public (they now self-authenticate).
       '/api/auth/setup', '/api/content/deliver', '/api/content/assets',
+    ]) {
+      expect(isPublicPath(p), p).toBe(false)
+    }
+  })
+
+  // Regression: isPublicPath used to treat ANY path containing a "." as a
+  // static asset, so a page route like /sidebar.preview was served without
+  // auth. Dots also appear in DYNAMIC segments (/leads/[id] matches
+  // /leads/123.css), so neither a dot heuristic nor an extension regex is
+  // safe — only the exact allowlist is.
+  it('does not let a dot in the path bypass the auth gate', () => {
+    for (const p of [
+      '/sidebar.preview',
+      '/dashboard.old',
+      '/leads/123.css',          // dynamic page segment with fake extension
+      '/api/leads/1.json',       // dynamic API segment with fake extension
+      '/conversations/x.y/z',    // dot mid-path
+      '/agency/spend.txt',
     ]) {
       expect(isPublicPath(p), p).toBe(false)
     }

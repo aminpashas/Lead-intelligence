@@ -70,6 +70,26 @@ export default async function AIControlPage() {
     .eq('organization_id', orgId)
     .eq('status', 'pending')
 
+  // Fetch stages, campaigns, and any per-scope automation policies for the
+  // "Scoped automation" grid at the bottom of the Controls tab.
+  const [{ data: stages }, { data: campaigns }, { data: policies }] = await Promise.all([
+    supabase
+      .from('pipeline_stages')
+      .select('id, name, position')
+      .eq('organization_id', orgId)
+      .order('position', { ascending: true }),
+    supabase
+      .from('campaigns')
+      .select('id, name, status')
+      .eq('organization_id', orgId)
+      .in('status', ['active', 'paused', 'draft'])
+      .order('name'),
+    supabase
+      .from('automation_policies')
+      .select('*')
+      .eq('organization_id', orgId),
+  ])
+
   return (
     <AIControlCenter
       settings={org || {}}
@@ -77,6 +97,9 @@ export default async function AIControlPage() {
       recentActivities={recentActivities || []}
       pendingEscalations={pendingEscalations || 0}
       isAdmin={role === 'admin' || role === 'owner'}
+      stages={stages || []}
+      campaigns={campaigns || []}
+      policies={policies || []}
     />
   )
 }

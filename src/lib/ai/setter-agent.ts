@@ -15,7 +15,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { buildSafeLeadContext, checkResponseCompliance, logHIPAAEvent, scrubPHI } from './hipaa'
+import { buildSafeLeadContext, checkResponseCompliance, detectPHI, filterAllowlistedDetections, logHIPAAEvent, scrubPHI } from './hipaa'
 import { wrapUserContent } from './prompt-guard'
 import type { AgentContext, AgentResponse } from './agent-types'
 import {
@@ -39,6 +39,7 @@ import { buildAgencyRulesBlock } from '@/lib/ai/agency-rules'
 import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
+import { resolvePracticeContact, formatPracticeContactBlock } from '@/lib/ai/practice-contact'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -254,6 +255,7 @@ context.channel === 'sms' ? `- SMS — TEXT LIKE A REAL PERSON, NOT A BROCHURE. 
 - Use clear paragraphs. Include a clear next step.
 - Keep it focused — 2-3 short paragraphs max.`}
 ${textingStyleBlock ? `\n${textingStyleBlock}\n` : ''}
+
 ${gated ? `═══ IDENTITY VERIFICATION (MANDATORY) ═══
 
 You have NOT confirmed the person on the other end is this patient. Until you do:
@@ -286,7 +288,9 @@ Available cross-channel tools:
 - send_before_after: Send before/after transformation photos via SMS or email
 
 WHEN TO USE:
-- Patient says "can you text me that?" → send_sms_to_lead
+${context.channel === 'sms'
+    ? '- You are ALREADY texting: your reply IS the SMS the patient receives. NEVER use send_sms_to_lead in this conversation — if they ask you to "text" them something, put it (links included) directly in your reply. Do not narrate a send ("Sent! Check your messages") — just say it.'
+    : '- Patient says "can you text me that?" → send_sms_to_lead'}
 - Patient says "send me an email" → send_email_to_lead
 - Patient asks "where are you located?" / "what's the address?" → send_practice_info
 - Patient asks about results, reviews, or testimonials → send_testimonial
@@ -398,7 +402,7 @@ export async function setterAgentRespond(
   // "train your AI" actually governs real patient conversations (not just the
   // playground). Keyed on the latest inbound message for knowledge relevance.
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, rulesBlock, profileBlock, brandBlock] = await Promise.all([
+  const [knowledgeBlock, personaBlock, rulesBlock, profileBlock, brandBlock, practiceContact] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     buildAgencyRulesBlock(supabase),
@@ -410,7 +414,17 @@ export async function setterAgentRespond(
       lead: context.lead,
       fallbackServiceLine: 'implants',
     }),
+    // Real practice phone/address/hours — without these in the prompt the
+    // model invented literal "[practice phone]" text in patient SMS.
+    resolvePracticeContact(supabase, context.organization_id),
   ])
+  const contactBlock = formatPracticeContactBlock(practiceContact)
+  // The practice's OWN contact info is public, not patient PHI — exempt it
+  // from output scrubbing or "call us at <real number>" would go out as
+  // "[PHONE_REDACTED]".
+  const practiceAllowlist = [practiceContact.phone, practiceContact.address].filter(Boolean) as string[]
+  const scrubPatientPHI = (text: string) =>
+    scrubPHI(text, filterAllowlistedDetections(detectPHI(text), practiceAllowlist))
 
   // Discovery-first guide + pricing integrity — on EVERY channel now (was
   // voice-only, which is why SMS improvised financing numbers before qualifying).
@@ -449,7 +463,7 @@ export async function setterAgentRespond(
     ? `## PROACTIVE OUTREACH STEP\nThere is no new inbound message. You are composing the practice's next OUTBOUND ${context.channel} touch in a follow-up cadence.\nStep goal: ${context.outreach_instruction}\nKeep it short, warm, and easy to reply to. Do not fabricate prior commitments or approvals.`
     : ''
 
-  const systemPrompt = [composedPrompt, brandBlock, dateBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
+  const systemPrompt = [composedPrompt, brandBlock, dateBlock, contactBlock, discoveryBlock, pricingBlock, personaBlock, rulesBlock, profileBlock, knowledgeBlock, outreachBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
   // in delimiters. The autopilot's injection scan only neutralized the NEWEST
@@ -459,7 +473,10 @@ export async function setterAgentRespond(
   // to the tool-calling agent.
   const safeHistory = context.conversation_history.map((msg) => {
     const role = msg.role as 'user' | 'assistant'
-    const scrubbed = scrubPHI(msg.content)
+    // scrubPatientPHI (not raw scrubPHI): keeps the practice's own number
+    // readable in prior turns so the model doesn't learn to write the
+    // literal "[PHONE_REDACTED]" token it would otherwise see there.
+    const scrubbed = scrubPatientPHI(msg.content)
     return { role, content: role === 'user' ? wrapUserContent(scrubbed) : scrubbed }
   })
 
@@ -534,8 +551,9 @@ export async function setterAgentRespond(
     parsed = { message: responseText, action_taken: 'responded', should_handoff: false, handoff_reason: null, internal_notes: null }
   }
 
-  // HIPAA compliance check on the output message
-  const complianceIssues = checkResponseCompliance(parsed.message)
+  // HIPAA compliance check on the output message (practice's own contact
+  // info allowlisted — it is public, not patient PHI)
+  const complianceIssues = checkResponseCompliance(parsed.message, { allowlist: practiceAllowlist })
   const hasCriticalIssue = complianceIssues.some(
     (i) => i.severity === 'critical' || i.severity === 'violation'
   )
@@ -554,7 +572,7 @@ export async function setterAgentRespond(
     })
   }
 
-  const finalMessage = hasCriticalIssue ? scrubPHI(parsed.message) : parsed.message
+  const finalMessage = hasCriticalIssue ? scrubPatientPHI(parsed.message) : parsed.message
 
   // Log AI interaction
   await supabase.from('ai_interactions').insert({
