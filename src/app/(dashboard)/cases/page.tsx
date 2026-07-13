@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, redirect } from 'next/navigation'
 import { useOrgStore } from '@/lib/store/use-org'
 import { RoleGuard } from '@/components/auth/role-guard'
 import { Card, CardContent } from '@/components/ui/card'
@@ -77,6 +77,12 @@ const STAGE_GROUPS: Array<{ title: string; caption: string; statuses: CaseStatus
 ]
 
 export default function CasesPage() {
+  // Cases retired in LI (2026-07): clinical fulfillment lives in Dion Clinical
+  // per the ecosystem split. The route + <CasesContent/> below are left intact
+  // so this is reversible — delete this redirect (and re-add the sidebar entry)
+  // to restore the board. Guards stale bookmarks / direct URL hits.
+  redirect('/dashboard')
+
   return (
     <RoleGuard requiredPermission="cases:read">
       <CasesContent />

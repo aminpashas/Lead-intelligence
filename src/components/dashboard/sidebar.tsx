@@ -24,7 +24,6 @@ import {
   Building2,
   Phone,
   PhoneOutgoing,
-  FolderHeart,
   FileSignature,
   History,
   ListTodo,
@@ -81,7 +80,11 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Revenue',
     items: [
       { name: 'Post-Close', href: '/post-close', icon: CircleCheckBig },
-      { name: 'Cases', href: '/cases', icon: FolderHeart },
+      // Cases retired in LI (2026-07): clinical fulfillment lives in Dion
+      // Clinical per the ecosystem split. The /cases route + API remain in the
+      // tree (redirect-guarded) so this is reversible — re-add this entry to
+      // restore. Removed because the clinical case funnel had ~zero adoption
+      // (1 demo record) while Post-Close carries the real signed book.
       { name: 'Contracts', href: '/contracts', icon: FileSignature },
     ],
   },
