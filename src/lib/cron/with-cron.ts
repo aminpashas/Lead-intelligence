@@ -133,6 +133,7 @@ export const EXPECTED_CRONS: Record<string, number> = {
   'carestack-sync': 26 * 60, // daily 04:30 UTC
   'ghl-sync': 40, // every 15 min + grace
   'voice-reconcile': 40, // every 15 min + grace
+  'voice-transcribe': 40, // every 15 min (offset :07/:22/:37/:52) + grace
   'windsor-sync': 26 * 60, // daily 05:00 UTC
   'brex-sync': 26 * 60, // daily 06:00 UTC
   disqualify: 26 * 60, // daily 08:00 UTC
