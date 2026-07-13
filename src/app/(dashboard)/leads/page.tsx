@@ -21,12 +21,11 @@ import { OFF_FUNNEL_STAGE_SLUGS } from '@/lib/pipeline/stage-groups'
 // arbitrary (e.g. encrypted) columns.
 const SORT_COLUMNS: Record<string, string> = {
   name: 'first_name',
-  score: 'ai_score',
+  // The Engagement column sorts by the behavioral meter (engagement sweep),
+  // not the AI quality grade — see src/lib/engagement/temperature.ts.
+  score: 'engagement_score',
   value: 'treatment_value',
   created: 'created_at',
-  // engagement_score is the purpose-built activity metric (message volume +
-  // responsiveness). Populated once a lead is actually worked; today the 45k
-  // imported book is all zeros, so this sort is dormant but correct.
   activity: 'engagement_score',
 }
 
@@ -79,6 +78,12 @@ export default async function LeadsPage({
   }
   if (params.qualification) {
     query = query.eq('ai_qualification', params.qualification)
+  }
+  // Behavioral engagement temperature (hot/warm/cooling/new/cold) — the meter
+  // the table's "Engagement" filter drives. Whitelisted values only; anything
+  // else is ignored rather than passed to PostgREST.
+  if (['hot', 'warm', 'cooling', 'new', 'cold'].includes(params.temp)) {
+    query = query.eq('engagement_temperature', params.temp)
   }
   if (params.source) {
     query = query.eq('source_type', params.source)

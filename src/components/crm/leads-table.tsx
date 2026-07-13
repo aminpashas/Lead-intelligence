@@ -19,23 +19,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
-import { ArrowDown, ArrowUp, Brain, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { TagBadgeList } from './tag-badge'
 import { formatCampaignAttribution } from '@/lib/attribution'
 import type { Lead, PipelineStage, Tag } from '@/types/database'
 import { LeadActions } from './lead-actions'
+import { EngagementMeter } from './engagement-meter'
 import { LEAD_DATE_RANGES } from '@/lib/leads/date-range'
 import { cn } from '@/lib/utils'
 import { useState, type ReactNode } from 'react'
 
-// Lead qualification chips — monochrome editorial palette
-const qualificationColors: Record<string, string> = {
-  hot: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20',
-  warm: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20',
-  cold: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border',
-  unqualified: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
-  unscored: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
-}
 
 // Practice service lines — matched server-side against treatment_interest,
 // ingestion tags, and campaign/UTM keywords (see leads/page.tsx).
@@ -239,15 +232,20 @@ export function LeadsTable({
           options={LEAD_DATE_RANGES.map((r) => ({ value: r.value, row: r.label, text: r.label }))}
         />
 
+        {/* Behavioral engagement temperature (engagement_temperature). The old
+            control filtered ai_qualification while CALLING it engagement — the
+            two are different axes (quality vs. liveliness). ?qualification=…
+            deep-links still work server-side. */}
         <FilterSelect
-          paramKey="qualification"
+          paramKey="temp"
           label="Engagement"
           allLabel="Any engagement"
           options={[
             { value: 'hot', row: 'Hot', text: 'Hot' },
             { value: 'warm', row: 'Warm', text: 'Warm' },
+            { value: 'cooling', row: 'Cooling', text: 'Cooling' },
+            { value: 'new', row: 'New', text: 'New' },
             { value: 'cold', row: 'Cold', text: 'Cold' },
-            { value: 'unqualified', row: 'Unqualified', text: 'Unqualified' },
           ]}
         />
 
@@ -403,10 +401,12 @@ export function LeadsTable({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${qualificationColors[lead.ai_qualification] ?? qualificationColors.unscored}`}>
-                      <Brain className="h-3 w-3" strokeWidth={1.75} />
-                      <span className="font-mono tabular-nums">{lead.ai_score}</span>
-                    </span>
+                    {/* Behavioral temperature (engagement sweep) — NOT the AI
+                        quality grade, which lives on the lead detail page. */}
+                    <EngagementMeter
+                      temperature={lead.engagement_temperature}
+                      score={lead.engagement_score}
+                    />
                   </TableCell>
                   <TableCell>
                     {lead.pipeline_stage && (

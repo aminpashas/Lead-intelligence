@@ -256,6 +256,8 @@ export type Lead = {
   last_responded_at: string | null
   response_time_avg_minutes: number | null
   engagement_score: number
+  /** Behavioral recency band, maintained by cron/engagement-sweep (null = not yet graded). */
+  engagement_temperature: 'hot' | 'warm' | 'cooling' | 'cold' | 'new' | null
 
   // Assignment
   assigned_to: string | null

@@ -1,7 +1,7 @@
 /**
  * Batch dispatcher — every-15-minutes cron group.
  *
- * Collapses six every-15-minute crons into one vercel.json entry (Vercel caps scheduled
+ * Collapses the every-15-minute crons into one vercel.json entry (Vercel caps scheduled
  * jobs per project; see fan-out.ts). Each target still runs as its own function
  * with its own heartbeat — this route only triggers them, in parallel.
  */
@@ -14,7 +14,7 @@ export const runtime = 'nodejs'
 // function instances, so this is a max, not a sum.
 export const maxDuration = 300
 
-const TARGETS = ['enrich', 'campaigns', 'reminders', 'follow-up-sequences', 'voice-reconcile', 'score-sweep'] as const
+const TARGETS = ['enrich', 'campaigns', 'reminders', 'follow-up-sequences', 'voice-reconcile', 'score-sweep', 'engagement-sweep'] as const
 
 export const POST = withCron('batch-15m', async ({ request }) => {
   const results = await fanOutToCrons(request, TARGETS)

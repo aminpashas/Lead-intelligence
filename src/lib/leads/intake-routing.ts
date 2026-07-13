@@ -11,10 +11,17 @@ import { PAID_AD_CHANNELS } from '@/lib/attribution'
  *
  * Rule: for an allow-listed org, a brand-NEW lead whose resolved acquisition
  * channel is NOT a paid Google/Meta ad is routed straight into the org's
- * "Nurturing" stage instead of the default. Everything paid
- * (`PAID_AD_CHANNELS`) still lands in New Lead. This mirrors the exact
- * definition the acquisition KPIs already use (`PAID_AD_CHANNELS` in
+ * "No Communication" stage (the un-worked work queue) instead of the default.
+ * Everything paid (`PAID_AD_CHANNELS`) still lands in New Lead. This mirrors
+ * the exact definition the acquisition KPIs already use (`PAID_AD_CHANNELS` in
  * `attribution.ts`), so the board and the "new leads" metric agree.
+ *
+ * Why NOT "Nurturing": nurturing means a *worked* lead that went cold and is
+ * being warmed back up. Fresh intake that nobody has touched yet is simply
+ * un-worked — dumping it in Nurturing made week-old leads indistinguishable
+ * from a genuinely cold re-activation pool. The engagement sweep
+ * (cron/engagement-sweep) is now the only automated door INTO Nurturing:
+ * worked leads whose engagement temperature decays to `cold`.
  *
  * Scope & safety:
  *  - Applies ONLY to the DGS bridge — genuine hot inbounds (a CallRail phone
@@ -26,7 +33,13 @@ import { PAID_AD_CHANNELS } from '@/lib/attribution'
  *    practice explicitly opts in.
  */
 
-/** Slug of the fallback stage non-paid intake is routed to. */
+/** Slug of the fallback stage non-paid intake is routed to (un-worked queue). */
+export const UNWORKED_STAGE_SLUG = 'no-communication'
+
+/**
+ * Slug of the cold-lead re-activation stage. Fed ONLY by the engagement sweep
+ * (worked → cold), never by intake.
+ */
 export const NURTURE_STAGE_SLUG = 'nurturing'
 
 const ENV_VAR = 'NEW_LEAD_PAID_ONLY_ORG_IDS'
@@ -52,10 +65,12 @@ export function isPaidOnlyIntakeOrg(
 const PAID = new Set<string>(PAID_AD_CHANNELS)
 
 /**
- * Decide whether a new bridged lead should skip "New Lead" and go to Nurturing.
+ * Decide whether a new bridged lead should skip "New Lead" and go to the
+ * un-worked queue.
  *
- * Returns the target stage slug to look up (`'nurturing'`), or `null` to keep
- * the caller's default (New Lead) stage. Pure/DB-free so it is unit-testable.
+ * Returns the target stage slug to look up (`'no-communication'`), or `null`
+ * to keep the caller's default (New Lead) stage. Pure/DB-free so it is
+ * unit-testable.
  *
  * @param channel resolved `campaign_attribution.channel` (DGS-authoritative or
  *                the utm fallback), or null/unknown when it could not be resolved.
@@ -67,10 +82,10 @@ export function routedIntakeStageSlug(
   orgId: string,
   channel: string | number | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
-): typeof NURTURE_STAGE_SLUG | null {
+): typeof UNWORKED_STAGE_SLUG | null {
   if (!isPaidOnlyIntakeOrg(orgId, env)) return null
   const c = String(channel ?? '').trim().toLowerCase()
   // Paid Google/Meta stays on New Lead; everything else (organic, GMB, social,
-  // referral, direct, and unresolved/null) is nurture intake.
-  return PAID.has(c) ? null : NURTURE_STAGE_SLUG
+  // referral, direct, and unresolved/null) is un-worked intake.
+  return PAID.has(c) ? null : UNWORKED_STAGE_SLUG
 }

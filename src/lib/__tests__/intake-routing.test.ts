@@ -45,15 +45,15 @@ describe('routedIntakeStageSlug', () => {
     expect(routedIntakeStageSlug(SF, 'ppc_meta', on)).toBeNull()
   })
 
-  it('routes non-paid channels to nurturing', () => {
+  it('routes non-paid channels to the un-worked queue (never Nurturing)', () => {
     for (const ch of ['seo_organic', 'seo_gmb', 'social_fb', 'referral', 'direct']) {
-      expect(routedIntakeStageSlug(SF, ch, on)).toBe('nurturing')
+      expect(routedIntakeStageSlug(SF, ch, on)).toBe('no-communication')
     }
   })
 
-  it('routes unresolved/null channels to nurturing (the imported-DB case)', () => {
-    expect(routedIntakeStageSlug(SF, null, on)).toBe('nurturing')
-    expect(routedIntakeStageSlug(SF, undefined, on)).toBe('nurturing')
-    expect(routedIntakeStageSlug(SF, '', on)).toBe('nurturing')
+  it('routes unresolved/null channels to the un-worked queue (the imported-DB case)', () => {
+    expect(routedIntakeStageSlug(SF, null, on)).toBe('no-communication')
+    expect(routedIntakeStageSlug(SF, undefined, on)).toBe('no-communication')
+    expect(routedIntakeStageSlug(SF, '', on)).toBe('no-communication')
   })
 })

@@ -144,6 +144,7 @@ export const EXPECTED_CRONS: Record<string, number> = {
   'recommendation-outcomes': 26 * 60, // daily 01:50 UTC + grace
   'dgs-lead-quality': 26 * 60, // daily 07:00 UTC
   'score-sweep': 40, // every 15 min (fanned out by batch-15m) + grace
+  'engagement-sweep': 40, // every 15 min (fanned out by batch-15m) + grace
   // Batch dispatchers (see fan-out.ts): if one stalls, its whole group goes dark,
   // so monitor the dispatcher itself in addition to each fanned-out sub-cron.
   'batch-15m': 40, // every 15 min + grace

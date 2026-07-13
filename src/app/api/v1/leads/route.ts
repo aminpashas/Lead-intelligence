@@ -392,7 +392,7 @@ export async function POST(request: NextRequest) {
     .from('pipeline_stages')
     .select('id, slug, is_default')
     .eq('organization_id', customerId)
-    .or('is_default.eq.true,slug.in.(existing-patient,junk,nurturing)')
+    .or('is_default.eq.true,slug.in.(existing-patient,junk,no-communication)')
   const stageBySlug = new Map((stageRows ?? []).map((s) => [s.slug as string, s.id as string]))
   const defaultStageId =
     (stageRows ?? []).find((s) => s.is_default)?.id ?? stageBySlug.get('new') ?? undefined
@@ -424,9 +424,10 @@ export async function POST(request: NextRequest) {
   // an existing patient or a junk call must never sit in the sales funnel, paid
   // gate or not. A GENUINE lead then flows through the paid-only intake gate:
   // for opted-in orgs a brand-new non-paid lead (organic / GMB / referral /
-  // imported nurturing DB) skips "New Lead" and lands in "Nurturing", so the
-  // board reflects only fresh Google/Meta ad demand. All lookups come from the
-  // single stageRows fetch above (nurturing included) — no extra round-trip.
+  // imported DB) skips "New Lead" and lands in "No Communication" (the
+  // un-worked queue — NOT Nurturing, which is reserved for worked leads that
+  // went cold; see lib/leads/intake-routing.ts). All lookups come from the
+  // single stageRows fetch above (no-communication included) — no extra round-trip.
   let stageId: string | undefined
   if (route === 'existing_patient') {
     stageId = stageBySlug.get('existing-patient') ?? defaultStageId
