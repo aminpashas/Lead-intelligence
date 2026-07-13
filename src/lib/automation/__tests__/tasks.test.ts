@@ -5,6 +5,7 @@ import {
   completeTasksForConversation,
   taskDedupeKeyForInbound,
   taskDedupeKeyForFirstTouch,
+  taskDedupeKeyForListCall,
   type CreateHumanTaskInput,
 } from '@/lib/automation/tasks'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -152,6 +153,14 @@ describe('dedupe key helpers', () => {
   it('builds the inbound and first-touch keys', () => {
     expect(taskDedupeKeyForInbound('c-9')).toBe('inbound:c-9')
     expect(taskDedupeKeyForFirstTouch('l-7')).toBe('first_touch:l-7')
+  })
+
+  it('scopes the list-call key to (smart list, lead)', () => {
+    expect(taskDedupeKeyForListCall('sl-1', 'l-7')).toBe('list_call:sl-1:l-7')
+    // Same lead in two different lists → distinct keys (one live task each).
+    expect(taskDedupeKeyForListCall('sl-2', 'l-7')).not.toBe(
+      taskDedupeKeyForListCall('sl-1', 'l-7')
+    )
   })
 })
 

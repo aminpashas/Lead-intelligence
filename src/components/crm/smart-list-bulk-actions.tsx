@@ -17,10 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import { TagSelector } from './tag-selector'
-import { Layers, Loader2, AlertTriangle } from 'lucide-react'
+import { Layers, Loader2, AlertTriangle, Phone } from 'lucide-react'
 import { toast } from 'sonner'
 import type { SmartList, PipelineStage, Tag } from '@/types/database'
+
+type UserOption = { id: string; full_name: string }
 
 /**
  * Bulk actions over every lead matching a Smart List — the UI activation of
@@ -39,6 +43,9 @@ const TAGS_BATCH = 500
 // each stays well inside the function timeout, and cap the total.
 const SCORE_BATCH = 10
 const SCORE_CAP = 200
+// Server (`/api/smart-lists/[id]/call-queue`) caps call-task creation per run;
+// mirror it so the UI's affected count and copy match what actually happens.
+const CALL_QUEUE_CAP = 500
 
 const STATUS_OPTIONS = [
   'new', 'contacted', 'qualified', 'consultation_scheduled',
@@ -55,8 +62,10 @@ const STATUS_LABELS: Record<string, string> = Object.fromEntries(
 type BulkActionKind =
   | 'score' | 'change_status' | 'change_stage'
   | 'add_tags' | 'remove_tags' | 'enroll_campaign' | 'disqualify'
+  | 'create_call_tasks'
 
 const ACTION_LABELS: Record<BulkActionKind, string> = {
+  create_call_tasks: 'Create call tasks',
   score: 'Re-score with AI',
   change_status: 'Change status',
   change_stage: 'Move to pipeline stage',
@@ -88,6 +97,14 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
   const [reason, setReason] = useState('')
   const [campaigns, setCampaigns] = useState<Array<{ id: string; name: string; type: string }>>([])
 
+  // Call-queue params
+  const [assigneeMode, setAssigneeMode] = useState<'team' | 'user'>('team')
+  const [assignedTo, setAssignedTo] = useState('')
+  const [dueAt, setDueAt] = useState('')
+  const [includeWithoutPhone, setIncludeWithoutPhone] = useState(false)
+  const [note, setNote] = useState('')
+  const [teamMembers, setTeamMembers] = useState<UserOption[]>([])
+
   useEffect(() => {
     if (!open) return
     fetch('/api/campaigns?status=active')
@@ -96,6 +113,12 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
         (d.campaigns || []).filter((c: { type: string }) => c.type !== 'broadcast')
       ))
       .catch(() => setCampaigns([]))
+    fetch('/api/team')
+      .then((r) => (r.ok ? r.json() : { members: [] }))
+      .then((d) => setTeamMembers(
+        (d.members || []).filter((m: { is_active?: boolean }) => m.is_active !== false)
+      ))
+      .catch(() => setTeamMembers([]))
   }, [open])
 
   /** Page through the smart list endpoint to collect every matching lead id. */
@@ -117,7 +140,41 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
     if (action === 'change_stage' && !stageId) return 'Pick a pipeline stage'
     if ((action === 'add_tags' || action === 'remove_tags') && tagIds.length === 0) return 'Pick at least one tag'
     if (action === 'enroll_campaign' && !campaignId) return 'Pick a campaign'
+    if (action === 'create_call_tasks' && assigneeMode === 'user' && !assignedTo) return 'Pick a person to assign'
     return null
+  }
+
+  /**
+   * Call queue: the server resolves list membership and creates the tasks in one
+   * request (dedupe + assignment live there), so — unlike the lead-mutating
+   * actions below — we don't page member ids or batch client-side.
+   */
+  async function runCreateCallTasks() {
+    const res = await fetch(`/api/smart-lists/${smartList.id}/call-queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assignee_mode: assigneeMode,
+        ...(assigneeMode === 'user' ? { assigned_to: assignedTo } : {}),
+        include_without_phone: includeWithoutPhone,
+        ...(dueAt ? { due_at: new Date(dueAt).toISOString() } : {}),
+        ...(note.trim() ? { note: note.trim() } : {}),
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || 'Failed to create call tasks')
+    }
+    const data = await res.json()
+    if (data.created === 0 && data.deduped > 0) {
+      toast.info(`Already queued — ${data.deduped.toLocaleString()} call task${data.deduped === 1 ? '' : 's'} already open for this list`)
+    } else if (data.created === 0) {
+      toast.error('No matching leads to call (try enabling "include leads without a phone")')
+    } else {
+      const extra = data.deduped > 0 ? `, ${data.deduped.toLocaleString()} already queued` : ''
+      const capNote = data.capped ? ` (capped at ${CALL_QUEUE_CAP} — re-run for the rest)` : ''
+      toast.success(`${data.created.toLocaleString()} call task${data.created === 1 ? '' : 's'} created${extra}${capNote}`)
+    }
   }
 
   async function run() {
@@ -130,6 +187,13 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
     setRunning(true)
     setProgress(null)
     try {
+      if (action === 'create_call_tasks') {
+        await runCreateCallTasks()
+        setOpen(false)
+        onDone()
+        return
+      }
+
       let ids = await resolveAllLeadIds()
       if (ids.length === 0) {
         toast.error('No leads match this Smart List')
@@ -200,7 +264,10 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
     }
   }
 
-  const affected = Math.min(total, action === 'score' ? SCORE_CAP : AUDIENCE_CAP)
+  const affected = Math.min(
+    total,
+    action === 'score' ? SCORE_CAP : action === 'create_call_tasks' ? CALL_QUEUE_CAP : AUDIENCE_CAP
+  )
 
   return (
     <>
@@ -314,14 +381,94 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
               </p>
             )}
 
-            <div className="flex items-start gap-2 rounded-lg border border-aurea-amber/30 bg-aurea-amber/5 p-3">
-              <AlertTriangle className="mt-0.5 h-[15px] w-[15px] shrink-0 text-aurea-amber" strokeWidth={1.75} />
-              <p className="text-[12px] leading-relaxed text-aurea-ink-2">
-                This will apply <span className="font-medium">{ACTION_LABELS[action].toLowerCase()}</span> to{' '}
-                <span className="font-mono tabular-nums font-medium">{affected.toLocaleString()}</span> lead{affected === 1 ? '' : 's'} currently
-                matching this Smart List. It cannot be undone in one click.
-              </p>
-            </div>
+            {action === 'create_call_tasks' && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-[13px]">Assign to</Label>
+                  <Select
+                    items={{ team: 'Team queue (anyone can claim)', user: 'A specific person' }}
+                    value={assigneeMode}
+                    onValueChange={(v) => v && setAssigneeMode(v as 'team' | 'user')}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="team">Team queue (anyone can claim)</SelectItem>
+                      <SelectItem value="user">A specific person</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {assigneeMode === 'user' && (
+                  <div className="space-y-2">
+                    <Label className="text-[13px]">Person</Label>
+                    <Select value={assignedTo} onValueChange={(v) => v && setAssignedTo(v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pick a team member">
+                          {(value) => teamMembers.find((u) => u.id === value)?.full_name ?? 'Pick a team member'}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {teamMembers.length === 0 ? (
+                          <SelectItem value="__none__" disabled>No team members</SelectItem>
+                        ) : teamMembers.map((u) => (
+                          <SelectItem key={u.id} value={u.id}>{u.full_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label className="text-[13px]">Due (optional)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={dueAt}
+                    onChange={(e) => setDueAt(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-[13px]">Note (optional)</Label>
+                  <Textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Context for whoever makes the call…"
+                    rows={2}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-[13px]">Include leads without a phone</Label>
+                    <p className="text-[11px] text-aurea-ink-3">
+                      Off by default — a call task needs a number to dial.
+                    </p>
+                  </div>
+                  <Switch checked={includeWithoutPhone} onCheckedChange={setIncludeWithoutPhone} />
+                </div>
+              </div>
+            )}
+
+            {action === 'create_call_tasks' ? (
+              <div className="flex items-start gap-2 rounded-lg border border-aurea-border bg-aurea-surface-2 p-3">
+                <Phone className="mt-0.5 h-[15px] w-[15px] shrink-0 text-aurea-ink-2" strokeWidth={1.75} />
+                <p className="text-[12px] leading-relaxed text-aurea-ink-2">
+                  Creates a call task for up to{' '}
+                  <span className="font-mono tabular-nums font-medium">{affected.toLocaleString()}</span> lead{affected === 1 ? '' : 's'} in
+                  this Smart List — they appear in your <span className="font-medium">Tasks</span> queue. Re-running is safe:
+                  leads already queued aren&apos;t duplicated.
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 rounded-lg border border-aurea-amber/30 bg-aurea-amber/5 p-3">
+                <AlertTriangle className="mt-0.5 h-[15px] w-[15px] shrink-0 text-aurea-amber" strokeWidth={1.75} />
+                <p className="text-[12px] leading-relaxed text-aurea-ink-2">
+                  This will apply <span className="font-medium">{ACTION_LABELS[action].toLowerCase()}</span> to{' '}
+                  <span className="font-mono tabular-nums font-medium">{affected.toLocaleString()}</span> lead{affected === 1 ? '' : 's'} currently
+                  matching this Smart List. It cannot be undone in one click.
+                </p>
+              </div>
+            )}
 
             {progress && (
               <p className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
@@ -335,7 +482,11 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
               </Button>
               <Button onClick={run} disabled={running} className="gap-1.5">
                 {running && <Loader2 className="h-4 w-4 animate-spin" />}
-                {running ? 'Applying…' : `Apply to ${affected.toLocaleString()} leads`}
+                {running
+                  ? action === 'create_call_tasks' ? 'Creating…' : 'Applying…'
+                  : action === 'create_call_tasks'
+                    ? `Create up to ${affected.toLocaleString()} call tasks`
+                    : `Apply to ${affected.toLocaleString()} leads`}
               </Button>
             </div>
           </div>

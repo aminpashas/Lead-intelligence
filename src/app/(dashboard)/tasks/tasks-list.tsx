@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
-import { Loader2, MessageSquare, Zap, Lightbulb, ListTodo, ExternalLink } from 'lucide-react'
+import { Loader2, MessageSquare, Zap, Lightbulb, ListTodo, ExternalLink, Phone } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -35,6 +35,7 @@ const KIND_META: Record<string, { label: string; icon: typeof MessageSquare }> =
   stage_automation: { label: 'Stage', icon: ListTodo },
   sla_breach_review: { label: 'SLA review', icon: ListTodo },
   call_review: { label: 'Call review', icon: MessageSquare },
+  list_call: { label: 'Call', icon: Phone },
 }
 
 /** SLA countdown badge — red once overdue, amber when due within 5 minutes. */

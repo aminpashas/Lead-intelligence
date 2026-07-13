@@ -28,6 +28,8 @@ const VALID_KINDS = [
   'stage_automation',
   'recommendation',
   'sla_breach_review',
+  'call_review',
+  'list_call',
 ]
 
 export async function GET(request: NextRequest) {
