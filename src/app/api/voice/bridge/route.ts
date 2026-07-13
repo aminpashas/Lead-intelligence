@@ -47,7 +47,10 @@ export async function POST(request: NextRequest) {
   const staffPhone = (profile?.phone as string | null)?.replace(/[\s\-()]/g, '') || null
   if (!staffPhone || !/^\+?1?\d{10,15}$/.test(staffPhone)) {
     return NextResponse.json(
-      { error: 'Add your phone number in profile settings to use ring-my-phone' },
+      {
+        error: 'Add your mobile number under Settings → Your Profile to use “Call my phone”',
+        code: 'no_staff_phone',
+      },
       { status: 422 }
     )
   }
