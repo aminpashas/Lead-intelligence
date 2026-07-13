@@ -143,6 +143,7 @@ export const EXPECTED_CRONS: Record<string, number> = {
   'pipeline-recommendations': 90, // hourly :40 + grace
   'recommendation-outcomes': 26 * 60, // daily 01:50 UTC + grace
   'dgs-lead-quality': 26 * 60, // daily 07:00 UTC
+  'score-sweep': 40, // every 15 min (offset :10/:25/:40/:55) + grace
 }
 
 export type CronHealthIssue = {

@@ -183,6 +183,10 @@
     {
       "path": "/api/cron/dgs-lead-quality",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/score-sweep",
+      "schedule": "10,25,40,55 * * * *"
     }
   ]
 }
