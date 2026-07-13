@@ -13,6 +13,7 @@
 export const PUBLIC_PREFIXES = [
   '/login',
   '/signup',
+  '/accept-invite', // team-invite set-password page — runs pre-session (token in query)
   '/auth/callback', // OAuth handler — must run pre-session
   '/qualify',
   '/optin',

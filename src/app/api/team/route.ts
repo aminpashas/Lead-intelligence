@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAdminRole } from '@/lib/auth/permissions'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { provisionMember, type ProvisionRole } from '@/lib/team/provision'
+import { buildInviteEmail } from '@/lib/team/invite-email'
+import { sendEmail } from '@/lib/messaging/resend'
+import { logger } from '@/lib/logger'
 
 /**
  * GET /api/team — List all team members in the current org
@@ -113,56 +117,68 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Create auth user via Supabase service role (admin API)
-  // We generate a random password; the user will set their own via invite link
-  const tempPassword = crypto.randomUUID() + '!Aa1'
-
-  // Use the supabase admin client to create the user
-  // NOTE: In production, use the service role key for this
-  const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-    email,
-    password: tempPassword,
-    email_confirm: true,
-    user_metadata: {
-      full_name,
-      role,
-      organization_id: orgId,
-    },
-  })
-
-  if (authError) {
-    // If the auth user already exists, try to just add the profile
-    if (authError.message.includes('already been registered')) {
+  // Provision the auth user + org-scoped profile and mint a one-time
+  // accept-invite link. Runs with the service role (auth.admin + RLS bypass);
+  // this route has already authorized the caller (admin role + org scope).
+  let provisioned
+  try {
+    provisioned = await provisionMember({
+      email,
+      fullName: full_name,
+      role: role as ProvisionRole,
+      organizationId: orgId,
+      invitedBy: user.id,
+      jobTitle: job_title || null,
+      specialty: specialty || null,
+      phone: phone || null,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to create team member'
+    if (message.toLowerCase().includes('already been registered') || message.toLowerCase().includes('already registered')) {
       return NextResponse.json(
-        { error: 'This email is already registered. The user may need to be added manually.' },
+        { error: 'This email is already registered.' },
         { status: 409 }
       )
     }
-    return NextResponse.json({ error: authError.message }, { status: 500 })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 
-  // Create user profile
-  const { data: newProfile, error: profileError } = await supabase
-    .from('user_profiles')
-    .insert({
-      id: authUser.user.id,
-      organization_id: orgId,
-      full_name,
-      email,
-      role,
-      job_title: job_title || null,
-      specialty: specialty || null,
-      phone: phone || null,
-      invited_by: user.id,
-      invited_at: new Date().toISOString(),
-      is_active: true,
+  // Look up the org + inviter name for a friendlier email.
+  const [{ data: org }, { data: inviter }] = await Promise.all([
+    supabase.from('organizations').select('name').eq('id', orgId).single(),
+    supabase.from('user_profiles').select('full_name').eq('id', user.id).single(),
+  ])
+
+  // Send the invitation email. Transactional send — honors DRY-RUN /
+  // TEST_SEND_ALLOWLIST clamps, so `sent` may be false in test environments.
+  // The one-time link is returned regardless so an admin can copy-and-share.
+  let emailSent = false
+  try {
+    const mail = buildInviteEmail({
+      fullName: full_name,
+      organizationName: org?.name || 'your practice',
+      inviterName: inviter?.full_name || null,
+      role: role as ProvisionRole,
+      acceptUrl: provisioned.acceptUrl,
     })
-    .select()
-    .single()
-
-  if (profileError) {
-    return NextResponse.json({ error: profileError.message }, { status: 500 })
+    const result = await sendEmail({
+      to: email,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+    })
+    emailSent = !result.id.startsWith('blocked') && result.id !== 'dry-run'
+  } catch (err) {
+    // Don't fail the invite if email delivery hiccups — the account exists and
+    // the link is returned for manual delivery.
+    logger.warn('Team invite email failed to send', {
+      to: email,
+      error: err instanceof Error ? err.message : String(err),
+    })
   }
 
-  return NextResponse.json({ member: newProfile }, { status: 201 })
+  return NextResponse.json(
+    { member: provisioned.profile, invite_url: provisioned.acceptUrl, email_sent: emailSent },
+    { status: 201 }
+  )
 }

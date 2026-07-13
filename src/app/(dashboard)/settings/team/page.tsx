@@ -416,7 +416,20 @@ function InviteDialog({
         return
       }
 
-      toast.success(`${form.full_name} has been added to your team!`)
+      if (data.email_sent) {
+        toast.success(`${form.full_name} was invited — an email with the setup link is on its way.`)
+      } else if (data.invite_url) {
+        // Email delivery was clamped (dry-run / test allowlist) or failed.
+        // Hand the admin the one-time link so they can deliver it manually.
+        try {
+          await navigator.clipboard.writeText(data.invite_url)
+          toast.success(`${form.full_name} was added. Invite link copied to your clipboard — send it to them directly.`)
+        } catch {
+          toast.success(`${form.full_name} was added. Invite link (send it to them): ${data.invite_url}`)
+        }
+      } else {
+        toast.success(`${form.full_name} has been added to your team!`)
+      }
       onSuccess()
     } catch {
       setError('Network error. Please try again.')
