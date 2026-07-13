@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { LeadActions } from './lead-actions'
+import { EngagementMeter } from './engagement-meter'
 import { TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
@@ -551,8 +552,14 @@ export function LeadDetail({
 
             {/* Engagement Stats */}
             <div className="aurea-card overflow-hidden">
-              <div className="border-b border-aurea-border px-5 py-4">
+              <div className="flex items-center justify-between border-b border-aurea-border px-5 py-4">
                 <h2 className="aurea-display text-[18px] text-aurea-ink">Engagement</h2>
+                {/* Behavioral temperature (engagement sweep) — recency-driven,
+                    distinct from the AI score card above. */}
+                <EngagementMeter
+                  temperature={lead.engagement_temperature}
+                  score={lead.engagement_score}
+                />
               </div>
               <div className="px-5">
                 {[

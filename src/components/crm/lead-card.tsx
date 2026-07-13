@@ -8,6 +8,7 @@ import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
 import type { TimelineEnrollment } from '@/lib/pipeline/contacted-state'
 import { closingQueueState } from '@/lib/pipeline/closing'
 import { LeadCadenceBadge } from './lead-cadence-badge'
+import { EngagementTempChip } from './engagement-meter'
 
 // Lead qualification chips — hot=rose, warm=amber, cold=neutral ink
 const qualificationColors: Record<string, string> = {
@@ -68,6 +69,9 @@ export function LeadCard({
       </div>
 
       <div className="mt-2.5 flex items-center gap-2">
+        {/* Behavioral temperature (engagement sweep) — sits beside the AI grade. */}
+        <EngagementTempChip temperature={lead.engagement_temperature} />
+
         {lead.ai_qualification !== 'unscored' && (
           <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${qualificationColors[lead.ai_qualification]}`}>
             <Brain className="h-3 w-3" strokeWidth={1.75} />

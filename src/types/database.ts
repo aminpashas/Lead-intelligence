@@ -1100,6 +1100,11 @@ export type SmartListCriteria = {
   source_types?: string[]
   engagement_min?: number
   engagement_max?: number
+  /** Behavioral engagement temperature bands (leads.engagement_temperature,
+   *  maintained by cron/engagement-sweep). E.g. ['cold','cooling'] targets the
+   *  re-warming pool. Distinct from ai_qualifications (AI quality grade) and
+   *  closing_temperatures (closer workflow). */
+  engagement_temperatures?: ('hot' | 'warm' | 'cooling' | 'cold' | 'new')[]
   states?: string[]
   created_after?: string
   created_before?: string

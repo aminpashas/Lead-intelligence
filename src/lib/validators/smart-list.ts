@@ -34,6 +34,9 @@ export const smartListCriteriaSchema = z.object({
   source_types: z.array(z.string()).optional(),
   engagement_min: z.number().optional(),
   engagement_max: z.number().optional(),
+  engagement_temperatures: z
+    .array(z.enum(['hot', 'warm', 'cooling', 'cold', 'new']))
+    .optional(),
   states: z.array(z.string()).optional(),
   created_after: z.string().optional(),
   created_before: z.string().optional(),

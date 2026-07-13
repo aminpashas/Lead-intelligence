@@ -154,6 +154,13 @@ export function applySmartListCriteria(
     query = query.lte('engagement_score', criteria.engagement_max)
   }
 
+  // Behavioral temperature bands (engagement sweep). ['cold','cooling'] is the
+  // canonical re-warming pool; NULL rows (never graded) never match, which is
+  // correct — a lead the sweep hasn't seen shouldn't enter a nurture campaign.
+  if (criteria.engagement_temperatures && criteria.engagement_temperatures.length > 0) {
+    query = query.in('engagement_temperature', criteria.engagement_temperatures)
+  }
+
   // Location / state filter
   if (criteria.states && criteria.states.length > 0) {
     query = query.in('state', criteria.states)

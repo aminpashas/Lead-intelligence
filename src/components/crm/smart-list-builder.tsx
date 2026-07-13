@@ -61,6 +61,10 @@ const STATUS_OPTIONS = [
 
 const QUALIFICATION_OPTIONS = ['hot', 'warm', 'cold', 'unqualified']
 
+// Behavioral engagement temperature (engagement sweep) — NOT the AI grade
+// above. ['cold','cooling'] is the canonical re-warming pool.
+const TEMPERATURE_OPTIONS = ['hot', 'warm', 'cooling', 'new', 'cold'] as const
+
 // value → trigger label maps (Base UI Select renders the raw value otherwise)
 const TAG_OPERATOR_LABELS: Record<string, string> = {
   or: 'Any (OR)',
@@ -83,6 +87,9 @@ const qualChipActive: Record<string, string> = {
   warm: 'bg-aurea-amber/10 text-aurea-amber border-aurea-amber/30',
   cold: 'bg-aurea-surface-2 text-aurea-ink-2 border-aurea-border-strong',
   unqualified: 'bg-aurea-surface-2 text-aurea-ink-3 border-aurea-border-strong',
+  // temperature-only bands (shares hot/warm/cold styles above)
+  cooling: 'bg-aurea-surface-2 text-aurea-ink-2 border-aurea-border-strong',
+  new: 'bg-aurea-surface-2 text-aurea-ink-2 border-aurea-border-strong',
 }
 
 export function SmartListBuilder({
@@ -108,6 +115,7 @@ export function SmartListBuilder({
   const [tagOperator, setTagOperator] = useState<'and' | 'or'>(initialValues?.criteria.tags?.operator || 'or')
   const [statuses, setStatuses] = useState<string[]>(initialValues?.criteria.statuses || [])
   const [qualifications, setQualifications] = useState<string[]>(initialValues?.criteria.ai_qualifications || [])
+  const [temperatures, setTemperatures] = useState<string[]>(initialValues?.criteria.engagement_temperatures || [])
   const [scoreRange, setScoreRange] = useState<[number, number]>([
     initialValues?.criteria.score_min ?? 0,
     initialValues?.criteria.score_max ?? 100,
@@ -133,6 +141,10 @@ export function SmartListBuilder({
     if (tagIds.length > 0) criteria.tags = { ids: tagIds, operator: tagOperator }
     if (statuses.length > 0) criteria.statuses = statuses
     if (qualifications.length > 0) criteria.ai_qualifications = qualifications
+    if (temperatures.length > 0) {
+      criteria.engagement_temperatures =
+        temperatures as NonNullable<SmartListCriteria['engagement_temperatures']>
+    }
     if (scoreRange[0] > 0) criteria.score_min = scoreRange[0]
     if (scoreRange[1] < 100) criteria.score_max = scoreRange[1]
     if (stageIds.length > 0) criteria.stages = stageIds
@@ -388,6 +400,31 @@ export function SmartListBuilder({
               {keywordTerms.length > 0 && keywordScopes.length === 0 && (
                 <p className="text-[11px] text-aurea-rose">Pick at least one place to search.</p>
               )}
+            </div>
+
+            {/* Engagement temperature — behavioral recency meter (sweep-written).
+                Distinct from AI Qualification below (predicted quality). */}
+            <div className="space-y-2">
+              <Label className="text-[13px]">Engagement Temperature</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {TEMPERATURE_OPTIONS.map((t) => {
+                  const active = temperatures.includes(t)
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => toggleArrayValue(temperatures, t, setTemperatures)}
+                      className={cn(
+                        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize transition-colors',
+                        active
+                          ? (qualChipActive[t] || 'bg-aurea-primary/10 text-aurea-primary border-aurea-primary/30')
+                          : 'bg-aurea-surface border-aurea-border text-aurea-ink-3 hover:bg-aurea-surface-2'
+                      )}
+                    >
+                      {t}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {/* AI Qualification */}

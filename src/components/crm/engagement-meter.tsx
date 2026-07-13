@@ -45,6 +45,25 @@ function isTemperature(v: string | null | undefined): v is EngagementTemperature
   return !!v && v in BAND_STYLES
 }
 
+/** Compact chip (dot + label) for dense surfaces like the pipeline card. */
+export function EngagementTempChip({
+  temperature,
+}: {
+  temperature: string | null | undefined
+}) {
+  if (!isTemperature(temperature)) return null
+  const styles = BAND_STYLES[temperature]
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${styles.chip}`}
+      title="Engagement temperature"
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} />
+      {TEMPERATURE_META[temperature].label}
+    </span>
+  )
+}
+
 export function EngagementMeter({
   temperature,
   score,
