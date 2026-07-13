@@ -7,8 +7,11 @@ import { Loader2, MessageSquare, Zap, Lightbulb, ListTodo, ExternalLink, Phone }
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { CreateTaskDialog } from '@/components/crm/create-task-dialog'
 import { useOrgStore } from '@/lib/store/use-org'
 import { cn } from '@/lib/utils'
+
+type Priority = 'low' | 'normal' | 'high' | 'urgent'
 
 type Task = {
   id: string
@@ -19,12 +22,39 @@ type Task = {
   status: 'open' | 'claimed'
   assigned_to: string | null
   assigned_role: string | null
+  priority: Priority
   due_at: string | null
   claimed_by: string | null
   lead_id: string | null
   conversation_id: string | null
   source: string
   created_at: string
+}
+
+// Higher = surfaces first. Also used to sort each section.
+const PRIORITY_RANK: Record<Priority, number> = { urgent: 3, high: 2, normal: 1, low: 0 }
+
+/** Priority pill — only rendered for above-normal urgency to avoid noise. */
+function PriorityBadge({ priority }: { priority: Priority }) {
+  if (priority !== 'high' && priority !== 'urgent') return null
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'text-[10px] h-4 px-1.5 capitalize',
+        priority === 'urgent'
+          ? 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400'
+          : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+      )}
+    >
+      {priority}
+    </Badge>
+  )
+}
+
+/** Order live tasks: highest priority first, then the server's due/created sort. */
+function byPriority(a: Task, b: Task): number {
+  return (PRIORITY_RANK[b.priority] ?? 1) - (PRIORITY_RANK[a.priority] ?? 1)
 }
 
 const KIND_META: Record<string, { label: string; icon: typeof MessageSquare }> = {
@@ -36,6 +66,7 @@ const KIND_META: Record<string, { label: string; icon: typeof MessageSquare }> =
   sla_breach_review: { label: 'SLA review', icon: ListTodo },
   call_review: { label: 'Call review', icon: MessageSquare },
   list_call: { label: 'Call', icon: Phone },
+  manual: { label: 'Task', icon: ListTodo },
 }
 
 /** SLA countdown badge — red once overdue, amber when due within 5 minutes. */
@@ -101,6 +132,7 @@ function TaskRow({
               {meta.label}
             </Badge>
             <span className="text-[13px] font-medium text-aurea-ink">{task.title}</span>
+            <PriorityBadge priority={task.priority} />
             {task.due_at && <DueBadge dueAt={task.due_at} now={now} />}
             {task.status === 'claimed' && (
               <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-aurea-ink-2">
@@ -274,13 +306,17 @@ export function TasksList() {
   }
 
   const myId = userProfile?.id
-  const mine = tasks.filter(
-    (t) => myId && (t.assigned_to === myId || t.claimed_by === myId)
-  )
-  const unassigned = tasks.filter((t) => !t.assigned_to && !t.claimed_by)
+  const mine = tasks
+    .filter((t) => myId && (t.assigned_to === myId || t.claimed_by === myId))
+    .sort(byPriority)
+  const unassigned = tasks.filter((t) => !t.assigned_to && !t.claimed_by).sort(byPriority)
+  const allOpen = [...tasks].sort(byPriority)
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <CreateTaskDialog onCreated={load} />
+      </div>
       <Section label="Mine" tasks={mine} now={now} actingId={actingId} onAction={onAction} />
       <Section
         label="Unassigned"
@@ -289,7 +325,7 @@ export function TasksList() {
         actingId={actingId}
         onAction={onAction}
       />
-      <Section label="All open" tasks={tasks} now={now} actingId={actingId} onAction={onAction} />
+      <Section label="All open" tasks={allOpen} now={now} actingId={actingId} onAction={onAction} />
     </div>
   )
 }

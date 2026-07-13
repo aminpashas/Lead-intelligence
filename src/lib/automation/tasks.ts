@@ -31,6 +31,11 @@ export type HumanTaskKind =
   // On-demand call task generated from a Smart List (the call-queue action),
   // as opposed to the automatic allocation-engine kinds above.
   | 'list_call'
+  // Plain to-do hand-created by staff from the /tasks page.
+  | 'manual'
+
+/** Manual-task urgency. Allocation-created tasks keep the 'normal' default. */
+export type HumanTaskPriority = 'low' | 'normal' | 'high' | 'urgent'
 
 export type HumanTaskStatus =
   | 'open'
@@ -56,6 +61,7 @@ export type HumanTask = {
   assigned_to: string | null
   assigned_role: string | null
   status: HumanTaskStatus
+  priority: HumanTaskPriority
   due_at: string | null
   claimed_by: string | null
   claimed_at: string | null
@@ -82,6 +88,8 @@ export type CreateHumanTaskInput = {
   ai_draft?: string | null
   assigned_to?: string | null
   assigned_role?: string | null
+  /** Urgency (defaults to 'normal' at the DB level when omitted). */
+  priority?: HumanTaskPriority
   /** ISO timestamp; the SLA deadline for 'hold' allocations (D3 enforces). */
   due_at?: string | null
   dedupe_key?: string | null
@@ -221,6 +229,7 @@ async function insertTask(supabase: SupabaseClient, input: CreateHumanTaskInput)
       assigned_to: input.assigned_to ?? null,
       assigned_role: input.assigned_role ?? null,
       status: 'open',
+      priority: input.priority ?? 'normal',
       due_at: input.due_at ?? null,
       source: input.source,
       dedupe_key: input.dedupe_key ?? null,
