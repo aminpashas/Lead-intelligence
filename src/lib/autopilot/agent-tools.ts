@@ -725,12 +725,15 @@ async function executeCheckAvailability(
     }
   }
 
-  // Format for AI consumption
-  const slotSummary = filteredSlots.slice(0, 5).map(day => {
-    const times = day.times.slice(0, 4).map(t => formatTimeDisplay(t)).join(', ')
-    const more = day.times.length > 4 ? ` (+${day.times.length - 4} more)` : ''
-    return `${day.dayLabel}: ${times}${more}`
-  }).join('\n')
+  // Flatten into individual date+time options, soonest first, so the agent
+  // offers COMBINED slots ("Tuesday, July 14 at 9:00 AM") rather than a menu of
+  // days and a separate menu of times — the split-menu style confuses patients.
+  const flatOptions = filteredSlots.flatMap(day =>
+    day.times.map(t => `${day.dayLabel} at ${formatTimeDisplay(t)}`)
+  )
+  const offerList = flatOptions.slice(0, 6).map(o => `- ${o}`).join('\n')
+  const first = flatOptions[0]
+  const second = flatOptions[1]
 
   return {
     success: true,
@@ -743,7 +746,17 @@ async function executeCheckAvailability(
       duration: settings.slot_duration_minutes,
       location: settings.location || null,
     },
-    message: `Available ${settings.slot_duration_minutes}-minute consultation slots:\n${slotSummary}`,
+    message: [
+      `Available ${settings.slot_duration_minutes}-minute consultation slots, soonest first:`,
+      offerList,
+      '',
+      'HOW TO OFFER — IMPORTANT:',
+      `- Offer only the FIRST 2 options as complete date+time slots${
+        first && second ? ` (e.g. "I've got ${first} or ${second} — which works better?")` : ''
+      }.`,
+      '- Never dump the whole list, and never split days and times into two separate menus. Every option the patient picks must be ONE specific date AND time together.',
+      '- If neither of the first two works, then offer the next 2 from the list — keep narrowing 2 at a time.',
+    ].join('\n'),
   }
 }
 
@@ -2055,11 +2068,14 @@ async function executeScheduleFollowUp(
     }
   }
 
-  const slotSummary = filteredSlots.slice(0, 5).map(day => {
-    const times = day.times.slice(0, 4).map(t => formatTimeDisplay(t)).join(', ')
-    const more = day.times.length > 4 ? ` (+${day.times.length - 4} more)` : ''
-    return `${day.dayLabel}: ${times}${more}`
-  }).join('\n')
+  // Flatten to combined date+time options (soonest first) so the agent offers
+  // whole slots, not a day-menu plus a separate time-menu (confuses patients).
+  const flatOptions = filteredSlots.flatMap(day =>
+    day.times.map(t => `${day.dayLabel} at ${formatTimeDisplay(t)}`)
+  )
+  const offerList = flatOptions.slice(0, 6).map(o => `- ${o}`).join('\n')
+  const first = flatOptions[0]
+  const second = flatOptions[1]
 
   const typeLabel = consultationType === 'virtual' ? 'virtual video call' :
     consultationType === 'phone' ? 'phone consultation' : 'in-person follow-up'
@@ -2074,6 +2090,17 @@ async function executeScheduleFollowUp(
       })),
       consultation_type: consultationType,
     },
-    message: `Available ${typeLabel} slots:\n${slotSummary}\n\nThis is a follow-up consultation to address any remaining questions. Ask the patient which date and time works best, then use create_booking to confirm.`,
+    message: [
+      `Available ${typeLabel} slots, soonest first:`,
+      offerList,
+      '',
+      'This is a follow-up consultation to address any remaining questions.',
+      'HOW TO OFFER — IMPORTANT:',
+      `- Offer only the FIRST 2 options as complete date+time slots${
+        first && second ? ` (e.g. "I've got ${first} or ${second} — which works better?")` : ''
+      }.`,
+      '- Never dump the whole list, and never split days and times into two separate menus. Each option the patient picks must be ONE specific date AND time together.',
+      '- If neither works, offer the next 2 — keep narrowing 2 at a time. Then use create_booking to confirm.',
+    ].join('\n'),
   }
 }
