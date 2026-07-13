@@ -191,7 +191,17 @@ export function LeadActions({
         body: JSON.stringify({ lead_id: lead.id }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Bridge call failed')
+      if (!res.ok) {
+        // No mobile number on file — point the agent straight to where they set it.
+        if (data?.code === 'no_staff_phone') {
+          toast.error('Add your mobile number to use “Call my phone”', {
+            description: 'We ring your phone first, then connect the patient.',
+            action: { label: 'Add number', onClick: () => router.push('/settings') },
+          })
+          return
+        }
+        throw new Error(data?.error || 'Bridge call failed')
+      }
       toast.success(`Ringing your phone — answer to connect to ${lead.first_name || 'the lead'}`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not place call')

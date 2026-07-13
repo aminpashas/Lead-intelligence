@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { LeadActions } from './lead-actions'
-import { LeadTimeline, TimelineFeed } from './lead-timeline'
+import { TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
 import { ScheduleAppointment } from './schedule-appointment'
@@ -213,7 +213,10 @@ export function LeadDetail({
             the surface still has a header. */}
         <div className="flex items-center justify-between gap-2 border-b border-aurea-border px-4 py-2">
           <div className="flex min-w-0 items-center gap-2">
-            {!primaryConversation && (
+            {/* Timeline mode has no thread header of its own, so the strip carries
+                the back-arrow + identity there. In Thread mode the embedded
+                ConversationThread renders its own header instead. */}
+            {mode === 'timeline' && (
               <>
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => router.push('/leads')}>
                   <ArrowLeft className="h-[15px] w-[15px]" strokeWidth={1.75} />
@@ -229,12 +232,10 @@ export function LeadDetail({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            {primaryConversation && (
-              <div className="inline-flex items-center rounded-full border border-aurea-border bg-aurea-surface p-0.5 text-[12px]">
-                <ModeButton active={mode === 'thread'} onClick={() => setMode('thread')} icon={<MessagesSquare className="h-3.5 w-3.5" strokeWidth={1.75} />} label="Thread" />
-                <ModeButton active={mode === 'timeline'} onClick={() => setMode('timeline')} icon={<GitBranch className="h-3.5 w-3.5" strokeWidth={1.75} />} label="Timeline" />
-              </div>
-            )}
+            <div className="inline-flex items-center rounded-full border border-aurea-border bg-aurea-surface p-0.5 text-[12px]">
+              <ModeButton active={mode === 'thread'} onClick={() => setMode('thread')} icon={<MessagesSquare className="h-3.5 w-3.5" strokeWidth={1.75} />} label="Thread" />
+              <ModeButton active={mode === 'timeline'} onClick={() => setMode('timeline')} icon={<GitBranch className="h-3.5 w-3.5" strokeWidth={1.75} />} label="Timeline" />
+            </div>
             <Button
               variant={showDetails ? 'default' : 'outline'}
               size="sm"
@@ -250,38 +251,34 @@ export function LeadDetail({
           </div>
         </div>
 
-        {/* Body — the chat thread, its condensed timeline, or (no thread yet)
-            the start-conversation surface. */}
+        {/* Body — the chat thread (the same messenger as /conversations, with
+            Text/Email/Call in one composer) or its condensed timeline. The
+            thread renders even before a conversation exists: the first send
+            find-or-creates it server-side, then the surface refreshes. */}
         <div className="min-h-0 flex-1">
-          {primaryConversation ? (
-            mode === 'thread' ? (
-              <ConversationThread
-                lead={lead}
-                conversation={primaryConversation}
-                messages={threadMessages}
-                calls={threadCalls}
-                prequalEnabled={prequalEnabled}
-                noShowFeeEnabled={noShowFeeEnabled}
-                backHref="/leads"
-                savedAnalysis={latestAnalysis}
-                patientProfile={patientProfile}
-                timeZone={timeZone}
-                canTrainAi={canTrainAi}
-              />
-            ) : (
-              <div className="h-full overflow-y-auto px-5 py-6">
-                {timeline.length === 0 ? (
-                  <p className="py-16 text-center text-sm text-aurea-ink-3">No calls, texts, or emails yet.</p>
-                ) : (
-                  <div className="mx-auto max-w-[680px]">
-                    <TimelineFeed entries={timeline} variant="detailed" timeZone={timeZone} />
-                  </div>
-                )}
-              </div>
-            )
+          {mode === 'thread' ? (
+            <ConversationThread
+              lead={lead}
+              conversation={primaryConversation}
+              messages={threadMessages}
+              calls={threadCalls}
+              prequalEnabled={prequalEnabled}
+              noShowFeeEnabled={noShowFeeEnabled}
+              backHref="/leads"
+              savedAnalysis={latestAnalysis}
+              patientProfile={patientProfile}
+              timeZone={timeZone}
+              canTrainAi={canTrainAi}
+            />
           ) : (
             <div className="h-full overflow-y-auto px-5 py-6">
-              <LeadTimeline lead={lead} entries={timeline} timeZone={timeZone} />
+              {timeline.length === 0 ? (
+                <p className="py-16 text-center text-sm text-aurea-ink-3">No calls, texts, or emails yet.</p>
+              ) : (
+                <div className="mx-auto max-w-[680px]">
+                  <TimelineFeed entries={timeline} variant="detailed" timeZone={timeZone} />
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Search, Menu, Building2, LogOut } from 'lucide-react'
-import { NewLeadDialog } from '@/components/crm/new-lead-dialog'
 import { Input } from '@/components/ui/input'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { NotificationDropdown } from './notification-dropdown'
@@ -88,10 +87,6 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
             </Button>
           </div>
         )}
-
-        <div className="hidden sm:block">
-          <NewLeadDialog />
-        </div>
 
         <ThemeToggle />
 

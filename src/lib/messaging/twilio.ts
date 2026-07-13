@@ -20,6 +20,19 @@ function getClient() {
   )
 }
 
+/** True when account-level REST lookups (call/recording status) are possible. */
+export function isTwilioRestConfigured(): boolean {
+  return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN)
+}
+
+/**
+ * Account-level Twilio REST client, for server-side lookups such as fetching the
+ * final status of a call whose status callback never arrived. Server-only.
+ */
+export function getTwilioRestClient() {
+  return getClient()
+}
+
 /**
  * Low-level SMS send. Bypasses the consent gate.
  * Only use for system-internal sends (verification codes, staff alerts) where there is no lead.

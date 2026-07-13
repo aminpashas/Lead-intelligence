@@ -7,9 +7,14 @@ import { ManualDialPad } from '@/components/voice/manual-dial-pad'
 /**
  * Power dialer — walk a queue of callable leads back-to-back through the browser
  * softphone. The queue is pre-filtered to leads that would actually pass the
- * compliance gate (has phone, consented, not DNC / opted-out), highest AI score
- * first, so the staffer isn't handed dead ends. Each dial still re-runs the full
- * gate server-side in /api/voice/prepare.
+ * compliance gate (has phone, consented, not DNC / opted-out). Ordering is
+ * highest AI score first so the staffer isn't handed dead ends — but scores are
+ * frequently absent (an org may have no leads scored yet), which leaves the whole
+ * candidate set tied at 0. When that happens the score key is meaningless and
+ * LIMIT would return an arbitrary, unstable slice, so we fall back to freshest-
+ * first (never-contacted, then most-recently-contacted, then newest lead) with an
+ * `id` tiebreak for a deterministic queue. Each dial still re-runs the full gate
+ * server-side in /api/voice/prepare.
  */
 export default async function DialerPage() {
   const supabase = await createClient()
@@ -27,7 +32,13 @@ export default async function DialerPage() {
     .eq('voice_consent', true)
     .not('phone', 'is', null)
     .not('status', 'in', '(lost,disqualified,completed)')
+    // Score wins when it exists; otherwise everything ties at 0, so freshest-first
+    // (never-contacted → most-recent contact → newest lead) drives the queue, with
+    // `id` as a deterministic tiebreak so the same queue renders on every load.
     .order('ai_score', { ascending: false, nullsFirst: false })
+    .order('last_contacted_at', { ascending: false, nullsFirst: true })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: true })
     .limit(100)
 
   // Lead phone numbers are encrypted at rest — decrypt server-side, then hand the

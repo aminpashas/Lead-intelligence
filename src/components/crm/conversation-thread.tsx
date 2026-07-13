@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   DEFAULT_PRACTICE_TIMEZONE,
   zonedDayKey,
@@ -159,7 +160,10 @@ export function ConversationThread({
   canTrainAi = false,
 }: {
   lead: Lead
-  conversation: Conversation
+  /** The thread's conversation. `null` when the lead has no conversation yet:
+   *  the composer still renders and the first send find-or-creates the row
+   *  server-side (via lead_id), then we refresh to hydrate the real thread. */
+  conversation: Conversation | null
   messages: Message[]
   calls?: VoiceCall[]
   prequalEnabled?: boolean
@@ -182,15 +186,17 @@ export function ConversationThread({
   /** Persisted patient psychology profile — powers the always-on Lead Summary. */
   patientProfile?: PatientProfile | null
 }) {
+  const router = useRouter()
   const [messages, setMessages] = useState(initialMessages)
   const [draft, setDraft] = useState('')
   // D4 presence heartbeat: tells the staff notifier this user has the thread
   // open, so inbound-message pings are suppressed while they're looking.
-  useConversationPresence(conversation.id)
+  // No-ops until a conversation exists (new-lead composer).
+  useConversationPresence(conversation?.id)
   // Which channel the composer sends on. Seeded from the thread's channel but
   // switchable inline, so text + email both happen here — no popup dialog.
   const [sendChannel, setSendChannel] = useState<'sms' | 'email'>(
-    conversation.channel === 'email' ? 'email' : 'sms'
+    conversation?.channel === 'email' ? 'email' : 'sms'
   )
   const [sending, setSending] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -210,7 +216,7 @@ export function ConversationThread({
   // Side panel open by default — the Lead Summary should always be at hand.
   // Persisted per-user like the composer height below.
   const [showPanel, setShowPanel] = useState(true)
-  const [activeAgent, setActiveAgent] = useState<AgentType>(conversation.active_agent || 'setter')
+  const [activeAgent, setActiveAgent] = useState<AgentType>(conversation?.active_agent || 'setter')
   const [agentNotes, setAgentNotes] = useState<string | null>(null)
   const [draftBlock, setDraftBlock] = useState<{ kind: string; reason: string; guidance: string | null } | null>(null)
   const [techniquesUsed, setTechniquesUsed] = useState<Array<{ technique_id: string; confidence: number; effectiveness: string; context_note: string }>>([])
@@ -309,7 +315,7 @@ export function ConversationThread({
       const endpoint = sendChannel === 'sms' ? '/api/sms/send' : '/api/email/send'
       const payload = sendChannel === 'sms'
         ? { lead_id: lead.id, message: draft }
-        : { lead_id: lead.id, subject: conversation.subject || 'Follow up', body: draft }
+        : { lead_id: lead.id, subject: conversation?.subject || 'Follow up', body: draft }
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -329,6 +335,10 @@ export function ConversationThread({
       setMessages((prev) => [...prev, data.message])
       setDraft('')
       toast.success('Message sent')
+      // First send on a lead with no prior thread just created the conversation
+      // server-side — refresh so the surface hydrates with the real thread
+      // (AI mode, insights, presence, SLA all come online).
+      if (!conversation) router.refresh()
     } catch {
       toast.error('Failed to send message')
     } finally {
@@ -337,6 +347,8 @@ export function ConversationThread({
   }
 
   async function generateAIMessage() {
+    // The agent router keys off a conversation; nothing to draft against yet.
+    if (!conversation) return
     setGenerating(true)
     setAgentNotes(null)
     setDraftBlock(null)
@@ -399,6 +411,7 @@ export function ConversationThread({
   }
 
   async function analyzeConversation() {
+    if (!conversation) return
     if (messages.length < 2) {
       toast.error('Need at least 2 messages to analyze')
       return
@@ -458,6 +471,7 @@ export function ConversationThread({
   }
 
   async function getFollowUpPlan() {
+    if (!conversation) return
     setGeneratingFollowUp(true)
     try {
       const res = await fetch('/api/ai/follow-up', {
@@ -524,7 +538,7 @@ export function ConversationThread({
               {lead.first_name} {lead.last_name}
             </h3>
             <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-aurea-ink-3">
-              <span className="font-mono uppercase tracking-[0.12em]">{conversation.channel}</span>
+              <span className="font-mono uppercase tracking-[0.12em]">{conversation?.channel ?? sendChannel}</span>
               {lead.phone && (
                 <>
                   <span className="text-aurea-border-strong">·</span>
@@ -533,7 +547,7 @@ export function ConversationThread({
               )}
               <span className="text-aurea-border-strong">·</span>
               <span>{messages.length} messages</span>
-              {conversation.sentiment && (
+              {conversation?.sentiment && (
                 <>
                   <span className="text-aurea-border-strong">·</span>
                   <span className="capitalize">{conversation.sentiment}</span>
@@ -547,18 +561,20 @@ export function ConversationThread({
           {/* Call + DND live here; SMS/Email happen in the composer below, so
               suppress the modal buttons to keep everything in one surface. */}
           <LeadActions lead={lead} variant="compact" prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} showMessaging={false} />
-          <AIModeToggle
-            conversationId={conversation.id}
-            currentMode={conversation.ai_mode || 'off'}
-            size="sm"
-            showLabel={false}
-          />
+          {conversation && (
+            <AIModeToggle
+              conversationId={conversation.id}
+              currentMode={conversation.ai_mode || 'off'}
+              size="sm"
+              showLabel={false}
+            />
+          )}
           <div className="h-6 w-px bg-aurea-border" />
           <Button
             variant="outline"
             size="sm"
             onClick={analyzeConversation}
-            disabled={analyzing || messages.length < 2}
+            disabled={analyzing || !conversation || messages.length < 2}
             className="gap-1.5"
           >
             {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" strokeWidth={1.75} />}
@@ -568,7 +584,7 @@ export function ConversationThread({
             variant="outline"
             size="sm"
             onClick={getFollowUpPlan}
-            disabled={generatingFollowUp}
+            disabled={generatingFollowUp || !conversation}
             className="gap-1.5"
           >
             {generatingFollowUp ? <Loader2 className="h-3 w-3 animate-spin" /> : <Heart className="h-3 w-3" strokeWidth={1.75} />}
@@ -591,7 +607,7 @@ export function ConversationThread({
       </div>
 
       {/* Human-response SLA countdown — renders only while a pending timer runs */}
-      <SlaCountdown conversationId={conversation.id} />
+      {conversation && <SlaCountdown conversationId={conversation.id} />}
 
       {/* ── Messages ───────────────────────────────────────── */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto bg-aurea-canvas px-4 py-5 lg:px-6">
@@ -772,9 +788,11 @@ export function ConversationThread({
                 variant="outline"
                 size="sm"
                 onClick={generateAIMessage}
-                disabled={generating}
+                disabled={generating || !conversation}
                 className="gap-1.5"
-                title={`Auto-selects ${activeAgent === 'closer' ? 'Closer' : 'Setter'} based on lead stage`}
+                title={conversation
+                  ? `Auto-selects ${activeAgent === 'closer' ? 'Closer' : 'Setter'} based on lead stage`
+                  : 'Send the first message to start the thread, then AI drafts unlock'}
               >
                 {generating ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -866,7 +884,7 @@ export function ConversationThread({
                   variant="outline"
                   size="sm"
                   onClick={analyzeConversation}
-                  disabled={analyzing || messages.length < 2}
+                  disabled={analyzing || !conversation || messages.length < 2}
                   className="mt-3 gap-1.5"
                 >
                   {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" strokeWidth={1.75} />}
