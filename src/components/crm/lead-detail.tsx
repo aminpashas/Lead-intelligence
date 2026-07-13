@@ -53,6 +53,10 @@ const qualificationColors: Record<string, string> = {
   unscored: 'bg-aurea-surface-2 text-aurea-ink-3 border border-aurea-border',
 }
 
+// Per-browser memory for the Details side panel: once opened, it stays open on
+// every lead the user visits (see the sync effects in LeadDetail).
+const DETAILS_PREF_KEY = 'lead-detail:details-open'
+
 export function LeadDetail({
   lead: initialLead,
   activities,
@@ -97,8 +101,20 @@ export function LeadDetail({
   // Conversation-first surface: the chat is the hero; the lead's features live
   // in a collapsible Details panel on the same page (closed by default).
   const [mode, setMode] = useState<'thread' | 'timeline'>('thread')
+  // Details panel starts closed to avoid a hydration mismatch (localStorage is
+  // browser-only), then we sync to the user's remembered preference on mount.
   const [showDetails, setShowDetails] = useState(false)
   const router = useRouter()
+
+  // Remember whether the Details panel is open across leads: once the user opens
+  // it, it stays open on every lead they visit (and vice-versa), scoped per-browser.
+  useEffect(() => {
+    if (localStorage.getItem(DETAILS_PREF_KEY) === 'open') setShowDetails(true)
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem(DETAILS_PREF_KEY, showDetails ? 'open' : 'closed')
+  }, [showDetails])
 
   // Fetch lead tags
   useEffect(() => {
