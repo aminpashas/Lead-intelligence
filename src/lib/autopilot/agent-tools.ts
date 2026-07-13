@@ -972,12 +972,13 @@ async function executeCreateBooking(
               ${settings.location ? `<p style="margin: 4px 0;"><strong>Location:</strong> ${escapeHtml(settings.location)}</p>` : ''}
             </div>
             <p>${escapeHtml(settings.booking_message || 'We look forward to seeing you!')}</p>
+            ${settings.youtube_testimonial_url ? `<p style="margin: 20px 0;">Before your visit, hear from patients who've been through the same procedure: <a href="${escapeHtml(settings.youtube_testimonial_url as string)}" style="color: #0a7d3c; font-weight: 600;">watch their stories →</a></p>` : ''}
             <p style="color: #666; font-size: 12px; margin-top: 24px;">
               Need to reschedule? Reply to this email or call us.
             </p>
           </div>
         `,
-        text: `Hi ${firstName}, your consultation at ${orgName} is confirmed for ${displayDate} at ${displayTime}. ${settings.location ? `Location: ${settings.location}. ` : ''}We look forward to seeing you!`,
+        text: `Hi ${firstName}, your consultation at ${orgName} is confirmed for ${displayDate} at ${displayTime}. ${settings.location ? `Location: ${settings.location}. ` : ''}We look forward to seeing you!${settings.youtube_testimonial_url ? `\n\nBefore your visit, hear from patients who've been through the same procedure: ${settings.youtube_testimonial_url}` : ''}`,
         })
       } catch (err) {
         await supabase.from('lead_activities').insert({
