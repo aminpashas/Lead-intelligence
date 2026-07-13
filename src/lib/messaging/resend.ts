@@ -10,6 +10,22 @@ function getResend() {
 }
 
 /**
+ * From-address for TRANSACTIONAL / system email — invites, password resets,
+ * receipts, contracts, appointment logistics, internal staff alerts.
+ *
+ * Keeping transactional mail OFF the marketing subdomain (`RESEND_FROM_EMAIL`,
+ * e.g. a `go.`/campaign domain) protects both streams' deliverability: marketing
+ * reputation swings never bury a password-reset, and account mail to your own
+ * domain stops looking like a lookalike-domain spoof.
+ *
+ * Falls back to the marketing sender when `TRANSACTIONAL_FROM_EMAIL` is unset, so
+ * this is INERT until that env + its DNS (SPF/DKIM) are configured in Resend.
+ */
+export function transactionalFrom(): string {
+  return process.env.TRANSACTIONAL_FROM_EMAIL?.trim() || process.env.RESEND_FROM_EMAIL!
+}
+
+/**
  * Low-level email send. Bypasses the consent gate.
  * Only use for transactional/system sends (password resets, billing receipts, staff notifications).
  * For any lead-facing marketing/nurture email, use sendEmailToLead() so consent is enforced.

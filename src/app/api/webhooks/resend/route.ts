@@ -8,6 +8,7 @@ import { getPatientProfile } from '@/lib/ai/patient-psychology'
 import { sendEmail } from '@/lib/messaging/resend'
 import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
+import { logger } from '@/lib/logger'
 import crypto from 'crypto'
 
 /**
@@ -92,6 +93,13 @@ export async function POST(request: NextRequest) {
   const isProd = process.env.NODE_ENV === 'production'
   const hasSecret = !!(process.env.RESEND_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET)
   if ((isProd || hasSecret) && !verifyResendSignature(rawBody, request.headers)) {
+    // Diagnostic: a flood of these means Resend IS sending events but the
+    // configured RESEND_WEBHOOK_SECRET doesn't match — the usual cause of
+    // "tracking is dark" (opened/clicked events silently 401'd).
+    logger.warn('Resend webhook: signature verification failed', {
+      hasSecret,
+      hasSvixHeaders: !!request.headers.get('svix-signature'),
+    })
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
@@ -101,6 +109,11 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
+
+  // Diagnostic: confirms events are actually arriving (and which types). If you
+  // never see `email.opened`/`email.clicked` here, open/click tracking is off on
+  // the Resend domain — enable it in the Resend dashboard.
+  logger.info('Resend webhook received', { type: event.type, emailId: event.data?.email_id })
 
   const supabase = createServiceClient()
   const emailId = event.data?.email_id
@@ -117,7 +130,9 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (!message) {
-    // Not a tracked email — might be from another system
+    // Not a tracked email — might be from another system, or the send wasn't
+    // persisted to `messages` (e.g. the one-off invite scripts).
+    logger.info('Resend webhook: no matching message', { emailId, type: event.type })
     return NextResponse.json({ ok: true, skipped: 'message not found' })
   }
 

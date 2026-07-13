@@ -52,8 +52,9 @@ async function main() {
   const text = `Hi ${FIRST},\n\n${INVITER} has invited you to join ${ORG_NAME} as ${ROLE_LABEL} on Lead Intelligence. Set your password to activate your account:\n\n${acceptUrl}\n\nThis link is single-use and expires shortly.`
 
   const resend = new Resend(process.env.RESEND_API_KEY!)
+  const fromAddr = process.env.TRANSACTIONAL_FROM_EMAIL?.trim() || process.env.RESEND_FROM_EMAIL!
   const { data, error } = await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL!,
+    from: fromAddr,
     to: EMAIL, // single authorized recipient
     subject,
     html,
@@ -62,7 +63,7 @@ async function main() {
   if (error) throw new Error(`Resend failed: ${error.message}`)
   console.log('\n✅ Invite email sent to', EMAIL)
   console.log('   resend id:', data?.id)
-  console.log('   from     :', process.env.RESEND_FROM_EMAIL)
+  console.log('   from     :', fromAddr)
   console.log('   link     :', acceptUrl)
 }
 

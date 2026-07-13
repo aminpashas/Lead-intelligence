@@ -7,7 +7,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendSMS } from '@/lib/messaging/twilio'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
 import { escapeHtml } from '@/lib/utils'
 import {
@@ -202,6 +202,7 @@ async function notifyStaff(
         const email = decryptField(recipient.email) || recipient.email
         await sendEmail({
           to: email,
+          from: transactionalFrom(),
           subject: `${alertIcon} ${priorityTag}AI Escalation: ${escapeHtml(leadName)} needs attention`,
           html: `
             <div style="font-family: -apple-system, sans-serif; max-width: 600px; padding: 24px;">

@@ -28,7 +28,9 @@ const ENV_VARS: EnvVar[] = [
   { key: 'TWILIO_API_SECRET', required: false, description: 'Twilio API Key secret — mints browser Voice access tokens' },
   { key: 'TWILIO_TWIML_APP_SID', required: false, description: 'Twilio TwiML App SID (AP…) — routes softphone calls to /api/voice/twiml/outbound' },
   { key: 'RESEND_API_KEY', required: false, description: 'Resend API key for email' },
-  { key: 'RESEND_FROM_EMAIL', required: false, description: 'Resend sender email address' },
+  { key: 'RESEND_FROM_EMAIL', required: false, description: 'Resend sender for MARKETING/campaign email' },
+  { key: 'TRANSACTIONAL_FROM_EMAIL', required: false, description: 'Resend sender for TRANSACTIONAL email (invites/receipts/alerts); keeps them off the marketing subdomain. Falls back to RESEND_FROM_EMAIL when unset.' },
+  { key: 'RESEND_WEBHOOK_SECRET', required: false, description: 'Resend (Svix) webhook signing secret — required for open/click/bounce tracking to be recorded' },
 
   // Voice (Retell AI)
   { key: 'RETELL_API_KEY', required: false, description: 'Retell AI API key for voice calling' },

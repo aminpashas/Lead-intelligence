@@ -4,7 +4,7 @@ import { isAdminRole } from '@/lib/auth/permissions'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { provisionMember, type ProvisionRole } from '@/lib/team/provision'
 import { buildInviteEmail } from '@/lib/team/invite-email'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { logger } from '@/lib/logger'
 
 /**
@@ -163,6 +163,7 @@ export async function POST(request: NextRequest) {
     })
     const result = await sendEmail({
       to: email,
+      from: transactionalFrom(),
       subject: mail.subject,
       html: mail.html,
       text: mail.text,

@@ -36,7 +36,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead } from '@/types/database'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { classifyLeadServiceLines, SERVICE_LINES } from '@/lib/leads/service-line'
 import { logger } from '@/lib/logger'
 
@@ -279,7 +279,7 @@ export async function notifyNewLead(
     // Resend both key on a single `to`, and looping keeps a blocked recipient
     // from suppressing the others.
     await Promise.allSettled(
-      recipients.map((to) => sendEmail({ to, subject, html, text })),
+      recipients.map((to) => sendEmail({ to, from: transactionalFrom(), subject, html, text })),
     )
   } catch (err) {
     logger.error('new-lead alert email failed', {

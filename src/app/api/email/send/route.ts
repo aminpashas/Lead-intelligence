@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
-import { sendEmail } from '@/lib/messaging/resend'
+import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
     const result = await withRetry(
       () => sendEmail({
         to: lead.email,
+        from: transactionalFrom(),
         subject: parsed.data.subject,
         html: htmlBody,
         text: parsed.data.body,
