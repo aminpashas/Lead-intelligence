@@ -46,10 +46,17 @@ import type { AgentContext, AgentResponse, ConversationMessage } from '@/lib/ai/
 import type { PatientProfile, ConversationChannel, LeadStatus } from '@/types/database'
 import { buildFinancingContext } from '@/lib/ai/financial-coach'
 import { getActiveRuleSetStamp } from '@/lib/ai/learning/rule-stamp'
+import {
+  withConversationWorkflowLock,
+  getOrCreateThread,
+  touchThread,
+  inferTopic,
+  type WorkflowKind,
+} from '@/lib/conversations/threads'
 import { logger } from '@/lib/logger'
 
 export type AutoResponseResult = {
-  action: 'sent' | 'escalated' | 'skipped' | 'stopped' | 'rate_limited' | 'held_for_human'
+  action: 'sent' | 'escalated' | 'skipped' | 'stopped' | 'rate_limited' | 'held_for_human' | 'deferred'
   message?: string
   confidence?: number
   agent?: string
@@ -197,6 +204,30 @@ export async function processAutoResponse(
     return { action: 'rate_limited', reason: 'max_messages_per_hour_exceeded' }
   }
 
+  // 3b. Single-flight workflow lock. Before we spend an agent call and send,
+  // claim the conversation so a second workflow (a nurture sequence step firing
+  // in the same beat, a campaign blast) can't compose+send alongside us — the
+  // field failure where the lead gets a patient-story nurture and an unrelated
+  // scheduling reply back to back. If another workflow holds a live lease we
+  // stand down ('deferred'); the lease auto-expires so nothing can wedge.
+  // On an SLA takeover we still coordinate, but under the takeover holder name.
+  const workflow: WorkflowKind = opts?.takeover ? 'sla_takeover' : 'auto_respond'
+
+  const gate = await withConversationWorkflowLock(
+    supabase,
+    { conversationId: conversation_id, organizationId: organization_id, workflow },
+    () => composeAndSend()
+  )
+  if (!gate.ran) {
+    return {
+      action: 'deferred',
+      reason: `conversation_busy${gate.holder ? `:${gate.holder}` : ''}`,
+    }
+  }
+  return gate.result
+
+  // ── compose + send, executed while holding the conversation lease ──
+  async function composeAndSend(): Promise<AutoResponseResult> {
   // 4. Build conversation history
   const history = await buildConversationHistory(supabase, conversation_id, inbound_message)
 
@@ -209,6 +240,19 @@ export async function processAutoResponse(
     channel,
     history,
   })
+
+  // 5b. Attribute this exchange to a topic thread so concurrent topics stay
+  // legible (scheduling vs nurture vs financing) instead of interleaving in one
+  // flat log. Best-effort: a null thread just means the message isn't tagged.
+  const topic = inferTopic(inbound_message, (conversation.intent as string) || null)
+  const thread = await getOrCreateThread(supabase, {
+    conversationId: conversation_id,
+    organizationId: organization_id,
+    leadId: lead_id,
+    topic,
+    openedBy: workflow,
+  })
+  const threadId = thread?.id ?? null
 
   // 6. Route to agent and get response.
   // Concurrently classify whether the inbound message is a SPECIFIC MEDICAL
@@ -273,6 +317,7 @@ export async function processAutoResponse(
         lead_id,
         channel,
         sender_contact,
+        thread_id: threadId,
       }).catch((err) =>
         logger.warn('Medical holding acknowledgment failed', {
           conversation_id,
@@ -409,6 +454,7 @@ export async function processAutoResponse(
       sender_contact,
       agentResponse,
       takeover: opts?.takeover === true,
+      thread_id: threadId,
     })
   } catch (error) {
     logger.error('Failed to send auto-response', { conversation_id, channel }, error instanceof Error ? error : undefined)
@@ -426,12 +472,16 @@ export async function processAutoResponse(
     return { action: 'escalated', reason: 'delivery_failure' }
   }
 
+  // Bump the topic thread's activity so the conversation UI can order threads.
+  if (threadId) await touchThread(supabase, threadId, agentResponse.message.substring(0, 100))
+
   return {
     action: 'sent',
     message: agentResponse.message,
     confidence: agentResponse.confidence,
     agent: agentResponse.agent,
   }
+  } // end composeAndSend
 }
 
 /**
@@ -554,9 +604,11 @@ async function sendAgentResponse(
     agentResponse: AgentResponse
     /** D3: this send is an SLA takeover — stamped on the message metadata. */
     takeover?: boolean
+    /** Topic thread this outbound belongs to (conversation_threads.id). */
+    thread_id?: string | null
   }
 ): Promise<void> {
-  const { organization_id, conversation_id, lead_id, lead, channel, sender_contact, agentResponse, takeover } = params
+  const { organization_id, conversation_id, lead_id, lead, channel, sender_contact, agentResponse, takeover, thread_id } = params
   let externalId: string | undefined
 
   // CRIT-1: TCPA consent check enforced inside sendSMSToLead / sendEmailToLead.
@@ -604,6 +656,7 @@ async function sendAgentResponse(
   await supabase.from('messages').insert({
     organization_id,
     conversation_id,
+    thread_id: thread_id ?? null,
     lead_id,
     agent_id: agentId,
     direction: 'outbound',
@@ -659,9 +712,10 @@ async function sendHoldingAcknowledgment(
     lead_id: string
     channel: 'sms' | 'email'
     sender_contact: string
+    thread_id?: string | null
   }
 ): Promise<void> {
-  const { organization_id, conversation_id, lead_id, channel, sender_contact } = params
+  const { organization_id, conversation_id, lead_id, channel, sender_contact, thread_id } = params
   let externalId: string | undefined
 
   if (channel === 'sms') {
@@ -696,6 +750,7 @@ async function sendHoldingAcknowledgment(
   await supabase.from('messages').insert({
     organization_id,
     conversation_id,
+    thread_id: thread_id ?? null,
     lead_id,
     direction: 'outbound',
     channel,

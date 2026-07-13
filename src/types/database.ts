@@ -415,6 +415,47 @@ export type Conversation = {
   messages?: Message[]
 }
 
+// ── Conversation Threads ────────────────────────────────────
+// Topic sub-threads inside one conversation (scheduling, nurture, financing, …).
+// One open thread per topic keeps concurrent topics legible and lets workflows
+// coordinate instead of talking over each other.
+export type ConversationTopic =
+  | 'scheduling'
+  | 'nurture'
+  | 'financing'
+  | 'clinical'
+  | 'reminder'
+  | 'reengagement'
+  | 'general'
+
+export type ConversationThreadStatus = 'open' | 'resolved' | 'superseded'
+
+export type ConversationThread = {
+  id: string
+  organization_id: string
+  conversation_id: string
+  lead_id: string
+  topic: ConversationTopic | string
+  title: string | null
+  status: ConversationThreadStatus
+  opened_by: string | null
+  last_message_at: string | null
+  last_message_preview: string | null
+  message_count: number
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  resolved_at: string | null
+}
+
+export type ConversationWorkflowLock = {
+  conversation_id: string
+  organization_id: string
+  holder: string
+  claimed_at: string
+  expires_at: string
+}
+
 export type MessageSenderType = 'lead' | 'user' | 'ai' | 'system'
 export type MessageStatus = 'pending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'bounced'
 
@@ -422,6 +463,8 @@ export type Message = {
   id: string
   organization_id: string
   conversation_id: string
+  /** Topic thread this message belongs to (conversation_threads.id), when attributed. */
+  thread_id: string | null
   lead_id: string
   direction: 'inbound' | 'outbound'
   channel: ConversationChannel
