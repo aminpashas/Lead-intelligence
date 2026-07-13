@@ -51,10 +51,15 @@ export function recordingSidFromUrl(recordingUrl: string): string | null {
 /**
  * Transcribe a Twilio recording. Pass `existingTranscriptSid` (from a prior
  * 'processing' result) to resume instead of creating a duplicate transcript.
+ *
+ * `maxPollMs` caps how long this call waits for Twilio to finish before handing
+ * back 'processing' (defaults to MAX_POLL_MS). A batch sweep passes a short
+ * budget so each row's work stays bounded and a later sweep resumes via the SID.
  */
 export async function transcribeTwilioRecording(input: {
   recordingUrl: string
   existingTranscriptSid?: string | null
+  maxPollMs?: number
 }): Promise<TranscribeResult> {
   if (!isTranscriptionConfigured()) return { status: 'unconfigured' }
 
@@ -80,7 +85,7 @@ export async function transcribeTwilioRecording(input: {
   }
 
   // Poll until completed or our per-request budget runs out.
-  const deadline = Date.now() + MAX_POLL_MS
+  const deadline = Date.now() + (input.maxPollMs ?? MAX_POLL_MS)
   for (;;) {
     const res = await fetch(`${INTELLIGENCE_BASE}/Transcripts/${transcriptSid}`, {
       headers: { Authorization: authHeader() },
