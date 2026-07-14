@@ -52,24 +52,23 @@ export default async function LeadDetailPage({
   // The most recently active conversation is the one the embedded chat opens on.
   const primaryConversation = conversations?.[0] ?? null
 
-  // Full messages + finished calls for that thread, so the in-lead chat window
-  // (ConversationThread) has everything it needs to render and send.
-  const { data: threadMessages } = primaryConversation
-    ? await supabase
-        .from('messages')
-        .select('*')
-        .eq('conversation_id', primaryConversation.id)
-        .order('created_at', { ascending: true })
-    : { data: [] }
+  // Everything the lead has said or done — texts AND emails across every
+  // conversation, plus every finished call (even calls logged against the lead
+  // with no conversation_id) — so the in-lead thread shows it all together, not
+  // just the primary conversation's slice. Sending/AI still target
+  // primaryConversation below; this is purely what the thread renders.
+  const { data: threadMessages } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('lead_id', id)
+    .order('created_at', { ascending: true })
 
-  const { data: threadCalls } = primaryConversation
-    ? await supabase
-        .from('voice_calls')
-        .select('*')
-        .eq('conversation_id', primaryConversation.id)
-        .not('ended_at', 'is', null)
-        .order('created_at', { ascending: true })
-    : { data: [] }
+  const { data: threadCalls } = await supabase
+    .from('voice_calls')
+    .select('*')
+    .eq('lead_id', id)
+    .not('ended_at', 'is', null)
+    .order('created_at', { ascending: true })
 
   // Fetch messages (all channels) for the unified timeline
   const { data: messages } = await supabase

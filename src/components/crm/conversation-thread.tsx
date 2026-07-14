@@ -136,6 +136,9 @@ function buildThread(messages: Message[], calls: VoiceCall[], timeZone: string):
       prev &&
       prev.direction === msg.direction &&
       prev.sender_type === msg.sender_type &&
+      // Keep channels apart: an email and a text should never share one group,
+      // even back-to-back, so each reads as its own kind of event.
+      prev.channel === msg.channel &&
       agentOf(prev) === agentOf(msg) &&
       d.getTime() - new Date(prev.created_at).getTime() < GROUP_WINDOW_MS
     if (!continues) flush()
@@ -1068,6 +1071,7 @@ function MessageGroup({ messages, lead, timeZone }: { messages: Message[]; lead:
   const first = messages[0]
   const outbound = first.direction === 'outbound'
   const isAI = first.sender_type === 'ai'
+  const isEmail = first.channel === 'email'
   const hasAIDraft = messages.some((m) => m.ai_generated)
 
   const senderLabel = isAI
@@ -1088,6 +1092,12 @@ function MessageGroup({ messages, lead, timeZone }: { messages: Message[]; lead:
         )}
         <span className="font-medium text-aurea-ink-2">{senderLabel}</span>
         {isAI && <AgentMessageLabel agent={agentOf(first)} />}
+        {/* Channel marker — an email reads as its own kind of event, not a text */}
+        {isEmail && (
+          <span className="inline-flex items-center gap-1 rounded border border-aurea-border bg-aurea-surface-2 px-1.5 py-px font-medium text-aurea-ink-3">
+            <Mail className="h-2.5 w-2.5" strokeWidth={1.75} /> Email
+          </span>
+        )}
         {!isAI && hasAIDraft && (
           <Sparkles className="h-3 w-3 text-aurea-primary" strokeWidth={1.75} aria-label="AI-drafted" />
         )}
@@ -1095,8 +1105,8 @@ function MessageGroup({ messages, lead, timeZone }: { messages: Message[]; lead:
         <span>{zonedTimeLabel(new Date(first.created_at), timeZone)}</span>
       </div>
 
-      {/* Bubbles */}
-      <div className={`flex max-w-[85%] flex-col gap-1 ${outbound ? 'items-end' : 'items-start'}`}>
+      {/* Bubbles — emails get a wider column since they carry subjects + prose */}
+      <div className={`flex flex-col gap-1 ${isEmail ? 'max-w-[92%]' : 'max-w-[85%]'} ${outbound ? 'items-end' : 'items-start'}`}>
         {messages.map((msg, i) => {
           const last = i === messages.length - 1
           return (
@@ -1109,6 +1119,16 @@ function MessageGroup({ messages, lead, timeZone }: { messages: Message[]; lead:
                     : `border border-aurea-border bg-aurea-surface text-aurea-ink ${last ? 'rounded-bl-md' : ''}`
                 }`}
               >
+                {/* Subject reads as the email's headline above the body */}
+                {isEmail && msg.subject && (
+                  <p
+                    className={`mb-1 border-b pb-1 text-[12.5px] font-semibold ${
+                      outbound ? 'border-aurea-canvas/20' : 'border-aurea-border'
+                    }`}
+                  >
+                    {msg.subject}
+                  </p>
+                )}
                 <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55]">{msg.body}</p>
               </div>
               {msg.status === 'failed' && (
