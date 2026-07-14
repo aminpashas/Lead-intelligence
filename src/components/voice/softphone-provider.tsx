@@ -165,7 +165,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
       setStatus((s) => (s === 'offline' ? 'idle' : s))
     })
     device.on('error', (err: { message?: string }) => {
-      // eslint-disable-next-line no-console
+       
       console.error('[softphone] device error', err)
     })
     device.on('tokenWillExpire', async () => {
@@ -243,7 +243,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
       call.on('cancel', onEnd)
       call.on('reject', onEnd)
       call.on('error', (err: { message?: string }) => {
-        // eslint-disable-next-line no-console
+         
         console.error('[softphone] call error', err)
         toast.error('Call error')
         onEnd()
@@ -308,7 +308,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         callRef.current = call
         attachCallListeners(call)
       } catch (e) {
-        // eslint-disable-next-line no-console
+         
         console.error('[softphone] connect failed', e)
         toast.error('Could not connect the call')
         resetCallState()

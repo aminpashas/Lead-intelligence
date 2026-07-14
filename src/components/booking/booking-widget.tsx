@@ -310,7 +310,7 @@ export function BookingWidget({ orgId }: { orgId: string }) {
                 <Input id="dob" type="date" value={dob} onChange={(e) => setDob(e.target.value)} max={new Date().toISOString().slice(0, 10)} required />
               </div>
               <div>
-                <Label htmlFor="notes">Anything you'd like us to know? (optional)</Label>
+                <Label htmlFor="notes">Anything you&apos;d like us to know? (optional)</Label>
                 <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
               </div>
 

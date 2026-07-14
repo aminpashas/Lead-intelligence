@@ -5,7 +5,7 @@
  *   npx tsx scripts/apply-booking-migrations.ts
  */
 import { readFileSync } from 'fs'
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 import pg from 'pg'
 
 const raw = readFileSync('supabase/.temp/pooler-url', 'utf8').trim()

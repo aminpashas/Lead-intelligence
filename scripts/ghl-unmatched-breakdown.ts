@@ -141,7 +141,7 @@ async function main() {
   const pad = (s: string | number, n: number) => String(s).padStart(n)
   console.log(`\n================ UNMATCHED GHL OPPS — BREAKDOWN (${unmatchedTotal}) ================`)
   console.log(`${'stage'.padEnd(24)}${pad('total',7)}${pad('recover',9)}${pad('absent',8)}${pad('email',7)}${pad('phone',7)}${pad('both',6)}${pad('noContact',10)}`)
-  let T = { total:0, recoverable:0, absent:0, emailOnly:0, phoneOnly:0, both:0, noContact:0 }
+  const T = { total:0, recoverable:0, absent:0, emailOnly:0, phoneOnly:0, both:0, noContact:0 }
   for (const s of stages) {
     const b = byStage[s]
     for (const k of Object.keys(T) as (keyof typeof T)[]) T[k] += b[k]

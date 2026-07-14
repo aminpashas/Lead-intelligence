@@ -2010,7 +2010,7 @@ async function executeSendPreopInstructions(
 <p><strong>Questions?</strong> Call or text us anytime. We're here for you!</p>
 <p>— The Team at Dion Health</p>`
 
-  let sentVia: string[] = []
+  const sentVia: string[] = []
 
   if ((channel === 'sms' || channel === 'both') && decryptedPhone) {
     try {
