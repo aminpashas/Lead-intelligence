@@ -22,6 +22,7 @@ vi.mock('web-push', () => ({
 
 import {
   notifyInboundMessage,
+  notifyHumanTask,
   resolveStaffRecipients,
   NOTIFY_COOLDOWN_MS,
 } from '@/lib/notifications/staff-notify'
@@ -452,5 +453,116 @@ describe('sendPushToUser', () => {
     const delivered = await sendPushToUser(supa.client, 'user-1', { title: 't', body: 'b' })
     expect(delivered).toBe(0)
     expect(webpush.sendNotification).not.toHaveBeenCalled()
+  })
+})
+
+// ── notifyHumanTask (lead-keyed, no conversation) ────────────────────────────
+
+describe('notifyHumanTask', () => {
+  const taskInput = {
+    organizationId: ORG_ID,
+    leadId: LEAD_ID,
+    title: 'First touch: Jane',
+    preview: 'New lead — reach out before the AI takes over.',
+    taskId: 'task-1',
+  }
+
+  it('pings the lead owner on push + sms and logs lead-keyed (no slack, no conversation)', async () => {
+    const supa = createMockSupabase({
+      leads: [leadRow({ assigned_to: 'user-1' })],
+      user_profiles: [profile('user-1', 'treatment_coordinator')],
+      push_subscriptions: [pushSub('user-1')],
+    })
+
+    const result = await notifyHumanTask(supa.client, taskInput)
+
+    expect(result.sent).toEqual(
+      expect.arrayContaining([
+        { userId: 'user-1', channel: 'push' },
+        { userId: 'user-1', channel: 'sms' },
+      ])
+    )
+    // First touch has no conversation → org Slack is not this module's job.
+    expect(result.slackDispatched).toBe(false)
+    expect(dispatchConnectorEvent).not.toHaveBeenCalled()
+    expect(sendSMS).toHaveBeenCalledTimes(1)
+    // SMS deep-links to the LEAD, not a conversation.
+    expect(vi.mocked(sendSMS).mock.calls[0][1]).toContain(`/leads/${LEAD_ID}`)
+
+    const logged = supa.inserts.notification_log ?? []
+    expect(logged.map((r) => [r.user_id, r.channel]).sort()).toEqual(
+      [
+        ['user-1', 'push'],
+        ['user-1', 'sms'],
+      ].sort()
+    )
+    // Lead-keyed ledger rows: task.assigned event, no conversation_id.
+    expect(logged.every((r) => r.event_type === 'task.assigned')).toBe(true)
+    expect(logged.every((r) => r.conversation_id === undefined)).toBe(true)
+    expect(logged.every((r) => r.lead_id === LEAD_ID)).toBe(true)
+  })
+
+  it('routes to the role pool when no user owns the lead', async () => {
+    const supa = createMockSupabase({
+      leads: [leadRow({ assigned_to: null })],
+      user_profiles: [
+        profile('tc-1', 'treatment_coordinator'),
+        profile('tc-2', 'treatment_coordinator'),
+      ],
+      push_subscriptions: [pushSub('tc-1'), pushSub('tc-2')],
+    })
+
+    const result = await notifyHumanTask(supa.client, {
+      ...taskInput,
+      assignedRole: 'treatment_coordinator',
+    })
+
+    expect(result.sent.map((s) => s.userId).sort()).toEqual(['tc-1', 'tc-1', 'tc-2', 'tc-2'].sort())
+    expect(sendSMS).toHaveBeenCalledTimes(2)
+  })
+
+  it('no-ops (no throw) when no recipient resolves', async () => {
+    const supa = createMockSupabase({
+      leads: [leadRow({ assigned_to: null })],
+      user_profiles: [], // no owner, no role pool, no admins
+    })
+
+    const result = await notifyHumanTask(supa.client, taskInput)
+
+    expect(result.sent).toEqual([])
+    expect(sendSMS).not.toHaveBeenCalled()
+    expect(webpush.sendNotification).not.toHaveBeenCalled()
+    expect(supa.inserts.notification_log).toBeUndefined()
+  })
+
+  it('dedupes inside the cooldown: a second task ping for the same lead sends nothing new', async () => {
+    const supa = createMockSupabase({
+      leads: [leadRow({ assigned_to: 'user-1' })],
+      user_profiles: [profile('user-1', 'treatment_coordinator')],
+      push_subscriptions: [pushSub('user-1')],
+    })
+
+    const first = await notifyHumanTask(supa.client, taskInput)
+    expect(first.sent).toHaveLength(2)
+
+    const second = await notifyHumanTask(supa.client, taskInput)
+    expect(second.sent).toEqual([])
+    expect(sendSMS).toHaveBeenCalledTimes(1)
+    expect(webpush.sendNotification).toHaveBeenCalledTimes(1)
+  })
+
+  it('respects a recipient opting out of a channel', async () => {
+    const supa = createMockSupabase({
+      leads: [leadRow({ assigned_to: 'user-1' })],
+      user_profiles: [
+        profile('user-1', 'treatment_coordinator', { notification_prefs: { sms: false } }),
+      ],
+      push_subscriptions: [pushSub('user-1')],
+    })
+
+    const result = await notifyHumanTask(supa.client, taskInput)
+
+    expect(result.sent).toEqual([{ userId: 'user-1', channel: 'push' }])
+    expect(sendSMS).not.toHaveBeenCalled()
   })
 })

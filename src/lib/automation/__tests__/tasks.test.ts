@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   createHumanTask,
   resolveAssignee,
+  allocationTaskPriority,
   completeTasksForConversation,
   taskDedupeKeyForInbound,
   taskDedupeKeyForFirstTouch,
@@ -145,6 +146,31 @@ const baseInput = (overrides: Partial<CreateHumanTaskInput> = {}): CreateHumanTa
   conversation_id: 'convo-1',
   dedupe_key: taskDedupeKeyForInbound('convo-1'),
   ...overrides,
+})
+
+// ── Priority ─────────────────────────────────────────────────────────────────
+
+describe('allocationTaskPriority', () => {
+  it('routine human-owned work stays normal', () => {
+    expect(allocationTaskPriority('human', null)).toBe('normal')
+    expect(allocationTaskPriority('human', 180)).toBe('normal') // sla ignored unless hold
+    expect(allocationTaskPriority('ai', 60)).toBe('normal')
+  })
+
+  it('a human-first hold outranks routine work', () => {
+    expect(allocationTaskPriority('hold', 600)).toBe('high')
+  })
+
+  it('a tight hold window (<= 5 min) is urgent', () => {
+    expect(allocationTaskPriority('hold', 300)).toBe('urgent')
+    expect(allocationTaskPriority('hold', 180)).toBe('urgent')
+    expect(allocationTaskPriority('hold', 301)).toBe('high')
+  })
+
+  it('a hold with no/zero SLA falls back to normal', () => {
+    expect(allocationTaskPriority('hold', null)).toBe('normal')
+    expect(allocationTaskPriority('hold', 0)).toBe('normal')
+  })
 })
 
 // ── Dedupe keys ──────────────────────────────────────────────────────────────

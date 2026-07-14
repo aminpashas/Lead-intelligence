@@ -143,6 +143,27 @@ export function taskDedupeKeyForListCall(smartListId: string, leadId: string): s
   return `list_call:${smartListId}:${leadId}`
 }
 
+// ── Priority ─────────────────────────────────────────────────────────
+
+/**
+ * Priority for an allocation-created task.
+ *
+ * Routine human-owned work ('human') stays 'normal'. A human-first HOLD carries
+ * a ticking SLA before the AI takes over, so it must outrank routine tasks on
+ * the /tasks board (which re-sorts by priority): 'urgent' when the window is
+ * tight (<= 5 min), 'high' otherwise. Without this every allocation task landed
+ * at 'normal', so priority never differentiated the queue.
+ */
+export function allocationTaskPriority(
+  owner: 'ai' | 'human' | 'hold',
+  slaSeconds: number | null | undefined
+): HumanTaskPriority {
+  if (owner === 'hold' && slaSeconds && slaSeconds > 0) {
+    return slaSeconds <= 300 ? 'urgent' : 'high'
+  }
+  return 'normal'
+}
+
 // ── Create (upsert-on-dedupe) ────────────────────────────────────────
 
 /**

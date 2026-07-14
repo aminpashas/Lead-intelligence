@@ -28,8 +28,10 @@ import { applyScopedKnobs } from '@/lib/automation/scoped-config'
 import {
   createHumanTask,
   resolveAssignee,
+  allocationTaskPriority,
   taskDedupeKeyForFirstTouch,
 } from '@/lib/automation/tasks'
+import { notifyHumanTask } from '@/lib/notifications/staff-notify'
 
 export type SpeedToLeadResult = {
   action: 'sent' | 'skipped' | 'escalated' | 'no_contact'
@@ -92,7 +94,7 @@ export async function triggerSpeedToLead(
         ? new Date(Date.now() + allocation.slaSeconds * 1000).toISOString()
         : null
 
-    await createHumanTask(supabase, {
+    const { taskId } = await createHumanTask(supabase, {
       organization_id: organizationId,
       kind: 'first_touch',
       title: `First touch: ${firstName}`,
@@ -102,6 +104,7 @@ export async function triggerSpeedToLead(
       policy_id: allocation.policyId,
       assigned_to: assignee.userId,
       assigned_role: assignee.role,
+      priority: allocationTaskPriority(allocation.owner, allocation.slaSeconds),
       due_at: dueAt,
       dedupe_key: taskDedupeKeyForFirstTouch(leadId),
       metadata: {
@@ -112,8 +115,21 @@ export async function triggerSpeedToLead(
     })
 
     // No conversation exists yet at first touch, so notifyInboundMessage
-    // (conversation-keyed) can't run here; the /tasks inbox badge surfaces the
-    // first_touch task. Wire a lead-keyed staff ping here if that proves slow.
+    // (conversation-keyed) can't run here — ping the owner directly on the LEAD
+    // so the first_touch task isn't only surfaced by the /tasks badge. The
+    // org-wide new-lead alert (new-lead-alert.ts) is a separate, broader signal;
+    // this is the direct "you own this touch, act within the SLA" nudge. Fires
+    // only when a real assignee/pool resolved and always fails soft.
+    await notifyHumanTask(supabase, {
+      organizationId,
+      leadId,
+      taskId: taskId ?? undefined,
+      assignedRole: assignee.role,
+      title: `First touch: ${firstName}`,
+      preview: dueAt
+        ? 'New lead — reach out before the AI takes over.'
+        : 'New lead allocated to you for first outreach.',
+    }).catch(() => {})
 
     return { action: 'skipped', reason: 'allocated_to_human' }
   }

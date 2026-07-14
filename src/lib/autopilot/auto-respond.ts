@@ -39,6 +39,7 @@ import { applyScopedKnobs } from '@/lib/automation/scoped-config'
 import {
   createHumanTask,
   resolveAssignee,
+  allocationTaskPriority,
   taskDedupeKeyForInbound,
 } from '@/lib/automation/tasks'
 import { classifyMedicalQuestion, severityToPriority } from '@/lib/ai/medical-question-detector'
@@ -168,6 +169,7 @@ export async function processAutoResponse(
       policy_id: allocation.policyId,
       assigned_to: assignee.userId,
       assigned_role: assignee.role,
+      priority: allocationTaskPriority(allocation.owner, allocation.slaSeconds),
       due_at: dueAt,
       dedupe_key: taskDedupeKeyForInbound(conversation_id),
       metadata: {

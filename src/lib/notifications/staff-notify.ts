@@ -375,6 +375,133 @@ export async function notifyInboundMessage(
   }
 }
 
+export type NotifyHumanTaskInput = {
+  organizationId: string
+  leadId: string
+  /** Copy for the ping title (e.g. "First touch: Jane"). */
+  title: string
+  /** Short body, clamped to 120 chars. */
+  preview: string
+  /** human_tasks.id, for the ledger event + push tag. */
+  taskId?: string
+  /** Role queue the task routes to when no specific user owns the lead. */
+  assignedRole?: string | null
+  /** Restrict channels. Default push + sms — org Slack is the new-lead alert's job. */
+  channels?: Array<'push' | 'sms'>
+}
+
+/**
+ * Ping staff about a human task that has NO conversation yet — the first_touch
+ * case, where the lead hasn't been messaged so there is nothing to key presence
+ * or a /conversations link on. Lead-keyed sibling of notifyInboundMessage:
+ * assignee-first recipients (lead owner → role queue → admins), push + sms only,
+ * and a lead-scoped cooldown (one task ping per lead/user/channel per
+ * NOTIFY_COOLDOWN_MS). Deep-links to the lead. Never throws.
+ */
+export async function notifyHumanTask(
+  supabase: SupabaseClient,
+  input: NotifyHumanTaskInput
+): Promise<NotifyResult> {
+  try {
+    const channels = input.channels ?? ['push', 'sms']
+    const preview = clampPreview(input.preview)
+    const leadUrl = `${appUrl()}/leads/${input.leadId}`
+    const now = Date.now()
+
+    const recipients = await resolveStaffRecipients(
+      supabase,
+      input.organizationId,
+      input.leadId,
+      input.assignedRole ?? null
+    )
+    if (recipients.length === 0) return { ...EMPTY_RESULT }
+
+    // Lead-scoped cooldown: skip a (lead, user, channel) already pinged for a
+    // task in the last window. No conversation exists, so there is no presence
+    // to suppress on — the cooldown is the only noise control here.
+    let recentLogs: LogRow[] = []
+    try {
+      const cutoff = new Date(now - NOTIFY_COOLDOWN_MS).toISOString()
+      const { data: logs } = await supabase
+        .from('notification_log')
+        .select('user_id, channel, sent_at')
+        .eq('organization_id', input.organizationId)
+        .eq('lead_id', input.leadId)
+        .eq('event_type', 'task.assigned')
+        .gte('sent_at', cutoff)
+      recentLogs = (logs as LogRow[]) ?? []
+    } catch {
+      // Dedupe state unavailable → default to sending (better twice than never).
+    }
+    const inCooldown = (userId: string, channel: NotifyChannel): boolean =>
+      recentLogs.some((r) => r.user_id === userId && r.channel === channel)
+
+    const logRows: Array<Record<string, unknown>> = []
+    const logSend = (userId: string, channel: NotifyChannel) => {
+      logRows.push({
+        organization_id: input.organizationId,
+        lead_id: input.leadId,
+        user_id: userId,
+        channel,
+        event_type: 'task.assigned',
+      })
+    }
+
+    const result: NotifyResult = { sent: [], slackDispatched: false, suppressedViewing: [] }
+    const title = `Task: ${input.title}`
+
+    for (const recipient of recipients) {
+      const prefs = recipient.notification_prefs || {}
+
+      if (channels.includes('push') && prefs.push !== false && !inCooldown(recipient.id, 'push')) {
+        try {
+          const delivered = await sendPushToUser(supabase, recipient.id, {
+            title,
+            body: preview,
+            url: `/leads/${input.leadId}`,
+            tag: `task-${input.taskId ?? input.leadId}`,
+          })
+          if (delivered > 0) {
+            result.sent.push({ userId: recipient.id, channel: 'push' })
+            logSend(recipient.id, 'push')
+          }
+        } catch {
+          // web-push already fails soft; belt-and-braces
+        }
+      }
+
+      if (channels.includes('sms') && prefs.sms !== false && !inCooldown(recipient.id, 'sms')) {
+        const phone = decryptSafe(recipient.phone)
+        if (phone) {
+          try {
+            await sendSMS(phone, `📋 ${title}: "${preview}" — ${leadUrl}`)
+            result.sent.push({ userId: recipient.id, channel: 'sms' })
+            logSend(recipient.id, 'sms')
+          } catch {
+            // Non-critical — continue to the next recipient
+          }
+        }
+      }
+    }
+
+    if (logRows.length > 0) {
+      try {
+        await supabase.from('notification_log').insert(logRows)
+      } catch {
+        // Ledger failure must not fail the notification path.
+      }
+    }
+
+    return result
+  } catch (err) {
+    logger.warn('StaffNotify: notifyHumanTask failed', {
+      leadId: input.leadId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return { ...EMPTY_RESULT }
+  }
+}
+
 /**
  * Log a staff notification sent OUTSIDE this module (escalation.ts keeps its
  * bespoke SMS/email copy but still writes to the shared ledger so cooldowns
