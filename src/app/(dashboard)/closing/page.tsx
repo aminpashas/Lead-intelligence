@@ -1,3 +1,4 @@
+import { FunnelViewNav } from '@/components/crm/funnel-view-nav'
 import { createClient } from '@/lib/supabase/server'
 import { ClosingBoard } from '@/components/crm/closing-board'
 import { decryptLeadsPII } from '@/lib/encryption'
@@ -86,6 +87,7 @@ export default async function ClosingPage() {
         <p className="mt-2 text-[14px] leading-relaxed text-aurea-ink-2">
           Your curated closing book — every deal being actively worked to close, ranked by likely revenue.
         </p>
+        <FunnelViewNav current="/closing" />
       </header>
 
       <ClosingBoard rows={rows} forecast={forecast} />

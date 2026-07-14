@@ -7,26 +7,25 @@
  * when that call wraps up (ends AND the corner widget's disposition is submitted),
  * the dialer advances. With Auto-advance on, it immediately places the next call;
  * off, it waits for the staffer to hit Call again. Disposition itself lives in the
- * global floating widget — one call-control surface, not two.
+ * global floating widget — one call-control surface, not two — but the dialer now
+ * surfaces the "awaiting disposition" state inline so that dependency is visible and
+ * "Call next" can't silently redial the same lead before the last call is logged.
+ *
+ * The queue is server-driven: an initial batch is fetched by the Call Center page and
+ * handed in as `initialLeads`; when it empties, "Load next batch" pulls more from
+ * /api/voice/dialer-queue (same filter, excluding leads already seen this session and
+ * anyone contacted in the last 24h). Reloading the page re-seeds a fresh batch.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PhoneOutgoing, SkipForward, Loader2, CheckCircle2 } from 'lucide-react'
+import Link from 'next/link'
+import { PhoneOutgoing, SkipForward, Loader2, CheckCircle2, ExternalLink, ClipboardList, RotateCw } from 'lucide-react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useSoftphone } from './softphone-provider'
+import type { DialerLead } from '@/lib/voice/dialer-queue'
 
-export type DialerLead = {
-  id: string
-  first_name: string
-  last_name: string | null
-  ai_score: number | null
-  ai_qualification: string
-  status: string
-  last_contacted_at: string | null
-  city: string | null
-  state: string | null
-  phone_last4: string
-}
+export type { DialerLead }
 
 const QUAL_COLOR: Record<string, string> = {
   hot: 'text-red-500 bg-red-500/10',
@@ -46,10 +45,12 @@ function sinceLabel(iso: string | null): string {
 
 export function PowerDialer({ initialLeads }: { initialLeads: DialerLead[] }) {
   const { status, endedCall, startCall } = useSoftphone()
-  const leads = initialLeads
+  const [leads, setLeads] = useState<DialerLead[]>(initialLeads)
   const [index, setIndex] = useState(0)
   const [handled, setHandled] = useState(0)
   const [autoAdvance, setAutoAdvance] = useState(false)
+  const [loadingBatch, setLoadingBatch] = useState(false)
+  const [exhausted, setExhausted] = useState(false)
 
   // True only while a call WE placed is still outstanding (through disposition).
   const awaitingWrapRef = useRef(false)
@@ -57,6 +58,10 @@ export function PowerDialer({ initialLeads }: { initialLeads: DialerLead[] }) {
   const current = leads[index]
   const onCall = status === 'connecting' || status === 'ringing' || status === 'in_call'
   const done = index >= leads.length
+  // A call we placed has ended but the staffer hasn't logged it in the widget yet.
+  // Until they do, the queue must not advance or redial — the disposition is the
+  // hand-off, and this is the visible half of the softphone dependency.
+  const awaitingDisposition = !!endedCall
 
   const startCallAt = useCallback(
     (i: number) => {
@@ -83,9 +88,32 @@ export function PowerDialer({ initialLeads }: { initialLeads: DialerLead[] }) {
   }, [status, endedCall, index, autoAdvance, leads.length, startCallAt])
 
   function skip() {
-    if (onCall) return
+    if (onCall || awaitingDisposition) return
     setIndex((i) => i + 1)
   }
+
+  // Pull the next batch of callable leads, excluding everything already loaded this
+  // session (handled, skipped or still queued) so nothing resurfaces.
+  const loadNextBatch = useCallback(async () => {
+    if (loadingBatch) return
+    setLoadingBatch(true)
+    try {
+      const exclude = leads.map((l) => l.id).join(',')
+      const res = await fetch(`/api/voice/dialer-queue?exclude=${encodeURIComponent(exclude)}`)
+      if (!res.ok) throw new Error('Failed to load')
+      const data = await res.json()
+      const next = (data.leads as DialerLead[]) || []
+      if (next.length === 0) {
+        setExhausted(true)
+      } else {
+        setLeads((prev) => [...prev, ...next])
+      }
+    } catch {
+      toast.error('Could not load more leads')
+    } finally {
+      setLoadingBatch(false)
+    }
+  }, [leads, loadingBatch])
 
   const upNext = leads.slice(index + 1, index + 6)
 
@@ -141,15 +169,49 @@ export function PowerDialer({ initialLeads }: { initialLeads: DialerLead[] }) {
           <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-emerald-500" strokeWidth={1.5} />
           <p className="text-sm font-medium text-aurea-ink">Queue complete</p>
           <p className="mt-1 text-xs text-aurea-ink-3">You handled {handled} lead(s).</p>
+          {exhausted ? (
+            <p className="mt-4 text-xs text-aurea-ink-3">
+              No more callable leads — everyone in reach has been contacted recently.
+            </p>
+          ) : (
+            <button
+              onClick={loadNextBatch}
+              disabled={loadingBatch}
+              className="mt-5 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:opacity-50"
+            >
+              {loadingBatch ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> Loading…
+                </>
+              ) : (
+                <>
+                  <RotateCw className="h-4 w-4" strokeWidth={2} /> Load next batch
+                </>
+              )}
+            </button>
+          )}
         </div>
       ) : (
         <div className="rounded-2xl border border-aurea-border bg-aurea-surface p-6">
           <div className="flex items-start justify-between">
             <div className="min-w-0">
-              <p className="truncate text-lg font-semibold text-aurea-ink">
-                {current.first_name}
-                {current.last_name ? ` ${current.last_name}` : ''}
-              </p>
+              {/* Name links through to the full lead record (new tab) so the staffer
+                  can pull history without losing their place in the queue. */}
+              <Link
+                href={`/leads/${current.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group inline-flex items-center gap-1.5 text-lg font-semibold text-aurea-ink hover:text-emerald-600"
+              >
+                <span className="truncate">
+                  {current.first_name}
+                  {current.last_name ? ` ${current.last_name}` : ''}
+                </span>
+                <ExternalLink
+                  className="h-3.5 w-3.5 shrink-0 text-aurea-ink-3 transition-colors group-hover:text-emerald-600"
+                  strokeWidth={1.75}
+                />
+              </Link>
               <p className="mt-0.5 text-sm text-aurea-ink-3">
                 •••• {current.phone_last4 || '—'}
                 {current.city || current.state
@@ -169,15 +231,37 @@ export function PowerDialer({ initialLeads }: { initialLeads: DialerLead[] }) {
             </span>
           </div>
 
+          {/* Latest AI / conversation context — so the card isn't a bare name. */}
+          {current.note && (
+            <p className="mt-4 line-clamp-3 rounded-lg bg-aurea-surface-2 px-3 py-2 text-xs leading-relaxed text-aurea-ink-2">
+              {current.note}
+            </p>
+          )}
+
+          {/* Awaiting-disposition banner: the last call ended but hasn't been logged. */}
+          {awaitingDisposition && (
+            <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-500">
+              <ClipboardList className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
+              <span>
+                Log the last call in the call widget to continue — the queue advances once you pick an
+                outcome.
+              </span>
+            </div>
+          )}
+
           <div className="mt-6 flex items-center gap-3">
             <button
               onClick={() => startCallAt(index)}
-              disabled={onCall}
+              disabled={onCall || awaitingDisposition}
               className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-600 disabled:opacity-50"
             >
               {onCall ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} /> On call…
+                </>
+              ) : awaitingDisposition ? (
+                <>
+                  <ClipboardList className="h-4 w-4" strokeWidth={2} /> Log the last call first
                 </>
               ) : (
                 <>
@@ -187,15 +271,17 @@ export function PowerDialer({ initialLeads }: { initialLeads: DialerLead[] }) {
             </button>
             <button
               onClick={skip}
-              disabled={onCall}
+              disabled={onCall || awaitingDisposition}
               className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-aurea-border px-4 py-3 text-sm font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2 disabled:opacity-50"
             >
               <SkipForward className="h-4 w-4" strokeWidth={1.75} /> Skip
             </button>
           </div>
-          <p className="mt-3 text-center text-xs text-aurea-ink-3">
-            Log the outcome in the call widget when the call ends.
-          </p>
+          {!awaitingDisposition && (
+            <p className="mt-3 text-center text-xs text-aurea-ink-3">
+              Log the outcome in the call widget when the call ends.
+            </p>
+          )}
         </div>
       )}
 

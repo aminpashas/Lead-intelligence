@@ -1,3 +1,4 @@
+import { FunnelViewNav } from '@/components/crm/funnel-view-nav'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PipelineBoard } from '@/components/crm/pipeline-board'
@@ -277,6 +278,7 @@ export default async function PipelinePage({
         <p className="mt-2 text-[14px] leading-relaxed text-aurea-ink-2">
           Drag leads between stages to update their status
         </p>
+        <FunnelViewNav current="/pipeline" />
       </header>
       <PipelineRecommendations recommendations={recommendations} />
       <PipelineSignalColumns columns={signalColumns} />

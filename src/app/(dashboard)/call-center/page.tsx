@@ -1,10 +1,11 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { CallCenterDashboard } from '@/components/voice/call-center-dashboard'
+import { CallCenterTabs } from '@/components/voice/call-center-tabs'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { hasPermission } from '@/lib/auth/permissions'
 import { decryptLeadPII } from '@/lib/encryption'
 import { applyCallMetric, startOfTodayISO } from '@/lib/voice/call-metrics'
+import { fetchDialerQueue } from '@/lib/voice/dialer-queue'
 
 export default async function CallCenterPage() {
   const supabase = await createClient()
@@ -64,17 +65,26 @@ export default async function CallCenterPage() {
   const [{ count: todayCalls }, { count: todayConnected }, { count: todayAppointments }, { count: activeCalls }] =
     await Promise.all([countFor('today'), countFor('connected'), countFor('appointments'), countFor('active')])
 
+  // Power Dialer tab data — the same server-fetched callable-lead queue that used to
+  // live on /dialer (now folded into this hub as the "Power Dialer" tab). The initial
+  // batch preserves the legacy freshest-first ordering; "Load next batch" tightens to
+  // exclude the recently-contacted (see lib/voice/dialer-queue).
+  const dialerLeads = await fetchDialerQueue(supabase, orgId)
+
   return (
-    <CallCenterDashboard
-      recentCalls={recentCalls || []}
-      campaigns={campaigns || []}
-      orgSettings={org || { name: '', voice_enabled: false }}
-      stats={{
-        todayCalls: todayCalls || 0,
-        todayConnected: todayConnected || 0,
-        todayAppointments: todayAppointments || 0,
-        activeCalls: activeCalls || 0,
+    <CallCenterTabs
+      dashboard={{
+        recentCalls: recentCalls || [],
+        campaigns: campaigns || [],
+        orgSettings: org || { name: '', voice_enabled: false },
+        stats: {
+          todayCalls: todayCalls || 0,
+          todayConnected: todayConnected || 0,
+          todayAppointments: todayAppointments || 0,
+          activeCalls: activeCalls || 0,
+        },
       }}
+      dialerLeads={dialerLeads}
     />
   )
 }

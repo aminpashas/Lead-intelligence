@@ -314,6 +314,15 @@ export function canViewBilling(role: PracticeRole | string): boolean {
  */
 const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/agency': 'agency:console',
+  // Agency AI-platform surfaces that live in the (dashboard) route group but are
+  // reached only from the agency sidebar. Gated to agency:console so they match
+  // their /agency/* siblings (which resolve via the /agency prefix above):
+  //  - /ai-engine (+ /ai-engine/sales-intelligence via prefix): agency AI overview.
+  //  - /ai-audit, /ai-training: thin redirect stubs into /agency/ai-audit and
+  //    /agency/ai-training (both agency:console-gated). None appear in practice nav.
+  '/ai-engine': 'agency:console',
+  '/ai-audit': 'agency:console',
+  '/ai-training': 'agency:console',
   '/dashboard': 'dashboard:view',
   '/tasks': 'dashboard:view',
   '/pipeline': 'pipeline:read',
@@ -385,6 +394,17 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/settings/contracts/templates': 'contract_templates:manage',
 }
 
+/**
+ * Routes that must stay reachable by every authenticated user regardless of role
+ * — the app-shell landing surfaces. Kept as an explicit allowlist so the
+ * deny-by-default fallback in canAccessRoute can never strand a signed-in user on
+ * a route that isn't (yet) in ROUTE_PERMISSION_MAP. Matched by exact path or
+ * subtree prefix. /dashboard is also mapped (dashboard:view, which every role
+ * holds); it is listed here as a defensive backstop so removing that map entry
+ * could never lock the home page.
+ */
+const ALWAYS_ALLOWED_ROUTES: string[] = ['/dashboard']
+
 /** Check if a role can access a given route */
 export function canAccessRoute(role: PracticeRole | string, pathname: string): boolean {
   // Exact match wins outright.
@@ -405,6 +425,19 @@ export function canAccessRoute(role: PracticeRole | string, pathname: string): b
     }
   }
 
-  // Default: allow access to unknown routes (safe fallback)
-  return true
+  // Always-allow shell routes (exact or subtree) pass even when unmapped.
+  if (
+    ALWAYS_ALLOWED_ROUTES.some(
+      (route) => pathname === route || pathname.startsWith(route + '/')
+    )
+  ) {
+    return true
+  }
+
+  // Deny-by-default: an unmapped route is closed rather than fail-open. Every
+  // dashboard route resolves through ROUTE_PERMISSION_MAP (see the coverage
+  // audit in the accompanying UX-audit work), and every practice nav / hub-tab
+  // href is mapped, so this does not hide any legitimate navigation. A future
+  // server-side (middleware) enforcement hook can rely on this being closed.
+  return false
 }

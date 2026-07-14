@@ -35,6 +35,30 @@ const createAppointmentSchema = z.object({
   send_card_link: z.boolean().optional().default(true),
 })
 
+const APPT_STATUSES = ['scheduled', 'confirmed', 'completed', 'no_show', 'canceled', 'rescheduled'] as const
+
+// PATCH accepts two shapes on the same row:
+//   1. Status change      — { appointment_id, status } (backward compatible)
+//   2. In-place reschedule — { appointment_id, scheduled_at, ... } moves the slot
+// `pending_card` is intentionally excluded from settable statuses: only the
+// booking POST creates it and only the Stripe webhook / admin override clears it.
+const patchAppointmentSchema = z
+  .object({
+    appointment_id: z.string().uuid(),
+    status: z.enum(APPT_STATUSES).optional(),
+    notes: z.string().optional(),
+    card_override_reason: z.string().optional(),
+    // Reschedule: a new ISO datetime moves the appointment in place. Its presence
+    // is what marks the request a reschedule.
+    scheduled_at: z.string().optional(),
+    duration_minutes: z.number().min(15).max(480).optional(),
+    type: z.enum(['consultation', 'follow_up', 'treatment', 'scan', 'other']).optional(),
+    location: z.string().optional(),
+  })
+  .refine((d) => d.status !== undefined || d.scheduled_at !== undefined, {
+    message: 'status or scheduled_at is required',
+  })
+
 // GET /api/appointments
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -304,20 +328,19 @@ export async function PATCH(request: NextRequest) {
   const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await request.json()
+  const parsed = patchAppointmentSchema.safeParse(body)
 
-  const { appointment_id, status, notes, card_override_reason } = body
-
-  if (!appointment_id || !status) {
-    return NextResponse.json({ error: 'appointment_id and status are required' }, { status: 400 })
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  // `pending_card` is a held slot, not a manually-settable status: only the
-  // booking POST creates it and only the Stripe webhook (or the admin override
-  // below) clears it. Reps therefore can't set it here.
-  const validStatuses = ['scheduled', 'confirmed', 'completed', 'no_show', 'canceled', 'rescheduled']
-  if (!validStatuses.includes(status)) {
-    return NextResponse.json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` }, { status: 400 })
-  }
+  const { appointment_id, notes, card_override_reason } = parsed.data
+
+  // A reschedule is any PATCH that carries a new time. Moving the slot resets it
+  // to `scheduled` so it re-runs the confirmation loop for the new time; the
+  // caller's `status` (if any) is ignored in that case.
+  const isReschedule = parsed.data.scheduled_at !== undefined
+  const status = isReschedule ? 'scheduled' : (parsed.data.status as string)
 
   const { data: profile } = await getOwnProfile(supabase, 'id, organization_id')
 
@@ -328,7 +351,7 @@ export async function PATCH(request: NextRequest) {
   // Guard the held slot: an appointment awaiting a card-on-file may only be
   // confirmed by an admin (the manual override — e.g. card read over the phone),
   // never by a rep flipping the status. Cancel/reschedule stay open so a held
-  // slot can always be released. The webhook path never comes through here.
+  // slot can always be released or moved. The webhook path never comes through here.
   const { data: current } = await supabase
     .from('appointments')
     .select('status, card_on_file')
@@ -337,7 +360,7 @@ export async function PATCH(request: NextRequest) {
     .maybeSingle()
 
   let cardGateOverridden = false
-  if (current?.status === 'pending_card' && current.card_on_file !== true) {
+  if (!isReschedule && current?.status === 'pending_card' && current.card_on_file !== true) {
     const confirmingStatuses = ['scheduled', 'confirmed', 'completed']
     if (confirmingStatuses.includes(status)) {
       if (!isAdminRole(role ?? '')) {
@@ -355,6 +378,25 @@ export async function PATCH(request: NextRequest) {
 
   const updateData: Record<string, unknown> = { status }
   if (notes !== undefined) updateData.notes = notes
+
+  // Reschedule: move the row in place and clear all prior confirmation + reminder
+  // state so the new time re-confirms and reminders re-fire. Only touches columns
+  // the reschedule dialog can actually change.
+  if (isReschedule) {
+    updateData.scheduled_at = parsed.data.scheduled_at
+    if (parsed.data.duration_minutes !== undefined) updateData.duration_minutes = parsed.data.duration_minutes
+    if (parsed.data.type !== undefined) updateData.type = parsed.data.type
+    if (parsed.data.location !== undefined) updateData.location = parsed.data.location
+    updateData.confirmation_received = false
+    updateData.confirmed_at = null
+    updateData.confirmed_via = null
+    updateData.confirmation_call_made = false
+    updateData.reminder_sent_72h = false
+    updateData.reminder_sent_24h = false
+    updateData.reminder_sent_2h = false
+    updateData.reminder_sent_1h = false
+    updateData.no_show_risk_score = 0
+  }
 
   // Handle confirmation
   if (status === 'confirmed') {
@@ -446,12 +488,20 @@ export async function PATCH(request: NextRequest) {
       organization_id: orgId,
       lead_id: lead.id,
       user_id: profile.id,
-      activity_type: cardGateOverridden ? 'appointment_confirmed_card_override' : `appointment_${status}`,
-      title: cardGateOverridden
+      activity_type: isReschedule
+        ? 'appointment_rescheduled'
+        : cardGateOverridden
+        ? 'appointment_confirmed_card_override'
+        : `appointment_${status}`,
+      title: isReschedule
+        ? `Appointment moved to ${new Date(parsed.data.scheduled_at as string).toLocaleString()}`
+        : cardGateOverridden
         ? 'Appointment confirmed without a card on file (manager override)'
         : `Appointment marked as ${status.replace('_', ' ')}`,
       description: cardGateOverridden ? (card_override_reason || null) : null,
-      metadata: { appointment_id, status, card_gate_overridden: cardGateOverridden },
+      metadata: isReschedule
+        ? { appointment_id, rescheduled_to: parsed.data.scheduled_at }
+        : { appointment_id, status, card_gate_overridden: cardGateOverridden },
     })
   }
 
