@@ -230,11 +230,22 @@ export async function processVoiceCampaign(
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Populate a campaign's dial queue from a smart list or criteria.
+ * Populate a campaign's dial queue from a pipeline stage, smart list, or criteria.
+ *
+ * Audience resolution order:
+ *  1. `target_criteria.stage_id` — a pipeline stage (e.g. "No Communication").
+ *     This is what the calling-automation builder uses.
+ *  2. `smart_list_id` — a saved smart list's criteria.
+ * Both narrow the same base query, which already excludes DNC / voice opt-outs /
+ * leads without a formatted phone. The per-dial preCallCheck is still the final
+ * consent/window gate — this just avoids queueing leads we'd only reject.
+ *
+ * `opts.limit` caps how many leads get pulled (used to arm a small test batch).
  */
 export async function populateCampaignQueue(
   supabase: SupabaseClient,
-  campaignId: string
+  campaignId: string,
+  opts: { limit?: number } = {}
 ): Promise<{ leads_added: number }> {
   const { data: campaign } = await supabase
     .from('voice_campaigns')
@@ -253,7 +264,13 @@ export async function populateCampaignQueue(
     .eq('voice_opt_out', false)
     .not('phone_formatted', 'is', null)
 
-  // Apply smart list criteria if available
+  // Audience #1: a pipeline stage (the calling-automation builder's default).
+  const criteria = (campaign.target_criteria || {}) as Record<string, unknown>
+  if (typeof criteria.stage_id === 'string' && criteria.stage_id) {
+    query = query.eq('stage_id', criteria.stage_id)
+  }
+
+  // Audience #2: a saved smart list's criteria.
   if (campaign.smart_list_id) {
     const { data: smartList } = await supabase
       .from('smart_lists')
@@ -279,7 +296,7 @@ export async function populateCampaignQueue(
     }
   }
 
-  const { data: leads } = await query.limit(1000)
+  const { data: leads } = await query.limit(opts.limit ?? 1000)
 
   if (!leads || leads.length === 0) return { leads_added: 0 }
 
@@ -319,6 +336,38 @@ export async function populateCampaignQueue(
 
   logger.info('Campaign queue populated', { campaignId, leads_added: totalAdded })
   return { leads_added: totalAdded }
+}
+
+/**
+ * Top up the queues of every standing calling automation.
+ *
+ * A campaign with `target_criteria.auto_enroll = true` keeps dialing new leads
+ * that land in its audience (e.g. a lead that *becomes* "No Communication" after
+ * the campaign started). populateCampaignQueue already skips leads already in the
+ * campaign, so re-running it just appends the newcomers. Only active campaigns are
+ * swept — pausing an automation stops new enrollments too.
+ */
+export async function sweepAutoEnrollQueues(
+  supabase: SupabaseClient
+): Promise<{ campaigns_swept: number; leads_added: number }> {
+  const { data: campaigns } = await supabase
+    .from('voice_campaigns')
+    .select('id, target_criteria')
+    .eq('status', 'active')
+    .contains('target_criteria', { auto_enroll: true })
+
+  let leadsAdded = 0
+  let swept = 0
+  for (const c of campaigns || []) {
+    swept++
+    const { leads_added } = await populateCampaignQueue(supabase, c.id)
+    leadsAdded += leads_added
+  }
+
+  if (swept > 0) {
+    logger.info('Auto-enroll sweep complete', { campaigns_swept: swept, leads_added: leadsAdded })
+  }
+  return { campaigns_swept: swept, leads_added: leadsAdded }
 }
 
 /**

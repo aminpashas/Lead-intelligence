@@ -129,6 +129,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/voice-campaign-enroll",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/sla-takeover",
       "schedule": "* * * * *"
     },

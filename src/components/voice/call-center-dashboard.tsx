@@ -32,13 +32,19 @@ import {
   VolumeX, BarChart3, Voicemail, Search,
   RefreshCw, Sparkles, XCircle, Ban, ArrowUpRight,
   ChevronDown, ChevronRight, Bot, User, ArrowRight,
-  ShieldAlert, HelpCircle,
+  ShieldAlert, HelpCircle, Zap, Users, PhoneForwarded, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import type { Lead } from '@/types/database'
 import { LeadActions } from '@/components/crm/lead-actions'
 import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
+import { CampaignDetailSheet } from '@/components/voice/campaign-detail-sheet'
 import { recordingPlaybackUrl } from '@/lib/voice/recording-playback'
 import { toTranscriptLines } from '@/lib/voice/transcript'
 
@@ -213,6 +219,7 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [campaignAction, setCampaignAction] = useState<string | null>(null)
+  const [detailCampaign, setDetailCampaign] = useState<{ id: string; name: string } | null>(null)
   const router = useRouter()
 
   const voiceEnabled = orgSettings?.voice_enabled as boolean
@@ -455,8 +462,14 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
                           Pause
                         </Button>
                       )}
-                      <Button size="sm" variant="ghost" className="gap-1 text-aurea-ink-3">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1 text-aurea-ink-3"
+                        onClick={() => setDetailCampaign({ id: campaign.id, name: campaign.name })}
+                      >
                         <BarChart3 className="h-4 w-4" strokeWidth={1.75} />
+                        Details
                       </Button>
                     </div>
                   </div>
@@ -466,6 +479,13 @@ export function CallCenterDashboard({ recentCalls, campaigns, orgSettings, stats
           )}
         </TabsContent>
       </Tabs>
+
+      <CampaignDetailSheet
+        campaignId={detailCampaign?.id ?? null}
+        name={detailCampaign?.name ?? ''}
+        open={!!detailCampaign}
+        onOpenChange={(o) => { if (!o) setDetailCampaign(null) }}
+      />
     </div>
   )
 }
@@ -938,17 +958,76 @@ function MiniStat({ label, value, highlight }: { label: string; value: number; h
 // NEW CAMPAIGN DIALOG
 // ═══════════════════════════════════════════════════════════════
 
+type AudienceStage = {
+  id: string
+  name: string
+  position: number
+  is_won: boolean
+  is_lost: boolean
+  callable: number
+}
+type TransferTarget = { id: string; name: string; destination: string; kind: string }
+
+const WEEKDAYS: { key: string; label: string }[] = [
+  { key: 'monday', label: 'Mon' },
+  { key: 'tuesday', label: 'Tue' },
+  { key: 'wednesday', label: 'Wed' },
+  { key: 'thursday', label: 'Thu' },
+  { key: 'friday', label: 'Fri' },
+  { key: 'saturday', label: 'Sat' },
+  { key: 'sunday', label: 'Sun' },
+]
+
+/**
+ * Calling-automation builder. Dials a stage of leads and connects the ones who
+ * answer to a live rep. Writes live_transfer_enabled + transfer_mode + audience
+ * so the every-minute dispatcher picks it up once the org is armed. Creating the
+ * campaign leaves it in `draft` — nothing dials until the operator hits start and
+ * the org's voice switches are on.
+ */
 function NewCampaignDialog({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [loadingOpts, setLoadingOpts] = useState(false)
+
   const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
+  const [stageId, setStageId] = useState('')
+  const [autoEnroll, setAutoEnroll] = useState(true)
+  const [handoff, setHandoff] = useState<'immediate' | 'qualify_transfer'>('immediate')
+  const [callsPerHour, setCallsPerHour] = useState(20)
+  const [maxAttempts, setMaxAttempts] = useState(3)
+  const [retryHours, setRetryHours] = useState(48)
+  const [startHour, setStartHour] = useState(9)
+  const [endHour, setEndHour] = useState(18)
+  const [days, setDays] = useState<string[]>(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+
+  const [stages, setStages] = useState<AudienceStage[]>([])
+  const [targets, setTargets] = useState<TransferTarget[]>([])
+
+  useEffect(() => {
+    if (!open) return
+    setLoadingOpts(true)
+    fetch('/api/voice/campaign/audiences')
+      .then(r => (r.ok ? r.json() : { stages: [], targets: [] }))
+      .then(d => {
+        setStages(d.stages || [])
+        setTargets(d.targets || [])
+      })
+      .catch(() => {})
+      .finally(() => setLoadingOpts(false))
+  }, [open])
+
+  const selectedStage = stages.find(s => s.id === stageId)
+
+  function toggleDay(key: string) {
+    setDays(prev => (prev.includes(key) ? prev.filter(d => d !== key) : [...prev, key]))
+  }
 
   async function handleCreate() {
-    if (!name.trim()) {
-      toast.error('Campaign name is required')
-      return
-    }
+    if (!name.trim()) return toast.error('Give the automation a name')
+    if (!stageId) return toast.error('Pick who gets called')
+    if (targets.length === 0) return toast.error('Add a transfer target in Settings → Live transfer first')
+    if (days.length === 0) return toast.error('Pick at least one calling day')
 
     setCreating(true)
     try {
@@ -957,19 +1036,29 @@ function NewCampaignDialog({ onCreated }: { onCreated: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
-          description: description.trim() || null,
           agent_type: 'setter',
+          stage_id: stageId,
+          auto_enroll: autoEnroll,
+          live_transfer_enabled: true,
+          transfer_mode: handoff,
+          dial_ratio: 1.0,
+          calls_per_hour: callsPerHour,
+          max_attempts_per_lead: maxAttempts,
+          retry_delay_hours: retryHours,
+          active_hours_start: startHour,
+          active_hours_end: endHour,
+          active_days: days,
         }),
       })
-
       if (!res.ok) throw new Error('Failed')
-      toast.success('Voice campaign created! Add leads and start dialing.')
+      const { campaign } = await res.json()
+      toast.success(`Saved as draft. Review and start when ready — ${campaign?.total_leads ?? 0} leads queued.`)
       setOpen(false)
       setName('')
-      setDescription('')
+      setStageId('')
       onCreated()
     } catch {
-      toast.error('Failed to create campaign')
+      toast.error('Failed to create automation')
     } finally {
       setCreating(false)
     }
@@ -982,43 +1071,151 @@ function NewCampaignDialog({ onCreated }: { onCreated: () => void }) {
           <Plus className="h-4 w-4" strokeWidth={1.75} /> New Campaign
         </Button>
       } />
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-aurea-ink">
-            <Mic className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} /> New Voice Campaign
+            <Zap className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} /> New calling automation
           </DialogTitle>
           <DialogDescription className="text-aurea-ink-3">
-            Create an outbound calling campaign. Your AI agent will automatically dial leads and engage them in conversation.
+            Dial a stage of leads and connect the ones who answer to a person.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="space-y-5 py-1">
           <div>
-            <label className="aurea-eyebrow mb-1.5 block">Campaign Name</label>
-            <Input
-              placeholder="e.g., Q1 Reactivation Calls"
-              value={name}
-              onChange={e => setName(e.target.value)}
-            />
+            <Label className="aurea-eyebrow mb-1.5 block">Name</Label>
+            <Input placeholder="No Communication → Heather" value={name} onChange={e => setName(e.target.value)} />
           </div>
-          <div>
-            <label className="aurea-eyebrow mb-1.5 block">Description (optional)</label>
-            <Input
-              placeholder="Brief description of the campaign goal"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-            />
+
+          {/* Step 1 — audience */}
+          <div className="border-l-2 border-aurea-line pl-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-aurea-ink">
+              <Users className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} /> When — who gets called
+            </div>
+            <Select value={stageId} onValueChange={(v) => setStageId(v ?? '')}>
+              <SelectTrigger disabled={loadingOpts}>
+                <SelectValue placeholder={loadingOpts ? 'Loading stages…' : 'Choose a pipeline stage'} />
+              </SelectTrigger>
+              <SelectContent>
+                {stages.filter(s => !s.is_won && !s.is_lost).map(s => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name} · {s.callable.toLocaleString()} callable
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="mt-3 flex items-start gap-2">
+              <Switch checked={autoEnroll} onCheckedChange={setAutoEnroll} className="mt-0.5" />
+              <div className="text-xs text-aurea-ink-3">
+                <span className="text-aurea-ink">Keep enrolling automatically.</span> New leads that land in this stage
+                get added and dialed. Turn off for a one-time blast of today&apos;s list.
+              </div>
+            </div>
+            <div className="mt-2 flex items-center gap-1.5 rounded-md bg-aurea-surface-2 px-2.5 py-1.5 text-xs text-aurea-ink-3">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" strokeWidth={1.75} />
+              Opt-outs and leads without voice consent are skipped automatically.
+            </div>
           </div>
+
+          {/* Step 2 — handoff */}
+          <div className="border-l-2 border-aurea-line pl-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-aurea-ink">
+              <PhoneForwarded className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} /> Then — connect answered calls to
+            </div>
+            {targets.length === 0 ? (
+              <div className="rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-700">
+                No transfer target yet. Add one in Settings → Live transfer.
+              </div>
+            ) : (
+              <div className="rounded-md bg-aurea-surface-2 px-2.5 py-2 text-sm text-aurea-ink">
+                {targets.map(t => t.name).join(', ')}{' '}
+                <span className="text-aurea-ink-3">({targets[0].destination})</span>
+              </div>
+            )}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setHandoff('immediate')}
+                className={`rounded-md border p-2.5 text-left transition-colors ${handoff === 'immediate' ? 'border-aurea-primary ring-1 ring-aurea-primary' : 'border-aurea-line'}`}
+              >
+                <div className="flex items-center gap-1.5 text-sm font-medium text-aurea-ink">
+                  <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.75} /> Connect right away
+                </div>
+                <div className="mt-0.5 text-xs text-aurea-ink-3">Brief &ldquo;connecting you now,&rdquo; then bridge.</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setHandoff('qualify_transfer')}
+                className={`rounded-md border p-2.5 text-left transition-colors ${handoff === 'qualify_transfer' ? 'border-aurea-primary ring-1 ring-aurea-primary' : 'border-aurea-line'}`}
+              >
+                <div className="flex items-center gap-1.5 text-sm font-medium text-aurea-ink">
+                  <Bot className="h-3.5 w-3.5" strokeWidth={1.75} /> AI qualifies first
+                </div>
+                <div className="mt-0.5 text-xs text-aurea-ink-3">Confirm interest, then transfer warm.</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Step 3 — pace */}
+          <div className="border-l-2 border-aurea-line pl-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-aurea-ink">
+              <Clock className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} /> Pace and retries
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label className="aurea-eyebrow mb-1.5 block">Calls / hr</Label>
+                <Input type="number" min={1} value={callsPerHour} onChange={e => setCallsPerHour(Number(e.target.value))} />
+              </div>
+              <div>
+                <Label className="aurea-eyebrow mb-1.5 block">Max attempts</Label>
+                <Input type="number" min={1} value={maxAttempts} onChange={e => setMaxAttempts(Number(e.target.value))} />
+              </div>
+              <div>
+                <Label className="aurea-eyebrow mb-1.5 block">Retry (hrs)</Label>
+                <Input type="number" min={1} value={retryHours} onChange={e => setRetryHours(Number(e.target.value))} />
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <Label className="aurea-eyebrow mb-1.5 block">Start hour</Label>
+                <Input type="number" min={0} max={23} value={startHour} onChange={e => setStartHour(Number(e.target.value))} />
+              </div>
+              <div>
+                <Label className="aurea-eyebrow mb-1.5 block">End hour</Label>
+                <Input type="number" min={1} max={24} value={endHour} onChange={e => setEndHour(Number(e.target.value))} />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {WEEKDAYS.map(d => (
+                <button
+                  key={d.key}
+                  type="button"
+                  onClick={() => toggleDay(d.key)}
+                  className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${days.includes(d.key) ? 'border-aurea-primary bg-aurea-primary/10 text-aurea-ink' : 'border-aurea-line text-aurea-ink-3'}`}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {selectedStage && (
+            <div className="rounded-md bg-aurea-surface-2 px-3 py-2 text-xs text-aurea-ink-3">
+              Ready to queue <span className="text-aurea-ink">{selectedStage.callable.toLocaleString()}</span> callable
+              leads from <span className="text-aurea-ink">{selectedStage.name}</span>. Saves as a draft — dialing starts
+              only after you review and start.
+            </div>
+          )}
         </div>
 
         <DialogFooter>
           <Button
             onClick={handleCreate}
-            disabled={creating || !name.trim()}
+            disabled={creating || !name.trim() || !stageId}
             className="gap-1.5 bg-aurea-primary text-white hover:bg-aurea-primary/90"
           >
-            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" strokeWidth={1.75} />}
-            Create Campaign
+            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" strokeWidth={1.75} />}
+            Save as draft
           </Button>
         </DialogFooter>
       </DialogContent>
