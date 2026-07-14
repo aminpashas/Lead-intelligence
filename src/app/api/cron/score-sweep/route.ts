@@ -33,8 +33,13 @@ import type { Lead } from '@/types/database'
 /** The sweep makes N Claude calls per run; give the function room. */
 export const maxDuration = 300
 
-const MAX_PER_RUN = Number(process.env.SCORE_SWEEP_MAX_PER_RUN) || 50
-const MAX_PER_ORG = Number(process.env.SCORE_SWEEP_MAX_PER_ORG) || 25
+// ~100 leads/run is the safe ceiling: each lead is a sequential ~2-3s Claude
+// call and maxDuration is 300s, so ~100 comfortably fits. A timeout mid-run is
+// harmless — each lead commits independently and unprocessed leads simply retry
+// next tick (they're never stamped/burned). Overridable via env for a temporary
+// backlog-drain burst (raise maxDuration too before going much past ~100).
+const MAX_PER_RUN = Number(process.env.SCORE_SWEEP_MAX_PER_RUN) || 100
+const MAX_PER_ORG = Number(process.env.SCORE_SWEEP_MAX_PER_ORG) || 100
 const TERMINAL_STATUSES = '(lost,disqualified,completed)'
 
 export const POST = withCron('score-sweep', async ({ supabase }) => {
