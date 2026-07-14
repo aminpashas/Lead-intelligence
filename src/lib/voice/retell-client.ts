@@ -310,10 +310,17 @@ export async function endCall(callId: string): Promise<void> {
  * Verify that a webhook request actually came from Retell.
  *
  * Uses the official SDK's `verify()`, which implements Retell's real scheme:
- * HMAC-SHA256 of (raw_body + timestamp) keyed by the RETELL_API_KEY (the key with
- * the webhook badge), with the `v={ts},d={hex}` header format and a timestamp
- * window. The previous hand-rolled HMAC used the wrong secret AND the wrong format,
- * so it would have rejected every genuine Retell webhook.
+ * HMAC-SHA256 of (raw_body + timestamp) keyed by the WEBHOOK signing secret (the
+ * key with the "Webhook" badge in the Retell dashboard), with the `v={ts},d={hex}`
+ * header format and a timestamp window.
+ *
+ * IMPORTANT: Retell's webhook signing secret is a SEPARATE key from the API key
+ * used to place calls. Our outbound/API calls authenticate with RETELL_API_KEY;
+ * webhook verification must use the webhook secret. Conflating the two makes call
+ * creation succeed while every call-event webhook 401s — leaving voice_calls
+ * orphaned at 'ringing'. So verification prefers RETELL_WEBHOOK_SECRET and only
+ * falls back to RETELL_API_KEY when the dedicated secret isn't configured (which
+ * is correct only when the same key serves both roles).
  *
  * Async because the SDK's verify returns a Promise.
  */
@@ -321,21 +328,21 @@ export async function verifyRetellWebhook(
   payload: string,
   signature: string
 ): Promise<boolean> {
-  const apiKey = process.env.RETELL_API_KEY
-  if (!apiKey) {
-    // Fail CLOSED in production — without the key we cannot verify, so we must
+  const webhookSecret = process.env.RETELL_WEBHOOK_SECRET || process.env.RETELL_API_KEY
+  if (!webhookSecret) {
+    // Fail CLOSED in production — without the secret we cannot verify, so we must
     // not accept forged call events. Fail-open only in non-production.
     if (process.env.NODE_ENV === 'production') {
-      logger.error('RETELL_API_KEY not configured in production — rejecting webhook')
+      logger.error('RETELL webhook secret not configured in production — rejecting webhook')
       return false
     }
-    logger.warn('RETELL_API_KEY not configured — skipping verification (non-production only)')
+    logger.warn('RETELL webhook secret not configured — skipping verification (non-production only)')
     return true
   }
   if (!signature) return false
 
   try {
-    return await Retell.verify(payload, apiKey, signature)
+    return await Retell.verify(payload, webhookSecret, signature)
   } catch {
     return false
   }
