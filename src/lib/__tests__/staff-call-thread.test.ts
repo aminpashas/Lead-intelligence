@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildStaffCallSummary } from '@/lib/voice/staff-call-thread'
+import { buildStaffCallSummary, buildLoggedCallSummary } from '@/lib/voice/staff-call-thread'
 
 describe('buildStaffCallSummary', () => {
   it('shows talk time for an answered outbound call', () => {
@@ -27,5 +27,21 @@ describe('buildStaffCallSummary', () => {
 
   it('falls back to the raw status for anything unmapped', () => {
     expect(buildStaffCallSummary('inbound', 'in_progress', 0)).toBe('Inbound call — in_progress')
+  })
+})
+
+describe('buildLoggedCallSummary', () => {
+  it('combines duration + outcome + notes', () => {
+    expect(buildLoggedCallSummary('outbound', 90, 'interested', 'Discussed financing')).toBe(
+      'Outbound call · 1:30 · Interested. Discussed financing'
+    )
+  })
+
+  it('says "Answered" when there is talk time but no outcome', () => {
+    expect(buildLoggedCallSummary('outbound', 29, null)).toBe('Outbound call · 0:29 · Answered.')
+  })
+
+  it('omits duration/answered for a zero-length no-answer', () => {
+    expect(buildLoggedCallSummary('outbound', 0, 'no_answer')).toBe('Outbound call · No answer.')
   })
 })

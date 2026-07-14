@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { buildManualCallRows, buildLeadCapturePatch } from '@/lib/timeline/manual-call'
+import { syncStaffCallThreadMarker, buildLoggedCallSummary } from '@/lib/voice/staff-call-thread'
 import type { BudgetRange } from '@/types/database'
 
 const logCallSchema = z.object({
@@ -78,6 +79,20 @@ export async function POST(
   }
 
   await supabase.from('lead_activities').insert(activity)
+
+  // Mirror the logged call into the Conversations inbox, same as browser calls.
+  await syncStaffCallThreadMarker(supabase, {
+    voiceCallId: call.id,
+    organizationId: orgId,
+    leadId: lead.id,
+    direction: parsed.data.direction,
+    body: buildLoggedCallSummary(
+      parsed.data.direction,
+      parsed.data.duration_seconds,
+      parsed.data.outcome,
+      parsed.data.notes
+    ),
+  })
 
   // Fold structured capture (budget, pain points) into the lead alongside the
   // contact-timestamp bump, so it's a single update.

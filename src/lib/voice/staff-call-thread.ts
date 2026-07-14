@@ -25,6 +25,49 @@ function formatDuration(seconds: number): string {
   return `${seconds}s`
 }
 
+/** m:ss clock, matching the disposition summary style ("1:30"). */
+function formatClock(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/** Staff-facing labels for the manual/disposition call outcomes. */
+const VOICE_OUTCOME_LABEL: Record<string, string> = {
+  appointment_booked: 'Appointment booked',
+  callback_requested: 'Callback requested',
+  interested: 'Interested',
+  not_interested: 'Not interested',
+  wrong_number: 'Wrong number',
+  do_not_call: 'Do not call',
+  voicemail_left: 'Left voicemail',
+  no_answer: 'No answer',
+  technical_failure: 'Technical failure',
+  transferred: 'Transferred',
+}
+
+/**
+ * Outcome-aware summary for a *logged* staff call (manual call-log form or a
+ * dispositioned browser call) — these carry the staffer's chosen outcome, so
+ * the marker shows that rather than a raw telephony status. Mirrors the
+ * disposition route's wording: "Outbound call · 1:30 · Interested. <notes>".
+ */
+export function buildLoggedCallSummary(
+  direction: 'inbound' | 'outbound',
+  durationSeconds: number,
+  outcome: string | null,
+  notes?: string | null
+): string {
+  const head = direction === 'inbound' ? 'Inbound call' : 'Outbound call'
+  const parts = [durationSeconds > 0 ? `${head} · ${formatClock(durationSeconds)}` : head]
+  if (outcome && VOICE_OUTCOME_LABEL[outcome]) parts.push(VOICE_OUTCOME_LABEL[outcome])
+  else if (durationSeconds > 0) parts.push('Answered')
+  let summary = parts.join(' · ') + '.'
+  const trimmed = notes?.trim()
+  if (trimmed) summary += ` ${trimmed}`
+  return summary
+}
+
 /**
  * Human-readable one-liner for a completed/terminal staff call. Mirrors the
  * outcome the inbox card should show at a glance.
