@@ -423,6 +423,75 @@ describe('canAccessRoute — relocated campaigns-hub routes keep original permis
 })
 
 // ═══════════════════════════════════════════════════════════════
+// Middleware server-side gating invariants
+// The middleware (src/middleware.ts) enforces canAccessRoute on GET
+// page navigations, redirecting a denied route to /dashboard. These
+// tests pin the two safety properties that keep it from locking anyone
+// out: (1) the redirect target /dashboard passes for EVERY role (no
+// loop), and (2) every route focused clinical staff legitimately reach
+// from their nav / lead cards resolves true (no new lockout).
+// ═══════════════════════════════════════════════════════════════
+
+describe('middleware gating — no redirect loop', () => {
+  it('/dashboard (the deny redirect target) is reachable by every role', () => {
+    for (const role of Object.keys(ROLE_PERMISSIONS)) {
+      expect(canAccessRoute(role, '/dashboard')).toBe(true)
+    }
+  })
+})
+
+describe('middleware gating — focused clinical staff keep their routes', () => {
+  // Routes a nurse / assistant / member (focused clinical staff) legitimately
+  // reach: the Today dashboard, lead detail from a card, conversation threads,
+  // appointments, tasks, clinical pipeline read views, cases, and contracts.
+  // If any of these newly redirected, that would be a map bug / lockout.
+  const focusedRoles: PracticeRole[] = ['nurse', 'assistant', 'member']
+  const focusedRoutes = [
+    '/dashboard',
+    '/tasks',
+    '/leads',
+    '/leads/lead-abc123', // opened from a lead card
+    '/conversations',
+    '/conversations/thread-xyz',
+    '/appointments',
+    '/cases',
+    '/cases/case-789',
+    '/contracts',
+    '/pipeline',
+    '/post-close',
+    '/closing',
+    '/monitor',
+    '/settings',
+  ]
+
+  focusedRoles.forEach((role) => {
+    focusedRoutes.forEach((route) => {
+      it(`${role} can still reach ${route}`, () => {
+        expect(canAccessRoute(role, route)).toBe(true)
+      })
+    })
+  })
+
+  // doctor additionally works the same clinical surface (superset of clinical).
+  it('doctor reaches the clinical surface too', () => {
+    for (const route of focusedRoutes) {
+      expect(canAccessRoute('doctor', route)).toBe(true)
+    }
+  })
+})
+
+describe('middleware gating — agency_admin is bypassed, not gated', () => {
+  // The middleware never calls canAccessRoute for agency_admin (explicit
+  // bypass), but even if it did, agency_admin resolves true for practice pages
+  // — so acting-as-client navigation is never blocked.
+  it('agency_admin resolves true for representative practice routes', () => {
+    for (const route of ['/leads', '/pipeline', '/conversations', '/appointments', '/settings', '/settings/team']) {
+      expect(canAccessRoute('agency_admin', route)).toBe(true)
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════
 // Service-key org allowlist (multi-tenant IDOR guard)
 // A verified bridge caller may only act on its allowlisted org ids.
 // ═══════════════════════════════════════════════════════════════

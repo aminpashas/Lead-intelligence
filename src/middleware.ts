@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { isPublicPath } from '@/lib/auth/public-paths'
+import { canAccessRoute } from '@/lib/auth/permissions'
 
 /**
  * Allowed origin for CORS — restrict API access to the configured app URL.
@@ -182,6 +183,52 @@ export async function middleware(request: NextRequest) {
     // Redirect unauthenticated users to login
     if (!user) {
       return redirectToLogin(request)
+    }
+
+    // ── Server-side role gating (defense-in-depth) ────────────────
+    // The nav hides routes a role can't use; this closes the URL-bar hole so a
+    // restricted role can't reach a gated page by typing its path. It layers on
+    // top of each page's own gate — it is NOT the sole gate — so on any doubt it
+    // fails OPEN (allow) rather than risk locking a legitimate user out.
+    //
+    // Scope: GET page navigations only. Non-GET requests (server actions POST to
+    // the same route) must never be redirected. Public paths, /api, and /agency
+    // are handled/returned above. /dashboard is skipped outright: it is the
+    // redirect target below and every role can reach it (mapped dashboard:view +
+    // allowlisted), so skipping it makes a redirect loop structurally impossible.
+    if (request.method === 'GET' && pathname !== '/dashboard') {
+      try {
+        // Fetch the caller's OWN role. Must filter by user.id: user_profiles'
+        // SELECT policy is org-scoped, so a bare .single() matches every profile
+        // in the org and errors once the org has a second member (see
+        // getOwnProfile in active-org.ts). This mirrors the /agency branch above.
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        const role = profile?.role as string | undefined
+
+        // agency_admin bypasses practice-route gating entirely: when acting as a
+        // client they legitimately navigate every practice page, and the nav
+        // shows them everything. Their raw role stays 'agency_admin' (they are
+        // never downgraded to the client's role), matching what the sidebar
+        // passes to canAccessRoute. All OTHER roles are gated by the RBAC map.
+        //
+        // FAIL OPEN: if the role is missing (DB hiccup / no profile), do not
+        // block — a transient lookup failure must never lock the whole app out.
+        if (role && role !== 'agency_admin' && !canAccessRoute(role, pathname)) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          url.search = ''
+          return NextResponse.redirect(url)
+        }
+      } catch (err) {
+        // Defense-in-depth only: a role-lookup failure must not strand the user.
+        // Log and fall through to allow; page-level gates remain in force.
+        console.error('[middleware] role gating lookup failed:', err)
+      }
     }
   } catch {
     // If auth check fails, redirect to login
