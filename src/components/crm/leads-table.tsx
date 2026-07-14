@@ -22,7 +22,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { TagBadgeList } from './tag-badge'
-import { formatCampaignAttribution } from '@/lib/attribution'
+import { formatCampaignAttribution, displaySourceLabel } from '@/lib/attribution'
 import type { Lead, PipelineStage, Tag } from '@/types/database'
 import { LeadActions } from './lead-actions'
 import { EngagementMeter } from './engagement-meter'
@@ -443,7 +443,7 @@ export function LeadsTable({
                   <TableCell>
                     <div className="flex flex-col">
                       <span className="text-[13px] text-aurea-ink-3 capitalize">
-                        {lead.source_type?.replace(/_/g, ' ') || '—'}
+                        {displaySourceLabel(lead.source_type, lead.campaign_attribution?.channel)?.replace(/_/g, ' ') || '—'}
                       </span>
                       {campaignLine && (
                         <span

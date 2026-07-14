@@ -23,7 +23,7 @@ import { ScheduleAppointment } from './schedule-appointment'
 import { PatientSummaryCard } from './patient-summary-card'
 import { LeadAIOverrideToggle } from './ai-mode-toggle'
 import { TagBadge } from './tag-badge'
-import { channelLabel } from '@/lib/attribution'
+import { channelLabel, displaySourceLabel } from '@/lib/attribution'
 import { TagSelector } from './tag-selector'
 import { PersonalityProfileCard } from './personality-profile-card'
 import { AuditTimeline } from '@/components/audit/AuditTimeline'
@@ -587,10 +587,19 @@ export function LeadDetail({
                 <h2 className="aurea-display text-[18px] text-aurea-ink">Source</h2>
               </div>
               <div className="px-5">
-                {[
-                  { label: 'Type', value: lead.source_type?.replace(/_/g, ' ') || '—', capitalize: true },
-                  ...(channelLabel(lead.campaign_attribution?.channel)
-                    ? [{ label: 'Channel', value: channelLabel(lead.campaign_attribution?.channel)!, capitalize: false }]
+                {(() => {
+                  // "Type" shows where the lead actually came from — an
+                  // aggregator/call-tracking label ("whatconverts", …) is
+                  // resolved to the real channel. The separate "Channel" row is
+                  // dropped when it would just repeat the resolved Type.
+                  const resolvedSource =
+                    displaySourceLabel(lead.source_type, lead.campaign_attribution?.channel)?.replace(/_/g, ' ') ||
+                    '—'
+                  const channel = channelLabel(lead.campaign_attribution?.channel)
+                  return [
+                  { label: 'Type', value: resolvedSource, capitalize: true },
+                  ...(channel && channel !== resolvedSource
+                    ? [{ label: 'Channel', value: channel, capitalize: false }]
                     : []),
                   // Exact campaign resolved by DGS wins over the raw UTM value.
                   ...(lead.campaign_attribution?.campaign_name || lead.utm_campaign
@@ -604,7 +613,8 @@ export function LeadDetail({
                     : []),
                   ...(lead.utm_source ? [{ label: 'UTM Source', value: lead.utm_source, capitalize: false }] : []),
                   { label: 'Created', value: format(new Date(lead.created_at), 'MMM d, yyyy'), capitalize: false },
-                ].map((item) => (
+                  ]
+                })().map((item) => (
                   <div key={item.label} className="flex items-center justify-between border-b border-aurea-border py-3 last:border-0">
                     <span className="text-[13px] text-aurea-ink-3">{item.label}</span>
                     <span className={`font-mono text-[12px] text-aurea-ink ${item.capitalize ? 'capitalize' : ''}`}>

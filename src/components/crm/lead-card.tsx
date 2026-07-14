@@ -10,6 +10,7 @@ import type { TimelineEnrollment } from '@/lib/pipeline/contacted-state'
 import { closingQueueState } from '@/lib/pipeline/closing'
 import { LeadCadenceBadge } from './lead-cadence-badge'
 import { EngagementTempChip } from './engagement-meter'
+import { displaySourceLabel } from '@/lib/attribution'
 
 // Lead qualification chips — hot=rose, warm=amber, cold=neutral ink
 const qualificationColors: Record<string, string> = {
@@ -75,7 +76,9 @@ export function LeadCard({
             {lead.phone && <Phone className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />}
             {lead.email && <Mail className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />}
             <span className="truncate text-[11px] text-aurea-ink-3">
-              {lead.city ? `${lead.city}, ${lead.state}` : lead.source_type?.replace(/_/g, ' ')}
+              {lead.city
+                ? `${lead.city}, ${lead.state}`
+                : displaySourceLabel(lead.source_type, lead.campaign_attribution?.channel)?.replace(/_/g, ' ')}
             </span>
           </div>
         </div>
