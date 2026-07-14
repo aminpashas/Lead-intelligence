@@ -30,16 +30,19 @@ import { withCron } from '@/lib/cron/with-cron'
 import { rescoreAndPersistLead } from '@/lib/ai/scoring'
 import type { Lead } from '@/types/database'
 
-/** The sweep makes N Claude calls per run; give the function room. */
-export const maxDuration = 300
+/** The sweep makes N sequential Claude calls per run; give the function room.
+ *  800s (Vercel Pro ceiling) fits ~200 leads/run at ~2-3s each — sized to drain
+ *  the scoring backlog in ~2-3 days rather than ~18 at the old 25/run cap. */
+export const maxDuration = 800
 
-// ~100 leads/run is the safe ceiling: each lead is a sequential ~2-3s Claude
-// call and maxDuration is 300s, so ~100 comfortably fits. A timeout mid-run is
-// harmless — each lead commits independently and unprocessed leads simply retry
-// next tick (they're never stamped/burned). Overridable via env for a temporary
-// backlog-drain burst (raise maxDuration too before going much past ~100).
-const MAX_PER_RUN = Number(process.env.SCORE_SWEEP_MAX_PER_RUN) || 100
-const MAX_PER_ORG = Number(process.env.SCORE_SWEEP_MAX_PER_ORG) || 100
+// ~200 leads/run fits the 800s maxDuration (each lead is a sequential ~2-3s
+// Claude call). At batch-15m's 15-min cadence that's ~19k/day → the ~43k
+// scoring backlog drains in ~2-3 days. A timeout mid-run is harmless — each lead
+// commits independently and unprocessed leads simply retry next tick (never
+// stamped/burned). Env-overridable; drop back toward 25-50 once the backlog
+// clears if steady-state per-tick cost matters.
+const MAX_PER_RUN = Number(process.env.SCORE_SWEEP_MAX_PER_RUN) || 200
+const MAX_PER_ORG = Number(process.env.SCORE_SWEEP_MAX_PER_ORG) || 200
 const TERMINAL_STATUSES = '(lost,disqualified,completed)'
 
 export const POST = withCron('score-sweep', async ({ supabase }) => {
