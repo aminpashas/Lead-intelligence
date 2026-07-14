@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, cleanup } from '@testing-library/react'
 import { DeepAnalyticsPage } from '@/components/crm/deep-analytics'
 import type { DeepAnalytics } from '@/lib/analytics/deep-types'
 
@@ -8,6 +8,18 @@ import type { DeepAnalytics } from '@/lib/analytics/deep-types'
 // covered elsewhere — stub it out.
 vi.mock('@/components/crm/analytics-charts', () => ({
   AnalyticsDashboard: () => <div data-testid="classic-overview" />,
+}))
+
+// DeepAnalyticsPage now keeps its range/tab in the URL (useRouter/useSearchParams/
+// usePathname). In jsdom there's no App Router mounted, so mock the navigation
+// hooks. The active tab/range are URL-derived, so a no-op router can't switch
+// tabs on click — instead each test seeds `nav.search` with the URL it wants and
+// renders at it (the URL is the source of truth now).
+const nav = vi.hoisted(() => ({ search: new URLSearchParams() }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => '/analytics',
+  useSearchParams: () => nav.search,
 }))
 
 const fixture: DeepAnalytics = {
@@ -138,6 +150,8 @@ describe('DeepAnalyticsPage', () => {
       unobserve() {}
       disconnect() {}
     })
+    // Reset the URL between tests (tab/range are read from here).
+    nav.search = new URLSearchParams()
   })
   afterEach(() => {
     cleanup()
@@ -164,10 +178,10 @@ describe('DeepAnalyticsPage', () => {
   })
 
   it('renders the Campaigns tab scorecards with spend joins', async () => {
+    // Tab is URL-driven now, so open the Campaigns tab via the URL.
+    nav.search = new URLSearchParams('tab=campaigns')
     render(<DeepAnalyticsPage />)
-    await waitFor(() => expect(screen.getByText('Campaigns & Sources')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Campaigns & Sources'))
     await waitFor(() => {
       expect(screen.getByText('Channel scorecard')).toBeTruthy()
     })
