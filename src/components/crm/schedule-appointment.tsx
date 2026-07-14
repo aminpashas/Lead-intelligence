@@ -106,6 +106,7 @@ type LeadSearchResult = SchedulableLead & { phone?: string | null; email?: strin
 export function ScheduleAppointment({
   lead: leadProp,
   mode = 'create',
+  appointmentId,
   open: controlledOpen,
   onOpenChange,
   trigger,
@@ -116,6 +117,8 @@ export function ScheduleAppointment({
   lead?: SchedulableLead | null
   /** `reschedule` pre-fills the current time and skips card-on-file prompts. */
   mode?: 'create' | 'reschedule'
+  /** In `reschedule` mode, the id of the appointment to move in place (PATCH). */
+  appointmentId?: string | null
   /** Optional controlled open state (lets a parent drive the dialog directly). */
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -123,7 +126,7 @@ export function ScheduleAppointment({
   trigger?: React.ReactNode
   /** Seed values applied on each open — used by reschedule to pre-fill the slot. */
   initial?: { type?: string; date?: string; time?: string; duration?: string; location?: string }
-  /** Called after a successful save so the parent can refetch / mark the old row rescheduled. */
+  /** Called after a successful save so the parent can refetch. */
   onCompleted?: (result: { lead: SchedulableLead; appointmentId?: string }) => void | Promise<void>
 }) {
   const isControlled = controlledOpen !== undefined
@@ -218,6 +221,30 @@ export function ScheduleAppointment({
     try {
       const scheduledAt = new Date(`${date}T${time}`).toISOString()
 
+      // Reschedule moves the existing appointment in place: one PATCH updates the
+      // time (and any changed fields) and the server resets confirmation/reminders.
+      if (mode === 'reschedule') {
+        if (!appointmentId) { toast.error('Missing appointment to reschedule'); return }
+        const res = await fetch('/api/appointments', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appointment_id: appointmentId,
+            scheduled_at: scheduledAt,
+            type,
+            duration_minutes: parseInt(duration),
+            location: location || undefined,
+            notes: notes || undefined,
+          }),
+        })
+        if (!res.ok) throw new Error('Failed to reschedule')
+        toast.success('Appointment rescheduled')
+        setOpen(false)
+        await onCompleted?.({ lead: activeLead, appointmentId })
+        router.refresh()
+        return
+      }
+
       const res = await fetch('/api/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -229,17 +256,14 @@ export function ScheduleAppointment({
           location: location || undefined,
           notes: notes || undefined,
           // Optional mode: honour the rep's checkbox. Required/off modes ignore it.
-          // A reschedule books the new slot without re-texting a card link.
-          send_card_link: mode === 'reschedule' ? false : sendCardLink,
+          send_card_link: sendCardLink,
         }),
       })
 
       if (!res.ok) throw new Error('Failed to schedule')
 
       const data = await res.json().catch(() => ({}))
-      if (mode === 'reschedule') {
-        // The parent owns the success toast (and marks the old row rescheduled).
-      } else if (data?.held) {
+      if (data?.held) {
         toast.success('Slot held — the patient was texted a card link. It confirms once they save a card.')
       } else if (data?.card_link_sent) {
         toast.success('Appointment scheduled — card-on-file link texted to the patient.')

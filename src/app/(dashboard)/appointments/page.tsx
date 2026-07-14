@@ -500,11 +500,12 @@ function AppointmentsPageInner() {
       </Dialog>
 
       {/* ── Reschedule (shared by list rows + calendar detail) ──
-          Books the new slot via POST, then marks the old row rescheduled on
-          success. Cancelling leaves the original appointment untouched. */}
+          Moves the appointment in place via a single PATCH (new time + reset
+          confirmation/reminders). Cancelling leaves the original untouched. */}
       <ScheduleAppointment
         mode="reschedule"
         lead={rescheduleTarget?.lead ?? null}
+        appointmentId={rescheduleTarget?.id ?? null}
         open={!!rescheduleTarget}
         onOpenChange={(o) => { if (!o) setRescheduleTarget(null) }}
         initial={rescheduleTarget ? {
@@ -514,11 +515,7 @@ function AppointmentsPageInner() {
           duration: String(rescheduleTarget.duration_minutes),
           location: rescheduleTarget.location ?? '',
         } : undefined}
-        onCompleted={async () => {
-          if (rescheduleTarget) {
-            await handleStatusChange(rescheduleTarget.id, 'rescheduled')
-          }
-        }}
+        onCompleted={async () => { await fetchAppointments() }}
       />
     </div>
   )
