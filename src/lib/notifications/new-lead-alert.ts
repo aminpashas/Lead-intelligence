@@ -104,6 +104,8 @@ export type NewLeadAlertInput = {
   utm_medium?: string | null
   utm_campaign?: string | null
   campaign_attribution?: { campaign_name?: string | null } | null
+  /** Landing-page URL — niche service-line signal for GMB/organic leads. */
+  landing_page_url?: string | null
 
   // ── Optional enrichment (rendered only when supplied) ────────────────
   /** The lead's own words (form message / bridged notes). */
@@ -503,6 +505,7 @@ export async function notifyNewLead(
     utm_source: lead.utm_source ?? null,
     utm_campaign: lead.utm_campaign ?? null,
     campaign_attribution: lead.campaign_attribution ?? null,
+    landing_page_url: lead.landing_page_url ?? null,
   } as Lead)
 
   // ── Email (every new lead) ───────────────────────────────────────────

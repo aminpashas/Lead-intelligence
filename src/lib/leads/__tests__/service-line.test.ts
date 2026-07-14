@@ -3,6 +3,7 @@ import {
   classifyLeadServiceLines,
   serviceLineOrFilter,
   serviceLineFromPipelineName,
+  serviceLineFromIntakeSignals,
 } from '@/lib/leads/service-line'
 import type { Lead } from '@/types/database'
 
@@ -90,5 +91,72 @@ describe('serviceLineFromPipelineName (Part 2 — GHL pipeline → service)', ()
     expect(serviceLineFromPipelineName('General Intake')).toBeNull()
     expect(serviceLineFromPipelineName('')).toBeNull()
     expect(serviceLineFromPipelineName(null)).toBeNull()
+  })
+})
+
+describe('landing_page_url as a niche signal (GMB/organic leads)', () => {
+  // The real 2026-07-14 miss: GMB-listing TMJ lead whose UTMs carry no
+  // treatment keyword — the only signal is the per-DBA landing domain.
+  const gmbTmjLead = lead({
+    utm_source: 'GMBlisting',
+    utm_campaign: 'Gmb-apt',
+    landing_page_url:
+      'https://www.tmjandsleepapneasanfrancisco.com/contact/?utm_source=GMBlisting&utm_medium=organic&utm_campaign=gmb-apt',
+  })
+
+  it('classifies a GMB lead by its landing domain instead of the implants residual', () => {
+    const out = classifyLeadServiceLines(gmbTmjLead)
+    expect(out).toContain('tmj')
+    // shared TMJ + sleep-apnea DBA domain matches both niches
+    expect(out).toContain('sleep_apnea')
+    expect(out).not.toContain('implants')
+  })
+
+  it('never matches implants keywords against URLs (arch ⊂ search)', () => {
+    const out = classifyLeadServiceLines(
+      lead({ tags: ['src:tmj'], landing_page_url: 'https://example.com/search?q=dentist' })
+    )
+    expect(out).toEqual(['tmj'])
+  })
+
+  it('a URL-only implant page still lands on implants via the residual', () => {
+    expect(
+      classifyLeadServiceLines(lead({ landing_page_url: 'https://example.com/dental-implants' }))
+    ).toEqual(['implants'])
+  })
+
+  it('niche SQL filter matches landing_page_url; implants residual excludes it null-safely', () => {
+    expect(serviceLineOrFilter('tmj')).toContain('landing_page_url.ilike.%tmj%')
+    const residual = serviceLineOrFilter('implants')!
+    expect(residual).toContain('or(landing_page_url.is.null,landing_page_url.not.ilike.%tmj%)')
+    // implants keywords never target the URL column
+    expect(residual).not.toContain('landing_page_url.ilike.%arch%')
+  })
+})
+
+describe('serviceLineFromIntakeSignals (bridge ingest stamper)', () => {
+  it('prefers the form message over the shared-domain URL', () => {
+    expect(
+      serviceLineFromIntakeSignals({
+        message: 'contact-us-tmj',
+        landingPageUrl: 'https://www.tmjandsleepapneasanfrancisco.com/contact/',
+      })
+    ).toBe('tmj')
+  })
+
+  it('falls back to the landing domain when the message carries no signal', () => {
+    expect(
+      serviceLineFromIntakeSignals({
+        message: 'I would like an appointment',
+        landingPageUrl: 'https://www.tmjandsleepapneasanfrancisco.com/contact/',
+      })
+    ).toBe('tmj')
+  })
+
+  it('never stamps implants — the residual owns unsignalled leads', () => {
+    expect(
+      serviceLineFromIntakeSignals({ landingPageUrl: 'https://example.com/dental-implants' })
+    ).toBeNull()
+    expect(serviceLineFromIntakeSignals({ message: null, landingPageUrl: null })).toBeNull()
   })
 })

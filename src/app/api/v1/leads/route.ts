@@ -35,6 +35,7 @@ import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
 import { isJunkCallerContact } from '@/lib/leads/junk-contact'
 import { classifyTestOrSpamLead, spamDisqualifiedReason } from '@/lib/leads/test-spam-contact'
 import { routedIntakeStageSlug } from '@/lib/leads/intake-routing'
+import { serviceLineFromIntakeSignals, serviceLineTag } from '@/lib/leads/service-line'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -438,6 +439,18 @@ export async function POST(request: NextRequest) {
     stageId = (routeSlug && stageBySlug.get(routeSlug)) || defaultStageId
   }
 
+  // Niche treatment stamp. GMB/organic bridged leads carry no treatment in
+  // their UTMs — the signal lives in the form message ("contact-us-tmj") and
+  // the per-DBA landing domain (tmjandsleepapneasanfrancisco.com). Stamping an
+  // explicit treatment_interest + canonical tag at birth keeps the staff alert,
+  // Slack routing, brand resolution and treatment filters off the implants
+  // residual. Null (no niche signal) stamps nothing — implants stays residual.
+  const intakeServiceLine = serviceLineFromIntakeSignals({
+    landingPageUrl: landing_page_url,
+    message: notes,
+  })
+  const intakeServiceTag = intakeServiceLine ? serviceLineTag(intakeServiceLine) : null
+
   const insertData = encryptLeadPII({
     organization_id: customerId,
     first_name,
@@ -468,6 +481,8 @@ export async function POST(request: NextRequest) {
     ...(referrer_url ? { referrer_url } : {}),
     ...(campaignAttribution ? { campaign_attribution: campaignAttribution } : {}),
     ...(external_ref ? { external_ref } : {}),
+    ...(intakeServiceLine ? { custom_fields: { treatment_interest: intakeServiceLine } } : {}),
+    ...(intakeServiceTag ? { tags: [intakeServiceTag] } : {}),
   })
 
   const { data: lead, error } = await supabase
@@ -608,6 +623,10 @@ export async function POST(request: NextRequest) {
           utm_medium,
           utm_campaign,
           campaign_attribution: campaignAttribution,
+          landing_page_url,
+          ...(intakeServiceLine
+            ? { custom_fields: { treatment_interest: intakeServiceLine }, tags: intakeServiceTag ? [intakeServiceTag] : [] }
+            : {}),
           message: notes,
           financialTier,
           monthlyBudget,

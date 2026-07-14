@@ -82,6 +82,15 @@ function serviceConditions(service: string): string[] | null {
       conds.push(`${field}.ilike.%${kw}%`)
     }
   }
+  // Landing-page URL — a NICHE-ONLY signal. The practice runs a dedicated domain
+  // per niche DBA (tmjandsleepapneasanfrancisco.com, …), so for GMB/organic leads
+  // whose UTMs carry no treatment keyword ("GMBlisting / Gmb-apt") the URL is the
+  // only classification signal. Implants keywords are deliberately NOT matched
+  // against URLs: 'arch' is a substring of 'search' (false positives on query
+  // strings), and implants is the residual line anyway.
+  if (service !== 'implants') {
+    for (const kw of keywords) conds.push(`landing_page_url.ilike.%${kw}%`)
+  }
   return conds
 }
 
@@ -121,7 +130,9 @@ export function serviceLineOrFilter(service: string): string | null {
  * negates exactly the same signals the niche filters select.
  */
 function nicheExclusionGroup(): string {
-  const fields = ['utm_campaign', 'utm_source', 'campaign_attribution->>campaign_name']
+  // landing_page_url is negated here because serviceConditions matches niche
+  // keywords against it — the residual must exclude exactly what niche selects.
+  const fields = ['utm_campaign', 'utm_source', 'campaign_attribution->>campaign_name', 'landing_page_url']
   const parts: string[] = []
   // treatment_interest is a single value → "not any niche interest" (null-safe).
   parts.push(
@@ -160,6 +171,10 @@ export function classifyLeadServiceLines(lead: Lead): string[] {
     .filter(Boolean)
     .join(' ')
     .toLowerCase()
+  // Niche-only URL haystack — SQL twin: the landing_page_url conditions in
+  // serviceConditions/nicheExclusionGroup. Implants keywords never match URLs
+  // ('arch' ⊂ 'search'); see the comment there.
+  const urlHaystack = (lead.landing_page_url ?? '').toLowerCase()
 
   const matches = (key: string): boolean => {
     // Explicit treatment_interest: implants store 'implant', the rest store the
@@ -169,7 +184,9 @@ export function classifyLeadServiceLines(lead: Lead): string[] {
         ? interest === 'implant' || interest === 'implants'
         : interest === key
     const tagged = (SERVICE_TAGS[key] ?? []).some((t) => tags.includes(t))
-    const keyworded = (SERVICE_KEYWORDS[key] ?? []).some((kw) => haystack.includes(kw))
+    const keyworded = (SERVICE_KEYWORDS[key] ?? []).some(
+      (kw) => haystack.includes(kw) || (key !== 'implants' && urlHaystack.includes(kw))
+    )
     return explicit || tagged || keyworded
   }
 
@@ -221,4 +238,38 @@ export function serviceLineFromPipelineName(name: string | null | undefined): st
  */
 export function serviceLineTag(service: string): string | null {
   return SERVICE_KEYWORDS[service] ? service : null
+}
+
+// Priority when intake signals match more than one niche: the TMJ + sleep-apnea
+// DBA shares one domain (tmjandsleepapneasanfrancisco.com matches both 'tmj'
+// and 'sleep'), so the more specific form message is scanned FIRST and breaks
+// the tie (contact-us-tmj → tmj). Mirrors BRAND_SERVICE_PRIORITY's niche order.
+const INTAKE_SIGNAL_PRIORITY = ['tmj', 'sleep_apnea', 'lanap', 'cosmetic'] as const
+
+/**
+ * Derive a NICHE service line from what a bridged/organic intake actually
+ * carries: the form message ("contact-us-tmj") and the landing-page URL
+ * (per-DBA domains). Used by the ingest stamper to write an explicit
+ * `treatment_interest` + canonical tag at insert, so downstream consumers
+ * (alerts, Slack routing, brand resolution, filters) never fall through to
+ * the implants residual on a clearly-signalled niche lead.
+ *
+ * Message wins over URL (it names the specific form on a shared-domain DBA).
+ * Never returns 'implants' — implants stays the residual, and its keywords are
+ * unsafe on free text/URLs ('arch' ⊂ 'search'). Returns null when nothing
+ * niche is signalled.
+ */
+export function serviceLineFromIntakeSignals(input: {
+  landingPageUrl?: string | null
+  message?: string | null
+}): string | null {
+  const scan = (text: string | null | undefined): string | null => {
+    const t = (text ?? '').toLowerCase()
+    if (!t) return null
+    for (const service of INTAKE_SIGNAL_PRIORITY) {
+      if ((SERVICE_KEYWORDS[service] ?? []).some((kw) => t.includes(kw))) return service
+    }
+    return null
+  }
+  return scan(input.message) ?? scan(input.landingPageUrl)
 }

@@ -32,13 +32,19 @@ export function resolveBrandServiceLine(input: {
     .filter(Boolean)
     .join(' ')
     .toLowerCase()
+  // Niche-only URL signal, in lockstep with classifyLeadServiceLines: per-DBA
+  // domains (tmjandsleepapnea…) are the only treatment signal on GMB/organic
+  // leads. Implants keywords never match URLs ('arch' ⊂ 'search').
+  const urlHaystack = (lead.landing_page_url ?? '').toLowerCase()
 
   const matchesExplicit = (key: string): boolean => {
     const explicit = key === 'implants'
       ? interest === 'implant' || interest === 'implants'
       : interest === key
     const tagged = (SERVICE_TAGS[key] ?? []).some((t) => tags.includes(t))
-    const keyworded = (SERVICE_KEYWORDS[key] ?? []).some((kw) => haystack.includes(kw))
+    const keyworded = (SERVICE_KEYWORDS[key] ?? []).some(
+      (kw) => haystack.includes(kw) || (key !== 'implants' && urlHaystack.includes(kw))
+    )
     return explicit || tagged || keyworded
   }
 
