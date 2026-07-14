@@ -25,6 +25,7 @@
  * Tunables: SCORE_SWEEP_MAX_PER_RUN (default 50), SCORE_SWEEP_MAX_PER_ORG (25).
  */
 
+import Anthropic from '@anthropic-ai/sdk'
 import { withCron } from '@/lib/cron/with-cron'
 import { rescoreAndPersistLead } from '@/lib/ai/scoring'
 import type { Lead } from '@/types/database'
@@ -50,6 +51,9 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
   let failed = 0
   const errors: string[] = []
   const perOrg: Record<string, number> = {}
+  // Set when a systemic API failure (out of credits, auth, rate limit, 5xx,
+  // network) is hit — aborts the run so an outage can't burn the whole backlog.
+  let apiOutage: string | null = null
 
   for (const org of orgs as Array<{ id: string }>) {
     if (scored >= MAX_PER_RUN) break
@@ -86,21 +90,33 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
         perOrg[org.id] = (perOrg[org.id] ?? 0) + 1
       } catch (err) {
         failed++
-        errors.push(`Lead ${lead.id}: ${err instanceof Error ? err.message : 'scoring failed'}`)
-        // Stamp the attempt so an un-scoreable lead can't be re-selected every run.
-        // Leaves ai_score/ai_qualification untouched (still reads as unscored in the
-        // UI) — this only records "we tried", matching cron/enrich's failed-marking.
+        const msg = err instanceof Error ? err.message : 'scoring failed'
+        errors.push(`Lead ${lead.id}: ${msg}`)
+        // A systemic API failure (out of credits, auth, rate limit, 5xx, network)
+        // is not the lead's fault. Do NOT stamp ai_score_updated_at — that would
+        // permanently exclude the lead from every future sweep — and abort the run
+        // so one outage can't burn the whole backlog into a never-retried state.
+        if (err instanceof Anthropic.APIError) {
+          apiOutage = msg
+          break
+        }
+        // Genuine per-lead failure (e.g. unparseable data): stamp the attempt so an
+        // un-scoreable lead can't be re-selected every run. Leaves ai_score untouched
+        // (still reads as unscored in the UI) — matches cron/enrich's failed-marking.
         await supabase
           .from('leads')
           .update({ ai_score_updated_at: new Date().toISOString() })
           .eq('id', lead.id)
       }
     }
+    if (apiOutage) break
   }
 
   return {
+    status: apiOutage ? ('failed' as const) : undefined,
+    error: apiOutage ?? undefined,
     items: scored,
-    data: { scored, failed, per_org: perOrg, errors: errors.slice(0, 10) },
+    data: { scored, failed, per_org: perOrg, errors: errors.slice(0, 10), api_outage: apiOutage },
   }
 })
 
