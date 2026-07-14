@@ -198,3 +198,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(summary)
 }
+
+// This route is invoked by the batch-15m fan-out dispatcher, which POSTs to its
+// targets — alias POST to the GET handler so the dispatched call isn't a 405.
+export const POST = GET
