@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { RolePlayMessage } from './role-play-message'
 import { RolePlayScenarioPicker } from './role-play-scenario-picker'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import type {
   AIRolePlayMessage,
@@ -64,6 +65,7 @@ export function RolePlayArena() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [retryingIndex, setRetryingIndex] = useState<number | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -406,10 +408,11 @@ export function RolePlayArena() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label="Delete session"
                     className="h-7 w-7 p-0 shrink-0"
                     onClick={(e) => {
                       e.stopPropagation()
-                      handleDeleteSession(s.id)
+                      setConfirmDeleteId(s.id)
                     }}
                   >
                     <Trash2 className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />
@@ -419,6 +422,19 @@ export function RolePlayArena() {
             ))}
           </div>
         )}
+
+        {/* Delete confirmation */}
+        <ConfirmDialog
+          open={confirmDeleteId !== null}
+          onOpenChange={(open) => { if (!open) setConfirmDeleteId(null) }}
+          title="Delete Session"
+          description="Delete this role play session? This cannot be undone."
+          confirmLabel="Delete"
+          destructive
+          onConfirm={async () => {
+            if (confirmDeleteId) await handleDeleteSession(confirmDeleteId)
+          }}
+        />
       </div>
     )
   }

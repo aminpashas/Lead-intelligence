@@ -8,6 +8,7 @@ import { hasPermission, type PracticeRole } from '@/lib/auth/permissions'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import { AlertTriangle, CheckCircle2, Loader2, Mail, MessageSquare, RefreshCw, Send, XCircle } from 'lucide-react'
 import type { PatientContract, RenderedContractSection, ContractEvent } from '@/types/database'
@@ -40,6 +41,7 @@ function ContractReviewContent({ id }: { id: string }) {
   const [regenerating, setRegenerating] = useState(false)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [channels, setChannels] = useState<Channel[]>(['email'])
+  const [confirmVoidOpen, setConfirmVoidOpen] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/contracts/${id}`)
@@ -64,19 +66,24 @@ function ContractReviewContent({ id }: { id: string }) {
     const section_edits = Object.entries(edits).map(([section_id, rendered_text]) => ({ section_id, rendered_text }))
     if (section_edits.length === 0) return
     setSavingEdits(true)
-    const res = await fetch(`/api/contracts/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ section_edits }),
-    })
-    setSavingEdits(false)
-    if (res.ok) {
-      toast.success('Edits saved')
-      setEdits({})
-      await load()
-    } else {
-      const err = await res.json().catch(() => ({}))
-      toast.error(err.error ?? 'Save failed')
+    try {
+      const res = await fetch(`/api/contracts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section_edits }),
+      })
+      if (res.ok) {
+        toast.success('Edits saved')
+        setEdits({})
+        await load()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error ?? 'Save failed')
+      }
+    } catch {
+      toast.error('Save failed')
+    } finally {
+      setSavingEdits(false)
     }
   }
 
@@ -89,53 +96,68 @@ function ContractReviewContent({ id }: { id: string }) {
     const needsApproval = ['pending_review', 'changes_requested'].includes(contract.status)
     if (needsApproval) {
       setApproving(true)
-      const approve = await fetch(`/api/contracts/${id}/approve`, { method: 'POST' })
-      setApproving(false)
-      if (!approve.ok) {
-        const err = await approve.json().catch(() => ({}))
-        toast.error(err.error ?? 'Approve failed')
+      try {
+        const approve = await fetch(`/api/contracts/${id}/approve`, { method: 'POST' })
+        if (!approve.ok) {
+          const err = await approve.json().catch(() => ({}))
+          toast.error(err.error ?? 'Approve failed')
+          return
+        }
+      } catch {
+        toast.error('Approve failed')
         return
+      } finally {
+        setApproving(false)
       }
     }
     setSending(true)
-    const send = await fetch(`/api/contracts/${id}/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channels }),
-    })
-    setSending(false)
-    const result = await send.json().catch(() => ({}))
-    if (!send.ok) {
-      toast.error(result.error ?? 'Send failed')
-      return
+    try {
+      const send = await fetch(`/api/contracts/${id}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channels }),
+      })
+      const result = await send.json().catch(() => ({}))
+      if (!send.ok) {
+        toast.error(result.error ?? 'Send failed')
+        return
+      }
+      // Partial success: some channels delivered, others were refused (e.g. no SMS consent).
+      const delivered: Channel[] = result.sent ?? channels
+      const label = delivered.map((c: Channel) => (c === 'sms' ? 'text' : 'email')).join(' + ')
+      toast.success(`Contract sent to patient via ${label}`)
+      const failed = Object.entries((result.errors ?? {}) as Record<string, string>)
+      for (const [ch, msg] of failed) {
+        toast.warning(`${ch === 'sms' ? 'Text' : 'Email'}: ${msg}`)
+      }
+      await load()
+    } catch {
+      toast.error('Send failed')
+    } finally {
+      setSending(false)
     }
-    // Partial success: some channels delivered, others were refused (e.g. no SMS consent).
-    const delivered: Channel[] = result.sent ?? channels
-    const label = delivered.map((c: Channel) => (c === 'sms' ? 'text' : 'email')).join(' + ')
-    toast.success(`Contract sent to patient via ${label}`)
-    const failed = Object.entries((result.errors ?? {}) as Record<string, string>)
-    for (const [ch, msg] of failed) {
-      toast.warning(`${ch === 'sms' ? 'Text' : 'Email'}: ${msg}`)
-    }
-    await load()
   }
 
   const regenerate = async () => {
     setRegenerating(true)
-    const res = await fetch(`/api/contracts/${id}/regenerate`, { method: 'POST' })
-    setRegenerating(false)
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      toast.error(err.error ?? 'Regenerate failed')
-      return
+    try {
+      const res = await fetch(`/api/contracts/${id}/regenerate`, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error ?? 'Regenerate failed')
+        return
+      }
+      const body = await res.json()
+      toast.success('New draft generated')
+      router.push(`/contracts/${body.contract_id}`)
+    } catch {
+      toast.error('Regenerate failed')
+    } finally {
+      setRegenerating(false)
     }
-    const body = await res.json()
-    toast.success('New draft generated')
-    router.push(`/contracts/${body.contract_id}`)
   }
 
   const voidContract = async () => {
-    if (!confirm('Void this contract? This cannot be undone.')) return
     const res = await fetch(`/api/contracts/${id}`, { method: 'DELETE' })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
@@ -361,7 +383,7 @@ function ContractReviewContent({ id }: { id: string }) {
               </Button>
             )}
             {canVoid && !['signed', 'executed', 'voided'].includes(contract.status) && (
-              <Button onClick={voidContract} variant="outline" className="w-full text-aurea-rose border-aurea-rose/30 hover:bg-aurea-rose/5">
+              <Button onClick={() => setConfirmVoidOpen(true)} variant="outline" className="w-full text-aurea-rose border-aurea-rose/30 hover:bg-aurea-rose/5">
                 <XCircle className="h-4 w-4 mr-2" strokeWidth={1.75} /> Void contract
               </Button>
             )}
@@ -404,6 +426,17 @@ function ContractReviewContent({ id }: { id: string }) {
           AI model: {contract.ai_model ?? '—'} &middot; in {contract.ai_tokens_in ?? 0}tk &middot; out {contract.ai_tokens_out ?? 0}tk
         </p>
       </div>
+
+      {/* Void confirmation */}
+      <ConfirmDialog
+        open={confirmVoidOpen}
+        onOpenChange={setConfirmVoidOpen}
+        title="Void Contract"
+        description="Void this contract? This cannot be undone."
+        confirmLabel="Void contract"
+        destructive
+        onConfirm={voidContract}
+      />
     </div>
   )
 }

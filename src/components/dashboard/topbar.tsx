@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useOrgStore } from '@/lib/store/use-org'
-import { ROLE_LABELS, ROLE_COLORS, type PracticeRole } from '@/lib/auth/permissions'
+import { ROLE_LABELS, ROLE_COLORS, isFocusedStaff, type PracticeRole } from '@/lib/auth/permissions'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -55,16 +55,21 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
             <Menu className="h-5 w-5" strokeWidth={1.75} />
           </Button>
         )}
-        <div className="relative flex-1 hidden sm:block">
-          <Search className="absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-aurea-ink-3" strokeWidth={1.75} />
-          <Input
-            placeholder="Search leads by name, email, or phone..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            className="pl-9 bg-aurea-surface border-aurea-border text-aurea-ink placeholder:text-aurea-ink-3 focus-visible:ring-aurea-primary/30"
-          />
-        </div>
+        {/* Search pushes into /leads?search= — focused clinical staff are
+            server-redirected off /leads, so for them it silently dead-ends.
+            Hide it rather than offer a broken entry point. */}
+        {!isFocusedStaff(role) && (
+          <div className="relative flex-1 hidden sm:block">
+            <Search className="absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-aurea-ink-3" strokeWidth={1.75} />
+            <Input
+              placeholder="Search leads by name, email, or phone..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              className="pl-9 bg-aurea-surface border-aurea-border text-aurea-ink placeholder:text-aurea-ink-3 focus-visible:ring-aurea-primary/30"
+            />
+          </div>
+        )}
       </div>
 
       {/* Right: Actions */}

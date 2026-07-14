@@ -32,6 +32,7 @@ import {
   Tags, Plus, Pencil, Trash2, Loader2, Users, Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import type { Tag, TagCategory } from '@/types/database'
 
@@ -74,6 +75,7 @@ export function TagManager() {
   const [editingTag, setEditingTag] = useState<Tag | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   // Form state
   const [formName, setFormName] = useState('')
@@ -369,6 +371,7 @@ export function TagManager() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label="Edit tag"
                           className="h-8 w-8 text-aurea-ink-3 hover:text-aurea-ink"
                           onClick={() => openEditDialog(tag)}
                         >
@@ -377,8 +380,9 @@ export function TagManager() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label="Delete tag"
                           className="h-8 w-8 text-aurea-ink-3 hover:text-aurea-rose"
-                          onClick={() => handleDelete(tag.id)}
+                          onClick={() => setConfirmDeleteId(tag.id)}
                           disabled={deleting === tag.id}
                         >
                           {deleting === tag.id ? (
@@ -415,6 +419,19 @@ export function TagManager() {
           })}
         </div>
       )}
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteId(null) }}
+        title="Delete Tag"
+        description="Delete this tag from all leads?"
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (confirmDeleteId) await handleDelete(confirmDeleteId)
+        }}
+      />
     </div>
   )
 }

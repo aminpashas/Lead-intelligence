@@ -101,7 +101,7 @@ export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onB
     <div className="space-y-6 animate-in fade-in-0 duration-500">
       {/* Header */}
       <div className="flex items-center gap-4 border-b border-aurea-border pb-6">
-        <Button variant="ghost" size="icon" onClick={onBack} className="text-aurea-ink-3 hover:text-aurea-ink">
+        <Button variant="ghost" size="icon" aria-label="Back to Smart Lists" onClick={onBack} className="text-aurea-ink-3 hover:text-aurea-ink">
           <ArrowLeft className="h-[17px] w-[17px]" strokeWidth={1.75} />
         </Button>
         <div

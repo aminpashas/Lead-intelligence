@@ -162,6 +162,7 @@ export function AgencyMobileSidebar({
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Close navigation menu"
           className="absolute top-4 right-3 h-8 w-8 z-10 text-aurea-ink-3 hover:text-aurea-ink hover:bg-aurea-surface-2"
           onClick={onClose}
         >

@@ -191,6 +191,20 @@ export function ConversationThread({
 }) {
   const router = useRouter()
   const [messages, setMessages] = useState(initialMessages)
+
+  // Keep local state in sync when the server hands down fresh messages (page
+  // refresh / router.refresh) — otherwise a patient's reply never appears and
+  // staff double-text. Merge instead of replace so messages appended
+  // optimistically by handleSend (real persisted rows from the send API, keyed
+  // by id) aren't dropped if the server list hasn't caught up yet.
+  useEffect(() => {
+    setMessages((prev) => {
+      const serverIds = new Set(initialMessages.map((m) => m.id))
+      const localOnly = prev.filter((m) => !serverIds.has(m.id))
+      return localOnly.length ? [...initialMessages, ...localOnly] : initialMessages
+    })
+  }, [initialMessages])
+
   const [draft, setDraft] = useState('')
   // D4 presence heartbeat: tells the staff notifier this user has the thread
   // open, so inbound-message pings are suppressed while they're looking.

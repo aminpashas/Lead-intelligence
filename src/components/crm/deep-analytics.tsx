@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useCallback, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback, useSyncExternalStore, type ReactNode } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -88,25 +88,42 @@ export function DeepAnalyticsPage() {
   const [rangeDays, setRangeDays] = useState(30)
   const [tab, setTab] = useState('actions')
 
+  // Abort the in-flight request when a new range is picked (or on unmount) so
+  // a slow 90d response can't land after a 7d click and render mislabeled data.
+  const abortRef = useRef<AbortController | null>(null)
+
   const load = useCallback(async (days: number) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setLoading(true)
     setError(null)
     try {
       const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-      const res = await fetch(`/api/analytics/deep?start_date=${encodeURIComponent(start)}`)
+      const res = await fetch(`/api/analytics/deep?start_date=${encodeURIComponent(start)}`, {
+        signal: controller.signal,
+      })
       if (!res.ok) {
         const body = await res.json().catch(() => null)
         throw new Error(body?.error || `Request failed (${res.status})`)
       }
-      setData(await res.json())
+      const json = await res.json()
+      if (controller.signal.aborted) return
+      setData(json)
     } catch (e) {
+      // Aborted = superseded by a newer request (or unmounted) — that request
+      // owns the UI now, so ignore the AbortError and don't touch state.
+      if (controller.signal.aborted) return
       setError(e instanceof Error ? e.message : 'Failed to load deep analytics')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }, [])
 
-  useEffect(() => { load(rangeDays) }, [load, rangeDays])
+  useEffect(() => {
+    load(rangeDays)
+    return () => abortRef.current?.abort()
+  }, [load, rangeDays])
 
   return (
     <div className="space-y-4 p-4 md:p-6">

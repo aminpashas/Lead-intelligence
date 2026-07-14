@@ -8,6 +8,7 @@ import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
 import { decryptLeadPII } from '@/lib/encryption'
 import { isFlagEnabled } from '@/lib/org/flags'
 import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
+import type { Tag } from '@/types/database'
 
 export default async function LeadDetailPage({
   params,
@@ -34,20 +35,91 @@ export default async function LeadDetailPage({
   // PII is encrypted at rest — decrypt server-side before rendering.
   const lead = decryptLeadPII(leadRow)
 
-  // Fetch activities
-  const { data: activities } = await supabase
-    .from('lead_activities')
-    .select('*')
-    .eq('lead_id', id)
-    .order('created_at', { ascending: false })
-    .limit(50)
-
-  // Fetch conversations
-  const { data: conversations } = await supabase
-    .from('conversations')
-    .select('*')
-    .eq('lead_id', id)
-    .order('last_message_at', { ascending: false })
+  // Everything below only depends on the lead row, so it all runs in parallel.
+  // Messages and voice calls are each fetched ONCE per table (full rows, all
+  // conversations for the lead) and both consumers — the in-lead chat thread
+  // and the unified timeline — are derived from that single result.
+  const [
+    { data: activities },
+    { data: conversations },
+    { data: allMessages },
+    { data: allVoiceCalls },
+    { data: patientProfile },
+    { data: latestAnalysis },
+    { data: stages },
+    { data: teamMembers },
+    // Account-level pre-qualification switch — drives whether the per-lead
+    // "Send Pre-Qual" action shows in the action bar.
+    prequalEnabled,
+    // Practice no-show fee switch — drives whether the per-lead "Card link"
+    // action (text/resend the card-on-file link) shows in the action bar.
+    { data: bookingSettingsRow },
+    // Thread timestamps render in the practice timezone so SSR (UTC) and the
+    // browser agree on day boundaries.
+    timeZone,
+    // Admins get the per-call "Use for AI training" control on call cards.
+    { data: ownProfile },
+    { data: leadTagRows },
+  ] = await Promise.all([
+    supabase
+      .from('lead_activities')
+      .select('*')
+      .eq('lead_id', id)
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase
+      .from('conversations')
+      .select('*')
+      .eq('lead_id', id)
+      .order('last_message_at', { ascending: false }),
+    supabase
+      .from('messages')
+      .select('*')
+      .eq('lead_id', id)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('voice_calls')
+      .select('*')
+      .eq('lead_id', id)
+      .order('created_at', { ascending: true }),
+    // Latest AI intelligence (already computed by /api/ai/analyze)
+    supabase
+      .from('patient_profiles')
+      .select('*')
+      .eq('lead_id', id)
+      .maybeSingle(),
+    supabase
+      .from('conversation_analyses')
+      .select('*')
+      .eq('lead_id', id)
+      .order('analyzed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('pipeline_stages')
+      .select('*')
+      .eq('organization_id', lead.organization_id)
+      .order('position'),
+    // Team members for assignment
+    supabase
+      .from('user_profiles')
+      .select('id, full_name, email, role')
+      .eq('organization_id', lead.organization_id)
+      .eq('is_active', true),
+    isFlagEnabled(supabase, lead.organization_id, 'financing_prequal_enabled'),
+    supabase
+      .from('booking_settings')
+      .select('no_show_fee_enabled')
+      .eq('organization_id', lead.organization_id)
+      .maybeSingle(),
+    resolvePracticeTimeZone(supabase, lead.organization_id),
+    getOwnProfile(supabase, 'role'),
+    supabase
+      .from('lead_tags')
+      .select('tag:tags(*)')
+      .eq('lead_id', id)
+      .eq('organization_id', lead.organization_id),
+  ])
 
   // The most recently active conversation is the one the embedded chat opens on.
   const primaryConversation = conversations?.[0] ?? null
@@ -56,93 +128,28 @@ export default async function LeadDetailPage({
   // conversation, plus every finished call (even calls logged against the lead
   // with no conversation_id) — so the in-lead thread shows it all together, not
   // just the primary conversation's slice. Sending/AI still target
-  // primaryConversation below; this is purely what the thread renders.
-  const { data: threadMessages } = await supabase
-    .from('messages')
-    .select('*')
-    .eq('lead_id', id)
-    .order('created_at', { ascending: true })
+  // primaryConversation below; this is purely what the thread renders. Derived
+  // from the single allMessages/allVoiceCalls fetch above — no duplicate query.
+  const threadMessages = allMessages || []
+  const threadCalls = (allVoiceCalls || []).filter((c) => c.ended_at != null)
 
-  const { data: threadCalls } = await supabase
-    .from('voice_calls')
-    .select('*')
-    .eq('lead_id', id)
-    .not('ended_at', 'is', null)
-    .order('created_at', { ascending: true })
-
-  // Fetch messages (all channels) for the unified timeline
-  const { data: messages } = await supabase
-    .from('messages')
-    .select('id, created_at, channel, direction, body, subject, status, ai_generated, sender_type, sender_name')
-    .eq('lead_id', id)
-    .order('created_at', { ascending: true })
-    .limit(300)
-
-  // Fetch logged voice calls for the unified timeline
-  const { data: voiceCalls } = await supabase
-    .from('voice_calls')
-    .select('id, created_at, started_at, direction, outcome, duration_seconds, outcome_notes, transcript_summary, recording_url, status, call_mode, agent_type, staff_user_id')
-    .eq('lead_id', id)
-    .order('created_at', { ascending: true })
-    .limit(300)
-
+  // Unified timeline caps at the first 300 messages/calls (created_at asc).
   const timeline = buildTimeline({
-    messages: messages || [],
-    calls: voiceCalls || [],
+    messages: (allMessages || []).slice(0, 300),
+    calls: (allVoiceCalls || []).slice(0, 300),
     activities: activities || [],
   })
 
-  // Fetch the latest AI intelligence (already computed by /api/ai/analyze)
-  const { data: patientProfile } = await supabase
-    .from('patient_profiles')
-    .select('*')
-    .eq('lead_id', id)
-    .maybeSingle()
-
-  const { data: latestAnalysis } = await supabase
-    .from('conversation_analyses')
-    .select('*')
-    .eq('lead_id', id)
-    .order('analyzed_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
   const analyzableConversationId = pickConversationToAnalyze(conversations || [])
 
-  // Fetch pipeline stages
-  const { data: stages } = await supabase
-    .from('pipeline_stages')
-    .select('*')
-    .eq('organization_id', lead.organization_id)
-    .order('position')
-
-  // Fetch team members for assignment
-  const { data: teamMembers } = await supabase
-    .from('user_profiles')
-    .select('id, full_name, email, role')
-    .eq('organization_id', lead.organization_id)
-    .eq('is_active', true)
-
-  // Account-level pre-qualification switch — drives whether the per-lead
-  // "Send Pre-Qual" action shows in the action bar.
-  const prequalEnabled = await isFlagEnabled(supabase, lead.organization_id, 'financing_prequal_enabled')
-
-  // Practice no-show fee switch — drives whether the per-lead "Card link" action
-  // (text/resend the card-on-file link) shows in the action bar.
-  const { data: bookingSettingsRow } = await supabase
-    .from('booking_settings')
-    .select('no_show_fee_enabled')
-    .eq('organization_id', lead.organization_id)
-    .maybeSingle()
   const noShowFeeEnabled = bookingSettingsRow?.no_show_fee_enabled === true
 
-  // Thread timestamps render in the practice timezone so SSR (UTC) and the
-  // browser agree on day boundaries.
-  const timeZone = await resolvePracticeTimeZone(supabase, lead.organization_id)
-
-  // Admins get the per-call "Use for AI training" control on call cards.
-  const { data: ownProfile } = await getOwnProfile(supabase, 'role')
   const canTrainAi = !!ownProfile && isAdminRole(ownProfile.role)
+
+  // Lead's tags (via the lead_tags join), so the Tags card renders populated.
+  const initialTags: Tag[] = (leadTagRows || [])
+    .map((row) => row.tag as any as Tag | null)
+    .filter((tag): tag is Tag => Boolean(tag))
 
   return (
     <LeadDetail
@@ -150,14 +157,15 @@ export default async function LeadDetailPage({
       activities={activities || []}
       conversations={conversations || []}
       primaryConversation={primaryConversation}
-      threadMessages={threadMessages || []}
-      threadCalls={threadCalls || []}
+      threadMessages={threadMessages}
+      threadCalls={threadCalls}
       timeline={timeline}
       patientProfile={patientProfile}
       latestAnalysis={latestAnalysis}
       analyzableConversationId={analyzableConversationId}
       stages={stages || []}
       teamMembers={teamMembers || []}
+      initialTags={initialTags}
       prequalEnabled={prequalEnabled}
       noShowFeeEnabled={noShowFeeEnabled}
       timeZone={timeZone}

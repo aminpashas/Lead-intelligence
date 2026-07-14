@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronRight, Loader2, ArrowRight, MoveRight, Users, Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { Recommendation, RecommendationKind } from '@/lib/pipeline/recommendations'
@@ -75,6 +76,8 @@ export function PipelineRecommendations({
   const [hydrated, setHydrated] = useState(false)
   // The recommendation whose full lead cohort is open in the drill-down sheet.
   const [cohortRec, setCohortRec] = useState<Recommendation | null>(null)
+  // The bulk-move recommendation awaiting "skip review" confirmation.
+  const [confirmMoveRec, setConfirmMoveRec] = useState<Recommendation | null>(null)
 
   // Dismissals persist locally (instant, works for live-computed recs with no
   // DB row yet) AND server-side (C2: the persisted row is stamped 'dismissed'
@@ -116,16 +119,10 @@ export function PipelineRecommendations({
     }
   }
 
+  // Auto-apply moves leads with no review step — callers must confirm via the
+  // ConfirmDialog (setConfirmMoveRec) before invoking apply(rec, true).
   async function apply(rec: Recommendation, autoApply = false) {
     const a = rec.action
-
-    // Auto-apply moves leads with no review step — confirm before mutating.
-    if (autoApply) {
-      const ok = window.confirm(
-        `Move ${rec.leadCount.toLocaleString()} leads now? This changes their pipeline stage immediately — there's no review step.`
-      )
-      if (!ok) return
-    }
 
     setApplyingId(rec.id)
     try {
@@ -292,7 +289,7 @@ export function PipelineRecommendations({
                     nothing, so it skips the review hand-off (still confirmed). */}
                 {rec.action.type === 'bulk_stage' && (
                   <button
-                    onClick={() => apply(rec, true)}
+                    onClick={() => setConfirmMoveRec(rec)}
                     disabled={busy}
                     className="mt-1.5 w-full text-center text-[11px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink disabled:opacity-50"
                   >
@@ -312,6 +309,27 @@ export function PipelineRecommendations({
         onClose={() => setCohortRec(null)}
         onApply={(rec) => apply(rec)}
         applying={cohortRec != null && applyingId === cohortRec.id}
+      />
+
+      {/* Bulk-move confirmation — this mutates lead stages with no review step. */}
+      <ConfirmDialog
+        open={confirmMoveRec !== null}
+        onOpenChange={(open) => { if (!open) setConfirmMoveRec(null) }}
+        title="Move Leads Now"
+        description={
+          confirmMoveRec
+            ? `Move ${confirmMoveRec.leadCount.toLocaleString()} leads now? This changes their pipeline stage immediately — there's no review step.`
+            : 'Move these leads now?'
+        }
+        confirmLabel={
+          confirmMoveRec
+            ? `Move ${confirmMoveRec.leadCount.toLocaleString()} leads`
+            : 'Move leads'
+        }
+        destructive
+        onConfirm={async () => {
+          if (confirmMoveRec) await apply(confirmMoveRec, true)
+        }}
       />
     </section>
   )

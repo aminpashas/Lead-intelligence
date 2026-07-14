@@ -95,7 +95,7 @@ export function BroadcastAudit() {
     return (
       <div className="space-y-4 animate-in fade-in-0 duration-500">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => setSelectedCampaign(null)}>
+          <Button variant="ghost" size="icon" aria-label="Back to campaign list" onClick={() => setSelectedCampaign(null)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1">

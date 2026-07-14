@@ -1,5 +1,7 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { hasPermission } from '@/lib/auth/permissions'
 import { decryptLeadPII } from '@/lib/encryption'
 import { PowerDialer, type DialerLead } from '@/components/voice/power-dialer'
 import { ManualDialPad } from '@/components/voice/manual-dial-pad'
@@ -18,8 +20,12 @@ import { ManualDialPad } from '@/components/voice/manual-dial-pad'
  */
 export default async function DialerPage() {
   const supabase = await createClient()
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return null
+
+  // Decrypted lead PII surface — enforce the same gate the route map declares
+  // (nav hiding is a courtesy; this is the boundary).
+  if (!hasPermission(role || 'member', 'call_center:read')) redirect('/dashboard')
 
   const { data: rows } = await supabase
     .from('leads')

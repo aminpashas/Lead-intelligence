@@ -27,6 +27,7 @@ import {
   CalendarDays,
   type LucideIcon,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { AppointmentsCalendar } from '@/components/crm/appointments-calendar'
 
 // ═══════════════════════════════════════════════════════════════
@@ -91,24 +92,31 @@ export default function AppointmentsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('upcoming')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const fetchAppointments = useCallback(async () => {
+    setLoadError(null)
     try {
       const res = await fetch('/api/appointments')
+      if (!res.ok) throw new Error(`Failed to load appointments (${res.status})`)
       const data = await res.json()
       setAppointments(data.appointments || [])
     } catch (err) {
       console.error('Failed to fetch appointments:', err)
+      setLoadError('Could not load appointments. Check your connection and try again.')
     }
   }, [])
 
   const fetchReminders = useCallback(async () => {
+    setLoadError(null)
     try {
       const res = await fetch('/api/appointments/reminders')
+      if (!res.ok) throw new Error(`Failed to load reminders (${res.status})`)
       const data = await res.json()
       setReminders(data.reminders || [])
     } catch (err) {
       console.error('Failed to fetch reminders:', err)
+      setLoadError('Could not load reminders. Check your connection and try again.')
     }
   }, [])
 
@@ -126,12 +134,16 @@ export default function AppointmentsPage() {
   const handleConfirm = async (id: string) => {
     setActionLoading(id)
     try {
-      await fetch('/api/appointments/confirm', {
+      const res = await fetch('/api/appointments/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ appointment_id: id, method: 'manual' }),
       })
+      if (!res.ok) throw new Error('failed')
+      toast.success('Appointment confirmed')
       await fetchAppointments()
+    } catch {
+      toast.error('Could not confirm the appointment')
     } finally {
       setActionLoading(null)
     }
@@ -140,12 +152,16 @@ export default function AppointmentsPage() {
   const handleStatusChange = async (id: string, status: string) => {
     setActionLoading(id)
     try {
-      await fetch('/api/appointments', {
+      const res = await fetch('/api/appointments', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ appointment_id: id, status }),
       })
+      if (!res.ok) throw new Error('failed')
+      toast.success(`Appointment marked ${status.replace('_', ' ')}`)
       await fetchAppointments()
+    } catch {
+      toast.error('Could not update the appointment')
     } finally {
       setActionLoading(null)
     }
@@ -154,12 +170,20 @@ export default function AppointmentsPage() {
   const handleSendReminder = async (id: string) => {
     setActionLoading(`reminder-${id}`)
     try {
-      await fetch('/api/appointments/reminders', {
+      const res = await fetch('/api/appointments/reminders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ appointment_id: id }),
       })
+      if (res.status === 409) {
+        toast.error('A reminder was already sent recently — try again later.')
+        return
+      }
+      if (!res.ok) throw new Error('failed')
+      toast.success('Reminder sent')
       await Promise.all([fetchAppointments(), fetchReminders()])
+    } catch {
+      toast.error('Could not send the reminder')
     } finally {
       setActionLoading(null)
     }
@@ -342,7 +366,17 @@ export default function AppointmentsPage() {
       )}
 
       {/* ── Content ── */}
-      {activeTab === 'calendar' ? (
+      {loadError ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-10">
+            <AlertTriangle className="h-6 w-6 text-amber-500" />
+            <p className="text-sm text-muted-foreground">{loadError}</p>
+            <Button size="sm" variant="outline" onClick={() => { fetchAppointments(); fetchReminders() }}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : activeTab === 'calendar' ? (
         <AppointmentsCalendar
           appointments={appointments}
           defaultView="month"

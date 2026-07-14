@@ -71,6 +71,7 @@ export function LeadDetail({
   analyzableConversationId,
   stages,
   teamMembers,
+  initialTags = [],
   prequalEnabled = false,
   noShowFeeEnabled = false,
   timeZone,
@@ -88,6 +89,8 @@ export function LeadDetail({
   analyzableConversationId: string | null
   stages: PipelineStage[]
   teamMembers: Pick<UserProfile, 'id' | 'full_name' | 'email' | 'role'>[]
+  /** Lead's tags, fetched server-side via the lead_tags join. */
+  initialTags?: Tag[]
   prequalEnabled?: boolean
   noShowFeeEnabled?: boolean
   /** Practice IANA timezone, forwarded so thread timestamps render zone-fixed. */
@@ -98,7 +101,7 @@ export function LeadDetail({
 }) {
   const [lead, setLead] = useState(initialLead)
   const [scoring, setScoring] = useState(false)
-  const [leadTags, setLeadTags] = useState<Tag[]>([])
+  const [leadTags, setLeadTags] = useState<Tag[]>(initialTags)
   // Conversation-first surface: the chat is the hero; the lead's features live
   // in a collapsible Details panel on the same page (closed by default).
   const [mode, setMode] = useState<'thread' | 'timeline'>('thread')
@@ -117,25 +120,6 @@ export function LeadDetail({
     localStorage.setItem(DETAILS_PREF_KEY, showDetails ? 'open' : 'closed')
   }, [showDetails])
 
-  // Fetch lead tags
-  useEffect(() => {
-    async function fetchTags() {
-      try {
-        const res = await fetch(`/api/leads/${lead.id}/tags`, { method: 'GET' })
-        // The GET isn't implemented, but we handle gracefully
-      } catch { /* ignore */ }
-
-      // Fetch via lead_tags join
-      try {
-        const res = await fetch(`/api/tags`)
-        if (res.ok) {
-          // We'll populate from add/remove operations
-        }
-      } catch { /* ignore */ }
-    }
-    // Tags will be populated when user interacts
-  }, [lead.id])
-
   async function addTags(tagIds: string[]) {
     const res = await fetch(`/api/leads/${lead.id}/tags`, {
       method: 'POST',
@@ -146,6 +130,8 @@ export function LeadDetail({
       const { lead_tags } = await res.json()
       setLeadTags(lead_tags.map((lt: any) => lt.tag).filter(Boolean))
       toast.success('Tags updated')
+    } else {
+      toast.error('Failed to update tags')
     }
   }
 
@@ -159,6 +145,8 @@ export function LeadDetail({
       const { lead_tags } = await res.json()
       setLeadTags(lead_tags.map((lt: any) => lt.tag).filter(Boolean))
       toast.success('Tag removed')
+    } else {
+      toast.error('Failed to remove tag')
     }
   }
 

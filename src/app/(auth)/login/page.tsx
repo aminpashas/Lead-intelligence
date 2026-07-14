@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { postLoginPath } from '@/lib/auth/post-login-path'
@@ -9,17 +9,31 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-export default function LoginPage() {
+/**
+ * Validate a `?next=` deep-link target (set by the middleware when it bounces
+ * an unauthenticated request to /login). Only same-origin relative paths are
+ * honored: a single leading slash, no protocol-relative `//host`, and no
+ * backslash tricks — anything else falls back to the role-based default.
+ */
+function safeNextPath(next: string | null): string | null {
+  if (!next) return null
+  if (!next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return null
+  return next
+}
+
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
   /**
-   * After a successful login, fetch the user's role + active-practice
-   * selection and redirect accordingly:
+   * After a successful login, honor a validated `?next=` deep link if present;
+   * otherwise fetch the user's role + active-practice selection and redirect
+   * accordingly:
    * - agency_admin with no active practice → /agency (Agency Control Panel)
    * - agency_admin who has entered a practice → /dashboard (resume that CRM)
    * - all other roles → /dashboard (Practice Dashboard)
@@ -28,6 +42,13 @@ export default function LoginPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       router.push('/login')
+      return
+    }
+
+    const nextPath = safeNextPath(searchParams.get('next'))
+    if (nextPath) {
+      router.push(nextPath)
+      router.refresh()
       return
     }
 
@@ -212,5 +233,21 @@ export default function LoginPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+// useSearchParams requires a Suspense boundary at prerender time — same
+// pattern as /accept-invite.
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center text-[14px] text-aurea-ink-2">
+          Loading…
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   )
 }

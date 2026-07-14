@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Plus, Pencil, Trash2, Brain } from 'lucide-react'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { MemoryFormDialog } from './memory-form-dialog'
 import type { AIMemory, AIMemoryCategory } from '@/types/database'
 import { toast } from 'sonner'
@@ -39,6 +40,7 @@ export function MemoryManager() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingMemory, setEditingMemory] = useState<AIMemory | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const fetchMemories = useCallback(async () => {
     try {
@@ -100,7 +102,6 @@ export function MemoryManager() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this memory? This cannot be undone.')) return
     try {
       const res = await fetch(`/api/ai/training/memories/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete')
@@ -194,7 +195,12 @@ export function MemoryManager() {
                 >
                   <Pencil className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleDelete(memory.id)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Delete memory"
+                  onClick={() => setConfirmDeleteId(memory.id)}
+                >
                   <Trash2 className="h-4 w-4 text-aurea-rose" strokeWidth={1.75} />
                 </Button>
               </div>
@@ -212,6 +218,19 @@ export function MemoryManager() {
         }}
         memory={editingMemory}
         onSave={editingMemory ? handleUpdate : handleCreate}
+      />
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteId(null) }}
+        title="Delete Memory"
+        description="Delete this memory? This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (confirmDeleteId) await handleDelete(confirmDeleteId)
+        }}
       />
     </div>
   )

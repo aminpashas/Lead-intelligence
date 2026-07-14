@@ -319,7 +319,7 @@ export function DashboardHome({
                     </span>
                     {apt.lead?.phone && (
                       <a href={`tel:${apt.lead.phone}`}>
-                        <Button variant="outline" size="icon" className="h-7 w-7">
+                        <Button variant="outline" size="icon" aria-label="Call patient" className="h-7 w-7">
                           <Phone className="h-3 w-3" strokeWidth={1.75} />
                         </Button>
                       </a>

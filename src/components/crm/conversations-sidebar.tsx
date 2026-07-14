@@ -312,6 +312,14 @@ export function ConversationsSidebar({
           )}
         </div>
 
+        {/* The layout caps the inbox at 300 threads — say so, or search over
+            older conversations silently reads as "No matches". */}
+        {conversations.length >= 300 && (
+          <p className="mt-1.5 text-[11px] leading-snug text-aurea-ink-3">
+            Showing the 300 most recent conversations — older threads won&apos;t appear in search.
+          </p>
+        )}
+
         {/* Channel segmented + Filters toggle */}
         <div className="mt-2.5 flex items-center gap-2">
           <div className="inline-flex flex-1 overflow-hidden rounded-lg border border-aurea-border">

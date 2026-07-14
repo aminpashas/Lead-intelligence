@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
 import {
@@ -392,7 +393,15 @@ export function LeadsTable({
                       </span>
                       <div>
                         <p className="text-[14px] font-medium text-aurea-ink">
-                          {lead.first_name} {lead.last_name}
+                          {/* Real link so keyboard users can tab to and open a
+                              lead; stopPropagation keeps the row click intact. */}
+                          <Link
+                            href={`/leads/${lead.id}`}
+                            className="outline-none focus-visible:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {lead.first_name} {lead.last_name}
+                          </Link>
                         </p>
                         <p className="font-mono text-[11px] text-aurea-ink-3">
                           {lead.email || lead.phone}

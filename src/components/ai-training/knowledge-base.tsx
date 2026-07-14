@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Plus, Pencil, Trash2, BookOpen, Search, Download, Loader2 } from 'lucide-react'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { KnowledgeFormDialog } from './knowledge-form-dialog'
 import type { AIKnowledgeArticle, AIKnowledgeCategory } from '@/types/database'
 import { toast } from 'sonner'
@@ -42,6 +43,8 @@ export function KnowledgeBase() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingArticle, setEditingArticle] = useState<AIKnowledgeArticle | null>(null)
   const [seeding, setSeeding] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [confirmSeedOpen, setConfirmSeedOpen] = useState(false)
 
   const fetchArticles = useCallback(async () => {
     try {
@@ -104,7 +107,6 @@ export function KnowledgeBase() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this article? This cannot be undone.')) return
     try {
       const res = await fetch(`/api/ai/training/knowledge/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete')
@@ -116,7 +118,6 @@ export function KnowledgeBase() {
   }
 
   async function handleSeedFAQs() {
-    if (!confirm('This will load 200 sample dental implant FAQs into your knowledge base. Continue?')) return
     setSeeding(true)
     try {
       const res = await fetch('/api/ai/training/knowledge/seed', { method: 'POST' })
@@ -190,7 +191,7 @@ export function KnowledgeBase() {
                 <Plus className="h-4 w-4 mr-1" />
                 Add Your First Article
               </Button>
-              <Button variant="outline" onClick={handleSeedFAQs} disabled={seeding}>
+              <Button variant="outline" onClick={() => setConfirmSeedOpen(true)} disabled={seeding}>
                 {seeding ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" strokeWidth={1.75} />}
                 {seeding ? 'Loading...' : 'Load 200 Sample FAQs'}
               </Button>
@@ -220,7 +221,12 @@ export function KnowledgeBase() {
                   >
                     <Pencil className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(article.id)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Delete article"
+                    onClick={() => setConfirmDeleteId(article.id)}
+                  >
                     <Trash2 className="h-4 w-4 text-aurea-rose" strokeWidth={1.75} />
                   </Button>
                 </div>
@@ -253,6 +259,29 @@ export function KnowledgeBase() {
         }}
         article={editingArticle}
         onSave={editingArticle ? handleUpdate : handleCreate}
+      />
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteId(null) }}
+        title="Delete Article"
+        description="Delete this article? This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (confirmDeleteId) await handleDelete(confirmDeleteId)
+        }}
+      />
+
+      {/* Seed FAQs confirmation */}
+      <ConfirmDialog
+        open={confirmSeedOpen}
+        onOpenChange={setConfirmSeedOpen}
+        title="Load Sample FAQs"
+        description="This will load 200 sample dental implant FAQs into your knowledge base. Continue?"
+        confirmLabel="Load FAQs"
+        onConfirm={handleSeedFAQs}
       />
     </div>
   )

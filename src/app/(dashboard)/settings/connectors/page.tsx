@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import {
   Plug,
@@ -190,6 +191,7 @@ export default function ConnectorsPage() {
   const [testing, setTesting] = useState<ConnectorType | null>(null)
   const [testResult, setTestResult] = useState<{ type: ConnectorType; success: boolean; message: string } | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState<{ type: ConnectorType; name: string } | null>(null)
 
   const fetchConnectors = useCallback(async () => {
     try {
@@ -272,6 +274,8 @@ export default function ConnectorsPage() {
       if (res.ok) {
         toast.success(enabled ? 'Connector enabled' : 'Connector paused')
         fetchConnectors()
+      } else {
+        toast.error('Failed to update connector')
       }
     } catch {
       toast.error('Failed to update connector')
@@ -279,8 +283,6 @@ export default function ConnectorsPage() {
   }
 
   async function handleDelete(connectorType: ConnectorType, connectorName: string) {
-    if (!confirm(`Remove ${connectorName}? This will stop sending events to this connector.`)) return
-
     try {
       const res = await fetch(`/api/connectors?type=${connectorType}`, {
         method: 'DELETE',
@@ -289,6 +291,8 @@ export default function ConnectorsPage() {
       if (res.ok) {
         toast.success(`${connectorName} connector removed`)
         fetchConnectors()
+      } else {
+        toast.error('Failed to remove connector')
       }
     } catch {
       toast.error('Failed to remove connector')
@@ -478,8 +482,9 @@ export default function ConnectorsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label={`Remove ${info.name} connector`}
                           className="h-8 w-8 text-aurea-ink-3 hover:text-aurea-rose"
-                          onClick={() => handleDelete(info.type, info.name)}
+                          onClick={() => setConfirmRemove({ type: info.type, name: info.name })}
                         >
                           <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                         </Button>
@@ -705,6 +710,23 @@ export default function ConnectorsPage() {
           </div>
         </div>
       </div>
+
+      {/* Remove connector confirmation */}
+      <ConfirmDialog
+        open={confirmRemove !== null}
+        onOpenChange={(open) => { if (!open) setConfirmRemove(null) }}
+        title="Remove Connector"
+        description={
+          confirmRemove
+            ? `Remove ${confirmRemove.name}? This will stop sending events to this connector.`
+            : 'Remove this connector?'
+        }
+        confirmLabel="Remove"
+        destructive
+        onConfirm={async () => {
+          if (confirmRemove) await handleDelete(confirmRemove.type, confirmRemove.name)
+        }}
+      />
     </div>
   )
 }
