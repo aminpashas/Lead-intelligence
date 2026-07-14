@@ -400,4 +400,62 @@ describe('generateLeadEngagement', () => {
     expect(callArgs.messages.length).toBeGreaterThan(0)
     expect(callArgs.messages[0].role).toBe('user')
   })
+
+  // ── Anti-generic guardrails ──────────────────────────────────
+  // These assert the PROMPT the model receives, not model output (the model is
+  // mocked). They pin the behavior that keeps drafts from reading like a mass
+  // blast: the human texting-style layer, the bot-tell bans, and a first-touch
+  // opener that must lean on the lead's own profile.
+
+  it('injects the human texting-style block for SMS but not email', async () => {
+    vi.mocked(checkResponseCompliance).mockReturnValue([])
+
+    setAnthropicResponse('sms draft')
+    await generateLeadEngagement(
+      { first_name: 'Sarah' },
+      [{ role: 'user', content: 'yes' }, { role: 'user', content: 'how much' }],
+      { mode: 'education', channel: 'sms' }
+    )
+    expect(mockCreate.mock.calls[0][0].system).toContain("THIS PATIENT'S TEXTING STYLE")
+
+    mockCreate.mockClear()
+    setAnthropicResponse('email draft')
+    await generateLeadEngagement(
+      { first_name: 'Sarah' },
+      [{ role: 'user', content: 'yes' }],
+      { mode: 'education', channel: 'email' }
+    )
+    expect(mockCreate.mock.calls[0][0].system).not.toContain("THIS PATIENT'S TEXTING STYLE")
+  })
+
+  it('bans the classic bot-tell filler phrases in the system prompt', async () => {
+    vi.mocked(checkResponseCompliance).mockReturnValue([])
+    setAnthropicResponse('draft')
+
+    await generateLeadEngagement(
+      { first_name: 'Sarah' },
+      [{ role: 'user', content: 'hi' }],
+      { mode: 'follow_up', channel: 'sms' }
+    )
+
+    const system: string = mockCreate.mock.calls[0][0].system
+    expect(system).toContain('I hope this message finds you well')
+    expect(system).toContain('Feel free to reach out')
+    expect(system.toLowerCase()).toContain('bot-tell')
+  })
+
+  it('first-touch seed instruction demands lead-specific opener, not a generic greeting', async () => {
+    vi.mocked(checkResponseCompliance).mockReturnValue([])
+    setAnthropicResponse('draft')
+
+    await generateLeadEngagement(
+      { first_name: 'Sarah' },
+      [], // first touch
+      { mode: 'appointment_scheduling', channel: 'sms' }
+    )
+
+    const seed: string = mockCreate.mock.calls[0][0].messages[0].content
+    expect(seed).toMatch(/specific/i)
+    expect(seed).toMatch(/one easy question/i)
+  })
 })

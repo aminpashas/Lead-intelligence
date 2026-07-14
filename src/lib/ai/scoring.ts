@@ -6,6 +6,7 @@ import { getEnrichmentSummary } from '@/lib/enrichment'
 import type { EnrichmentSummary } from '@/lib/enrichment/types'
 import type { PatientProfile } from '@/types/database'
 import { formatPatientPsychologyForPrompt } from './agent-types'
+import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -428,6 +429,20 @@ export async function generateLeadEngagement(
     ? `\n\nPatient Psychology (read this and act on it — do NOT ignore it):\n${formatPatientPsychologyForPrompt(context.patientProfile)}`
     : ''
 
+  // Mirror how THIS patient actually texts — the same block the live inbound
+  // setter/closer agents use. Without it, the outbound drafter answers a quiet,
+  // two-word lead with a four-line paragraph: the #1 tell that a bot is texting.
+  // For first-touch (no inbound yet) the block tells it to open short and low-
+  // pressure. SMS only — the length rules are written for texting cadence.
+  const styleBlock =
+    context.channel === 'sms'
+      ? `\n\n${formatTextingStyleBlock(
+          analyzeTextingStyle(
+            conversationHistory.filter((m) => m.role === 'user').map((m) => m.content)
+          )
+        )}`
+      : ''
+
   // Scrub PHI from conversation history before sending to AI
   const safeHistory = conversationHistory.map((msg) => ({
     role: msg.role as 'user' | 'assistant',
@@ -445,33 +460,37 @@ export async function generateLeadEngagement(
         })
       : ''
 
-  const systemPrompt = `You are an AI assistant for a dental implant practice specializing in All-on-4 full arch implants.
-You are communicating with a potential patient via ${context.channel === 'sms' ? 'text message (keep messages under 160 chars when possible)' : 'email'}.
+  const systemPrompt = `You are a real person on the team at a dental implant practice specializing in All-on-4 full arch implants, ${context.channel === 'sms' ? 'texting' : 'emailing'} a patient who reached out to us. You are NOT a chatbot and must never sound like one.
 
 Your goal: ${
     context.mode === 'education'
-      ? 'Educate the lead about All-on-4 dental implants, address misconceptions, and build confidence in the procedure.'
+      ? "Answer what THIS patient is actually weighing (see their profile) about All-on-4 — clear up the one misconception most relevant to them. Don't dump generic facts."
       : context.mode === 'objection_handling'
-        ? 'Address the lead\'s concerns (cost, pain, recovery time, etc.) with empathy and factual information.'
+        ? "Address the specific concern this patient has shown (cost, pain, recovery, credit, timing — see their profile) with empathy and one concrete, honest point. Don't recite a list."
         : context.mode === 'appointment_scheduling'
-          ? 'Guide the lead toward scheduling a free consultation. Be helpful, not pushy.'
-          : 'Follow up warmly, check on their decision process, and offer to answer questions.'
+          ? 'Get them to a free consultation. Make it easy — offer a concrete next step and ask ONE simple scheduling question.'
+          : "Nudge them forward based on where THEY left off (see their profile and history). Check in like a person who remembers them, not a mass blast."
   }
 
 Lead Profile:
-${leadContext}${psychologyBlock}
+${leadContext}${psychologyBlock}${styleBlock}
 
-${brandBlock ? `${brandBlock}\n\n` : ''}Guidelines:
-- Be warm, professional, and empathetic
-- Use simple language, avoid medical jargon
-- Never make specific medical claims or diagnoses
-- Always recommend an in-person consultation for specific treatment advice
-- For SMS: Keep messages concise and conversational
-- For email: Use a professional but friendly tone
-- If the lead seems disqualified or uninterested, gracefully disengage
-- Never pressure or use aggressive sales tactics
-- HIPAA: Never include patient identifiers (full name, phone, email, SSN, DOB) in your response
-- HIPAA: Never ask patients to share sensitive information via text/email`
+${brandBlock ? `${brandBlock}\n\n` : ''}Write it like a human who knows this patient:
+- OPEN ON THEM, NOT ON YOU. Reference the specific thing in their profile — their situation, timeline, financing signal, or what they asked about. A message that could have been sent to any of 10,000 leads has failed.
+- One idea, one ask. End with a single, easy, specific question — not "let us know if you have any questions."
+- Sound like a text from a helpful human. Contractions, plain words, natural rhythm. ${context.channel === 'sms' ? 'Under 160 chars when you can.' : 'Short paragraphs, no corporate letterhead tone.'}
+
+NEVER write these bot-tells (instant rewrite if you catch yourself):
+- "I hope this message finds you well" / "I wanted to reach out" / "Just following up"
+- "We specialize in..." / "Our team is dedicated to..." / "At [practice], we..."
+- "Feel free to reach out" / "Don't hesitate to contact us" / "We're here for you"
+- Stacking multiple questions, or listing 3+ facts in one message.
+
+Guardrails (never break):
+- No specific medical claims or diagnoses; recommend an in-person consult for treatment specifics.
+- Never pressure or use aggressive sales tactics. If the lead is disqualified or uninterested, disengage gracefully.
+- HIPAA: Never include patient identifiers (full name, phone, email, SSN, DOB) in your response.
+- HIPAA: Never ask patients to share sensitive information via text/email.`
 
   // The Anthropic Messages API rejects an empty `messages` array with a 400.
   // First-touch outreach (compose dialog, campaign send) has no prior messages,
@@ -483,7 +502,7 @@ ${brandBlock ? `${brandBlock}\n\n` : ''}Guidelines:
       : [
           {
             role: 'user',
-            content: `Write the opening ${context.channel === 'sms' ? 'text message' : 'email'} to send to this lead now, following the goal above. Reply with only the message content.`,
+            content: `Write the opening ${context.channel === 'sms' ? 'text message' : 'email'} to send to this lead now. Open on something specific from their profile above (not a generic greeting), keep it to one idea, and end with one easy question. Reply with only the message content — no preamble.`,
           },
         ]
 
