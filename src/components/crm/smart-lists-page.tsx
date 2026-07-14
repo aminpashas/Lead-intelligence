@@ -9,6 +9,7 @@ import {
   Loader2, Sparkles, Target,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { SmartListBuilder } from './smart-list-builder'
 import { SmartListDetail } from './smart-list-detail'
@@ -26,6 +27,7 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
   const [editingList, setEditingList] = useState<SmartList | null>(null)
   const [viewingList, setViewingList] = useState<SmartList | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -149,7 +151,7 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
                 list={list}
                 onView={() => setViewingList(list)}
                 onEdit={() => handleEdit(list)}
-                onDelete={() => handleDelete(list.id)}
+                onDelete={() => setConfirmDeleteId(list.id)}
                 deleting={deleting === list.id}
               />
             ))}
@@ -183,13 +185,26 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
                 list={list}
                 onView={() => setViewingList(list)}
                 onEdit={() => handleEdit(list)}
-                onDelete={() => handleDelete(list.id)}
+                onDelete={() => setConfirmDeleteId(list.id)}
                 deleting={deleting === list.id}
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteId(null) }}
+        title="Delete Smart List"
+        description="Delete this Smart List? Campaigns targeting it will stop matching."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (confirmDeleteId) await handleDelete(confirmDeleteId)
+        }}
+      />
 
       {/* Smart List Builder Dialog */}
       <SmartListBuilder
@@ -245,10 +260,11 @@ function SmartListCard({
         >
           <ListFilter className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Edit smart list"
             className="h-7 w-7 text-aurea-ink-3 hover:text-aurea-ink"
             onClick={(e) => { e.stopPropagation(); onEdit() }}
           >
@@ -257,6 +273,7 @@ function SmartListCard({
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Delete smart list"
             className="h-7 w-7 text-aurea-ink-3 hover:text-aurea-rose"
             onClick={(e) => { e.stopPropagation(); onDelete() }}
             disabled={deleting}

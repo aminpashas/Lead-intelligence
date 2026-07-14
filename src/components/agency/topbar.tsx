@@ -56,6 +56,7 @@ export function AgencyTopbar({ userProfile, onMenuClick }: AgencyTopbarProps) {
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Open navigation menu"
           className="lg:hidden h-8 w-8 text-aurea-ink-2 hover:text-aurea-ink hover:bg-aurea-surface-2"
           onClick={onMenuClick}
         >

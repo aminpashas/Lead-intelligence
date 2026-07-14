@@ -1,5 +1,7 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { hasPermission } from '@/lib/auth/permissions'
 import { decryptField } from '@/lib/encryption'
 import { ReviewQueue, type ReviewDraft } from '@/components/crm/campaign-review-queue'
 
@@ -14,8 +16,12 @@ export default async function CampaignReviewPage() {
   const supabase = await createClient()
 
   // Effective org honors an agency_admin's entered client account.
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return null
+
+  // Approving a draft sends it — same campaigns:write gate as the route map
+  // (nav hiding is a courtesy; this is the boundary).
+  if (!hasPermission(role || 'member', 'campaigns:write')) redirect('/dashboard')
 
   const { data } = await supabase
     .from('campaign_review_drafts')

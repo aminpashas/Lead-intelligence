@@ -24,6 +24,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { ChatMessage } from './chat-message'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import type { AITestConversation, AITestMessage } from '@/types/database'
 
@@ -47,6 +48,7 @@ export function ChatPlayground() {
   const [articlesUsed, setArticlesUsed] = useState<{ id: string; title: string }[]>([])
   const [savedConversations, setSavedConversations] = useState<AITestConversation[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -192,10 +194,11 @@ export function ChatPlayground() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    aria-label="Delete conversation"
                     className="h-6 w-6 p-0 shrink-0"
                     onClick={(e) => {
                       e.stopPropagation()
-                      deleteConversation(convo.id)
+                      setConfirmDeleteId(convo.id)
                     }}
                   >
                     <Trash2 className="h-3 w-3 text-muted-foreground" />
@@ -270,10 +273,11 @@ export function ChatPlayground() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label="Delete conversation"
                       className="h-6 w-6 p-0"
                       onClick={(e) => {
                         e.stopPropagation()
-                        deleteConversation(convo.id)
+                        setConfirmDeleteId(convo.id)
                       }}
                     >
                       <Trash2 className="h-3 w-3" />
@@ -406,6 +410,19 @@ export function ChatPlayground() {
           </Card>
         )}
       </div>
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDeleteId(null) }}
+        title="Delete Conversation"
+        description="Delete this saved conversation? This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (confirmDeleteId) await deleteConversation(confirmDeleteId)
+        }}
+      />
     </div>
   )
 }

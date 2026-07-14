@@ -7,6 +7,11 @@ import { useOrgStore } from '@/lib/store/use-org'
 import { useNotificationStore } from '@/lib/store/use-notifications'
 import { toast } from 'sonner'
 
+// Trailing debounce for router.refresh(): bulk sweeps can touch thousands of
+// rows in seconds — coalesce all of it into one refresh instead of a storm.
+// Mirrors the debounce in activity-monitor.tsx.
+const REFRESH_DEBOUNCE_MS = 10_000
+
 /**
  * Consolidated real-time notification system.
  *
@@ -21,6 +26,14 @@ export function useRealtimeNotifications() {
 
   useEffect(() => {
     if (!organization?.id) return
+
+    // One shared trailing-debounced refresh used by every handler below —
+    // each event resets the timer, so a burst collapses into a single refresh.
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(() => router.refresh(), REFRESH_DEBOUNCE_MS)
+    }
 
     // Channel 1: Leads — new leads + qualification changes
     const leadsChannel = supabase
@@ -49,7 +62,7 @@ export function useRealtimeNotifications() {
             description: source,
             action: { label: 'View', onClick: () => router.push(`/leads/${lead.id}`) },
           })
-          router.refresh()
+          scheduleRefresh()
         }
       )
       .on(
@@ -90,7 +103,11 @@ export function useRealtimeNotifications() {
             })
           }
 
-          router.refresh()
+          // Plain field updates (notes, scores-in-place, bulk sweeps) must NOT
+          // refresh — only an actual qualification transition warrants it.
+          if (lead.ai_qualification !== old.ai_qualification) {
+            scheduleRefresh()
+          }
         }
       )
       .subscribe()
@@ -126,7 +143,7 @@ export function useRealtimeNotifications() {
               ? { label: 'View', onClick: () => router.push(`/conversations/${msg.conversation_id}`) }
               : undefined,
           })
-          router.refresh()
+          scheduleRefresh()
         }
       )
       .subscribe()
@@ -160,7 +177,7 @@ export function useRealtimeNotifications() {
             description: `${(appt.type as string)?.replace(/_/g, ' ')} scheduled for ${dateStr}`,
             action: { label: 'View', onClick: () => router.push('/appointments') },
           })
-          router.refresh()
+          scheduleRefresh()
         }
       )
       .subscribe()
@@ -192,12 +209,13 @@ export function useRealtimeNotifications() {
               action: { label: 'View', onClick: () => router.push('/campaigns') },
             })
           }
-          router.refresh()
+          scheduleRefresh()
         }
       )
       .subscribe()
 
     return () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
       supabase.removeChannel(leadsChannel)
       supabase.removeChannel(messagesChannel)
       supabase.removeChannel(appointmentsChannel)

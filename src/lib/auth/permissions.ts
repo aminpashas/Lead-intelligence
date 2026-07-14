@@ -315,8 +315,10 @@ export function canViewBilling(role: PracticeRole | string): boolean {
 const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/agency': 'agency:console',
   '/dashboard': 'dashboard:view',
+  '/tasks': 'dashboard:view',
   '/pipeline': 'pipeline:read',
   '/closing': 'pipeline:read',
+  '/post-close': 'pipeline:read',
   // Leads + Smart Lists
   '/leads': 'leads:read',
   '/leads/lists': 'smart_lists:read',
@@ -331,6 +333,8 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/campaigns/playbook': 'funnel:read',
   // review_first draft queue — approving a draft sends it, so gate on write.
   '/campaigns/review': 'campaigns:write',
+  // Campaign creation wizard — building/launching campaigns is agency-side.
+  '/campaigns/setup': 'campaigns:write',
   // Campaigns hub — relocated Audiences (Smart Lists) + Broadcasts (Phase 1 move).
   // Explicit keys keep the original, stricter gates instead of inheriting
   // the looser /campaigns → campaigns:read via prefix match.
@@ -365,6 +369,9 @@ const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   '/settings/billing': 'billing:read',
   '/settings/usage': 'billing:read',
   '/settings/ai': 'ai_control:read',
+  // Live-transfer config: same read gate as the AI tab; writes are gated to
+  // ai_control:write in the API routes.
+  '/settings/live-transfer': 'ai_control:read',
   // Financing tab: visible to anyone who can read AI control (practice admins +
   // agency); the toggle writes are gated separately to ai_control:write.
   '/settings/financing': 'ai_control:read',

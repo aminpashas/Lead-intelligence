@@ -6,16 +6,17 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
+  type Announcements,
   type DragStartEvent,
   type DragEndEvent,
+  type ScreenReaderInstructions,
+  type UniqueIdentifier,
 } from '@dnd-kit/core'
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { PipelineColumn } from './pipeline-column'
 import { LeadCard } from './lead-card'
 import type { Lead, PipelineStage } from '@/types/database'
@@ -24,6 +25,13 @@ import { classifyContactedState, type TimelineEnrollment } from '@/lib/pipeline/
 import { isActiveContactStage } from '@/lib/pipeline/stage-groups'
 import { SERVICE_LINES } from '@/lib/leads/service-line'
 import { toast } from 'sonner'
+
+// Spoken to screen-reader users when a card receives focus — the cards are
+// announced as sortable, so tell them the actual key bindings.
+const screenReaderInstructions: ScreenReaderInstructions = {
+  draggable:
+    'To pick up a lead card, press space or enter. While dragging, use the arrow keys to move the card between pipeline stages. Press space or enter again to drop the card in its new stage, or press escape to cancel.',
+}
 
 export function PipelineBoard({
   stages,
@@ -57,6 +65,10 @@ export function PipelineBoard({
   const [leads, setLeads] = useState(initialLeads)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
+  // Local ± overlay on the server-provided per-stage totals. Successful drags
+  // no longer round-trip the whole page (no router.refresh), so the column
+  // headers stay truthful by adjusting the counts client-side instead.
+  const [countDelta, setCountDelta] = useState<Record<string, number>>({})
   const router = useRouter()
 
   useEffect(() => { setMounted(true) }, [])
@@ -64,7 +76,21 @@ export function PipelineBoard({
   // Drag optimism replaces server data locally, but a treatment switch is a
   // navigation (see selectService) — so `leads` is always already scoped to the
   // active service by the server. Render it as-is; no client-side filtering.
-  useEffect(() => { setLeads(initialLeads) }, [initialLeads])
+  // Fresh server data also carries fresh stageCounts — drop the local overlay.
+  useEffect(() => {
+    setLeads(initialLeads)
+    setCountDelta({})
+  }, [initialLeads])
+
+  // True stage total for a column header: server count + local drag overlay.
+  const stageCountFor = useCallback(
+    (stageId: string) => {
+      const base = stageCounts?.[stageId]
+      if (base == null) return undefined
+      return base + (countDelta[stageId] ?? 0)
+    },
+    [stageCounts, countDelta]
+  )
 
   // Switching treatment is a server round-trip: the URL drives which service the
   // board fetches (and counts), so clicking a chip shows that treatment's REAL
@@ -81,8 +107,57 @@ export function PipelineBoard({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
     })
   )
+
+  // ── Accessibility: name things for the screen reader ──────
+  // Cards are announced as sortable (role="button" from dnd-kit attributes), so
+  // narrate drags with the lead's name and the destination column's name.
+  const leadNameOf = useCallback(
+    (id: UniqueIdentifier) => {
+      const l = leads.find((x) => x.id === id)
+      return l ? `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() || 'Lead' : 'Lead'
+    },
+    [leads]
+  )
+
+  // `over` can be a column droppable (stage id) or a card inside one (lead id)
+  // — resolve either to the stage it represents.
+  const stageOf = useCallback(
+    (id: UniqueIdentifier | undefined): PipelineStage | null => {
+      if (id == null) return null
+      const stage = stages.find((s) => s.id === id)
+      if (stage) return stage
+      const lead = leads.find((l) => l.id === id)
+      return lead ? stages.find((s) => s.id === lead.stage_id) ?? null : null
+    },
+    [stages, leads]
+  )
+
+  const announcements: Announcements = {
+    onDragStart({ active }) {
+      const from = stageOf(active.id)
+      return `Picked up lead ${leadNameOf(active.id)}${from ? ` in the ${from.name} stage` : ''}.`
+    },
+    onDragOver({ active, over }) {
+      const dest = stageOf(over?.id)
+      return dest
+        ? `Lead ${leadNameOf(active.id)} is over the ${dest.name} stage.`
+        : `Lead ${leadNameOf(active.id)} is no longer over a stage.`
+    },
+    onDragEnd({ active, over }) {
+      const dest = stageOf(over?.id)
+      return dest
+        ? `Lead ${leadNameOf(active.id)} was dropped into the ${dest.name} stage.`
+        : `Lead ${leadNameOf(active.id)} was dropped.`
+    },
+    onDragCancel({ active }) {
+      return `Dragging was cancelled. Lead ${leadNameOf(active.id)} was returned to its original stage.`
+    },
+  }
 
   const activeLead = activeId ? leads.find((l) => l.id === activeId) : null
   // Keep the Day-N cadence badge on the floating drag-preview card too, matching
@@ -113,6 +188,7 @@ export function PipelineBoard({
     async (leadId: string, newStageId: string) => {
       const lead = leads.find((l) => l.id === leadId)
       if (!lead || lead.stage_id === newStageId) return
+      const fromStageId = lead.stage_id
 
       // Optimistic update
       setLeads((prev) =>
@@ -128,8 +204,16 @@ export function PipelineBoard({
         })
 
         if (!res.ok) throw new Error('Failed to update')
+        // No router.refresh() here: the optimistic card move is the truth, and
+        // a refresh would re-run the whole page's queries AND clobber any
+        // in-flight drag via the initialLeads sync effect above. Keep the
+        // header counts truthful with a local ± overlay instead.
+        setCountDelta((prev) => {
+          const next = { ...prev, [newStageId]: (prev[newStageId] ?? 0) + 1 }
+          if (fromStageId) next[fromStageId] = (prev[fromStageId] ?? 0) - 1
+          return next
+        })
         toast.success('Lead moved successfully')
-        router.refresh()
       } catch {
         // Revert on failure
         setLeads((prev) =>
@@ -140,7 +224,7 @@ export function PipelineBoard({
         toast.error('Failed to move lead')
       }
     },
-    [leads, router]
+    [leads]
   )
 
   const handleDragEnd = useCallback(
@@ -148,9 +232,13 @@ export function PipelineBoard({
       const { active, over } = event
       setActiveId(null)
       if (!over) return
-      void moveLeadToStage(active.id as string, over.id as string)
+      // The keyboard sensor (and pointer drops onto a card) land on a lead id,
+      // not the column droppable — resolve to the destination stage either way.
+      const destStage = stageOf(over.id)
+      if (!destStage) return
+      void moveLeadToStage(active.id as string, destStage.id)
     },
-    [moveLeadToStage]
+    [moveLeadToStage, stageOf]
   )
 
   // One-click approval of an AI-suggested stage move (suggest → approve).
@@ -194,7 +282,7 @@ export function PipelineBoard({
           {stages.filter((s) => !s.is_lost).map((stage) => {
             const stageLeads = leads.filter((l) => l.stage_id === stage.id)
             return (
-              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={stageCounts?.[stage.id]} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} enrollments={enrollments} />
+              <PipelineColumn key={stage.id} stage={stage} leads={stageLeads} totalCount={stageCountFor(stage.id)} onLeadClick={(id) => router.push(`/leads/${id}`)} probabilityByLead={probabilityByLead} suggestionByLead={suggestionByLead} enrollments={enrollments} />
             )
           })}
         </div>
@@ -206,6 +294,7 @@ export function PipelineBoard({
     <DndContext
       sensors={sensors}
       collisionDetection={closestCorners}
+      accessibility={{ announcements, screenReaderInstructions }}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
@@ -220,7 +309,7 @@ export function PipelineBoard({
                 key={stage.id}
                 stage={stage}
                 leads={stageLeads}
-                totalCount={stageCounts?.[stage.id]}
+                totalCount={stageCountFor(stage.id)}
                 onLeadClick={(id) => router.push(`/leads/${id}`)}
                 probabilityByLead={probabilityByLead}
                 suggestionByLead={suggestionByLead}

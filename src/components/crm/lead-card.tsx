@@ -1,6 +1,7 @@
 'use client'
 
 import { formatDistanceToNow, format } from 'date-fns'
+import Link from 'next/link'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Phone, Mail, Brain, TrendingUp, ArrowRight, Clock } from 'lucide-react'
 import type { Lead } from '@/types/database'
@@ -56,7 +57,19 @@ export function LeadCard({
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] font-medium text-aurea-ink">
-            {lead.first_name} {lead.last_name}
+            {/* A real link so keyboard users can Enter into the lead (the card
+                itself is dnd-kit's sortable "button") and cmd/middle-click
+                opens a tab. stopPropagation keeps drag/select on the card
+                working: click doesn't bubble to onClick, and Enter on the
+                focused name navigates instead of picking up a drag. */}
+            <Link
+              href={`/leads/${lead.id}`}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="rounded-sm hover:underline focus-visible:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aurea-primary/50"
+            >
+              {lead.first_name} {lead.last_name}
+            </Link>
           </p>
           <div className="mt-0.5 flex items-center gap-2">
             {lead.phone && <Phone className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />}

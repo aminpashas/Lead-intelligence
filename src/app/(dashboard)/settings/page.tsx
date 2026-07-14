@@ -79,6 +79,7 @@ export default function SettingsPage() {
               <Button
                 variant="outline"
                 size="icon"
+                aria-label="Copy form webhook URL"
                 onClick={() => copyToClipboard(webhookUrl, 'form')}
               >
                 {copied === 'form' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -103,6 +104,7 @@ export default function SettingsPage() {
               <Button
                 variant="outline"
                 size="icon"
+                aria-label="Copy Twilio SMS webhook URL"
                 onClick={() => copyToClipboard(
                   typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/twilio` : '',
                   'twilio'
@@ -130,6 +132,7 @@ export default function SettingsPage() {
               <Button
                 variant="outline"
                 size="icon"
+                aria-label="Copy Resend email webhook URL"
                 onClick={() => copyToClipboard(
                   typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/resend` : '',
                   'resend'
@@ -169,6 +172,7 @@ export default function SettingsPage() {
               <Button
                 variant="outline"
                 size="icon"
+                aria-label="Copy public booking page URL"
                 onClick={() => copyToClipboard(
                   typeof window !== 'undefined' ? `${window.location.origin}/book/${organization?.id}` : '',
                   'booking'

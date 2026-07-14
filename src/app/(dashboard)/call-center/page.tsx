@@ -1,6 +1,8 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { CallCenterDashboard } from '@/components/voice/call-center-dashboard'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { hasPermission } from '@/lib/auth/permissions'
 import { decryptLeadPII } from '@/lib/encryption'
 import { applyCallMetric, startOfTodayISO } from '@/lib/voice/call-metrics'
 
@@ -8,8 +10,12 @@ export default async function CallCenterPage() {
   const supabase = await createClient()
 
   // Effective org honors an agency_admin's entered client account.
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return null
+
+  // Recent calls embed the full decrypted lead — enforce the same gate the
+  // route map declares (nav hiding is a courtesy; this is the boundary).
+  if (!hasPermission(role || 'member', 'call_center:read')) redirect('/dashboard')
 
   // Fetch recent voice calls
   // Pull the full lead (not just name/status): the Call Center's inline action

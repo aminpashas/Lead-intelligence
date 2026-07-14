@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { NextRequest } from 'next/server'
-import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { requirePermission } from '@/lib/auth/active-org'
 
 // GET /api/analytics — Aggregated analytics data for the dashboard
 export async function GET(request: NextRequest) {
@@ -12,16 +12,10 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createClient()
 
-  const { data: profile } = await getOwnProfile(supabase, 'organization_id')
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const { orgId } = await resolveActiveOrg(supabase)
-  if (!orgId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // Same gate as the /analytics page (analytics:read) — 401/403 otherwise.
+  const guard = await requirePermission(supabase, 'analytics:read')
+  if ('error' in guard) return guard.error
+  const { orgId } = guard
 
   // Date range params (default 30 days)
   const startParam = request.nextUrl.searchParams.get('start_date')

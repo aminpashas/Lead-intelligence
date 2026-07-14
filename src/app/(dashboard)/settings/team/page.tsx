@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import {
   UserPlus,
   MoreHorizontal,
@@ -85,6 +86,7 @@ function TeamContent() {
   const [loading, setLoading] = useState(true)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [editMember, setEditMember] = useState<UserProfile | null>(null)
+  const [deactivateMember, setDeactivateMember] = useState<UserProfile | null>(null)
 
   const fetchMembers = useCallback(async () => {
     try {
@@ -180,11 +182,7 @@ function TeamContent() {
                 member={member}
                 currentUserId={userProfile?.id || ''}
                 onEdit={() => setEditMember(member)}
-                onDeactivate={async () => {
-                  await fetch(`/api/team/${member.id}`, { method: 'DELETE' })
-                  fetchMembers()
-                  toast.success(`${member.full_name} has been deactivated`)
-                }}
+                onDeactivate={() => setDeactivateMember(member)}
               />
             ))}
           </div>
@@ -241,6 +239,26 @@ function TeamContent() {
           </div>
         </section>
       )}
+
+      {/* ── Deactivate confirmation ─────────────────────────── */}
+      <ConfirmDialog
+        open={deactivateMember !== null}
+        onOpenChange={(open) => { if (!open) setDeactivateMember(null) }}
+        title="Deactivate Team Member"
+        description={
+          deactivateMember
+            ? `Deactivate ${deactivateMember.full_name}? They will lose access to the practice until reactivated.`
+            : 'Deactivate this team member?'
+        }
+        confirmLabel="Deactivate"
+        destructive
+        onConfirm={async () => {
+          if (!deactivateMember) return
+          await fetch(`/api/team/${deactivateMember.id}`, { method: 'DELETE' })
+          fetchMembers()
+          toast.success(`${deactivateMember.full_name} has been deactivated`)
+        }}
+      />
 
       {/* ── Edit Dialog ─────────────────────────────────────── */}
       {editMember && (

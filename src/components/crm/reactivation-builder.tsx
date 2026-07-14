@@ -283,7 +283,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
     <div className="space-y-6" id="reactivation-builder">
       {/* Header */}
       <div className="flex items-center gap-4 border-b border-aurea-border pb-6">
-        <Button variant="ghost" size="icon" onClick={onBack}>
+        <Button variant="ghost" size="icon" aria-label="Back to campaigns" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
         </Button>
         <div>
@@ -463,7 +463,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                         <Gift className="h-3 w-3 text-aurea-gold" />
                         Offer {i + 1}
                       </Badge>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeOffer(i)}>
+                      <Button variant="ghost" size="icon" aria-label="Remove offer" className="h-7 w-7" onClick={() => removeOffer(i)}>
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </div>
@@ -643,7 +643,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                     </div>
                     <div className="flex items-center gap-2">
                       {steps.length > 1 && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeSequenceStep(i)}>
+                        <Button variant="ghost" size="icon" aria-label="Remove sequence step" className="h-7 w-7" onClick={() => removeSequenceStep(i)}>
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       )}

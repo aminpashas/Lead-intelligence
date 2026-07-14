@@ -8,6 +8,22 @@ import { isPublicPath } from '@/lib/auth/public-paths'
  */
 const ALLOWED_ORIGIN = process.env.NEXT_PUBLIC_APP_URL || ''
 
+/**
+ * Redirect to /login, preserving the originally requested path (+ query) as
+ * `?next=` so the login page can return the user there instead of the role
+ * default. Only meaningful for GET page navigations — non-GET requests can't
+ * be replayed by a redirect, so they get a bare /login.
+ */
+function redirectToLogin(request: NextRequest): NextResponse {
+  const url = request.nextUrl.clone()
+  url.pathname = '/login'
+  url.search = ''
+  if (request.method === 'GET') {
+    url.searchParams.set('next', request.nextUrl.pathname + request.nextUrl.search)
+  }
+  return NextResponse.redirect(url)
+}
+
 function setCorsHeaders(response: NextResponse, origin: string | null): NextResponse {
   if (ALLOWED_ORIGIN && origin === ALLOWED_ORIGIN) {
     response.headers.set('Access-Control-Allow-Origin', ALLOWED_ORIGIN)
@@ -69,9 +85,7 @@ export async function middleware(request: NextRequest) {
       const { data: { user } } = await supabase.auth.getUser()
 
       if (!user) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/login'
-        return NextResponse.redirect(url)
+        return redirectToLogin(request)
       }
 
       // Check for agency_admin role
@@ -88,9 +102,7 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(url)
       }
     } catch {
-      const url = request.nextUrl.clone()
-      url.pathname = '/login'
-      return NextResponse.redirect(url)
+      return redirectToLogin(request)
     }
 
     return supabaseResponse
@@ -169,15 +181,11 @@ export async function middleware(request: NextRequest) {
 
     // Redirect unauthenticated users to login
     if (!user) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/login'
-      return NextResponse.redirect(url)
+      return redirectToLogin(request)
     }
   } catch {
     // If auth check fails, redirect to login
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return redirectToLogin(request)
   }
 
   return supabaseResponse

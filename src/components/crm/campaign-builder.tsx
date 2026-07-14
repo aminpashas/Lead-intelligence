@@ -335,6 +335,7 @@ export function CampaignBuilder({ initialSmartListId, autoOpen, stages = [] }: {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label="Remove step"
                             className="h-8 w-8"
                             onClick={() => removeStep(index)}
                           >

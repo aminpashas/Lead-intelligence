@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { decryptLeadPII } from '@/lib/encryption'
+import { formatAppointmentDateTime } from '@/lib/campaigns/reminders'
+import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 
 /**
  * GET /api/appointments/reminders?appointment_id=xxx
@@ -75,6 +77,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Appointment not found' }, { status: 404 })
   }
 
+  // Dedup guard — a reminder for this appointment already went out in the last
+  // 2 hours (manual or cron); don't double-text the patient.
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  const { data: recent } = await supabase
+    .from('appointment_reminders')
+    .select('sent_at, created_at')
+    .eq('organization_id', orgId)
+    .eq('appointment_id', appointment_id)
+    .in('status', ['sent', 'delivered'])
+    .gte('created_at', twoHoursAgo)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (recent) {
+    return NextResponse.json(
+      { error: 'Reminder already sent recently', last_sent_at: recent.sent_at ?? recent.created_at },
+      { status: 409 }
+    )
+  }
+
   // phone/email are encrypted at rest — sendSMSToLead/sendEmail need plaintext.
   const lead = apt.lead ? (decryptLeadPII(apt.lead as Record<string, unknown>) as any) : null
   if (!lead) {
@@ -90,14 +113,10 @@ export async function POST(request: NextRequest) {
 
   const practiceName = org?.name || 'our office'
 
-  const dateTime = new Date(apt.scheduled_at).toLocaleString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
+  // Pin the human-readable time to the practice's zone — the server runs in
+  // UTC on Vercel, so an unzoned toLocaleString would shift the stated time.
+  const timeZone = await resolvePracticeTimeZone(supabase, orgId)
+  const dateTime = formatAppointmentDateTime(apt.scheduled_at, timeZone)
 
   const results: Array<{ channel: string; status: string; detail?: string }> = []
 

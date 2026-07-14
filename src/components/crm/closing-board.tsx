@@ -183,15 +183,17 @@ export function ClosingBoard({
   )
   const [editingStep, setEditingStep] = useState<string | null>(null)
 
-  async function save(id: string, body: { temperature?: ClosingTemperature | null; nextStep?: string | null }) {
+  /** PATCH one field; returns whether the write persisted so callers can roll back their optimistic update. */
+  async function save(id: string, body: { temperature?: ClosingTemperature | null; nextStep?: string | null }): Promise<boolean> {
     try {
-      await fetch(`/api/closing/${id}`, {
+      const res = await fetch(`/api/closing/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+      return res.ok
     } catch {
-      /* optimistic — a failed write just won't persist; page reload re-syncs */
+      return false
     }
   }
 
@@ -295,10 +297,14 @@ export function ClosingBoard({
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: style.dot }} />
                       <select
                         value={temp}
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const val = e.target.value as ClosingTemperature
-                          setTemps((s) => ({ ...s, [row.id]: val }))
-                          save(row.id, { temperature: val })
+                          const prev = temps[row.id] ?? null
+                          setTemps((s) => ({ ...s, [row.id]: val })) // optimistic
+                          if (!(await save(row.id, { temperature: val }))) {
+                            setTemps((s) => ({ ...s, [row.id]: prev })) // revert
+                            toast.error('Could not update temperature')
+                          }
                         }}
                         className={`bg-transparent text-[12px] font-medium ${style.text} focus:outline-none`}
                       >
@@ -316,11 +322,15 @@ export function ClosingBoard({
                       <input
                         autoFocus
                         defaultValue={steps[row.id]}
-                        onBlur={(e) => {
+                        onBlur={async (e) => {
                           const v = e.target.value
-                          setSteps((s) => ({ ...s, [row.id]: v }))
+                          const prev = steps[row.id] ?? ''
+                          setSteps((s) => ({ ...s, [row.id]: v })) // optimistic
                           setEditingStep(null)
-                          save(row.id, { nextStep: v || null })
+                          if (!(await save(row.id, { nextStep: v || null }))) {
+                            setSteps((s) => ({ ...s, [row.id]: prev })) // revert
+                            toast.error('Could not save next step')
+                          }
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') (e.target as HTMLInputElement).blur()

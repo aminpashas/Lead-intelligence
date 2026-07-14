@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { AIControlCenter } from '@/components/crm/ai-control-center'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { hasPermission } from '@/lib/auth/permissions'
 
 export default async function AIControlPage() {
   const supabase = await createClient()
@@ -96,7 +97,9 @@ export default async function AIControlPage() {
       conversations={aiConversations || []}
       recentActivities={recentActivities || []}
       pendingEscalations={pendingEscalations || 0}
-      isAdmin={role === 'admin' || role === 'owner'}
+      // Capability-driven, mirroring /automation: agency_admin is the only
+      // ai_control:write holder — a role-name check locked it out here.
+      isAdmin={hasPermission(role || 'member', 'ai_control:write')}
       stages={stages || []}
       campaigns={campaigns || []}
       policies={policies || []}
