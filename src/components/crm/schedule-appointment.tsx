@@ -26,6 +26,8 @@ import {
   Timer,
   Check,
   CreditCard,
+  Search,
+  UserRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -95,8 +97,43 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="aurea-eyebrow mb-2">{children}</p>
 }
 
-export function ScheduleAppointment({ lead }: { lead: Lead }) {
-  const [open, setOpen] = useState(false)
+// The minimal lead shape the booking form needs. `Lead` (lead-detail) and the
+// appointments page's lighter `AppointmentLead` both satisfy it.
+export type SchedulableLead = Pick<Lead, 'id' | 'first_name' | 'last_name'>
+
+type LeadSearchResult = SchedulableLead & { phone?: string | null; email?: string | null }
+
+export function ScheduleAppointment({
+  lead: leadProp,
+  mode = 'create',
+  open: controlledOpen,
+  onOpenChange,
+  trigger,
+  initial,
+  onCompleted,
+}: {
+  /** Pre-provided lead. When omitted, the dialog opens on a patient picker first. */
+  lead?: SchedulableLead | null
+  /** `reschedule` pre-fills the current time and skips card-on-file prompts. */
+  mode?: 'create' | 'reschedule'
+  /** Optional controlled open state (lets a parent drive the dialog directly). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Custom trigger node. When omitted (and uncontrolled), renders the default "Schedule" chip. */
+  trigger?: React.ReactNode
+  /** Seed values applied on each open — used by reschedule to pre-fill the slot. */
+  initial?: { type?: string; date?: string; time?: string; duration?: string; location?: string }
+  /** Called after a successful save so the parent can refetch / mark the old row rescheduled. */
+  onCompleted?: (result: { lead: SchedulableLead; appointmentId?: string }) => void | Promise<void>
+}) {
+  const isControlled = controlledOpen !== undefined
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = controlledOpen ?? uncontrolledOpen
+  const setOpen = (o: boolean) => {
+    if (!isControlled) setUncontrolledOpen(o)
+    onOpenChange?.(o)
+  }
+
   const [saving, setSaving] = useState(false)
   const [type, setType] = useState<string>('consultation')
   const [date, setDate] = useState(() => toLocalKey(new Date()))
@@ -104,12 +141,29 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
   const [duration, setDuration] = useState('60')
   const [location, setLocation] = useState('')
   const [notes, setNotes] = useState('')
+  // Standalone picker: the lead chosen inside the dialog when none was provided.
+  const [pickedLead, setPickedLead] = useState<SchedulableLead | null>(null)
+  const activeLead = leadProp ?? pickedLead
   // No-show card-on-file config, loaded when the dialog opens.
   const [feeEnabled, setFeeEnabled] = useState(false)
   const [feeDollars, setFeeDollars] = useState(50)
   const [cardRequired, setCardRequired] = useState(false)
   const [sendCardLink, setSendCardLink] = useState(true)
   const router = useRouter()
+
+  // Reset the form each time the dialog (re)opens, seeding from `initial` — this
+  // is what pre-fills the current slot when rescheduling. Runs on the open edge.
+  useEffect(() => {
+    if (!open) return
+    setType(initial?.type ?? 'consultation')
+    setDate(initial?.date ?? toLocalKey(new Date()))
+    setTime(initial?.time ?? '10:00')
+    setDuration(initial?.duration ?? '60')
+    setLocation(initial?.location ?? '')
+    setNotes('')
+    if (!leadProp) setPickedLead(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   // Load the practice's no-show settings once the dialog is open, so we can show
   // the card-on-file control and know whether it's optional or mandatory.
@@ -128,8 +182,9 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
     return () => { active = false }
   }, [open])
 
-  // The card link only applies to consultations (matches the server gate).
-  const showCard = feeEnabled && type === 'consultation'
+  // The card link only applies to new consultations (matches the server gate);
+  // a reschedule never re-prompts for a card.
+  const showCard = feeEnabled && type === 'consultation' && mode === 'create'
 
   // Next 6 days as quick-pick chips (Today / Tomorrow / weekday).
   const dayChips = useMemo(() => {
@@ -156,6 +211,7 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!activeLead) { toast.error('Select a patient first'); return }
     if (!date || !time) { toast.error('Date and time are required'); return }
 
     setSaving(true)
@@ -166,21 +222,24 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          lead_id: lead.id,
+          lead_id: activeLead.id,
           type,
           scheduled_at: scheduledAt,
           duration_minutes: parseInt(duration),
           location: location || undefined,
           notes: notes || undefined,
           // Optional mode: honour the rep's checkbox. Required/off modes ignore it.
-          send_card_link: sendCardLink,
+          // A reschedule books the new slot without re-texting a card link.
+          send_card_link: mode === 'reschedule' ? false : sendCardLink,
         }),
       })
 
       if (!res.ok) throw new Error('Failed to schedule')
 
       const data = await res.json().catch(() => ({}))
-      if (data?.held) {
+      if (mode === 'reschedule') {
+        // The parent owns the success toast (and marks the old row rescheduled).
+      } else if (data?.held) {
         toast.success('Slot held — the patient was texted a card link. It confirms once they save a card.')
       } else if (data?.card_link_sent) {
         toast.success('Appointment scheduled — card-on-file link texted to the patient.')
@@ -188,9 +247,10 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
         toast.success('Appointment scheduled!')
       }
       setOpen(false)
+      await onCompleted?.({ lead: activeLead, appointmentId: data?.appointment?.id })
       router.refresh()
     } catch {
-      toast.error('Failed to schedule appointment')
+      toast.error(mode === 'reschedule' ? 'Failed to reschedule appointment' : 'Failed to schedule appointment')
     } finally {
       setSaving(false)
     }
@@ -198,10 +258,18 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<button type="button" className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-aurea-border bg-aurea-surface px-3 py-2 text-[13.5px] font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2" />}>
-        <Calendar className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
-        Schedule
-      </DialogTrigger>
+      {/* A parent can drive the dialog via `open`/`onOpenChange` and pass no
+          trigger; otherwise render the given trigger or the default chip. */}
+      {!isControlled && (
+        trigger ? (
+          <DialogTrigger>{trigger}</DialogTrigger>
+        ) : (
+          <DialogTrigger render={<button type="button" className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-aurea-border bg-aurea-surface px-3 py-2 text-[13.5px] font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2" />}>
+            <Calendar className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} />
+            Schedule
+          </DialogTrigger>
+        )
+      )}
 
       {/* `aurea` on the popup itself: the dialog portals to <body>, outside the
           app's `.aurea` wrapper, so the emerald/gold tokens are undefined there.
@@ -210,12 +278,15 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
       <DialogContent className="aurea gap-0 overflow-hidden p-0 sm:max-w-md">
         {/* Header — editorial, with a hairline rule under it */}
         <DialogHeader className="gap-1 border-b border-aurea-border px-5 pt-5 pb-4">
-          <p className="aurea-eyebrow">New Appointment</p>
+          <p className="aurea-eyebrow">{mode === 'reschedule' ? 'Reschedule Appointment' : 'New Appointment'}</p>
           <DialogTitle className="aurea-display text-[24px] font-normal text-aurea-ink">
-            {lead.first_name} {lead.last_name}
+            {activeLead ? `${activeLead.first_name} ${activeLead.last_name ?? ''}`.trim() : 'Select a patient'}
           </DialogTitle>
         </DialogHeader>
 
+        {!activeLead ? (
+          <LeadPicker onPick={setPickedLead} />
+        ) : (
         <form onSubmit={handleSubmit}>
           <div className="max-h-[min(70vh,560px)] space-y-5 overflow-y-auto px-5 py-5">
             {/* Type */}
@@ -397,12 +468,92 @@ export function ScheduleAppointment({ lead }: { lead: Lead }) {
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={saving} className="gap-1.5">
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                {showCard && cardRequired ? 'Hold & text card link' : 'Schedule'}
+                {mode === 'reschedule'
+                  ? 'Reschedule'
+                  : showCard && cardRequired
+                  ? 'Hold & text card link'
+                  : 'Schedule'}
               </Button>
             </div>
           </div>
         </form>
+        )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LEAD PICKER — standalone entry (no lead pre-provided). Reuses the
+// existing server-side leads search (GET /api/leads?search=).
+// ═══════════════════════════════════════════════════════════════
+
+function LeadPicker({ onPick }: { onPick: (lead: SchedulableLead) => void }) {
+  const [q, setQ] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [results, setResults] = useState<LeadSearchResult[]>([])
+  const term = q.trim()
+
+  // Debounced search. All state writes happen inside the timeout / promise
+  // callbacks (never synchronously in the effect body) so a short query simply
+  // clears results asynchronously.
+  useEffect(() => {
+    let active = true
+    const t = setTimeout(() => {
+      if (!active) return
+      if (term.length < 2) { setResults([]); setLoading(false); return }
+      setLoading(true)
+      fetch(`/api/leads?search=${encodeURIComponent(term)}&per_page=8`)
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => { if (active) setResults(Array.isArray(d.leads) ? d.leads : []) })
+        .catch(() => { if (active) setResults([]) })
+        .finally(() => { if (active) setLoading(false) })
+    }, 250)
+    return () => { active = false; clearTimeout(t) }
+  }, [term])
+
+  return (
+    <div className="space-y-3 px-5 py-5">
+      <div className="flex items-center gap-2 rounded-lg border border-aurea-border bg-aurea-surface px-3 py-2 focus-within:border-aurea-border-strong">
+        <Search className="h-4 w-4 shrink-0 text-aurea-ink-3" strokeWidth={1.75} />
+        <input
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search patients by name, phone, or email…"
+          className="h-6 flex-1 border-0 bg-transparent p-0 text-[14px] text-aurea-ink outline-none placeholder:text-aurea-ink-3"
+        />
+        {loading && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-aurea-ink-3" />}
+      </div>
+      <div className="max-h-[min(50vh,320px)] space-y-1 overflow-y-auto">
+        {term.length < 2 ? (
+          <p className="px-1 py-6 text-center text-[13px] text-aurea-ink-3">Type at least 2 characters to search.</p>
+        ) : results.length === 0 && !loading ? (
+          <p className="px-1 py-6 text-center text-[13px] text-aurea-ink-3">No matching patients.</p>
+        ) : (
+          results.map((l) => {
+            const meta = [l.phone, l.email].filter(Boolean).join(' · ')
+            return (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => onPick(l)}
+                className="flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors hover:border-aurea-border hover:bg-aurea-surface-2"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2">
+                  <UserRound className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13.5px] font-medium text-aurea-ink">
+                    {l.first_name} {l.last_name ?? ''}
+                  </span>
+                  {meta && <span className="block truncate text-[11px] text-aurea-ink-3">{meta}</span>}
+                </span>
+              </button>
+            )
+          })
+        )}
+      </div>
+    </div>
   )
 }

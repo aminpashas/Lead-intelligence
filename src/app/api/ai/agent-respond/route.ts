@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { z } from 'zod'
 import { applyRateLimit } from '@/lib/webhooks/verify'
@@ -11,6 +11,7 @@ import type { Lead, Conversation, PatientProfile, ConversationChannel, LeadStatu
 import { storeTechniqueUsage, storeLeadAssessment, updateConversationSummary, getLatestAssessment, getRecentTechniqueHistory } from '@/lib/ai/technique-tracker'
 import { processEncounter } from '@/lib/ai/encounter-processor'
 import { assessDraftGate } from '@/lib/ai/draft-gating'
+import { escalateBlockedDraft } from '@/lib/ai/escalation-handoff'
 
 const agentRespondSchema = z.object({
   conversation_id: z.string().uuid(),
@@ -113,12 +114,33 @@ export async function POST(request: NextRequest) {
   })
 
   if (gate.block) {
+    // An escalation verdict must not just render in a banner and evaporate on
+    // navigation — route it into the shared escalation spine so a human is
+    // actually notified and the record persists. Best-effort and idempotent per
+    // conversation; a service client is required for the notification writes.
+    let escalated = false
+    if (gate.kind === 'escalation') {
+      try {
+        const { escalationId } = await escalateBlockedDraft(createServiceClient(), {
+          organizationId: orgId,
+          conversationId: parsed.data.conversation_id,
+          leadId: lead.id,
+          reason: gate.reason,
+          guidance: gate.guidance,
+        })
+        escalated = !!escalationId
+      } catch (err) {
+        console.warn('[agent-respond] Escalation handoff failed:', err instanceof Error ? err.message : err)
+      }
+    }
+
     return NextResponse.json({
       blocked: true,
       block_kind: gate.kind,
       reason: gate.reason,
       guidance: gate.guidance,
       message: null,
+      escalated,
     })
   }
 

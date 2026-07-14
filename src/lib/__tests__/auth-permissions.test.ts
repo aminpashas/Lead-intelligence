@@ -291,8 +291,28 @@ describe('canAccessRoute', () => {
     expect(canAccessRoute('nurse', '/settings/contracts/templates')).toBe(false)
   })
 
-  it('allows access to unknown routes (safe fallback)', () => {
-    expect(canAccessRoute('member', '/some/unknown/route')).toBe(true)
+  it('denies unknown routes by default (deny-by-default, no longer fail-open)', () => {
+    expect(canAccessRoute('member', '/some/unknown/route')).toBe(false)
+    expect(canAccessRoute('doctor_admin', '/some/unknown/route')).toBe(false)
+    expect(canAccessRoute('agency_admin', '/some/unknown/route')).toBe(false)
+  })
+
+  it('always allows the dashboard shell route for every role via the allowlist', () => {
+    expect(canAccessRoute('member', '/dashboard')).toBe(true)
+    expect(canAccessRoute('nurse', '/dashboard')).toBe(true)
+    expect(canAccessRoute('assistant', '/dashboard')).toBe(true)
+  })
+
+  it('gates the agency AI-platform routes to agency_admin only', () => {
+    // /ai-engine (+ its sales-intelligence subtree) and the /ai-audit & /ai-training
+    // redirect stubs are agency:console-gated like their /agency/* siblings.
+    expect(canAccessRoute('agency_admin', '/ai-engine')).toBe(true)
+    expect(canAccessRoute('agency_admin', '/ai-engine/sales-intelligence')).toBe(true)
+    expect(canAccessRoute('agency_admin', '/ai-audit')).toBe(true)
+    expect(canAccessRoute('agency_admin', '/ai-training')).toBe(true)
+    expect(canAccessRoute('doctor_admin', '/ai-engine')).toBe(false)
+    expect(canAccessRoute('doctor_admin', '/ai-engine/sales-intelligence')).toBe(false)
+    expect(canAccessRoute('nurse', '/ai-audit')).toBe(false)
   })
 
   it('treatment_coordinator can access campaign visibility routes, but not launch broadcasts', () => {

@@ -1,9 +1,18 @@
 'use client'
 
-import { useEffect, useState, useCallback, type ReactNode } from 'react'
+import { Suspense, useEffect, useState, useCallback, type ReactNode } from 'react'
+import Link from 'next/link'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import {
   Calendar,
   CheckCircle2,
@@ -25,10 +34,13 @@ import {
   Filter,
   Loader2,
   CalendarDays,
+  Plus,
+  ExternalLink,
   type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { AppointmentsCalendar } from '@/components/crm/appointments-calendar'
+import { ScheduleAppointment } from '@/components/crm/schedule-appointment'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -85,14 +97,58 @@ type TabKey = 'calendar' | 'upcoming' | 'today' | 'reminders' | 'analytics'
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════
 
+const VALID_TABS: TabKey[] = ['calendar', 'upcoming', 'today', 'reminders', 'analytics']
+
+// useSearchParams needs a Suspense boundary during prerender; the page is
+// otherwise fully client-rendered.
 export default function AppointmentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <AppointmentsPageInner />
+    </Suspense>
+  )
+}
+
+function AppointmentsPageInner() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
+
   const [appointments, setAppointments] = useState<AppointmentData[]>([])
   const [reminders, setReminders] = useState<ReminderData[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<TabKey>('upcoming')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<string>('all')
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Calendar-click detail popover + the appointment currently being rescheduled.
+  const [detailApt, setDetailApt] = useState<AppointmentData | null>(null)
+  const [rescheduleTarget, setRescheduleTarget] = useState<AppointmentData | null>(null)
+
+  // ── Tab + status filter live in the URL (shareable / back-button friendly) ──
+  const tabParam = searchParams.get('tab')
+  const activeTab: TabKey = tabParam && (VALID_TABS as string[]).includes(tabParam) ? (tabParam as TabKey) : 'upcoming'
+  const statusFilter = searchParams.get('status') || 'all'
+
+  const pushState = useCallback(
+    (next: { tab?: TabKey; status?: string }) => {
+      const params = new URLSearchParams(searchParams.toString())
+      const tab = next.tab ?? activeTab
+      const status = next.status ?? statusFilter
+      params.set('tab', tab)
+      if (status && status !== 'all') params.set('status', status)
+      else params.delete('status')
+      router.push(`${pathname}?${params.toString()}`, { scroll: false })
+    },
+    [searchParams, activeTab, statusFilter, pathname, router],
+  )
+
+  const setActiveTab = (tab: TabKey) => pushState({ tab })
+  const setStatusFilter = (filter: string) => pushState({ status: filter })
 
   const fetchAppointments = useCallback(async () => {
     setLoadError(null)
@@ -124,11 +180,8 @@ export default function AppointmentsPage() {
     Promise.all([fetchAppointments(), fetchReminders()]).finally(() => setLoading(false))
   }, [fetchAppointments, fetchReminders])
 
-  // ── KPI card → drill-down into the matching tab + filter ──
-  const selectKpi = (tab: TabKey, filter: string) => {
-    setActiveTab(tab)
-    setStatusFilter(filter)
-  }
+  // ── KPI card → drill-down into the matching tab + filter (also to the URL) ──
+  const selectKpi = (tab: TabKey, filter: string) => pushState({ tab, status: filter })
 
   // ── Actions ──
   const handleConfirm = async (id: string) => {
@@ -242,10 +295,21 @@ export default function AppointmentsPage() {
             Multi-channel reminders, confirmation tracking, and no-show prevention
           </p>
         </div>
-        <Button onClick={() => { fetchAppointments(); fetchReminders() }} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <ScheduleAppointment
+            trigger={
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-2" />
+                New appointment
+              </Button>
+            }
+            onCompleted={() => fetchAppointments()}
+          />
+          <Button onClick={() => { fetchAppointments(); fetchReminders() }} variant="outline" size="sm">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* ── KPI Cards (click to drill into the matching leads) ── */}
@@ -380,6 +444,10 @@ export default function AppointmentsPage() {
         <AppointmentsCalendar
           appointments={appointments}
           defaultView="month"
+          onSelect={(a) => {
+            const full = appointments.find((x) => x.id === a.id)
+            if (full) setDetailApt(full)
+          }}
         />
       ) : activeTab === 'upcoming' || activeTab === 'today' ? (
         <div className="space-y-3">
@@ -406,6 +474,7 @@ export default function AppointmentsPage() {
                 onConfirm={handleConfirm}
                 onStatusChange={handleStatusChange}
                 onSendReminder={handleSendReminder}
+                onReschedule={setRescheduleTarget}
                 isLoading={actionLoading === apt.id || actionLoading === `reminder-${apt.id}`}
               />
             ))
@@ -416,6 +485,120 @@ export default function AppointmentsPage() {
       ) : (
         <NoShowAnalyticsTab appointments={appointments} reminders={reminders} />
       )}
+
+      {/* ── Calendar-click detail popover ── */}
+      <Dialog open={!!detailApt} onOpenChange={(o) => { if (!o) setDetailApt(null) }}>
+        <DialogContent className="aurea sm:max-w-md">
+          {detailApt && (
+            <AppointmentDetail
+              apt={detailApt}
+              onConfirm={async (id) => { await handleConfirm(id); setDetailApt(null) }}
+              onReschedule={(a) => { setDetailApt(null); setRescheduleTarget(a) }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Reschedule (shared by list rows + calendar detail) ──
+          Books the new slot via POST, then marks the old row rescheduled on
+          success. Cancelling leaves the original appointment untouched. */}
+      <ScheduleAppointment
+        mode="reschedule"
+        lead={rescheduleTarget?.lead ?? null}
+        open={!!rescheduleTarget}
+        onOpenChange={(o) => { if (!o) setRescheduleTarget(null) }}
+        initial={rescheduleTarget ? {
+          type: rescheduleTarget.type,
+          date: toDateInput(rescheduleTarget.scheduled_at),
+          time: toTimeInput(rescheduleTarget.scheduled_at),
+          duration: String(rescheduleTarget.duration_minutes),
+          location: rescheduleTarget.location ?? '',
+        } : undefined}
+        onCompleted={async () => {
+          if (rescheduleTarget) {
+            await handleStatusChange(rescheduleTarget.id, 'rescheduled')
+          }
+        }}
+      />
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// APPOINTMENT DETAIL (calendar click)
+// ═══════════════════════════════════════════════════════════════
+
+function AppointmentDetail({
+  apt,
+  onConfirm,
+  onReschedule,
+}: {
+  apt: AppointmentData
+  onConfirm: (id: string) => void
+  onReschedule: (apt: AppointmentData) => void
+}) {
+  const lead = apt.lead
+  const isPast = new Date(apt.scheduled_at) < new Date()
+
+  return (
+    <div className="space-y-4">
+      <DialogHeader>
+        <DialogTitle className="aurea-display text-[22px] font-normal text-aurea-ink">
+          {lead?.first_name} {lead?.last_name || ''}
+        </DialogTitle>
+      </DialogHeader>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusBadge status={apt.status} />
+        {apt.confirmation_received && (
+          <Badge variant="outline" className="inline-flex items-center gap-1 bg-aurea-primary/10 text-aurea-primary border-aurea-primary/20 text-xs">
+            <CheckCircle2 className="h-3 w-3" />
+            Confirmed
+          </Badge>
+        )}
+        <RiskBadge score={apt.no_show_risk_score} />
+      </div>
+
+      <div className="space-y-2 text-sm">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Calendar className="h-3.5 w-3.5" />
+          <span>{formatDate(apt.scheduled_at)} at {formatTime(apt.scheduled_at)}</span>
+        </div>
+        <div>
+          <Badge variant="secondary" className="text-xs capitalize">{apt.type.replace('_', ' ')}</Badge>
+        </div>
+        {lead?.phone && (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Phone className="h-3.5 w-3.5" />
+            <span>{lead.phone}</span>
+          </div>
+        )}
+        {apt.location && (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <MapPin className="h-3.5 w-3.5" />
+            <span>{apt.location}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        {!isPast && !apt.confirmation_received && (
+          <Button size="sm" className="bg-aurea-primary hover:bg-aurea-primary/90" onClick={() => onConfirm(apt.id)}>
+            <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+            Confirm
+          </Button>
+        )}
+        {!isPast && (
+          <Button size="sm" variant="outline" onClick={() => onReschedule(apt)}>
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            Reschedule
+          </Button>
+        )}
+        <Button size="sm" variant="outline" render={<Link href={`/leads/${apt.lead_id}`} />}>
+          <ExternalLink className="h-3.5 w-3.5 mr-1" />
+          View lead
+        </Button>
+      </div>
     </div>
   )
 }
@@ -430,6 +613,7 @@ function AppointmentCard({
   onConfirm,
   onStatusChange,
   onSendReminder,
+  onReschedule,
   isLoading,
 }: {
   appointment: AppointmentData
@@ -437,12 +621,34 @@ function AppointmentCard({
   onConfirm: (id: string) => void
   onStatusChange: (id: string, status: string) => void
   onSendReminder: (id: string) => void
+  onReschedule: (apt: AppointmentData) => void
   isLoading: boolean
 }) {
   const lead = apt.lead
   const aptDate = new Date(apt.scheduled_at)
   const isToday = isSameDay(aptDate, new Date())
   const isPast = aptDate < new Date()
+  // A past appointment that is still open (not yet completed / no-show / etc.)
+  // is the one staff should resolve — that's what feeds the no-show analytics.
+  const isTerminal = ['completed', 'no_show', 'canceled', 'rescheduled'].includes(apt.status)
+  const [confirmNoShow, setConfirmNoShow] = useState(false)
+
+  const noShowConfirm = (
+    <ConfirmDialog
+      open={confirmNoShow}
+      onOpenChange={setConfirmNoShow}
+      title="Mark as no-show?"
+      description={
+        <>
+          This flags {lead?.first_name} {lead?.last_name || ''}&rsquo;s {apt.type.replace('_', ' ')} as a no-show.
+          It feeds the no-show analytics and may trigger fee handling if a card is on file.
+        </>
+      }
+      confirmLabel="Mark no-show"
+      destructive
+      onConfirm={() => onStatusChange(apt.id, 'no_show')}
+    />
+  )
 
   return (
     <Card className="overflow-hidden">
@@ -456,9 +662,12 @@ function AppointmentCard({
                   <User className="h-5 w-5 text-aurea-ink-3" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-sm">
+                  <Link
+                    href={`/leads/${apt.lead_id}`}
+                    className="font-semibold text-sm hover:text-aurea-primary hover:underline"
+                  >
                     {lead?.first_name} {lead?.last_name || ''}
-                  </h3>
+                  </Link>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                     {lead?.phone && (
                       <span className="flex items-center gap-1">
@@ -525,7 +734,7 @@ function AppointmentCard({
           </div>
 
           {/* ── Right: Actions ── */}
-          {!isPast && (
+          {!isPast ? (
             <div className="flex flex-row lg:flex-col items-stretch gap-1.5 p-3 lg:p-4 border-t lg:border-t-0 lg:border-l bg-muted/30 lg:w-[180px]">
               {!apt.confirmation_received && (
                 <Button
@@ -552,7 +761,7 @@ function AppointmentCard({
                 size="sm"
                 variant="outline"
                 className="flex-1 lg:flex-none text-xs text-aurea-amber hover:text-aurea-amber/80"
-                onClick={() => onStatusChange(apt.id, 'rescheduled')}
+                onClick={() => onReschedule(apt)}
                 disabled={isLoading}
               >
                 <RefreshCw className="h-3 w-3 mr-1" />
@@ -562,16 +771,40 @@ function AppointmentCard({
                 size="sm"
                 variant="outline"
                 className="flex-1 lg:flex-none text-xs text-aurea-rose hover:text-aurea-rose/80"
-                onClick={() => onStatusChange(apt.id, 'no_show')}
+                onClick={() => setConfirmNoShow(true)}
                 disabled={isLoading}
               >
                 <XCircle className="h-3 w-3 mr-1" />
                 No-Show
               </Button>
             </div>
-          )}
+          ) : !isTerminal ? (
+            // Past & unresolved: let staff close it out so the analytics are real.
+            <div className="flex flex-row lg:flex-col items-stretch gap-1.5 p-3 lg:p-4 border-t lg:border-t-0 lg:border-l bg-muted/30 lg:w-[180px]">
+              <Button
+                size="sm"
+                className="flex-1 lg:flex-none text-xs bg-aurea-primary hover:bg-aurea-primary/90"
+                onClick={() => onStatusChange(apt.id, 'completed')}
+                disabled={isLoading}
+              >
+                {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                Mark completed
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 lg:flex-none text-xs text-aurea-rose hover:text-aurea-rose/80"
+                onClick={() => setConfirmNoShow(true)}
+                disabled={isLoading}
+              >
+                <XCircle className="h-3 w-3 mr-1" />
+                Mark no-show
+              </Button>
+            </div>
+          ) : null}
         </div>
       </CardContent>
+      {noShowConfirm}
     </Card>
   )
 }
@@ -1024,4 +1257,16 @@ function formatRelative(iso: string): string {
 
 function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+/** ISO → local "YYYY-MM-DD" for the reschedule date input. */
+function toDateInput(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** ISO → local "HH:MM" for the reschedule time input. */
+function toTimeInput(iso: string): string {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }

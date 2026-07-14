@@ -1,3 +1,4 @@
+import { FunnelViewNav } from '@/components/crm/funnel-view-nav'
 import { createClient } from '@/lib/supabase/server'
 import { PipelineBoard } from '@/components/crm/pipeline-board'
 import { decryptLeadsPII } from '@/lib/encryption'
@@ -63,6 +64,7 @@ export default async function PostClosePage() {
         <p className="mt-2 text-[14px] leading-relaxed text-aurea-ink-2">
           Signed cases moving to treatment. Drag between stages to track fulfillment.
         </p>
+        <FunnelViewNav current="/post-close" />
       </header>
       <PipelineBoard stages={allStages} leads={allLeads} stageCounts={stageCounts} totalLeadCount={totalLeadCount} />
     </div>

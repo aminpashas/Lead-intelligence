@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback, useSyncExternalStore, type ReactNode } from 'react'
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -81,12 +82,40 @@ const RANGE_OPTIONS = [
   { days: 90, label: '90d' },
 ]
 
+// View state (selected range + tab) lives in the URL so the page is
+// shareable and survives navigating away and back. Keys are validated on
+// read so a hand-edited URL can never push an unknown range/tab.
+const DEFAULT_RANGE_DAYS = 30
+const VALID_RANGE_DAYS = RANGE_OPTIONS.map((r) => r.days)
+const DEFAULT_TAB = 'actions'
+const VALID_TABS = ['actions', 'quality', 'engagement', 'campaigns', 'overview']
+
 export function DeepAnalyticsPage() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
   const [data, setData] = useState<DeepAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [rangeDays, setRangeDays] = useState(30)
-  const [tab, setTab] = useState('actions')
+
+  // Derive range + tab straight from the URL (mirrors leads-table's
+  // URL-as-state pattern). Both fall back to a default when absent or invalid.
+  const rangeParam = Number(searchParams.get('range'))
+  const rangeDays = VALID_RANGE_DAYS.includes(rangeParam) ? rangeParam : DEFAULT_RANGE_DAYS
+  const tabParam = searchParams.get('tab')
+  const tab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : DEFAULT_TAB
+
+  // Push a range/tab change onto the URL. router.push (matching leads-table)
+  // keeps each view in browser history so Back returns to the prior one.
+  const setParam = useCallback(
+    (key: 'range' | 'tab', value: string) => {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set(key, value)
+      router.push(`${pathname}?${params.toString()}`)
+    },
+    [router, pathname, searchParams],
+  )
 
   // Abort the in-flight request when a new range is picked (or on unmount) so
   // a slow 90d response can't land after a 7d click and render mislabeled data.
@@ -140,7 +169,7 @@ export function DeepAnalyticsPage() {
               key={r.days}
               size="sm"
               variant={rangeDays === r.days ? 'default' : 'ghost'}
-              onClick={() => setRangeDays(r.days)}
+              onClick={() => setParam('range', String(r.days))}
             >
               {r.label}
             </Button>
@@ -148,7 +177,7 @@ export function DeepAnalyticsPage() {
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => v && setTab(String(v))}>
+      <Tabs value={tab} onValueChange={(v) => v && setParam('tab', String(v))}>
         <TabsList className="flex w-full flex-wrap md:w-fit">
           <TabsTrigger value="actions">Action Center</TabsTrigger>
           <TabsTrigger value="quality">Lead Quality</TabsTrigger>

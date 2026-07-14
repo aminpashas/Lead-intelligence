@@ -9,6 +9,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -33,6 +34,20 @@ type Step = {
   subject: string
   body_template: string
   ai_personalize: boolean
+}
+
+// The subset of a campaign the builder needs to pre-fill an edit. Loosely typed
+// on the step side because callers hand us raw `campaign_steps` rows.
+export type EditingCampaign = {
+  id: string
+  name: string
+  description?: string | null
+  type?: string | null
+  channel?: string | null
+  smart_list_id?: string | null
+  target_criteria?: Record<string, unknown> | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  steps?: any[]
 }
 
 const DELAY_PRESETS = [
@@ -63,8 +78,44 @@ const TYPE_LABELS = {
 const CHANNEL_LABELS = { sms: 'SMS', email: 'Email' }
 const DELAY_LABELS = Object.fromEntries(DELAY_PRESETS.map((d) => [String(d.value), d.label]))
 
-export function CampaignBuilder({ initialSmartListId, autoOpen, stages = [] }: { initialSmartListId?: string; autoOpen?: boolean; stages?: PipelineStageOption[] } = {}) {
-  const [open, setOpen] = useState(autoOpen ?? false)
+function defaultStep(): Step {
+  return {
+    step_number: 1,
+    name: 'Welcome Message',
+    channel: 'sms',
+    delay_minutes: 0,
+    subject: '',
+    body_template:
+      'Hi {{first_name}}! Thank you for your interest in All-on-4 dental implants. We specialize in helping patients get a permanent, beautiful smile in just one day. Would you like to schedule a free consultation?',
+    ai_personalize: true,
+  }
+}
+
+export function CampaignBuilder({
+  initialSmartListId,
+  autoOpen,
+  stages = [],
+  editingCampaign,
+  open: openProp,
+  onOpenChange,
+}: {
+  initialSmartListId?: string
+  autoOpen?: boolean
+  stages?: PipelineStageOption[]
+  editingCampaign?: EditingCampaign | null
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+} = {}) {
+  // Open state: controlled (edit mode, parent owns it) or self-managed (create).
+  const [openState, setOpenState] = useState(autoOpen ?? false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp : openState
+  const setOpen = (v: boolean) => {
+    if (isControlled) onOpenChange?.(v)
+    else setOpenState(v)
+  }
+  const isEditing = !!editingCampaign
+
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -73,24 +124,78 @@ export function CampaignBuilder({ initialSmartListId, autoOpen, stages = [] }: {
   const [audienceMode, setAudienceMode] = useState<AudienceMode>('smart_list')
   const [smartListId, setSmartListId] = useState<string>(initialSmartListId ?? '')
   const [stageIds, setStageIds] = useState<string[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [smartLists, setSmartLists] = useState<any[]>([])
-  const [steps, setSteps] = useState<Step[]>([
-    {
-      step_number: 1,
-      name: 'Welcome Message',
-      channel: 'sms',
-      delay_minutes: 0,
-      subject: '',
-      body_template: 'Hi {{first_name}}! Thank you for your interest in All-on-4 dental implants. We specialize in helping patients get a permanent, beautiful smile in just one day. Would you like to schedule a free consultation?',
-      ai_personalize: true,
-    },
-  ])
+  const [steps, setSteps] = useState<Step[]>([defaultStep()])
+  // Snapshot of the form as it was when the dialog opened; drives the unsaved-
+  // changes guard. Empty until the first open.
+  const [snapshot, setSnapshot] = useState('')
+  const [discardOpen, setDiscardOpen] = useState(false)
   const router = useRouter()
 
+  const currentForm = () =>
+    JSON.stringify({ name, description, type, channel, audienceMode, smartListId, stageIds, steps })
+  const isDirty = open && snapshot !== '' && currentForm() !== snapshot
+
+  // Populate (or reset) the form whenever the dialog opens. In edit mode we
+  // pre-fill from the campaign; in create mode we snapshot the current defaults
+  // so the unsaved-changes guard has a baseline.
   useEffect(() => {
-    if (autoOpen) loadSmartLists()
+    if (!open) return
+    loadSmartLists()
+
+    if (editingCampaign) {
+      const c = editingCampaign
+      const nextSteps: Step[] = (c.steps ?? [])
+        .slice()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .sort((a: any, b: any) => (a.step_number ?? 0) - (b.step_number ?? 0))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((s: any, i: number) => ({
+          step_number: i + 1,
+          name: s.name ?? `Step ${i + 1}`,
+          channel: (s.channel as 'sms' | 'email') ?? 'sms',
+          delay_minutes: s.delay_minutes ?? 0,
+          subject: s.subject ?? '',
+          body_template: s.body_template ?? '',
+          ai_personalize: s.ai_personalize ?? false,
+        }))
+      const criteriaStages = Array.isArray(c.target_criteria?.stages)
+        ? (c.target_criteria!.stages as string[])
+        : []
+      const mode: AudienceMode = c.smart_list_id
+        ? 'smart_list'
+        : criteriaStages.length > 0
+          ? 'stages'
+          : 'smart_list'
+      const resolvedSteps = nextSteps.length > 0 ? nextSteps : [defaultStep()]
+
+      setName(c.name ?? '')
+      setDescription(c.description ?? '')
+      setType(c.type ?? 'drip')
+      setChannel(c.channel ?? 'multi')
+      setAudienceMode(mode)
+      setSmartListId(c.smart_list_id ?? '')
+      setStageIds(criteriaStages)
+      setSteps(resolvedSteps)
+      setSnapshot(
+        JSON.stringify({
+          name: c.name ?? '',
+          description: c.description ?? '',
+          type: c.type ?? 'drip',
+          channel: c.channel ?? 'multi',
+          audienceMode: mode,
+          smartListId: c.smart_list_id ?? '',
+          stageIds: criteriaStages,
+          steps: resolvedSteps,
+        })
+      )
+    } else {
+      // Create mode: baseline is the current (possibly default) form.
+      setSnapshot(currentForm())
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [open, editingCampaign])
 
   // Fetch Smart Lists when dialog opens
   async function loadSmartLists() {
@@ -130,6 +235,15 @@ export function CampaignBuilder({ initialSmartListId, autoOpen, stages = [] }: {
     setStageIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
   }
 
+  // Intercept close attempts (Cancel, backdrop, ESC, X) to guard unsaved edits.
+  function requestOpenChange(next: boolean) {
+    if (!next && isDirty) {
+      setDiscardOpen(true)
+      return
+    }
+    setOpen(next)
+  }
+
   async function handleSave() {
     if (!name) { toast.error('Campaign name is required'); return }
     if (steps.some((s) => !s.body_template)) { toast.error('All steps need message content'); return }
@@ -141,51 +255,59 @@ export function CampaignBuilder({ initialSmartListId, autoOpen, stages = [] }: {
 
     setSaving(true)
     try {
-      const res = await fetch('/api/campaigns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          description,
-          type,
-          channel,
-          smart_list_id: hasSmartList ? smartListId : undefined,
-          target_criteria: hasStages ? { stages: stageIds } : undefined,
-          steps: steps.map((s) => ({
-            ...s,
-            subject: s.channel === 'email' ? s.subject : undefined,
-          })),
-        }),
-      })
+      const res = await fetch(
+        isEditing ? `/api/campaigns/${editingCampaign!.id}` : '/api/campaigns',
+        {
+          method: isEditing ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            description,
+            type,
+            channel,
+            // On edit, send explicit nulls to clear the other audience mode.
+            smart_list_id: hasSmartList ? smartListId : isEditing ? null : undefined,
+            target_criteria: hasStages ? { stages: stageIds } : isEditing ? null : undefined,
+            steps: steps.map((s) => ({
+              ...s,
+              subject: s.channel === 'email' ? s.subject : undefined,
+            })),
+          }),
+        }
+      )
 
-      if (!res.ok) throw new Error('Failed to create')
+      if (!res.ok) throw new Error('Failed to save')
 
-      toast.success('Campaign created!')
+      toast.success(isEditing ? 'Campaign updated!' : 'Campaign created!')
+      setSnapshot(currentForm()) // clean — no discard prompt on close
       setOpen(false)
       router.refresh()
     } catch {
-      toast.error('Failed to create campaign')
+      toast.error(isEditing ? 'Failed to save campaign' : 'Failed to create campaign')
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) loadSmartLists() }}>
-      <DialogTrigger>
-        <span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer">
-          <Plus className="h-4 w-4" />
-          New Campaign
-        </span>
-      </DialogTrigger>
+    <>
+    <Dialog open={open} onOpenChange={requestOpenChange}>
+      {!isEditing && (
+        <DialogTrigger>
+          <span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer">
+            <Plus className="h-4 w-4" />
+            New Campaign
+          </span>
+        </DialogTrigger>
+      )}
       <DialogContent className={`aurea ${aureaFontVars} max-w-3xl max-h-[85vh] overflow-y-auto bg-aurea-surface`}>
         <DialogHeader className="space-y-1">
-          <p className="aurea-eyebrow">New campaign</p>
+          <p className="aurea-eyebrow">{isEditing ? 'Edit campaign' : 'New campaign'}</p>
           <DialogTitle
             className="text-[24px] font-normal tracking-[-0.015em] text-aurea-ink"
             style={{ fontFamily: 'var(--font-instrument-serif), "Newsreader", Georgia, serif' }}
           >
-            Create drip campaign
+            {isEditing ? 'Edit campaign' : 'Create drip campaign'}
           </DialogTitle>
         </DialogHeader>
 
@@ -427,14 +549,26 @@ export function CampaignBuilder({ initialSmartListId, autoOpen, stages = [] }: {
 
           {/* Save */}
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => requestOpenChange(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={saving} className="gap-1.5">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              Create Campaign
+              {isEditing ? 'Save changes' : 'Create Campaign'}
             </Button>
           </div>
         </div>
       </DialogContent>
     </Dialog>
+
+    <ConfirmDialog
+      open={discardOpen}
+      onOpenChange={setDiscardOpen}
+      title="Discard changes?"
+      description="You have unsaved changes. Closing now will lose them."
+      confirmLabel="Discard"
+      cancelLabel="Keep editing"
+      destructive
+      onConfirm={() => setOpen(false)}
+    />
+    </>
   )
 }
