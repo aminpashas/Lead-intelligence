@@ -143,6 +143,37 @@ export async function POST(request: NextRequest) {
           timestamp: new Date().toISOString(),
           data: { lead: buildConnectorLeadData(lead) },
         }).catch(() => {})
+
+        // Staff new-lead alert (email + service-line-routed Slack). Real-time
+        // single-lead path (one POST per submission), so it always alerts —
+        // no backfill guard needed. Identity comes from the parsed plaintext
+        // (the DB row is encrypted); routing/AI come from the enrichment above.
+        try {
+          const { notifyNewLead } = await import('@/lib/notifications/new-lead-alert')
+          await notifyNewLead(supabase, {
+            organizationId: orgId,
+            lead: {
+              id: leadId,
+              firstName: parsedLead.firstName || 'Unknown',
+              lastName: parsedLead.lastName,
+              email: parsedLead.email,
+              phone: parsedLead.phone,
+              source: 'Google Lead Forms',
+              tags: vertical === 'implant' ? ['google'] : ['google', vertical],
+              custom_fields: { treatment_interest: vertical },
+              utm_source: 'google',
+              utm_medium: 'cpc',
+              utm_campaign: (body.campaign_name as string) || (body.utm_campaign as string) || null,
+              city: parsedLead.city,
+              aiQualification: score.qualification,
+              aiScore: score.total_score,
+              aiSummary: score.summary,
+              submittedAt: new Date().toISOString(),
+            },
+          })
+        } catch {
+          /* staff alert is best-effort — never blocks ingestion */
+        }
       }
     } catch {
       /* scoring/dispatch are best-effort */

@@ -19,7 +19,7 @@ export default async function ConversationDetailPage({
 
   const { data: conversation } = await supabase
     .from('conversations')
-    .select('*, lead:leads(id, first_name, last_name, phone, email, ai_qualification, ai_score, ai_summary, engagement_score, status, stage_id, pipeline_stage:pipeline_stages(id, name, color, position))')
+    .select('*, lead:leads(id, first_name, last_name, phone, email, ai_qualification, ai_score, ai_summary, engagement_score, status, stage_id, source_type, dental_condition, utm_source, utm_campaign, campaign_attribution, tags, custom_fields, pipeline_stage:pipeline_stages(id, name, color, position))')
     .eq('id', id)
     .single()
 

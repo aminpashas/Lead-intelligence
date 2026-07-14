@@ -50,6 +50,8 @@ import { useLiveCall } from '@/lib/hooks/use-live-call'
 import { useConversationPresence } from '@/lib/hooks/use-conversation-presence'
 import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
 import { SlaCountdown } from './sla-countdown'
+import { channelLabel, formatCampaignAttribution } from '@/lib/attribution'
+import { classifyLeadServiceLines, SERVICE_LINES } from '@/lib/leads/service-line'
 
 // ── Thread shaping ──────────────────────────────────────────
 // Consecutive messages from the same sender within this window render as one
@@ -961,6 +963,22 @@ function LeadSummary({ lead, profile, timeZone }: { lead: Lead; profile: Patient
   const stageColor = lead.pipeline_stage?.color || null
   const engagement = Math.round(lead.engagement_score ?? 0)
 
+  // Provenance — "where did this lead come from". Prefer DGS-resolved channel/
+  // campaign (leads.campaign_attribution) and fall back to the raw source_type /
+  // utm_campaign. Area of interest reuses the same service-line classifier the
+  // pipeline, /leads filters, and Slack routing use, so labels agree app-wide.
+  const source = channelLabel(lead.campaign_attribution?.channel) || lead.source_type?.replace(/_/g, ' ') || null
+  const campaign = formatCampaignAttribution(lead.campaign_attribution) || lead.utm_campaign || null
+  const interest =
+    lead.dental_condition?.replace(/_/g, ' ') ||
+    classifyLeadServiceLines(lead)
+      .map((k) => SERVICE_LINES.find((s) => s.key === k)?.label ?? k)
+      .join(', ') ||
+    null
+  const provenance = ([['Source', source], ['Campaign', campaign], ['Interest', interest]] as const).filter(
+    ([, v]) => Boolean(v),
+  )
+
   return (
     <CollapsibleSection
       title="Lead Summary"
@@ -1001,6 +1019,22 @@ function LeadSummary({ lead, profile, timeZone }: { lead: Lead; profile: Patient
           </div>
         </div>
       </div>
+
+      {/* Provenance — where the lead came from: source · campaign · area of interest */}
+      {provenance.length > 0 && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-aurea-border bg-aurea-surface-2/40 px-3 py-2.5">
+          {provenance.map(([label, value]) => (
+            <div key={label} className="flex items-baseline gap-2 text-[13px]">
+              <span className="w-[68px] shrink-0 text-[11px] font-medium uppercase tracking-[0.08em] text-aurea-ink-3">
+                {label}
+              </span>
+              <span className="min-w-0 truncate font-medium capitalize text-aurea-ink" title={value ?? undefined}>
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Current emotional read — a fast at-a-glance state, grouped with the vitals */}
       {profile && (profile.emotional_state || profile.personality_type) && (

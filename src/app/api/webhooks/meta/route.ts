@@ -193,6 +193,35 @@ export async function POST(request: NextRequest) {
               timestamp: new Date().toISOString(),
               data: { lead: buildConnectorLeadData(lead) },
             }).catch(() => {})
+
+            // Staff new-lead alert (email + service-line-routed Slack). Each
+            // leadgen entry is a genuine submission, so it always alerts.
+            // Identity from the parsed plaintext (the DB row is encrypted).
+            try {
+              const { notifyNewLead } = await import('@/lib/notifications/new-lead-alert')
+              await notifyNewLead(supabase, {
+                organizationId: orgId,
+                lead: {
+                  id: leadId,
+                  firstName: parsed.firstName || 'Unknown',
+                  lastName: parsed.lastName,
+                  email: parsed.email,
+                  phone: parsed.phone,
+                  source: 'Meta Lead Ads',
+                  tags: ['meta'],
+                  utm_source: 'facebook',
+                  utm_medium: 'paid_social',
+                  utm_campaign: formName ?? null,
+                  city: parsed.city,
+                  aiQualification: score.qualification,
+                  aiScore: score.total_score,
+                  aiSummary: score.summary,
+                  submittedAt: new Date().toISOString(),
+                },
+              })
+            } catch {
+              /* staff alert is best-effort — never blocks ingestion */
+            }
           }
         } catch {
           /* scoring/dispatch are best-effort */
