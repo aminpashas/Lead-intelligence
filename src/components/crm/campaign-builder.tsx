@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Plus, Trash2, Loader2, GripVertical, Clock, MessageSquare, Mail, ListFilter, Users } from 'lucide-react'
+import { Plus, Trash2, Loader2, GripVertical, Clock, MessageSquare, Mail, ListFilter, Users, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { aureaFontVars } from '@/lib/fonts'
 
@@ -117,6 +117,8 @@ export function CampaignBuilder({
   const isEditing = !!editingCampaign
 
   const [saving, setSaving] = useState(false)
+  // Index of the step whose "Send test to me" request is in flight (null = none).
+  const [testingStep, setTestingStep] = useState<number | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState<string>('drip')
@@ -233,6 +235,46 @@ export function CampaignBuilder({
 
   function toggleStage(id: string) {
     setStageIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
+  }
+
+  // Send this step to the logged-in staffer's OWN phone/email as a real preview.
+  // The route derives the recipient server-side from the authenticated user — the
+  // body only carries the step's channel + content, never a recipient — so this
+  // can never be aimed at a patient.
+  async function sendTest(index: number) {
+    const step = steps[index]
+    if (!step.body_template.trim()) {
+      toast.error('Add message content before sending a test')
+      return
+    }
+    setTestingStep(index)
+    try {
+      const res = await fetch('/api/campaigns/test-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: step.channel,
+          subject: step.channel === 'email' ? step.subject : undefined,
+          body: step.body_template,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data?.error || 'Failed to send test')
+        return
+      }
+      const where = data?.recipient_masked ? ` (${data.recipient_masked})` : ''
+      const target = step.channel === 'email' ? 'email' : 'phone'
+      if (data?.delivery === 'suppressed') {
+        toast.success(`Test accepted — sending is in test mode, so nothing was delivered to your ${target}${where}`)
+      } else {
+        toast.success(`Test sent to your ${target}${where}`)
+      }
+    } catch {
+      toast.error('Network error — could not send test')
+    } finally {
+      setTestingStep(null)
+    }
   }
 
   // Intercept close attempts (Cancel, backdrop, ESC, X) to guard unsaved edits.
@@ -538,6 +580,24 @@ export function CampaignBuilder({
                       placeholder={step.channel === 'sms' ? 'SMS message (160 chars ideal)...' : 'Email body...'}
                       rows={step.channel === 'sms' ? 3 : 5}
                     />
+
+                    <div className="mt-2 flex items-center justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1.5 text-aurea-ink-3"
+                        onClick={() => sendTest(index)}
+                        disabled={testingStep !== null}
+                        title="Sends this step to your own phone/email as a preview — never to a patient"
+                      >
+                        {testingStep === index ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Send className="h-3.5 w-3.5" />
+                        )}
+                        Send test to me
+                      </Button>
+                    </div>
                 </div>
               ))}
             </div>
