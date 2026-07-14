@@ -296,6 +296,61 @@ describe('notifyNewLead', () => {
     expect(flat).toContain('View lead in CRM')
     expect(flat).toContain('/leads/rich2')
   })
+
+  it('shows the resolved channel as Source, never the aggregator label', async () => {
+    // A WhatConverts call lead whose underlying visit was direct (matches the
+    // production email that motivated this): the aggregator name must be
+    // replaced by the actual source.
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      lead: {
+        id: 'src1',
+        firstName: 'Annelise',
+        source: 'whatconverts',
+        utm_source: '(direct)',
+        utm_medium: '(none)',
+        campaign_attribution: { channel: 'direct' },
+      },
+    })
+
+    const arg = (sendEmail as any).mock.calls[0][0]
+    expect(arg.html).toContain('Direct')
+    expect(arg.html).not.toContain('whatconverts')
+    expect(arg.text).toContain('Source: Direct')
+    expect(arg.text).not.toContain('Source: whatconverts')
+  })
+
+  it('derives Source from UTM when the caller did not pre-resolve a channel', async () => {
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      lead: {
+        id: 'src2',
+        firstName: 'Paid',
+        source: 'gohighlevel',
+        utm_source: 'google',
+        utm_medium: 'cpc',
+      },
+    })
+
+    const arg = (sendEmail as any).mock.calls[0][0]
+    expect(arg.text).toContain('Source: Google Ads')
+    expect(arg.text).not.toContain('gohighlevel')
+  })
+
+  it('keeps a genuine source label verbatim', async () => {
+    await notifyNewLead({} as any, {
+      organizationId: 'org1',
+      lead: {
+        id: 'src3',
+        firstName: 'Formy',
+        source: 'Website Contact Form',
+        campaign_attribution: { channel: 'direct' },
+      },
+    })
+
+    const arg = (sendEmail as any).mock.calls[0][0]
+    expect(arg.text).toContain('Source: Website Contact Form')
+  })
 })
 
 describe('isStaleForAlert', () => {

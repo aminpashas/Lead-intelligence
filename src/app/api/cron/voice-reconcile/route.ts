@@ -106,6 +106,10 @@ export const POST = withCron('voice-reconcile', async ({ supabase }) => {
   }
 })
 
+// Vercel cron triggers issue GET; without this the POST-only route 405s and the
+// sweep never runs (the "orphaned at ringing" rows never self-heal).
+export const GET = POST
+
 type DbClient = Parameters<Parameters<typeof withCron>[1]>[0]['supabase']
 
 /** Finalize a Retell AI call from Retell's record of truth. */

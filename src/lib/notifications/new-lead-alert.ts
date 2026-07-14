@@ -38,6 +38,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead } from '@/types/database'
 import { sendEmail, transactionalFrom } from '@/lib/messaging/resend'
 import { classifyLeadServiceLines, SERVICE_LINES } from '@/lib/leads/service-line'
+import { displaySourceLabel } from '@/lib/attribution'
+import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
 import { getPublicAppUrl } from '@/lib/app-url'
 import { zonedDateTimeLabel, DEFAULT_PRACTICE_TIMEZONE } from '@/lib/time/zoned'
 import { logger } from '@/lib/logger'
@@ -103,7 +105,7 @@ export type NewLeadAlertInput = {
   utm_source?: string | null
   utm_medium?: string | null
   utm_campaign?: string | null
-  campaign_attribution?: { campaign_name?: string | null } | null
+  campaign_attribution?: { campaign_name?: string | null; channel?: string | null } | null
   /** Landing-page URL — niche service-line signal for GMB/organic leads. */
   landing_page_url?: string | null
 
@@ -256,6 +258,20 @@ function collectAlertContent(input: NewLeadAlertInput, serviceLines: string[]): 
 
   const campaign = input.campaign_attribution?.campaign_name || input.utm_campaign || null
   const utm = [input.utm_source, input.utm_medium].filter(Boolean).join(' / ') || null
+
+  // Show where the lead actually came from, never the aggregator/call-tracking
+  // tool ("whatconverts", …). Prefer the DGS-resolved attribution channel; fall
+  // back to a channel derived from the flat UTM fields so the alert resolves a
+  // real source even when the caller didn't pre-resolve one.
+  const resolvedChannel =
+    input.campaign_attribution?.channel ??
+    classifyChannelFromUtm({
+      utm_source: input.utm_source,
+      utm_medium: input.utm_medium,
+      utm_campaign: input.utm_campaign,
+    })?.channel ??
+    null
+  const source = displaySourceLabel(input.source, resolvedChannel)
   const location = [input.city, input.state].filter(Boolean).join(', ') || null
   const financing =
     [
@@ -273,7 +289,7 @@ function collectAlertContent(input: NewLeadAlertInput, serviceLines: string[]): 
       ['Phone', input.phone],
       ['Email', input.email],
       ['Campaign', campaign],
-      ['Source', input.source],
+      ['Source', source],
       ['UTM', utm],
       ['Location', location],
       ['Financing', financing],

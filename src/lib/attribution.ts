@@ -37,6 +37,38 @@ export function channelLabel(channel: string | null | undefined): string | null 
 }
 
 /**
+ * Lead-capture aggregators and call-tracking tools that are NOT a real traffic
+ * source — they're the plumbing that captured the lead, not where the lead came
+ * from. A lead whose raw `source` label is one of these actually originated from
+ * whatever channel the underlying visit/call came through (Organic Search,
+ * Direct, Google Ads, …), which lives in its resolved attribution channel.
+ */
+const AGGREGATOR_SOURCE_LABELS = new Set([
+  'whatconverts',
+  'gohighlevel',
+  'ghl',
+  'dgs',
+  'dion growth studio',
+])
+
+/**
+ * The source label to SHOW for a lead. Genuine source labels are kept verbatim.
+ * An aggregator/call-tracking label ("whatconverts", "gohighlevel", …) is
+ * replaced by the resolved attribution channel ("Organic Search", "Direct", …)
+ * so staff see where the lead actually came from, never the tracking tool. When
+ * the label is an aggregator and no channel is known, falls back to the raw
+ * label rather than showing nothing. Returns null when nothing is known.
+ */
+export function displaySourceLabel(
+  rawSource: string | null | undefined,
+  channel: string | null | undefined,
+): string | null {
+  const raw = (rawSource ?? '').trim()
+  if (raw && !AGGREGATOR_SOURCE_LABELS.has(raw.toLowerCase())) return raw
+  return channelLabel(channel) ?? (raw || null)
+}
+
+/**
  * DGS-resolved channel codes that represent genuine *paid* Meta / Google ad
  * campaigns. This is the definition of a "new lead" for dashboard acquisition
  * metrics — everything else (direct, organic, GMB, referral, and imported
