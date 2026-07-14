@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { validateTwilioWebhook } from '@/lib/messaging/twilio'
 import { mapTwilioStatus } from '@/lib/voice/twilio-voice'
+import { recordStaffCallThreadMarker } from '@/lib/voice/staff-call-thread'
 import { logger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
@@ -45,14 +46,14 @@ export async function POST(request: NextRequest) {
   const query = voiceCallId
     ? supabase
         .from('voice_calls')
-        .select('id, organization_id, lead_id, status, answered_at, outcome')
+        .select('id, organization_id, lead_id, direction, status, answered_at, outcome')
         .eq('id', voiceCallId)
     : (() => {
         const lookupSid = params['ParentCallSid'] || params['CallSid']
         if (!lookupSid) return null
         return supabase
           .from('voice_calls')
-          .select('id, organization_id, lead_id, status, answered_at, outcome')
+          .select('id, organization_id, lead_id, direction, status, answered_at, outcome')
           .eq('twilio_call_sid', lookupSid)
       })()
 
@@ -101,6 +102,21 @@ export async function POST(request: NextRequest) {
       title: `Staff call ${status === 'completed' ? 'completed' : status} (${duration}s)`,
       metadata: { call_id: call.id, duration_seconds: duration, status, call_mode: 'browser' },
     })
+
+    // Mirror the call into the Conversations inbox. Staff browser calls used to
+    // write only voice_calls + lead_activities, so they were visible on the lead
+    // timeline but never in Conversations. This drops an idempotent voice marker
+    // so every staff call — answered or not — surfaces in the messenger inbox.
+    if (call.lead_id) {
+      await recordStaffCallThreadMarker(supabase, {
+        voiceCallId: call.id,
+        organizationId: call.organization_id,
+        leadId: call.lead_id,
+        direction: call.direction === 'inbound' ? 'inbound' : 'outbound',
+        status,
+        durationSeconds: duration,
+      })
+    }
 
     if (status === 'completed' && duration > 0) {
       await supabase

@@ -25,6 +25,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { formatToE164 } from '@/lib/leads/phone'
+import { syncStaffCallThreadMarker } from '@/lib/voice/staff-call-thread'
 
 const OUTCOME_VALUES = [
   'appointment_booked',
@@ -222,6 +223,19 @@ export async function PATCH(
   // If the staffer marked do-not-call, honor it on the lead immediately.
   if (outcome === 'do_not_call' && leadId) {
     await supabase.from('leads').update({ do_not_call: true }).eq('id', leadId).eq('organization_id', orgId)
+  }
+
+  // Reflect the disposition summary in the Conversations inbox marker so the
+  // thread shows the staffer's real outcome (e.g. "Interested") rather than the
+  // raw Twilio status. Upserts in case this fires before the status callback.
+  if (leadId) {
+    await syncStaffCallThreadMarker(supabase, {
+      voiceCallId: id,
+      organizationId: orgId,
+      leadId,
+      direction: call.direction === 'inbound' ? 'inbound' : 'outbound',
+      body: summary,
+    })
   }
 
   return NextResponse.json({ ok: true, lead_id: leadId, lead_created: leadCreated })
