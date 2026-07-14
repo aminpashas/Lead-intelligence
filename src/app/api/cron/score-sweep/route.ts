@@ -56,7 +56,7 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
 
     // Newest unscored, non-terminal leads first — mirrors the dialer's freshest-first
     // queue so the leads a rep is most likely to work get graded soonest.
-    const { data: leads } = await supabase
+    const { data: leads, error: fetchError } = await supabase
       .from('leads')
       .select('*')
       .eq('organization_id', org.id)
@@ -64,6 +64,17 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
       .not('status', 'in', TERMINAL_STATUSES)
       .order('created_at', { ascending: false })
       .limit(Math.min(MAX_PER_ORG, MAX_PER_RUN - scored))
+
+    // Don't swallow a fetch error: PostgREST returns `{ data: null, error }` on a
+    // rejected query, and a bare `const { data }` made that indistinguishable from
+    // "no unscored leads" — the sweep would heartbeat `items:0, ok` every run while
+    // a real backlog sat untouched. Surface it so the heartbeat's `error` column
+    // shows the actual cause instead of a silent no-op.
+    if (fetchError) {
+      failed++
+      errors.push(`Org ${org.id}: lead fetch failed: ${fetchError.message}`)
+      continue
+    }
 
     if (!leads || leads.length === 0) continue
 
