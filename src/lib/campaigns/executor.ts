@@ -171,7 +171,7 @@ async function executeOneStep(
   // Process template
   const ctx = buildTemplateContext(lead, org?.name || 'Our Practice', campaign.organization_id)
   let messageBody = processTemplate(step.body_template, ctx)
-  let subject = step.subject ? processTemplate(step.subject, ctx) : undefined
+  const subject = step.subject ? processTemplate(step.subject, ctx) : undefined
 
   // AI Personalization
   if (step.ai_personalize) {

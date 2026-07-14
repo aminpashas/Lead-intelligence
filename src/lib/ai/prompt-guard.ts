@@ -80,7 +80,7 @@ export function detectPromptInjection(text: string): InjectionDetectionResult {
  */
 function sanitizeInput(text: string): string {
   // Remove obvious injection delimiters
-  let sanitized = text
+  const sanitized = text
     .replace(/<\/?system>/gi, '')
     .replace(/```\s*system/gi, '```')
     .replace(/\[SYSTEM\]/gi, '')

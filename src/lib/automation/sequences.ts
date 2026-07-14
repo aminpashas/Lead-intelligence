@@ -266,8 +266,8 @@ async function executeAIMessageStep(
 
   // Resolve copy: prepared (appointment templates) > fixed template > AI compose.
   let body: string | null = ctx.prepared?.smsBody ?? ctx.prepared?.text ?? null
-  let subject = ctx.prepared?.subject ?? step.template_subject ?? 'Following up'
-  let html = ctx.prepared?.html ?? null
+  const subject = ctx.prepared?.subject ?? step.template_subject ?? 'Following up'
+  const html = ctx.prepared?.html ?? null
   let aiConfidence: number | null = null
   let conversationId: string | null = null
 

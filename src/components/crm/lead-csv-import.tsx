@@ -361,7 +361,7 @@ export function LeadCSVImport() {
             <div className="text-center">
               <p className="text-[15px] font-medium text-aurea-ink">Upload your CSV file</p>
               <p className="mt-1 max-w-md text-[13px] text-aurea-ink-3">
-                You'll map columns, attest consent, and choose import options on the next steps.
+                You&apos;ll map columns, attest consent, and choose import options on the next steps.
                 Each row needs at minimum a phone or email.
               </p>
             </div>
@@ -384,7 +384,7 @@ export function LeadCSVImport() {
             <p className="text-[13px] text-aurea-ink-3">
               Found <span className="font-mono font-medium tabular-nums text-aurea-ink">{rows.length}</span> rows in{' '}
               <span className="font-medium text-aurea-ink">{fileName}</span>. Map each CSV column to a lead
-              field, or set it to "Ignore". At minimum, map First Name and either Email or Phone.
+              field, or set it to &quot;Ignore&quot;. At minimum, map First Name and either Email or Phone.
             </p>
             <div className="aurea-card max-h-[50vh] overflow-auto">
               <Table>
@@ -453,7 +453,7 @@ export function LeadCSVImport() {
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
                 <p>
                   Automated SMS, email, and AI calls are gated by per-lead consent. Imported leads
-                  must have previously opted in to each channel you enable below — you'll attest to
+                  must have previously opted in to each channel you enable below — you&apos;ll attest to
                   that here, and the timestamp + source are stored on every row for the audit trail.
                 </p>
               </div>

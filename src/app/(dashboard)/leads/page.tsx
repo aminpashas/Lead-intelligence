@@ -242,7 +242,7 @@ export default async function LeadsPage({
 
   // Fetch lead tags for displayed leads
   const leadIds = (leads || []).map((l: any) => l.id)
-  let leadTagsMap: Record<string, Tag[]> = {}
+  const leadTagsMap: Record<string, Tag[]> = {}
 
   if (leadIds.length > 0) {
     const { data: leadTagRows } = await supabase

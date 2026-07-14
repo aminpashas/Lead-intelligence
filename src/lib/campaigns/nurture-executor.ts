@@ -137,7 +137,7 @@ export async function executeNurtureStep(
   // Compose the message.
   const ctx = buildTemplateContext(lead, orgName, orgId)
   let messageBody = processTemplate(step.body_template, ctx)
-  let subject = step.subject ? processTemplate(step.subject, ctx) : `A note from ${orgName}`
+  const subject = step.subject ? processTemplate(step.subject, ctx) : `A note from ${orgName}`
   let confidence = 1 // fixed templates are trusted
   let internalNotes: string | undefined
 
