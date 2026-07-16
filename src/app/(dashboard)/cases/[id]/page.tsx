@@ -507,7 +507,7 @@ function DiagnosisSection({
               <div className="space-y-2">
                 <Label>Severity</Label>
                 <Select items={SEVERITY_LABELS} value={form.severity} onValueChange={v => v && setForm({ ...form, severity: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="mild">Mild</SelectItem>
                     <SelectItem value="moderate">Moderate</SelectItem>

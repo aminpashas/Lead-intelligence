@@ -492,7 +492,7 @@ export function LeadDetail({
                   value={lead.stage_id || ''}
                   onValueChange={(v) => updateLead({ stage_id: v })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select stage">
                       {(value) => stages.find((s) => s.id === value)?.name ?? 'Select stage'}
                     </SelectValue>
@@ -521,7 +521,7 @@ export function LeadDetail({
                   value={lead.assigned_to || 'unassigned'}
                   onValueChange={(v) => updateLead({ assigned_to: v === 'unassigned' ? null : v })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Unassigned">
                       {(value) => teamMembers.find((m) => m.id === value)?.full_name ?? 'Unassigned'}
                     </SelectValue>

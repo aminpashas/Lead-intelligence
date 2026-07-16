@@ -156,7 +156,7 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
             <div className="space-y-1.5">
               <Label className="text-xs text-aurea-ink-3">Direction</Label>
               <Select items={DIRECTION_LABELS} value={direction} onValueChange={(v) => v && setDirection(v as 'outbound' | 'inbound')}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="outbound">Outbound</SelectItem>
                   <SelectItem value="inbound">Inbound</SelectItem>
@@ -172,7 +172,7 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
           <div className="space-y-1.5">
             <Label className="text-xs text-aurea-ink-3">Outcome</Label>
             <Select items={OUTCOME_LABELS} value={outcome} onValueChange={(v) => v && setOutcome(v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {OUTCOMES.map((o) => (
                   <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -184,7 +184,7 @@ export function LogCallDialog({ leadId }: { leadId: string }) {
           <div className="space-y-1.5">
             <Label className="text-xs text-aurea-ink-3">Budget range</Label>
             <Select items={BUDGET_LABELS} value={budgetRange} onValueChange={(v) => v && setBudgetRange(v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_CHANGE}>No change</SelectItem>
                 {BUDGET_RANGES.map((b) => (

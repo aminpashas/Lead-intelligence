@@ -140,7 +140,7 @@ export function CreateTaskDialog({ onCreated }: { onCreated: () => void }) {
             <div className="space-y-1.5">
               <Label className="text-xs text-aurea-ink-3">Priority</Label>
               <Select items={PRIORITY_LABELS} value={priority} onValueChange={(v) => v && setPriority(v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {PRIORITIES.map((p) => (
                     <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
@@ -157,7 +157,7 @@ export function CreateTaskDialog({ onCreated }: { onCreated: () => void }) {
           <div className="space-y-1.5">
             <Label className="text-xs text-aurea-ink-3">Assign to</Label>
             <Select items={assigneeLabels} value={assignee} onValueChange={(v) => v && setAssignee(v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
                 {members.map((m) => (

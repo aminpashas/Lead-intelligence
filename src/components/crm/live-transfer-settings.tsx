@@ -215,7 +215,7 @@ function TargetsCard(props: {
               <div className="space-y-1">
                 <Label>Type</Label>
                 <Select items={KIND_SELECT_LABELS} value={kind} onValueChange={(v) => setKind(v || 'phone')}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="phone">Phone number</SelectItem>
                     <SelectItem value="sip">SIP address</SelectItem>

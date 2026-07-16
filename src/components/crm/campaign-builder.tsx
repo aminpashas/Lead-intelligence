@@ -367,7 +367,7 @@ export function CampaignBuilder({
             <div className="space-y-2">
               <Label>Type</Label>
               <Select items={TYPE_LABELS} value={type} onValueChange={(v) => v && setType(v)}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -416,7 +416,7 @@ export function CampaignBuilder({
             {audienceMode === 'smart_list' ? (
               <>
                 <Select value={smartListId} onValueChange={(v) => setSmartListId(v || '')}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="All leads (no Smart List)">
                       {(value) => smartLists.find((sl: any) => sl.id === value)?.name ?? 'All leads (manual targeting)'}
                     </SelectValue>

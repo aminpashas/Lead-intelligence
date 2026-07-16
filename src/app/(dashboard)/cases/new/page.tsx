@@ -292,7 +292,7 @@ function NewCaseContent() {
             <div className="space-y-2">
               <Label>Assign to Doctor</Label>
               <Select value={form.assigned_doctor_id} onValueChange={v => v && setForm({ ...form, assigned_doctor_id: v })}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select a doctor...">
                     {(value) => doctors.find((d) => d.id === value)?.full_name ?? 'Select a doctor...'}
                   </SelectValue>

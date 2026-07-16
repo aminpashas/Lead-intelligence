@@ -302,7 +302,7 @@ export function MassSMSComposer({ initialSmartListId, onClose }: MassSMSComposer
             </CardHeader>
             <CardContent className="space-y-3">
               <Select value={selectedListId} onValueChange={(v) => setSelectedListId(v || '')}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select a Smart List...">
                     {(value) => smartLists.find((sl) => sl.id === value)?.name ?? 'Select a Smart List...'}
                   </SelectValue>

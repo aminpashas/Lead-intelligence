@@ -228,7 +228,7 @@ export function TagManager() {
               <div className="space-y-2">
                 <Label>Category</Label>
                 <Select items={CATEGORY_LABELS} value={formCategory} onValueChange={(v) => setFormCategory(v as TagCategory)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

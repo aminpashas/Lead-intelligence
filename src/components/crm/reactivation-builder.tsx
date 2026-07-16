@@ -380,7 +380,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                 <div className="space-y-2">
                   <Label>Goal</Label>
                   <Select value={goal} onValueChange={v => v && setGoal(v as ReactivationGoal)}>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue>
                         {(value) => GOAL_OPTIONS.find(g => g.id === value)?.label ?? ''}
                       </SelectValue>
@@ -400,7 +400,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                 <div className="space-y-2">
                   <Label>AI Tone</Label>
                   <Select value={tone} onValueChange={v => v && setTone(v as ReactivationTone)}>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue>
                         {(value) => TONE_OPTIONS.find(t => t.id === value)?.label ?? ''}
                       </SelectValue>
@@ -415,7 +415,7 @@ export function ReactivationBuilder({ onBack }: { onBack: () => void }) {
                 <div className="space-y-2">
                   <Label>Channel</Label>
                   <Select items={CHANNEL_LABELS} value={channel} onValueChange={v => v && setChannel(v as 'sms' | 'email' | 'multi')}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="multi">Multi-Channel (SMS + Email)</SelectItem>
                       <SelectItem value="sms">SMS Only</SelectItem>

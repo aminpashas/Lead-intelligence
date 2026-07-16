@@ -288,7 +288,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
             <div className="space-y-2">
               <Label className="text-[13px]">Action</Label>
               <Select items={ACTION_LABELS} value={action} onValueChange={(v) => setAction(v as BulkActionKind)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {(Object.keys(ACTION_LABELS) as BulkActionKind[]).map((k) => (
                     <SelectItem key={k} value={k}>{ACTION_LABELS[k]}</SelectItem>
@@ -301,7 +301,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
               <div className="space-y-2">
                 <Label className="text-[13px]">New status</Label>
                 <Select items={STATUS_LABELS} value={status} onValueChange={(v) => v && setStatus(v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {STATUS_OPTIONS.map((s) => (
                       <SelectItem key={s} value={s} className="capitalize">{s.replace(/_/g, ' ')}</SelectItem>
@@ -315,7 +315,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
               <div className="space-y-2">
                 <Label className="text-[13px]">Pipeline stage</Label>
                 <Select value={stageId} onValueChange={(v) => v && setStageId(v)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Pick a stage">
                       {(value) => stages.find((s) => s.id === value)?.name ?? 'Pick a stage'}
                     </SelectValue>
@@ -344,7 +344,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
               <div className="space-y-2">
                 <Label className="text-[13px]">Campaign</Label>
                 <Select value={campaignId} onValueChange={(v) => v && setCampaignId(v)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Pick an active campaign">
                       {(value) => campaigns.find((c) => c.id === value)?.name ?? 'Pick an active campaign'}
                     </SelectValue>
@@ -390,7 +390,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
                     value={assigneeMode}
                     onValueChange={(v) => v && setAssigneeMode(v as 'team' | 'user')}
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="team">Team queue (anyone can claim)</SelectItem>
                       <SelectItem value="user">A specific person</SelectItem>
@@ -402,7 +402,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
                   <div className="space-y-2">
                     <Label className="text-[13px]">Person</Label>
                     <Select value={assignedTo} onValueChange={(v) => v && setAssignedTo(v)}>
-                      <SelectTrigger>
+                      <SelectTrigger className="w-full">
                         <SelectValue placeholder="Pick a team member">
                           {(value) => teamMembers.find((u) => u.id === value)?.full_name ?? 'Pick a team member'}
                         </SelectValue>

@@ -259,7 +259,7 @@ export function NewLeadDialog() {
                   value={form.dental_condition}
                   onValueChange={(v) => v && updateField('dental_condition', v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select condition" />
                   </SelectTrigger>
                   <SelectContent>
@@ -330,7 +330,7 @@ export function NewLeadDialog() {
                   value={form.financing_interest}
                   onValueChange={(v) => v && updateField('financing_interest', v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select preference" />
                   </SelectTrigger>
                   <SelectContent>
@@ -349,7 +349,7 @@ export function NewLeadDialog() {
                   value={form.budget_range}
                   onValueChange={(v) => v && updateField('budget_range', v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select range" />
                   </SelectTrigger>
                   <SelectContent>
@@ -374,7 +374,7 @@ export function NewLeadDialog() {
                   value={form.source_type}
                   onValueChange={(v) => v && updateField('source_type', v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="How did they find you?" />
                   </SelectTrigger>
                   <SelectContent>
