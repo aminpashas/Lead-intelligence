@@ -17,6 +17,7 @@ import { LeadActions } from './lead-actions'
 import { EngagementMeter } from './engagement-meter'
 import { TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
+import { StageSelect } from './stage-select'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
 import { ScheduleAppointment } from './schedule-appointment'
 // LeadFinancingCard import removed pending live integrations
@@ -248,6 +249,7 @@ export function LeadDetail({
           {mode === 'thread' ? (
             <ConversationThread
               lead={lead}
+              stages={stages}
               conversation={primaryConversation}
               messages={threadMessages}
               calls={threadCalls}
@@ -488,26 +490,11 @@ export function LeadDetail({
                 <h2 className="aurea-display text-[18px] text-aurea-ink">Pipeline Stage</h2>
               </div>
               <div className="px-5 py-4">
-                <Select
-                  value={lead.stage_id || ''}
-                  onValueChange={(v) => updateLead({ stage_id: v })}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select stage">
-                      {(value) => stages.find((s) => s.id === value)?.name ?? 'Select stage'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {stages.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />
-                          {s.name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <StageSelect
+                  stages={stages}
+                  value={lead.stage_id}
+                  onChange={(v) => updateLead({ stage_id: v })}
+                />
               </div>
             </div>
 

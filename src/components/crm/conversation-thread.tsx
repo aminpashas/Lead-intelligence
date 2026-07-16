@@ -40,10 +40,11 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Conversation, Message, Lead, AgentType, VoiceCall, ConversationAnalysis, PatientProfile } from '@/types/database'
+import type { Conversation, Message, Lead, AgentType, VoiceCall, ConversationAnalysis, PatientProfile, PipelineStage } from '@/types/database'
 import { AgentMessageLabel } from './agent-indicator'
 import { AIModeToggle } from './ai-mode-toggle'
 import { LeadActions } from './lead-actions'
+import { StageSelect } from './stage-select'
 import { LiveCallIndicator, LiveCallPanel } from './live-call-panel'
 import { CallCard } from './call-card'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
@@ -152,6 +153,7 @@ function buildThread(messages: Message[], calls: VoiceCall[], timeZone: string):
 
 export function ConversationThread({
   lead,
+  stages = [],
   conversation,
   messages: initialMessages,
   calls = [],
@@ -165,6 +167,10 @@ export function ConversationThread({
   canTrainAi = false,
 }: {
   lead: Lead
+  /** The org's pipeline stages, for the stage control in the toolbar + summary
+   *  rail. Empty (the default) hides both, so a caller that hasn't loaded them
+   *  degrades to the previous read-only stage text rather than an empty menu. */
+  stages?: PipelineStage[]
   /** The thread's conversation. `null` when the lead has no conversation yet:
    *  the composer still renders and the first send find-or-creates the row
    *  server-side (via lead_id), then we refresh to hydrate the real thread. */
@@ -206,6 +212,50 @@ export function ConversationThread({
       return localOnly.length ? [...initialMessages, ...localOnly] : initialMessages
     })
   }, [initialMessages])
+
+  // Pipeline stage, mirrored locally so staff can move a lead without leaving
+  // the thread — stages get worked straight off a manual call or text, and the
+  // only other control lives on the Details tab. Optimistic with revert, like
+  // the kanban board: the move *is* the interaction, so it has to feel instant.
+  // Re-seeds from the server so a move made elsewhere shows up here too.
+  const [stageId, setStageId] = useState<string | null>(lead.stage_id ?? null)
+  const [stage, setStage] = useState<PipelineStage | null>(lead.pipeline_stage ?? null)
+  const [movingStage, setMovingStage] = useState(false)
+
+  useEffect(() => {
+    setStageId(lead.stage_id ?? null)
+    setStage(lead.pipeline_stage ?? null)
+  }, [lead.stage_id, lead.pipeline_stage])
+
+  async function moveStage(nextId: string) {
+    if (!nextId || nextId === stageId || movingStage) return
+    const target = stages.find((s) => s.id === nextId) ?? null
+    const previous = { id: stageId, row: stage }
+    setStageId(nextId)
+    setStage(target)
+    setMovingStage(true)
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage_id: nextId }),
+      })
+      if (!res.ok) throw new Error(`stage move failed: ${res.status}`)
+      const { lead: updated } = await res.json()
+      setStageId(updated.stage_id ?? nextId)
+      setStage(updated.pipeline_stage ?? target)
+      toast.success(`Moved to ${target?.name ?? 'new stage'}`)
+      // The move writes a stage_changed activity and may fire funnel/campaign
+      // automations — refresh so Timeline and Details agree with what's shown here.
+      router.refresh()
+    } catch {
+      setStageId(previous.id)
+      setStage(previous.row)
+      toast.error('Could not change the stage')
+    } finally {
+      setMovingStage(false)
+    }
+  }
 
   const [draft, setDraft] = useState('')
   // D4 presence heartbeat: tells the staff notifier this user has the thread
@@ -588,6 +638,23 @@ export function ConversationThread({
               showLabel={false}
             />
           )}
+          {/* Move the lead's stage without leaving the thread. Shows the current
+              stage rather than a bare "Move stage" label, so it stays useful when
+              the summary rail is collapsed. */}
+          {stages.length > 0 && (
+            <>
+              <div className="h-6 w-px bg-aurea-border" />
+              <StageSelect
+                stages={stages}
+                value={stageId}
+                onChange={moveStage}
+                disabled={movingStage}
+                size="sm"
+                aria-label="Change pipeline stage"
+                className="w-[168px]"
+              />
+            </>
+          )}
           <div className="h-6 w-px bg-aurea-border" />
           <Button
             variant="outline"
@@ -889,7 +956,16 @@ export function ConversationThread({
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <LeadSummary lead={lead} profile={profile} timeZone={timeZone} />
+            <LeadSummary
+              lead={lead}
+              profile={profile}
+              timeZone={timeZone}
+              stages={stages}
+              stageId={stageId}
+              stage={stage}
+              onStageChange={moveStage}
+              movingStage={movingStage}
+            />
             {analysisResult || followUpResult ? (
               <InsightsPanel analysisResult={analysisResult} followUpResult={followUpResult} />
             ) : (
@@ -947,7 +1023,25 @@ function parseActionSteps(text: string): { intro: string; steps: string[] } {
   return { intro, steps }
 }
 
-function LeadSummary({ lead, profile, timeZone }: { lead: Lead; profile: PatientProfile | null; timeZone: string }) {
+function LeadSummary({
+  lead,
+  profile,
+  timeZone,
+  stages,
+  stageId,
+  stage,
+  onStageChange,
+  movingStage,
+}: {
+  lead: Lead
+  profile: PatientProfile | null
+  timeZone: string
+  stages: PipelineStage[]
+  stageId: string | null
+  stage: PipelineStage | null
+  onStageChange: (stageId: string) => void
+  movingStage: boolean
+}) {
   const qualification = lead.ai_qualification || 'unscored'
   const narrative = profile?.ai_summary || lead.ai_summary || null
   const qualTone =
@@ -959,8 +1053,8 @@ function LeadSummary({ lead, profile, timeZone }: { lead: Lead; profile: Patient
 
   // Where the lead sits in the funnel + how engaged they are. Stage prefers the
   // joined pipeline_stage row; falls back to the raw status when it isn't loaded.
-  const stageName = lead.pipeline_stage?.name || lead.status?.replace(/_/g, ' ') || '—'
-  const stageColor = lead.pipeline_stage?.color || null
+  const stageName = stage?.name || lead.status?.replace(/_/g, ' ') || '—'
+  const stageColor = stage?.color || null
   const engagement = Math.round(lead.engagement_score ?? 0)
 
   // Provenance — "where did this lead come from". Prefer DGS-resolved channel/
@@ -994,16 +1088,31 @@ function LeadSummary({ lead, profile, timeZone }: { lead: Lead; profile: Patient
     >
       {/* Vitals: funnel stage · engagement · quality — the fast "who is this" read */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="border-l-2 border-aurea-border-strong/60 pl-3">
+        <div className="min-w-0 border-l-2 border-aurea-border-strong/60 pl-3">
           <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-aurea-ink-3">Stage</div>
-          <div className="mt-1 flex items-center gap-1.5">
-            {stageColor && (
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stageColor }} />
-            )}
-            <span className="truncate text-[14px] font-medium capitalize text-aurea-ink" title={stageName}>
-              {stageName}
-            </span>
-          </div>
+          {/* Editable in place: reads as plain text until hovered, so the vitals
+              row still scans as a summary rather than a form. Falls back to the
+              static read when the caller didn't hand down any stages. */}
+          {stages.length > 0 ? (
+            <StageSelect
+              stages={stages}
+              value={stageId}
+              onChange={onStageChange}
+              disabled={movingStage}
+              size="sm"
+              aria-label="Change pipeline stage"
+              className="-ml-1.5 mt-0.5 w-[calc(100%+0.375rem)] border-transparent px-1.5 text-[14px] font-medium text-aurea-ink hover:border-aurea-border hover:bg-aurea-surface-2"
+            />
+          ) : (
+            <div className="mt-1 flex items-center gap-1.5">
+              {stageColor && (
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stageColor }} />
+              )}
+              <span className="truncate text-[14px] font-medium capitalize text-aurea-ink" title={stageName}>
+                {stageName}
+              </span>
+            </div>
+          )}
         </div>
         <div className="border-l-2 border-aurea-border-strong/60 pl-3">
           <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-aurea-ink-3">Engagement</div>
