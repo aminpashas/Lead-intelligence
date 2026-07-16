@@ -2,6 +2,11 @@
 
 # Lead Intelligence — AI-Powered Implant CRM
 
+## Consent model (IMPORTANT)
+- **Every lead that has been uploaded/imported into the system has already consented** to be contacted. Consent is assumed for all leads.
+- Outbound SMS, email, and calls are therefore **allowed by default**. The ONLY thing that blocks a send on a channel is an explicit opt-out / Do-Not-Disturb (`*_opt_out`), plus `do_not_call` for voice.
+- Do not reintroduce a positive-consent (`*_consent = true`) requirement into any send/targeting path. The gate is opt-out-only (`src/lib/consent/gate.ts` `assertConsent`, `src/lib/voice/call-manager.ts` `preCallCheck`).
+
 ## Tech Stack
 - **Framework**: Next.js 16 (App Router), TypeScript, Tailwind CSS, shadcn/ui
 - **Database**: Supabase (PostgreSQL) with RLS, multi-tenant via `organization_id`
