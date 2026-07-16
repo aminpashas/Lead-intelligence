@@ -17,9 +17,13 @@ import { createHumanTask } from '@/lib/automation/tasks'
  *            recommendation | sla_breach_review
  *   limit    1..100 (default 50), offset >= 0 (default 0)
  *
- * Response: { tasks, total, openCount, limit, offset }
+ * Response: { tasks, total, openCount, backlog, limit, offset }
  * `openCount` is the org-wide live (open+claimed) count for the nav badge,
  * independent of the filters applied to `tasks`.
+ * `backlog` counts bulk//offboard work that is deliberately NOT minted as tasks
+ * (see lib/automation/task-sweep.ts) but must still be visible from /tasks:
+ * never-contacted leads (worked via Smart List → call queue) and open AI
+ * escalations (which own their own lifecycle in settings/ai).
  */
 
 const VALID_STATUSES = ['open', 'claimed', 'done', 'expired', 'taken_by_ai', 'dismissed', 'active']
@@ -33,6 +37,7 @@ const VALID_KINDS = [
   'call_review',
   'list_call',
   'manual',
+  'follow_up',
 ]
 
 export async function GET(request: NextRequest) {
@@ -118,13 +123,45 @@ export async function GET(request: NextRequest) {
     .eq('organization_id', orgId)
     .in('status', ['open', 'claimed'])
 
+  const backlog = await loadBacklog(supabase, orgId)
+
   return NextResponse.json({
     tasks: tasks || [],
     total: count || 0,
     openCount: openCount || 0,
+    backlog,
     limit,
     offset,
   })
+}
+
+/**
+ * Counts for the /tasks backlog banner. Best-effort: this is context, never the
+ * reason the queue fails to render, so each count independently degrades to 0.
+ */
+async function loadBacklog(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  orgId: string
+): Promise<{ untouchedNew: number; openEscalations: number }> {
+  const [cohort, escalations] = await Promise.all([
+    // Reuses the Action Queue's own RPC — asking for 1 row just to read `total`.
+    supabase.rpc('get_action_queue_cohort', {
+      p_org_id: orgId,
+      p_cohort: 'untouched_new',
+      p_limit: 1,
+      p_offset: 0,
+    }),
+    supabase
+      .from('escalations')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .in('status', ['pending', 'claimed']),
+  ])
+
+  return {
+    untouchedNew: (cohort.data as { total?: number } | null)?.total ?? 0,
+    openEscalations: escalations.count ?? 0,
+  }
 }
 
 /**

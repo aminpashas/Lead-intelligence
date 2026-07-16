@@ -33,6 +33,10 @@ export type HumanTaskKind =
   | 'list_call'
   // Plain to-do hand-created by staff from the /tasks page.
   | 'manual'
+  // State-shaped work materialized by the task sweep (a follow-up that is due, a
+  // patient awaiting a reply). Distinct from the event-driven kinds above so the
+  // sweep and the allocation engine can never dedupe onto each other's rows.
+  | 'follow_up'
 
 /** Manual-task urgency. Allocation-created tasks keep the 'normal' default. */
 export type HumanTaskPriority = 'low' | 'normal' | 'high' | 'urgent'
@@ -117,6 +121,29 @@ export type ResolvedAssignee = {
 
 /** Postgres unique-violation SQLSTATE (the dedupe-race signal). */
 const UNIQUE_VIOLATION = '23505'
+
+/**
+ * Roles that inherit a task nobody else owns (resolveAssignee tier 3).
+ *
+ * The old fallback was a bare role='admin'. Most practices don't have an
+ * 'admin' — SF Dentistry runs on office_manager + nurse — so every tier missed
+ * and tasks landed with assigned_to AND assigned_role null: claimable from
+ * "All open", but invisible in "Mine" forever.
+ *
+ * TODO(amin): define the fallback. Constraints worth weighing:
+ *   - `nurse` / `doctor` / `assistant` hold CLINICAL_PERMISSIONS only — they
+ *     deliberately can't work the book at scale (see isFocusedStaff), so
+ *     routing patient follow-ups to them contradicts the permission model.
+ *   - `office_manager` / `owner` / `admin` / `doctor_admin` hold
+ *     FULL_PERMISSIONS; `isAdminRole()` in lib/auth/permissions.ts already
+ *     groups exactly those (plus agency_admin).
+ *   - Order matters: this is a priority list, first role with an active user
+ *     wins the queue. Putting `owner` first would page the dentist about a
+ *     re-engagement text; putting `office_manager` first routes it to the desk.
+ *   - agency_admin is intentionally excluded below — an agency contractor
+ *     shouldn't silently inherit a practice's patient follow-ups.
+ */
+const TASK_FALLBACK_ROLES: string[] = ['admin']
 
 const LIVE_STATUSES: HumanTaskStatus[] = ['open', 'claimed']
 
@@ -337,18 +364,29 @@ export async function resolveAssignee(
       }
     }
 
-    // 3. Org admins (mirrors escalation.ts notifyStaff: role='admin', cap 5).
-    const { data: admins } = await supabase
-      .from('user_profiles')
-      .select('id')
-      .eq('organization_id', orgId)
-      .eq('role', 'admin')
-      .eq('is_active', true)
-      .limit(5)
-    if (admins && admins.length > 0) {
-      return { userId: null, role: 'admin', pool: admins.map((u: { id: string }) => u.id) }
+    // 3. Fallback roles, most-appropriate first: the first role that has active
+    //    users takes the task as a role queue (anyone holding it can claim).
+    for (const role of TASK_FALLBACK_ROLES) {
+      const { data: users } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('organization_id', orgId)
+        .eq('role', role)
+        .eq('is_active', true)
+        .limit(5)
+      if (users && users.length > 0) {
+        return { userId: null, role, pool: users.map((u: { id: string }) => u.id) }
+      }
     }
 
+    // Nobody eligible: the task still exists and is claimable from "All open",
+    // it just isn't routed. Logged because a permanently unrouted queue is a
+    // configuration problem, not a normal state.
+    logger.warn('HumanTasks: no assignee found — task will be unrouted', {
+      orgId,
+      leadId: leadId ?? null,
+      fallbackRoles: TASK_FALLBACK_ROLES,
+    })
     return { userId: null, role: null, pool: [] }
   } catch (err) {
     logger.warn('HumanTasks: resolveAssignee failed', {

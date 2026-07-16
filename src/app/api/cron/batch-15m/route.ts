@@ -14,7 +14,7 @@ export const runtime = 'nodejs'
 // function instances, so this is a max, not a sum.
 export const maxDuration = 300
 
-const TARGETS = ['enrich', 'campaigns', 'reminders', 'follow-up-sequences', 'voice-reconcile', 'score-sweep', 'engagement-sweep'] as const
+const TARGETS = ['enrich', 'campaigns', 'reminders', 'follow-up-sequences', 'voice-reconcile', 'score-sweep', 'engagement-sweep', 'task-sweep'] as const
 
 export const POST = withCron('batch-15m', async ({ request }) => {
   const results = await fanOutToCrons(request, TARGETS)
