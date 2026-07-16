@@ -6,7 +6,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import {
   ListFilter, Plus, Users, Megaphone, Pin, Pencil, Trash2,
-  Loader2, Sparkles, Target,
+  Loader2, Sparkles, Target, LayoutGrid, List,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/ui/alert-dialog'
@@ -28,8 +28,20 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
   const [viewingList, setViewingList] = useState<SmartList | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  // Read the saved view preference after mount — the server render can't know
+  // it, and seeding useState from localStorage would break hydration.
+  useEffect(() => {
+    if (localStorage.getItem('smart-lists:view') === 'list') setViewMode('list')
+  }, [])
+
+  function switchView(mode: 'grid' | 'list') {
+    setViewMode(mode)
+    localStorage.setItem('smart-lists:view', mode)
+  }
 
   // Deep-link support: a Pipeline "Move to stage" recommendation lands here with
   // ?list=<id> — auto-open that segment's detail (where the bulk stage-move
@@ -108,9 +120,37 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
             Dynamic lead segments for targeted campaigns and mass messaging
           </p>
         </div>
-        <Button className="gap-1.5" onClick={handleCreate}>
-          <Plus className="h-4 w-4" strokeWidth={1.75} /> Create Smart List
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center rounded-md ring-1 ring-inset ring-aurea-border">
+            <button
+              onClick={() => switchView('grid')}
+              aria-label="Grid view"
+              aria-pressed={viewMode === 'grid'}
+              className={`flex h-8 w-8 items-center justify-center rounded-l-md transition-colors ${
+                viewMode === 'grid'
+                  ? 'bg-aurea-surface-2 text-aurea-ink'
+                  : 'text-aurea-ink-3 hover:text-aurea-ink'
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+            <button
+              onClick={() => switchView('list')}
+              aria-label="List view"
+              aria-pressed={viewMode === 'list'}
+              className={`flex h-8 w-8 items-center justify-center rounded-r-md border-l border-aurea-border transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-aurea-surface-2 text-aurea-ink'
+                  : 'text-aurea-ink-3 hover:text-aurea-ink'
+              }`}
+            >
+              <List className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </div>
+          <Button className="gap-1.5" onClick={handleCreate}>
+            <Plus className="h-4 w-4" strokeWidth={1.75} /> Create Smart List
+          </Button>
+        </div>
       </header>
 
       {/* Stats Overview */}
@@ -138,60 +178,72 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
         </div>
       </div>
 
-      {/* Pinned Lists */}
-      {pinned.length > 0 && (
-        <div>
-          <p className="aurea-eyebrow mb-3 flex items-center gap-1.5">
-            <Pin className="h-3 w-3" strokeWidth={1.75} /> Pinned
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {pinned.map((list) => (
-              <SmartListCard
-                key={list.id}
-                list={list}
-                onView={() => setViewingList(list)}
-                onEdit={() => handleEdit(list)}
-                onDelete={() => setConfirmDeleteId(list.id)}
-                deleting={deleting === list.id}
-              />
-            ))}
+      {smartLists.length === 0 ? (
+        /* Empty state — shown in both views */
+        <div className="aurea-card">
+          <div className="flex flex-col items-center py-16">
+            <Sparkles className="h-10 w-10 text-aurea-ink-3 mb-3" strokeWidth={1.75} />
+            <p className="font-medium text-aurea-ink">No Smart Lists yet</p>
+            <p className="text-[13px] text-aurea-ink-3 mb-4 mt-1">
+              Create your first Smart List to segment leads for targeted campaigns
+            </p>
+            <Button onClick={handleCreate} className="gap-1.5">
+              <Plus className="h-4 w-4" strokeWidth={1.75} /> Create Smart List
+            </Button>
           </div>
         </div>
-      )}
-
-      {/* All Lists */}
-      <div>
-        {pinned.length > 0 && (
-          <p className="aurea-eyebrow mb-3">All Lists</p>
-        )}
-        {smartLists.length === 0 ? (
-          <div className="aurea-card">
-            <div className="flex flex-col items-center py-16">
-              <Sparkles className="h-10 w-10 text-aurea-ink-3 mb-3" strokeWidth={1.75} />
-              <p className="font-medium text-aurea-ink">No Smart Lists yet</p>
-              <p className="text-[13px] text-aurea-ink-3 mb-4 mt-1">
-                Create your first Smart List to segment leads for targeted campaigns
+      ) : viewMode === 'list' ? (
+        /* List view — pinned first, one dense table */
+        <SmartListsTable
+          lists={[...pinned, ...unpinned]}
+          onView={(list) => setViewingList(list)}
+          onEdit={(list) => handleEdit(list)}
+          onDelete={(list) => setConfirmDeleteId(list.id)}
+          deleting={deleting}
+        />
+      ) : (
+        <>
+          {/* Pinned Lists */}
+          {pinned.length > 0 && (
+            <div>
+              <p className="aurea-eyebrow mb-3 flex items-center gap-1.5">
+                <Pin className="h-3 w-3" strokeWidth={1.75} /> Pinned
               </p>
-              <Button onClick={handleCreate} className="gap-1.5">
-                <Plus className="h-4 w-4" strokeWidth={1.75} /> Create Smart List
-              </Button>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {pinned.map((list) => (
+                  <SmartListCard
+                    key={list.id}
+                    list={list}
+                    onView={() => setViewingList(list)}
+                    onEdit={() => handleEdit(list)}
+                    onDelete={() => setConfirmDeleteId(list.id)}
+                    deleting={deleting === list.id}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* All Lists */}
+          <div>
+            {pinned.length > 0 && (
+              <p className="aurea-eyebrow mb-3">All Lists</p>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {unpinned.map((list) => (
+                <SmartListCard
+                  key={list.id}
+                  list={list}
+                  onView={() => setViewingList(list)}
+                  onEdit={() => handleEdit(list)}
+                  onDelete={() => setConfirmDeleteId(list.id)}
+                  deleting={deleting === list.id}
+                />
+              ))}
             </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {unpinned.map((list) => (
-              <SmartListCard
-                key={list.id}
-                list={list}
-                onView={() => setViewingList(list)}
-                onEdit={() => handleEdit(list)}
-                onDelete={() => setConfirmDeleteId(list.id)}
-                deleting={deleting === list.id}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Delete confirmation */}
       <ConfirmDialog
@@ -226,6 +278,18 @@ export function SmartListsPage({ smartLists: initial, stages, tags }: SmartLists
   )
 }
 
+// How many of a Smart List's criteria fields are actually set. Shared by the
+// card and the list-view row so the "N filters" count can't drift between them.
+function countActiveCriteria(criteria: SmartList['criteria']): number {
+  return Object.keys(criteria).filter((k) => {
+    const val = (criteria as any)[k]
+    if (val === undefined || val === null || val === false) return false
+    if (Array.isArray(val) && val.length === 0) return false
+    if (typeof val === 'object' && 'ids' in val && val.ids.length === 0) return false
+    return true
+  }).length
+}
+
 function SmartListCard({
   list,
   onView,
@@ -239,15 +303,7 @@ function SmartListCard({
   onDelete: () => void
   deleting: boolean
 }) {
-  const criteriaCount = Object.keys(list.criteria).filter(
-    (k) => {
-      const val = (list.criteria as any)[k]
-      if (val === undefined || val === null || val === false) return false
-      if (Array.isArray(val) && val.length === 0) return false
-      if (typeof val === 'object' && 'ids' in val && val.ids.length === 0) return false
-      return true
-    }
-  ).length
+  const criteriaCount = countActiveCriteria(list.criteria)
 
   return (
     <div
@@ -308,6 +364,105 @@ function SmartListCard({
           Updated {formatDistanceToNow(new Date(list.last_refreshed_at), { addSuffix: true })}
         </p>
       )}
+    </div>
+  )
+}
+
+function SmartListsTable({
+  lists,
+  onView,
+  onEdit,
+  onDelete,
+  deleting,
+}: {
+  lists: SmartList[]
+  onView: (list: SmartList) => void
+  onEdit: (list: SmartList) => void
+  onDelete: (list: SmartList) => void
+  deleting: string | null
+}) {
+  return (
+    <div className="aurea-card overflow-hidden">
+      <table className="w-full text-left">
+        <thead>
+          <tr className="border-b border-aurea-border">
+            <th className="px-4 py-3 aurea-eyebrow font-medium">List</th>
+            <th className="px-4 py-3 aurea-eyebrow font-medium text-right">Leads</th>
+            <th className="hidden px-4 py-3 aurea-eyebrow font-medium text-right sm:table-cell">Filters</th>
+            <th className="hidden px-4 py-3 aurea-eyebrow font-medium md:table-cell">Updated</th>
+            <th className="px-4 py-3 aurea-eyebrow font-medium text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lists.map((list) => {
+            const criteriaCount = countActiveCriteria(list.criteria)
+            const isDeleting = deleting === list.id
+            return (
+              <tr
+                key={list.id}
+                className="group cursor-pointer border-b border-aurea-border transition-colors last:border-b-0 hover:bg-aurea-surface-2"
+                onClick={() => onView(list)}
+              >
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    {list.is_pinned && (
+                      <Pin className="h-3 w-3 shrink-0 text-aurea-ink-3" strokeWidth={1.75} aria-label="Pinned" />
+                    )}
+                    <span className="font-semibold text-[13.5px] text-aurea-ink">{list.name}</span>
+                  </div>
+                  {list.description && (
+                    <p className="mt-0.5 line-clamp-1 text-[11.5px] text-aurea-ink-3">{list.description}</p>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <span className="font-mono text-[12px] tabular-nums font-medium text-aurea-ink">
+                    {list.lead_count.toLocaleString()}
+                  </span>
+                </td>
+                <td className="hidden px-4 py-3 text-right sm:table-cell">
+                  <span className="inline-flex items-center rounded-full border border-aurea-border bg-aurea-surface-2 px-2 py-0.5 text-[10px] font-medium text-aurea-ink-3">
+                    {criteriaCount} filter{criteriaCount !== 1 ? 's' : ''}
+                  </span>
+                </td>
+                <td className="hidden px-4 py-3 md:table-cell">
+                  <span className="font-mono text-[10.5px] tabular-nums text-aurea-ink-3">
+                    {list.last_refreshed_at
+                      ? formatDistanceToNow(new Date(list.last_refreshed_at), { addSuffix: true })
+                      : '—'}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Edit smart list"
+                      className="h-7 w-7 text-aurea-ink-3 hover:text-aurea-ink"
+                      onClick={(e) => { e.stopPropagation(); onEdit(list) }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Delete smart list"
+                      className="h-7 w-7 text-aurea-ink-3 hover:text-aurea-rose"
+                      onClick={(e) => { e.stopPropagation(); onDelete(list) }}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      )}
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
