@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Megaphone, Plus, Mail, MessageSquare, Play, Pause, Zap, Loader2,
   BarChart3, ListFilter, TrendingUp, ArrowRight, LayoutGrid, List, Sparkles,
-  Pencil, Trash2, Users, AlertTriangle,
+  Pencil, Trash2, Users, AlertTriangle, ChevronDown, Clock, Wand2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { CampaignBuilder, type PipelineStageOption, type EditingCampaign } from './campaign-builder'
@@ -29,6 +29,99 @@ function channelMeta(channel: string) {
   if (channel === 'sms') return { Icon: MessageSquare, label: 'SMS' }
   if (channel === 'email') return { Icon: Mail, label: 'Email' }
   return { Icon: Zap, label: 'Multi-channel' }
+}
+
+/**
+ * Render a step's *cumulative* offset from enrollment as a human phrase.
+ * `delay_minutes` on a template step is the gap relative to the previous step
+ * (step 1 is relative to enrollment — see campaigns/executor.ts), so callers
+ * pass the running total, not the raw per-step delay.
+ */
+function formatSchedule(cumulativeMinutes: number): string {
+  if (cumulativeMinutes <= 0) return 'On enrollment'
+  if (cumulativeMinutes < 60) return `${cumulativeMinutes} min in`
+  if (cumulativeMinutes < 1440) {
+    const h = Math.round(cumulativeMinutes / 60)
+    return `${h} hour${h === 1 ? '' : 's'} in`
+  }
+  const d = Math.round(cumulativeMinutes / 1440)
+  return `Day ${d}`
+}
+
+type TemplateStep = (typeof CAMPAIGN_TEMPLATES)[number]['steps'][number]
+
+/**
+ * Expanded view of a playbook's sequence: a vertical timeline, one node per
+ * step, showing when it fires (cumulative), the channel, the subject (email),
+ * and the full message body. Purely presentational — the step content ships in
+ * the static CAMPAIGN_TEMPLATES bundle, so no fetch is needed.
+ */
+function TemplateSteps({ steps }: { steps: TemplateStep[] }) {
+  const ordered = [...steps].sort((a, b) => a.step_number - b.step_number)
+  // Cumulative offset from enrollment for each step, precomputed so the render
+  // pass stays pure (no reassignment inside .map — React immutability rule).
+  const cumulative: number[] = []
+  ordered.reduce((sum, step) => {
+    const total = sum + (step.delay_minutes || 0)
+    cumulative.push(total)
+    return total
+  }, 0)
+  return (
+    <ol className="space-y-0">
+      {ordered.map((step, idx) => {
+        const { Icon, label } = channelMeta(step.channel)
+        const isLast = idx === ordered.length - 1
+        return (
+          <li key={step.step_number} className="relative flex gap-3.5 pb-5 last:pb-0">
+            {/* Timeline rail + node */}
+            {!isLast && (
+              <span className="absolute left-[15px] top-8 bottom-0 w-px bg-aurea-border" aria-hidden />
+            )}
+            <span className="relative z-10 mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 ring-1 ring-aurea-border">
+              <Icon className="h-3.5 w-3.5 text-aurea-ink-2" strokeWidth={1.75} />
+            </span>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <span className="text-[13px] font-medium text-aurea-ink">
+                  {step.step_number}. {step.name}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-aurea-surface-2 px-2 py-0.5 text-[10.5px] uppercase tracking-[0.1em] text-aurea-ink-3">
+                  {label}
+                </span>
+                <span className="inline-flex items-center gap-1 text-[11px] text-aurea-ink-3">
+                  <Clock className="h-3 w-3" strokeWidth={1.75} />
+                  {formatSchedule(cumulative[idx])}
+                </span>
+                {step.ai_personalize && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-aurea-primary" title="This message is personalized by AI at send time">
+                    <Wand2 className="h-3 w-3" strokeWidth={1.75} />
+                    AI personalized
+                  </span>
+                )}
+              </div>
+
+              {step.subject && (
+                <p className="mt-1.5 text-[12px] text-aurea-ink-2">
+                  <span className="text-aurea-ink-3">Subject:</span> {step.subject}
+                </p>
+              )}
+
+              <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-aurea-surface-2/60 p-3 text-[12px] leading-relaxed text-aurea-ink-2">
+                {step.body_template}
+              </p>
+
+              {Boolean(step.exit_condition?.if_replied) && (
+                <p className="mt-1.5 text-[11px] text-aurea-ink-3">
+                  Exits the sequence if the lead replies before this step.
+                </p>
+              )}
+            </div>
+          </li>
+        )
+      })}
+    </ol>
+  )
 }
 
 type PrequalMode = 'inherit' | 'enabled' | 'disabled'
@@ -257,6 +350,9 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
   const [viewingAnalytics, setViewingAnalytics] = useState<string | null>(null)
   const [viewingPerformance, setViewingPerformance] = useState(false)
   const [templateView, setTemplateView] = useState<'card' | 'list'>('card')
+  // Which playbook templates have their step timeline expanded. A Set (not a
+  // single id) so several can be open at once for side-by-side comparison.
+  const [expandedTemplates, setExpandedTemplates] = useState<Set<string>>(new Set())
   // Activate → confirm modal; edit → pre-filled builder; delete → confirm.
   const [activating, setActivating] = useState<Campaign | null>(null)
   const [editing, setEditing] = useState<EditingCampaign | null>(null)
@@ -274,6 +370,15 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
   function switchTemplateView(view: 'card' | 'list') {
     setTemplateView(view)
     localStorage.setItem('campaigns:template-view', view)
+  }
+
+  function toggleTemplate(id: string) {
+    setExpandedTemplates((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   async function deployTemplate(templateId: string) {
@@ -458,46 +563,64 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
             {CAMPAIGN_TEMPLATES.map((template, i) => {
               const { Icon, label } = channelMeta(template.channel)
               const isDeploying = deploying === template.id
+              const isExpanded = expandedTemplates.has(template.id)
               return (
                 <div
                   key={template.id}
-                  className="group flex items-center justify-between gap-4 border-b border-aurea-border px-5 py-4 last:border-0"
+                  className="border-b border-aurea-border last:border-0"
                 >
-                  <div className="flex min-w-0 items-center gap-3.5">
-                    <span className="hidden w-8 shrink-0 font-mono text-[11px] tabular-nums text-aurea-ink-3 sm:block">
-                      /{String(i + 1).padStart(2, '0')}
-                    </span>
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 ring-1 ring-aurea-border">
-                      <Icon className="h-4 w-4 text-aurea-ink-2" strokeWidth={1.75} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2.5">
-                        <p className="truncate text-[14px] font-medium text-aurea-ink">{template.name}</p>
-                        <span className="hidden shrink-0 text-[10.5px] uppercase tracking-[0.14em] text-aurea-ink-3 md:inline">
-                          {label}
-                        </span>
+                  <div className="group flex items-center justify-between gap-4 px-5 py-4">
+                    <div className="flex min-w-0 items-center gap-3.5">
+                      <span className="hidden w-8 shrink-0 font-mono text-[11px] tabular-nums text-aurea-ink-3 sm:block">
+                        /{String(i + 1).padStart(2, '0')}
+                      </span>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 ring-1 ring-aurea-border">
+                        <Icon className="h-4 w-4 text-aurea-ink-2" strokeWidth={1.75} />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2.5">
+                          <p className="truncate text-[14px] font-medium text-aurea-ink">{template.name}</p>
+                          <span className="hidden shrink-0 text-[10.5px] uppercase tracking-[0.14em] text-aurea-ink-3 md:inline">
+                            {label}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 truncate text-[12px] text-aurea-ink-3">{template.description}</p>
                       </div>
-                      <p className="mt-0.5 truncate text-[12px] text-aurea-ink-3">{template.description}</p>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2.5">
+                      <button
+                        onClick={() => toggleTemplate(template.id)}
+                        aria-expanded={isExpanded}
+                        aria-label={isExpanded ? `Hide the ${template.steps.length} steps` : `Show the ${template.steps.length} steps`}
+                        className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 font-mono text-[12.5px] tabular-nums text-aurea-ink transition-colors hover:bg-aurea-surface-2"
+                      >
+                        {template.steps.length} <span className="text-aurea-ink-3">steps</span>
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 text-aurea-ink-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          strokeWidth={1.75}
+                        />
+                      </button>
+                      <button
+                        onClick={() => deployTemplate(template.id)}
+                        disabled={isDeploying}
+                        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink disabled:opacity-60"
+                      >
+                        {isDeploying ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+                        )}
+                        {isDeploying ? 'Deploying…' : 'Deploy'}
+                      </button>
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-4">
-                    <p className="hidden font-mono text-[12.5px] tabular-nums text-aurea-ink sm:block">
-                      {template.steps.length} <span className="text-aurea-ink-3">steps</span>
-                    </p>
-                    <button
-                      onClick={() => deployTemplate(template.id)}
-                      disabled={isDeploying}
-                      className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink disabled:opacity-60"
-                    >
-                      {isDeploying ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-                      )}
-                      {isDeploying ? 'Deploying…' : 'Deploy'}
-                    </button>
-                  </div>
+                  {isExpanded && (
+                    <div className="border-t border-aurea-border bg-aurea-surface-2/30 px-5 py-5 sm:pl-[4.75rem]">
+                      <TemplateSteps steps={template.steps} />
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -507,6 +630,7 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
           {CAMPAIGN_TEMPLATES.map((template, i) => {
             const { Icon, label } = channelMeta(template.channel)
             const isDeploying = deploying === template.id
+            const isExpanded = expandedTemplates.has(template.id)
             return (
               <div key={template.id} className="aurea-card group flex flex-col p-5">
                 <div className="flex items-center justify-between">
@@ -534,9 +658,27 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
                 </p>
 
                 <button
+                  onClick={() => toggleTemplate(template.id)}
+                  aria-expanded={isExpanded}
+                  className="mt-3 inline-flex items-center gap-1.5 self-start text-[12px] font-medium text-aurea-ink-3 transition-colors hover:text-aurea-ink"
+                >
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                    strokeWidth={1.75}
+                  />
+                  {isExpanded ? 'Hide steps' : 'View steps'}
+                </button>
+
+                {isExpanded && (
+                  <div className="mt-3.5 border-t border-aurea-border pt-4">
+                    <TemplateSteps steps={template.steps} />
+                  </div>
+                )}
+
+                <button
                   onClick={() => deployTemplate(template.id)}
                   disabled={isDeploying}
-                  className="mt-auto flex items-center gap-1.5 border-t border-aurea-border pt-3.5 text-[12.5px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink disabled:opacity-60"
+                  className={`flex items-center gap-1.5 border-t border-aurea-border pt-3.5 text-[12.5px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink disabled:opacity-60 ${isExpanded ? 'mt-3.5' : 'mt-auto'}`}
                 >
                   {isDeploying ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
