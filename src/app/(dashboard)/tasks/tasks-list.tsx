@@ -3,7 +3,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
-import { Loader2, MessageSquare, Zap, Lightbulb, ListTodo, ExternalLink, Phone } from 'lucide-react'
+import {
+  Loader2,
+  MessageSquare,
+  Zap,
+  Lightbulb,
+  ListTodo,
+  ExternalLink,
+  Phone,
+  CalendarClock,
+  AlertTriangle,
+  Users,
+} from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -30,6 +41,9 @@ type Task = {
   source: string
   created_at: string
 }
+
+/** Bulk work deliberately kept out of the queue — see lib/automation/task-sweep.ts. */
+type Backlog = { untouchedNew: number; openEscalations: number }
 
 // Higher = surfaces first. Also used to sort each section.
 const PRIORITY_RANK: Record<Priority, number> = { urgent: 3, high: 2, normal: 1, low: 0 }
@@ -67,6 +81,7 @@ const KIND_META: Record<string, { label: string; icon: typeof MessageSquare }> =
   call_review: { label: 'Call review', icon: MessageSquare },
   list_call: { label: 'Call', icon: Phone },
   manual: { label: 'Task', icon: ListTodo },
+  follow_up: { label: 'Follow-up', icon: CalendarClock },
 }
 
 /** SLA countdown badge — red once overdue, amber when due within 5 minutes. */
@@ -245,9 +260,82 @@ function Section({
   )
 }
 
+/**
+ * Backlog banner — bulk work that isn't task-shaped.
+ *
+ * Never-contacted leads run to five figures; minting one task each would bury
+ * the handful of rows that need a human decision today. They're worked in bulk
+ * (Smart List → call queue) instead. Escalations own their own lifecycle in
+ * settings/ai, so mirroring them here would mean two sources of truth. Both are
+ * still real work, so /tasks points at them rather than pretending they're gone.
+ */
+function BacklogBanner({ backlog }: { backlog: Backlog }) {
+  const items = [
+    backlog.untouchedNew > 0 && {
+      key: 'untouched',
+      icon: Users,
+      text: `${backlog.untouchedNew.toLocaleString()} leads never contacted`,
+      hint: 'Work these in bulk from a Smart List',
+      href: '/campaigns',
+      cta: 'Open Smart Lists',
+    },
+    backlog.openEscalations > 0 && {
+      key: 'escalations',
+      icon: AlertTriangle,
+      text: `${backlog.openEscalations.toLocaleString()} open AI escalation${backlog.openEscalations === 1 ? '' : 's'}`,
+      hint: 'The AI stood down and asked for a human',
+      href: '/settings/ai',
+      cta: 'Review',
+    },
+  ].filter(Boolean) as {
+    key: string
+    icon: typeof Users
+    text: string
+    hint: string
+    href: string
+    cta: string
+  }[]
+
+  if (items.length === 0) return null
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <ul>
+          {items.map((it) => {
+            const Icon = it.icon
+            return (
+              <li
+                key={it.key}
+                className="flex items-center gap-3 border-b border-aurea-border px-5 py-3 last:border-b-0"
+              >
+                <Icon className="h-4 w-4 shrink-0 text-aurea-ink-3" strokeWidth={1.75} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-medium text-aurea-ink">{it.text}</p>
+                  <p className="text-[11.5px] text-aurea-ink-3">{it.hint}</p>
+                </div>
+                <Link
+                  href={it.href}
+                  className={cn(
+                    buttonVariants({ variant: 'outline', size: 'sm' }),
+                    'h-7 shrink-0 px-2 text-xs'
+                  )}
+                >
+                  {it.cta}
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function TasksList() {
   const { userProfile } = useOrgStore()
   const [tasks, setTasks] = useState<Task[]>([])
+  const [backlog, setBacklog] = useState<Backlog | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<string | null>(null)
@@ -256,9 +344,14 @@ export function TasksList() {
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/tasks?status=active&limit=100')
-      if (!res.ok) throw new Error('Failed to load tasks')
-      const json = await res.json()
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        // Surface the API's reason. Swallowing it here cost real debugging time
+        // once already: a missing column read as a bare "Failed to load tasks".
+        throw new Error(json?.error ? `Failed to load tasks — ${json.error}` : 'Failed to load tasks')
+      }
       setTasks(json.tasks || [])
+      setBacklog(json.backlog ?? null)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load tasks')
@@ -317,6 +410,7 @@ export function TasksList() {
       <div className="flex justify-end">
         <CreateTaskDialog onCreated={load} />
       </div>
+      {backlog && <BacklogBanner backlog={backlog} />}
       <Section label="Mine" tasks={mine} now={now} actingId={actingId} onAction={onAction} />
       <Section
         label="Unassigned"
