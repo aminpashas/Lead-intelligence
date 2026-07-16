@@ -19,6 +19,9 @@ import { searchHash } from '@/lib/encryption'
 import { formatToE164 } from '@/lib/leads/phone'
 import { resolveReconcileTarget, type LiStageSlug, type ReconcileTarget } from './reconcile-map'
 import { serviceLineFromPipelineName, serviceLineTag } from '@/lib/leads/service-line'
+// Single source of truth for the "still new?" window — the guard here and the
+// parkAgedNewLeads backstop must agree, or they fight over the same leads.
+import { newLeadMaxAgeDays } from '@/lib/pipeline/unstale-new-stage'
 import type { GhlConfig } from './types'
 
 /** Most-advanced-wins priority when a lead has multiple opportunities. */
@@ -80,6 +83,30 @@ export function hasLiEngagement(lead: LeadEngagement): boolean {
   if (lead.status && lead.status !== 'new') return true
   if ((lead.total_messages_sent ?? 0) + (lead.total_messages_received ?? 0) > 0) return true
   return Boolean(lead.last_contacted_at || lead.last_responded_at)
+}
+
+/**
+ * True when the lead is too old to ever be "new" again.
+ *
+ * GHL names its intake stage "New Lead" even inside a cold nurturing database
+ * (the SF "AOX Nurturing Database" pipeline holds 13k such opps), so a month-old
+ * import that nobody ever called still maps to `new` on every sweep. Without this
+ * guard the reconcile drags those leads back into New Lead nightly and
+ * `parkAgedNewLeads` drags them straight out again — the board ends correct, but
+ * every lead collects a bogus stage-change on its timeline every single day.
+ *
+ * Freshness is LI's fact, not GHL's: `created_at` carries it, the stage name does
+ * not. Pure so the guard is unit-testable without GHL/DB I/O.
+ */
+export function isAgedForNewStage(
+  createdAt: string | null,
+  now: Date = new Date(),
+  maxAgeDays: number = newLeadMaxAgeDays(),
+): boolean {
+  if (!createdAt) return false // unknown age — never guess a lead is stale
+  const t = new Date(createdAt).getTime()
+  if (Number.isNaN(t)) return false
+  return t < now.getTime() - maxAgeDays * 24 * 60 * 60 * 1000
 }
 
 /** Evidence that a lead genuinely has a consult booked ahead — not just a GHL label. */
@@ -172,6 +199,7 @@ type LeadRow = {
   email_hash: string | null
   phone_hash: string | null
   consultation_date: string | null
+  created_at: string | null
   tags: string[] | null
 } & LeadEngagement
 
@@ -184,6 +212,8 @@ type LeadPlan = {
   allChannelDnd: boolean
   /** LI has real activity — a stale GHL "No Communication"/"New" must not win. */
   engaged: boolean
+  /** Older than the "new" window — GHL must not resurrect it into New Lead. */
+  aged: boolean
   /** LI can confirm a forward booking — an unverified GHL consult claim floors to contacted. */
   realBooking: boolean
   /** LI lifecycle status — a terminal status outranks an unverified GHL consult claim. */
@@ -307,7 +337,7 @@ export async function reconcileGhlStages(
   const byEmail = new Map<string, LeadRow>()
   const byPhone = new Map<string, LeadRow>()
   const SELECT =
-    'id, stage_id, sms_consent_status, email_hash, phone_hash, consultation_date, status, total_messages_sent, total_messages_received, last_contacted_at, last_responded_at, tags'
+    'id, stage_id, sms_consent_status, email_hash, phone_hash, consultation_date, created_at, status, total_messages_sent, total_messages_received, last_contacted_at, last_responded_at, tags'
   const PAGE = 1000
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
@@ -374,6 +404,7 @@ export async function reconcileGhlStages(
       smsDnd,
       allChannelDnd,
       engaged: hasLiEngagement(lead),
+      aged: isAgedForNewStage(lead.created_at),
       realBooking: hasRealBooking({
         consultation_date: lead.consultation_date,
         hasFutureAppointment: leadsWithFutureAppt.has(lead.id),
@@ -405,9 +436,15 @@ export async function reconcileGhlStages(
     const effectiveSlug = reconciledSlug(plan.target.stageSlug, plan.realBooking, plan.liStatus)
     afterDistribution[effectiveSlug] = (afterDistribution[effectiveSlug] ?? 0) + 1
     const targetStageId = slugToId.get(effectiveSlug)
+    // GHL's intake stage is named "New Lead" even inside a cold nurturing
+    // database, so it keeps re-asserting "new" on months-old imports. Freshness
+    // is LI's fact (created_at), not GHL's stage name: never let a sweep
+    // resurrect an aged lead into New Lead. Without this the reconcile and
+    // parkAgedNewLeads tug the same rows back and forth every night.
+    const resurrectsAged = effectiveSlug === 'new' && plan.aged
     const update: Record<string, unknown> = {}
     let stageSlug: string | undefined
-    if (targetStageId && targetStageId !== plan.currentStageId && !demotesEngaged) {
+    if (targetStageId && targetStageId !== plan.currentStageId && !demotesEngaged && !resurrectsAged) {
       update.stage_id = targetStageId
       stageSlug = effectiveSlug
       stageChanges += 1
