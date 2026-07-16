@@ -27,12 +27,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Phone, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone, HandCoins, CreditCard, Clock } from 'lucide-react'
+import { Phone, PhoneOutgoing, MessageSquare, Mail, BellOff, Loader2, Check, ChevronDown, Bot, Smartphone, HandCoins, CreditCard, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
 import type { Lead } from '@/types/database'
 import { LeadMessaging } from './lead-messaging'
+import { LogCallDialog } from './log-call-dialog'
 import { MarkDeliberating } from './mark-deliberating'
 import { useSoftphone } from '@/components/voice/softphone-provider'
 import { DND_CHANNELS, type DndChannel } from '@/lib/consent/capture'
@@ -108,6 +109,7 @@ export function LeadActions({
   const [calling, setCalling] = useState(false)
   const [sendingPrequal, setSendingPrequal] = useState(false)
   const [sendingCard, setSendingCard] = useState(false)
+  const [logCallOpen, setLogCallOpen] = useState(false)
   const [msgOpen, setMsgOpen] = useState(false)
   const [msgChannel, setMsgChannel] = useState<'sms' | 'email'>('sms')
   // Pre-qual lifecycle, loaded lazily only when the feature is on for this org.
@@ -366,6 +368,17 @@ export function LeadActions({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {/* Records a call that happened outside the system (front desk landline, a
+          rep's cell). Deliberately never blocked: it describes the past rather
+          than reaching the patient, and "they told me to stop calling" is itself
+          a logged outcome — gating it on voice DND/DNC would make the call that
+          caused the block the one call you couldn't write down. */}
+      {action({
+        label: 'Log call',
+        icon: <PhoneOutgoing className={iconSize} strokeWidth={1.75} />,
+        block: null,
+        onClick: () => setLogCallOpen(true),
+      })}
       {showMessaging && action({ label: 'SMS', icon: <MessageSquare className={iconSize} strokeWidth={1.75} />, block: smsBlock, onClick: () => openMessage('sms') })}
       {showMessaging && action({ label: 'Email', icon: <Mail className={iconSize} strokeWidth={1.75} />, block: emailBlock, onClick: () => openMessage('email') })}
       {/* Only rendered when the account has pre-qualification enabled. The chip
@@ -490,6 +503,9 @@ export function LeadActions({
         open={msgOpen}
         onOpenChange={setMsgOpen}
       />
+
+      {/* Controlled manual call-log dialog (no trigger — the bar button drives it). */}
+      <LogCallDialog leadId={lead.id} open={logCallOpen} onOpenChange={setLogCallOpen} />
     </div>
   )
 }

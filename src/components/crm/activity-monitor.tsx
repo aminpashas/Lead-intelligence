@@ -108,7 +108,7 @@ export function ActivityMonitor({
         <span>{live ? 'Live — new activity syncs automatically' : 'Watching for new activity…'}</span>
         <span className="ml-auto tabular-nums">{entries.length} recent events</span>
       </div>
-      <TimelineFeed entries={entries} variant="detailed" timeZone={timeZone} decorations={decorations} userNameById={userNameById} />
+      <TimelineFeed entries={entries} timeZone={timeZone} decorations={decorations} userNameById={userNameById} />
     </div>
   )
 }

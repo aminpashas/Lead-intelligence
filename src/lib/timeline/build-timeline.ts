@@ -45,6 +45,11 @@ export function buildTimeline(input: TimelineInput): TimelineEntry[] {
     })
   }
 
+  // Only notes and stage changes come from activities. Call activities
+  // (call_made/call_received) are deliberately skipped: a manual call log writes
+  // BOTH a voice_calls row and a lead_activities audit row, and the call is
+  // already rendered above off voice_calls — admitting it here would show the
+  // same call twice.
   for (const a of input.activities) {
     if (a.activity_type === NOTE_ACTIVITY) {
       entries.push({ kind: 'note', id: a.id, at: a.created_at, title: a.title, body: a.description ?? '' })

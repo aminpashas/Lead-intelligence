@@ -265,7 +265,7 @@ export function LeadDetail({
                 <p className="py-16 text-center text-sm text-aurea-ink-3">No calls, texts, or emails yet.</p>
               ) : (
                 <div className="mx-auto max-w-[680px]">
-                  <TimelineFeed entries={timeline} variant="detailed" timeZone={timeZone} />
+                  <TimelineFeed entries={timeline} timeZone={timeZone} />
                 </div>
               )}
             </div>

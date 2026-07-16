@@ -1,19 +1,12 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { formatDistanceToNow } from 'date-fns'
 import { DEFAULT_PRACTICE_TIMEZONE, zonedDateLabel, zonedTimeLabel, zonedDateTimeLabel } from '@/lib/time/zoned'
-import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent } from '@/components/ui/card'
-import { LeadMessaging } from './lead-messaging'
-import { LogCallDialog } from './log-call-dialog'
 import {
   MessageSquare, Mail, Phone, PhoneIncoming, PhoneOutgoing,
   StickyNote, GitBranch, Sparkles, User,
 } from 'lucide-react'
-import type { Lead } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
 import { entryActor, type TimelineActor } from '@/lib/timeline/actor'
 import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
@@ -26,67 +19,6 @@ const CHANNEL_ICON = {
   email: Mail,
   voice: Phone,
 } as const
-
-function labelFor(entry: TimelineEntry): string {
-  if (entry.kind === 'message') return entry.channel === 'email' ? 'Email' : 'SMS'
-  if (entry.kind === 'call') return `Call · ${entry.direction}${entry.outcome ? ` · ${entry.outcome.replace(/_/g, ' ')}` : ''}`
-  if (entry.kind === 'note') return 'Note'
-  return 'Stage change'
-}
-
-function IconFor({ entry }: { entry: TimelineEntry }) {
-  if (entry.kind === 'message') {
-    const Icon = CHANNEL_ICON[entry.channel] ?? MessageSquare
-    return <Icon className="h-4 w-4" strokeWidth={1.75} />
-  }
-  if (entry.kind === 'call') return <Phone className="h-4 w-4" strokeWidth={1.75} />
-  if (entry.kind === 'note') return <StickyNote className="h-4 w-4" strokeWidth={1.75} />
-  return <GitBranch className="h-4 w-4" strokeWidth={1.75} />
-}
-
-type ViewMode = 'summary' | 'detailed'
-
-export function LeadTimeline({ lead, entries, timeZone = DEFAULT_PRACTICE_TIMEZONE }: { lead: Lead; entries: TimelineEntry[]; timeZone?: string }) {
-  const router = useRouter()
-  // Default to the elevated view; the compact "Summary" stays one click away.
-  const [view, setView] = useState<ViewMode>('detailed')
-
-  // Live-refresh when a new message arrives for this lead.
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`lead-timeline-${lead.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `lead_id=eq.${lead.id}` },
-        () => router.refresh()
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [lead.id, router])
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <LeadMessaging lead={lead} />
-          <LogCallDialog leadId={lead.id} />
-        </div>
-        {entries.length > 0 && <ViewToggle view={view} onChange={setView} />}
-      </div>
-
-      {entries.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-aurea-ink-3">
-            No calls, texts, or emails yet. Use the actions above to start the conversation.
-          </CardContent>
-        </Card>
-      ) : (
-        <TimelineFeed entries={entries} variant={view} timeZone={timeZone} />
-      )}
-    </div>
-  )
-}
 
 /** Optional per-entry decorations. Only the org-wide activity monitor supplies
  *  these — the per-conversation timeline passes neither and renders as before.
@@ -109,79 +41,15 @@ function ActorChip({ actor }: { actor: TimelineActor }) {
   )
 }
 
-/** Presentational feed — the Summary/Detailed renderings, no actions or state.
- *  Shared by the patient card (with a toggle) and the conversations page. */
+/** Presentational feed — the elevated timeline rendering, no actions or state.
+ *  Shared by the lead detail, the conversations page and the activity monitor. */
 export function TimelineFeed({
   entries,
-  variant,
   timeZone = DEFAULT_PRACTICE_TIMEZONE,
   decorations,
   userNameById,
-}: { entries: TimelineEntry[]; variant: ViewMode; timeZone?: string; decorations?: TimelineDecorations; userNameById?: Map<string, string> }) {
-  return variant === 'summary'
-    ? <SummaryTimeline entries={entries} userNameById={userNameById} />
-    : <DetailedTimeline entries={entries} timeZone={timeZone} decorations={decorations} userNameById={userNameById} />
-}
-
-// ── View toggle ─────────────────────────────────────────────
-export function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
-  return (
-    <div className="inline-flex shrink-0 items-center rounded-full border border-aurea-border bg-aurea-surface p-0.5 text-[11px]">
-      {(['summary', 'detailed'] as const).map((v) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(v)}
-          aria-pressed={view === v}
-          className={`rounded-full px-2.5 py-1 font-medium capitalize transition-colors ${
-            view === v ? 'bg-aurea-ink text-aurea-canvas' : 'text-aurea-ink-3 hover:text-aurea-ink'
-          }`}
-        >
-          {v}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-// ── Summary (compact) — the original list view ──────────────
-function SummaryTimeline({ entries, userNameById }: { entries: TimelineEntry[]; userNameById?: Map<string, string> }) {
-  return (
-    <ol className="space-y-3">
-      {entries.map((entry) => {
-        const outbound = (entry.kind === 'message' || entry.kind === 'call') && entry.direction === 'outbound'
-        const actor = entryActor(entry, userNameById)
-        return (
-          <li key={`${entry.kind}-${entry.id}`} className={outbound ? 'flex justify-end' : 'flex justify-start'}>
-            <div className={`max-w-[80%] rounded-lg border border-aurea-border px-3 py-2 ${outbound ? 'bg-aurea-surface-2' : 'bg-aurea-surface'}`}>
-              <div className="mb-1 flex items-center gap-1.5 text-xs text-aurea-ink-3">
-                <IconFor entry={entry} />
-                <span>{labelFor(entry)}</span>
-                {actor && <><span>·</span><ActorChip actor={actor} /></>}
-                <span>·</span>
-                <span>{formatDistanceToNow(new Date(entry.at), { addSuffix: true })}</span>
-              </div>
-              {entry.kind === 'message' && (
-                <>
-                  {entry.subject && <p className="text-sm font-medium text-aurea-ink">{entry.subject}</p>}
-                  <p className="whitespace-pre-wrap text-sm text-aurea-ink-2">{entry.body}</p>
-                </>
-              )}
-              {entry.kind === 'call' && (
-                <p className="text-sm text-aurea-ink-2">
-                  {entry.durationSeconds > 0 && <span>{Math.round(entry.durationSeconds / 60)} min. </span>}
-                  {entry.notes ?? entry.transcriptSummary ?? 'No notes.'}
-                </p>
-              )}
-              {(entry.kind === 'note' || entry.kind === 'stage_change') && (
-                <p className="whitespace-pre-wrap text-sm text-aurea-ink-2">{entry.body || entry.title}</p>
-              )}
-            </div>
-          </li>
-        )
-      })}
-    </ol>
-  )
+}: { entries: TimelineEntry[]; timeZone?: string; decorations?: TimelineDecorations; userNameById?: Map<string, string> }) {
+  return <DetailedTimeline entries={entries} timeZone={timeZone} decorations={decorations} userNameById={userNameById} />
 }
 
 // ── Detailed (elevated) — a ruled vertical spine with node markers ──
