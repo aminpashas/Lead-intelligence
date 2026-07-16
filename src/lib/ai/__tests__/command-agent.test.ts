@@ -100,20 +100,21 @@ describe('applyTimeFilters', () => {
   })
 })
 
-describe('eligibility (consent gates mirror the mass-send endpoints)', () => {
-  it('sms requires phone + consent + not opted out', () => {
+describe('eligibility (consent assumed — only DND/opt-out blocks)', () => {
+  it('sms requires phone + not opted out (consent assumed)', () => {
     expect(smsEligible(lead())).toBe(true)
     expect(smsEligible(lead({ phone_formatted: null }))).toBe(false)
-    expect(smsEligible(lead({ sms_consent: false }))).toBe(false)
-    expect(smsEligible(lead({ sms_consent: null }))).toBe(false)
+    // Consent unknown / not granted still sends — only an opt-out blocks.
+    expect(smsEligible(lead({ sms_consent: false }))).toBe(true)
+    expect(smsEligible(lead({ sms_consent: null }))).toBe(true)
     expect(smsEligible(lead({ sms_opt_out: true }))).toBe(false)
   })
 
-  it('email requires address + consent + not opted out', () => {
+  it('email requires address + not opted out (consent assumed)', () => {
     expect(emailEligible(lead())).toBe(true)
     expect(emailEligible(lead({ email: null }))).toBe(false)
-    expect(emailEligible(lead({ email_consent: false }))).toBe(false)
-    expect(emailEligible(lead({ email_consent: null }))).toBe(false)
+    expect(emailEligible(lead({ email_consent: false }))).toBe(true)
+    expect(emailEligible(lead({ email_consent: null }))).toBe(true)
     expect(emailEligible(lead({ email_opt_out: true }))).toBe(false)
   })
 })

@@ -64,12 +64,12 @@ async function fetchSegmentEv(
   }
 }
 
-/** Apply the shared SMS-reachability predicate to a leads count query. */
+/** Apply the shared SMS-reachability predicate to a leads count query.
+ *  Consent is assumed — reachable = has a phone and hasn't opted out (DND). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function reachableSms(q: any) {
   return q
     .not('phone_formatted', 'is', null)
-    .eq('sms_consent', true)
     .eq('sms_opt_out', false)
 }
 

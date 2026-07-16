@@ -89,10 +89,10 @@ export async function processTriggerCampaigns(
     if (typeof criteria.min_score === 'number' && (lead.ai_score || 0) < criteria.min_score) continue
     if (typeof criteria.max_score === 'number' && (lead.ai_score || 0) > criteria.max_score) continue
 
-    // Check consent
+    // Consent is assumed — skip only leads that opted out (DND) on the channel.
     const channel = campaign.channel as string
-    if (channel === 'sms' && (!lead.sms_consent || lead.sms_opt_out)) continue
-    if (channel === 'email' && (!lead.email_consent || lead.email_opt_out)) continue
+    if (channel === 'sms' && lead.sms_opt_out) continue
+    if (channel === 'email' && lead.email_opt_out) continue
     if (channel === 'sms' && !lead.phone_formatted) continue
     if (channel === 'email' && !lead.email) continue
 

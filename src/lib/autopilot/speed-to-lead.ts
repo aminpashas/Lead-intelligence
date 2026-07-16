@@ -214,9 +214,9 @@ export async function triggerSpeedToLead(
     return { action: 'skipped' }
   }
 
-  // 3. Determine channel (prefer SMS if phone exists and consent given)
-  const hasPhone = lead.phone_formatted && lead.sms_consent && !lead.sms_opt_out
-  const hasEmail = lead.email && lead.email_consent && !lead.email_opt_out
+  // 3. Determine channel (prefer SMS if phone exists and not opted out — consent assumed)
+  const hasPhone = lead.phone_formatted && !lead.sms_opt_out
+  const hasEmail = lead.email && !lead.email_opt_out
   const phone = hasPhone ? (decryptField(lead.phone_formatted) || lead.phone_formatted) : null
   const email = hasEmail ? (decryptField(lead.email) || lead.email) : null
 

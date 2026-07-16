@@ -54,7 +54,7 @@ export const POST = withCron('reengagement', async ({ supabase }) => {
       .from('leads')
       .select('id, first_name, phone_formatted, last_contacted_at, status')
       .eq('organization_id', org.id)
-      .eq('sms_consent', true)
+      // Consent assumed — reach any lead that hasn't opted out of SMS (DND).
       .eq('sms_opt_out', false)
       .in('status', ACTIVE_STATUSES)
       .lt('last_contacted_at', idleCutoff)

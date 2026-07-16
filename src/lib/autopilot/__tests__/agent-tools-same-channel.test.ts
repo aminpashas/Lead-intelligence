@@ -37,19 +37,20 @@ describe('send_sms_to_lead same-channel guard', () => {
   })
 
   it('still allows the cross-channel use (voice → SMS) past the guard', async () => {
-    // A consent-less lead lets the call fall through the same-channel guard and
-    // hit the consent check instead — proving voice was NOT blocked by the guard
-    // without needing to mock the Twilio send path.
+    // An opted-out (DND) lead lets the call fall through the same-channel guard and
+    // hit the opt-out check instead — proving voice was NOT blocked by the guard
+    // without needing to mock the Twilio send path. (Consent is now assumed, so a
+    // bare consent-less lead would send; DND is the pre-I/O short-circuit.)
     const result = await executeAgentTool(
       untouchableSupabase,
       'send_sms_to_lead',
       { message: 'Texting you the address now.' },
-      makeContext('voice', { sms_consent: false }),
+      makeContext('voice', { sms_opt_out: true }),
     )
 
     expect(result.success).toBe(false)
     expect(result.data.same_channel).toBeUndefined()
-    expect(result.message).toMatch(/consent/i)
+    expect(result.message).toMatch(/opted out/i)
   })
 
   it('treats an unknown channel as cross-channel (guard only fires on sms)', async () => {
@@ -57,10 +58,10 @@ describe('send_sms_to_lead same-channel guard', () => {
       untouchableSupabase,
       'send_sms_to_lead',
       { message: 'hello' },
-      makeContext(undefined, { sms_consent: false }),
+      makeContext(undefined, { sms_opt_out: true }),
     )
 
     expect(result.data.same_channel).toBeUndefined()
-    expect(result.message).toMatch(/consent/i)
+    expect(result.message).toMatch(/opted out/i)
   })
 })

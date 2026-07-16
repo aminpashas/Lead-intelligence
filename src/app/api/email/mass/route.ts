@@ -124,13 +124,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No leads found' }, { status: 400 })
   }
 
+  // Consent is assumed — a lead is sendable when it has an email and hasn't opted
+  // out (DND). The authoritative per-send check re-runs inside sendEmailToLead.
   const sendable = leads.filter((l) => {
     const email = decryptField(l.email) || l.email
-    return email && emailCampaignGate(l, { allowUnconsented: allow_unconsented_email }).allowed
+    return email && l.email_opt_out !== true
   })
 
   if (sendable.length === 0) {
-    return NextResponse.json({ error: 'No sendable leads (no email consent, opted out, or missing email)' }, { status: 400 })
+    return NextResponse.json({ error: 'No sendable leads (opted out or missing email)' }, { status: 400 })
   }
 
   // Reputation "sunset" filter: drop chronic non-openers so we stop dragging

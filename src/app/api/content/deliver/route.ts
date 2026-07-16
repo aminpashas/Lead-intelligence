@@ -86,10 +86,10 @@ export async function POST(request: NextRequest) {
   const orgName = org?.name || 'our practice'
   const leadName = decryptField(lead.first_name) || lead.first_name || ''
 
-  // Consent check
+  // Opt-out (DND) check — consent is assumed unless the lead opted out.
   if (channel === 'sms') {
-    if (!lead.sms_consent || lead.sms_opt_out) {
-      return NextResponse.json({ error: 'Lead has not given SMS consent or has opted out' }, { status: 403 })
+    if (lead.sms_opt_out) {
+      return NextResponse.json({ error: 'Lead has opted out of SMS' }, { status: 403 })
     }
 
     const phone = lead.phone_formatted
@@ -152,9 +152,9 @@ export async function POST(request: NextRequest) {
       )
     }
   } else {
-    // Email delivery
-    if (!lead.email_consent || lead.email_opt_out) {
-      return NextResponse.json({ error: 'Lead has not given email consent or has opted out' }, { status: 403 })
+    // Email delivery — consent is assumed unless the lead opted out.
+    if (lead.email_opt_out) {
+      return NextResponse.json({ error: 'Lead has opted out of email' }, { status: 403 })
     }
 
     const email = lead.email

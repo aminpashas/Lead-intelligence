@@ -48,15 +48,16 @@ describe('computeFollowUpTiming — due logic', () => {
 })
 
 describe('computeFollowUpTiming — channel selection', () => {
-  it('prefers SMS when phone + sms consent', () => {
+  // Consent is assumed — channel choice follows which contact addresses exist.
+  it('prefers SMS when a phone exists', () => {
     expect(computeFollowUpTiming(lead(), NOW).suggestedChannel).toBe('sms')
   })
 
-  it('falls back to email when no SMS consent', () => {
-    expect(computeFollowUpTiming(lead({ sms_consent: false }), NOW).suggestedChannel).toBe('email')
+  it('still prefers SMS even without a stored SMS consent flag', () => {
+    expect(computeFollowUpTiming(lead({ sms_consent: false }), NOW).suggestedChannel).toBe('sms')
   })
 
-  it('falls back to a call when phone exists but no messaging consent', () => {
-    expect(computeFollowUpTiming(lead({ sms_consent: false, email: null, email_consent: false }), NOW).suggestedChannel).toBe('call')
+  it('falls back to email when there is no phone', () => {
+    expect(computeFollowUpTiming(lead({ phone: null }), NOW).suggestedChannel).toBe('email')
   })
 })

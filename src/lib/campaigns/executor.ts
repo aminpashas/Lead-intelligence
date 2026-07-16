@@ -5,7 +5,6 @@ import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { generateLeadEngagement } from '@/lib/ai/scoring'
 import { appendEmailFooter } from '@/lib/messaging/email-footer'
-import { emailCampaignGate, logUnconsentedEmailSend } from '@/lib/consent/gate'
 import { withRetry, RETRY_CONFIGS } from '@/lib/retry'
 import { decryptField } from '@/lib/encryption'
 import { POST_CONSULT_NURTURE_KEY } from './post-consult-nurture'
@@ -187,27 +186,22 @@ async function executeOneStep(
     }
   }
 
-  // TCPA/CAN-SPAM: Verify consent before sending
-  if (step.channel === 'sms' && (!lead.sms_consent || lead.sms_opt_out)) {
+  // Consent is assumed — only an explicit per-channel opt-out (DND) blocks a send.
+  if (step.channel === 'sms' && lead.sms_opt_out) {
     await supabase.from('campaign_enrollments').update({
       status: 'exited',
       exited_at: new Date().toISOString(),
-      exit_reason: 'No SMS consent or opted out',
+      exit_reason: 'SMS opted out (DND)',
     }).eq('id', enrollment.id)
-    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: 'No SMS consent' }
+    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: 'SMS opted out' }
   }
-  // Email may pass without prior consent ONLY on a campaign explicitly flagged
-  // allow_unconsented_email (re-permission); opt-out/declined never pass.
-  const emailGate = emailCampaignGate(lead, {
-    allowUnconsented: campaign.allow_unconsented_email === true,
-  })
-  if (step.channel === 'email' && !emailGate.allowed) {
+  if (step.channel === 'email' && lead.email_opt_out) {
     await supabase.from('campaign_enrollments').update({
       status: 'exited',
       exited_at: new Date().toISOString(),
-      exit_reason: `No email consent or opted out (${emailGate.reason})`,
+      exit_reason: 'Email opted out (DND)',
     }).eq('id', enrollment.id)
-    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: 'No email consent' }
+    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: 'Email opted out' }
   }
 
   // Content compliance for fixed-template + AI campaign copy. The per-send filter
@@ -379,14 +373,6 @@ async function executeOneStep(
       )
       externalId = result.id
       sendSuccess = true
-      if (emailGate.allowed && emailGate.usedOverride) {
-        await logUnconsentedEmailSend(supabase, {
-          organizationId: campaign.organization_id,
-          leadId: lead.id,
-          campaignId: campaign.id,
-          caller: 'campaign.executor',
-        })
-      }
     } catch (err) {
       return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'error', detail: `Email failed: ${err instanceof Error ? err.message : 'unknown'}` }
     }

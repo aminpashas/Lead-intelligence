@@ -100,9 +100,9 @@ export async function fetchDialerQueue(
     .from('leads')
     .select(DIALER_SELECT)
     .eq('organization_id', orgId)
+    // Consent is assumed — a lead is dialable unless it's on DNC or opted out (DND).
     .eq('do_not_call', false)
     .eq('voice_opt_out', false)
-    .eq('voice_consent', true)
     .not('phone', 'is', null)
     .not('status', 'in', '(lost,disqualified,completed)')
 

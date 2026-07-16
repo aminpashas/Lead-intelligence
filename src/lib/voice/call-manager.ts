@@ -83,20 +83,11 @@ export async function preCallCheck(
     return { allowed: false, reason: 'do_not_call_flagged' }
   }
 
-  // Voice opt-out check
+  // Voice opt-out (DND) check. Consent is assumed for every lead — the only thing
+  // that blocks an outbound call is an explicit per-channel opt-out or the DNC flag
+  // above. We no longer require a positive voice_consent grant.
   if (lead.voice_opt_out) {
     return { allowed: false, reason: 'voice_opt_out' }
-  }
-
-  // Consent check. TCPA requires prior express consent for autodialed calls, and
-  // SMS consent is NOT a substitute for VOICE-autodial consent. Strict by default
-  // (Phase 1.4): require explicit voice_consent. The legacy SMS fallback is only
-  // honored when VOICE_ALLOW_SMS_CONSENT_FALLBACK is explicitly set, so loosening
-  // the standard is a deliberate per-deployment switch rather than the default.
-  const allowSmsFallback = process.env.VOICE_ALLOW_SMS_CONSENT_FALLBACK === 'true'
-  const hasConsent = !!lead.voice_consent || (allowSmsFallback && !!lead.sms_consent)
-  if (!hasConsent) {
-    return { allowed: false, reason: 'no_consent' }
   }
 
   // TCPA calling window: no autodialed calls before 8am / after 9pm in the lead's

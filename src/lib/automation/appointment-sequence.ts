@@ -194,9 +194,9 @@ async function executeAppointmentStep(
   const rescheduleUrl = getRescheduleUrl(apt.id, orgId)
 
   if (step.channel === 'sms') {
-    // Same consent semantics as the legacy 24h SMS.
-    if (!lead.phone || lead.sms_opt_out || !lead.sms_consent) {
-      return { status: 'skipped', detail: 'no_phone_or_no_consent' }
+    // Consent is assumed — only skip when there's no phone or the lead opted out (DND).
+    if (!lead.phone || lead.sms_opt_out) {
+      return { status: 'skipped', detail: 'no_phone_or_opted_out' }
     }
     const body =
       step.template_body?.replace(/\{first(_name)?\}/g, firstName) ??

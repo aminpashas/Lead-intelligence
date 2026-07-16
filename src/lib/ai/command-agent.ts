@@ -247,14 +247,16 @@ export function applyTimeFilters(
   return out
 }
 
+// Consent is assumed — a lead is reachable on a channel with a contact address
+// and no opt-out (DND) on that channel.
 export function smsEligible(l: AudienceLead): boolean {
   const phone = decryptField(l.phone_formatted) || l.phone_formatted
-  return Boolean(phone) && l.sms_consent === true && !l.sms_opt_out
+  return Boolean(phone) && !l.sms_opt_out
 }
 
 export function emailEligible(l: AudienceLead): boolean {
   const email = decryptField(l.email) || l.email
-  return Boolean(email) && l.email_consent === true && !l.email_opt_out
+  return Boolean(email) && !l.email_opt_out
 }
 
 function leadName(l: AudienceLead): string {

@@ -112,12 +112,13 @@ export async function executeNurtureStep(
     return await advance(supabase, campaign, enrollment, stepNumber, base, 'financing_approved_skip')
   }
 
-  // Consent is skip-not-exit: a missing channel skips this step but keeps the lead enrolled.
-  if (step.channel === 'sms' && (!lead.sms_consent || lead.sms_opt_out || !lead.phone_formatted)) {
-    return await advance(supabase, campaign, enrollment, stepNumber, base, 'no_sms_consent_skip')
+  // Consent is assumed — skip-not-exit only when the lead opted out (DND) or has no
+  // address on this channel. A missing channel skips this step but keeps the lead enrolled.
+  if (step.channel === 'sms' && (lead.sms_opt_out || !lead.phone_formatted)) {
+    return await advance(supabase, campaign, enrollment, stepNumber, base, 'no_sms_channel_skip')
   }
-  if (step.channel === 'email' && (!lead.email_consent || lead.email_opt_out || !lead.email)) {
-    return await advance(supabase, campaign, enrollment, stepNumber, base, 'no_email_consent_skip')
+  if (step.channel === 'email' && (lead.email_opt_out || !lead.email)) {
+    return await advance(supabase, campaign, enrollment, stepNumber, base, 'no_email_channel_skip')
   }
 
   // Send window (business hours / days) — defer to the next valid time.

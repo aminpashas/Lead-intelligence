@@ -1,15 +1,20 @@
 /**
- * Consent Gate — TCPA / CAN-SPAM hard enforcement
+ * Consent Gate — opt-out (DND) enforcement
  *
  * Every automated outbound message MUST pass through the gate before send.
- * The brief (Section 2.2) calls this non-negotiable: if consent is missing or revoked,
- * the send fails silently and writes a `consent_violation_prevented` row to `events`.
+ * Consent is ASSUMED for every lead: a message is allowed unless the lead has
+ * explicitly opted out (picked Do-Not-Disturb) on that channel. When a send is
+ * refused, the caller writes a `consent_violation_prevented` row to `events`.
  *
- * State of record lives on the `leads` row:
- *   sms_consent / sms_opt_out      → channel='sms'
- *   email_consent / email_opt_out  → channel='email'
- *   voice_consent / voice_opt_out  → channel='voice'
- *   do_not_call                    → blocks voice regardless of voice_consent
+ * State of record lives on the `leads` row (only the opt-out flags gate a send):
+ *   sms_opt_out      → blocks channel='sms'
+ *   email_opt_out    → blocks channel='email'
+ *   voice_opt_out    → blocks channel='voice'
+ *   do_not_call      → blocks voice (federal DNC list / internal flag)
+ *
+ * The `*_consent` booleans are retained on the row for record-keeping and for the
+ * re-permission campaign gates below, but they no longer block an outbound send —
+ * only an explicit opt-out (or DNC for voice) does.
  *
  * Audit history lives in `consent_log` (auto-appended via DB trigger when consent fields change).
  */
@@ -63,7 +68,9 @@ const CONSENT_FIELDS = [
 ].join(',')
 
 /**
- * Check whether the lead has consented to receive a message on this channel.
+ * Check whether the lead may be messaged on this channel. Consent is assumed:
+ * the only thing that blocks a send is an explicit opt-out (DND) on the channel
+ * — plus do_not_call for voice. A lead we never asked (consent unknown) passes.
  * Does NOT log violations — that's the caller's job (so we can include the channel + body context).
  */
 export async function assertConsent(
@@ -84,19 +91,16 @@ export async function assertConsent(
   switch (channel) {
     case 'sms': {
       if (lead.sms_opt_out === true) return { allowed: false, reason: 'opted_out', lead }
-      if (lead.sms_consent !== true) return { allowed: false, reason: 'no_consent', lead }
       return { allowed: true, lead }
     }
     case 'email': {
       if (lead.email_opt_out === true) return { allowed: false, reason: 'opted_out', lead }
-      if (lead.email_consent !== true) return { allowed: false, reason: 'no_consent', lead }
       return { allowed: true, lead }
     }
     case 'voice': {
       // do_not_call overrides everything (federal DNC list, internal flag, etc.)
       if (lead.do_not_call === true) return { allowed: false, reason: 'do_not_call', lead }
       if (lead.voice_opt_out === true) return { allowed: false, reason: 'opted_out', lead }
-      if (lead.voice_consent !== true) return { allowed: false, reason: 'no_consent', lead }
       return { allowed: true, lead }
     }
   }

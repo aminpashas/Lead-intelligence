@@ -27,11 +27,11 @@ export type FollowUpTiming = {
 
 const DAY = 24 * 60 * 60 * 1000
 
-/** Pick a consented, reachable channel — SMS first, then email, then a call. */
+/** Pick a reachable channel — SMS first, then email, then a call. Consent is
+ *  assumed, so channel choice follows which contact addresses exist. */
 function pickChannel(lead: FollowUpTimingInput): FollowUpTiming['suggestedChannel'] {
-  if (lead.phone && lead.sms_consent) return 'sms'
-  if (lead.email && lead.email_consent) return 'email'
-  if (lead.phone) return 'call'
+  if (lead.phone) return 'sms'
+  if (lead.email) return 'email'
   return 'email'
 }
 

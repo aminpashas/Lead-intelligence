@@ -292,8 +292,8 @@ async function send24hReminders(
     const rescheduleUrl = getRescheduleUrl(apt.id, orgId)
     const practiceName = brandNameFor(lead)
 
-    // ── Send SMS ──
-    if (lead.phone && !lead.sms_opt_out && lead.sms_consent) {
+    // ── Send SMS ── (consent assumed; only a phone + no DND required)
+    if (lead.phone && !lead.sms_opt_out) {
       const smsBody = generate24hSmsTemplate({
         firstName: lead.first_name || 'there',
         appointmentType: apt.type,

@@ -239,11 +239,12 @@ export async function autoEnrollLeads(
     .in('id', leadIds)
     .not('status', 'in', '("disqualified","lost","completed")')
 
+  // Consent is assumed — the only safety exclusion is a per-channel opt-out (DND).
   if (campaign.channel === 'sms') {
-    safety = safety.eq('sms_consent', true).eq('sms_opt_out', false)
+    safety = safety.eq('sms_opt_out', false)
   }
-  if (campaign.channel === 'email' && !campaign.allow_unconsented_email) {
-    safety = safety.eq('email_consent', true).eq('email_opt_out', false)
+  if (campaign.channel === 'email') {
+    safety = safety.eq('email_opt_out', false)
   }
 
   const { data: matchingLeads } = await safety

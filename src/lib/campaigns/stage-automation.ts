@@ -221,7 +221,7 @@ async function executeEntryAction(
   switch (action.type) {
     case 'sms': {
       if (!action.template || !lead.phone_formatted) return
-      if (lead.sms_opt_out || !lead.sms_consent) return
+      if (lead.sms_opt_out) return // consent assumed; only DND blocks
       const message = processTemplate(action.template, templateCtx)
       await sendSMSToLead({
         supabase, leadId: lead.id as string, to: lead.phone_formatted as string, body: message, caller: 'campaign.stage-automation',
@@ -255,7 +255,7 @@ async function executeEntryAction(
 
     case 'email': {
       if (!action.template || !lead.email) return
-      if (lead.email_opt_out || !lead.email_consent) return
+      if (lead.email_opt_out) return // consent assumed; only DND blocks
       const emailBody = processTemplate(action.template, templateCtx)
       await sendEmail({
         to: lead.email as string,

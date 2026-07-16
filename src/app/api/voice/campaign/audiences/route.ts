@@ -42,8 +42,9 @@ export async function GET() {
     .order('position', { ascending: true })
   const stages = (stagesData || []) as StageRow[]
 
-  // Callable count per stage = leads that would survive the dial gate. Run the
-  // per-stage counts in parallel; each is an indexed head count, not a scan of rows.
+  // Callable count per stage = leads that would survive the dial gate. Consent is
+  // assumed — a lead is callable unless it's on DNC or has opted out of voice (DND).
+  // Run the per-stage counts in parallel; each is an indexed head count, not a scan.
   const callableCounts = await Promise.all(
     stages.map(async (s: StageRow) => {
       const { count } = await supabase
@@ -51,7 +52,6 @@ export async function GET() {
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .eq('stage_id', s.id)
-        .eq('voice_consent', true)
         .eq('voice_opt_out', false)
         .eq('do_not_call', false)
         .not('phone_formatted', 'is', null)

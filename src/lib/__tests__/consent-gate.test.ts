@@ -69,24 +69,18 @@ describe('assertConsent', () => {
       }
     })
 
-    it('denies with no_consent when sms_consent is not true', async () => {
+    it('allows (consent assumed) when sms_consent is unknown and not opted out', async () => {
       const supabase = createMockSupabase(makeLeadData({ sms_consent: null, sms_opt_out: false }))
       const result = await assertConsent(supabase as any, 'lead-1', 'sms')
 
-      expect(result.allowed).toBe(false)
-      if (!result.allowed) {
-        expect(result.reason).toBe('no_consent')
-      }
+      expect(result.allowed).toBe(true)
     })
 
-    it('denies with no_consent when sms_consent is false', async () => {
+    it('allows (consent assumed) when sms_consent is false but not opted out', async () => {
       const supabase = createMockSupabase(makeLeadData({ sms_consent: false }))
       const result = await assertConsent(supabase as any, 'lead-1', 'sms')
 
-      expect(result.allowed).toBe(false)
-      if (!result.allowed) {
-        expect(result.reason).toBe('no_consent')
-      }
+      expect(result.allowed).toBe(true)
     })
 
     it('opt_out takes priority over consent', async () => {
@@ -120,14 +114,11 @@ describe('assertConsent', () => {
       }
     })
 
-    it('denies with no_consent when email_consent is null', async () => {
+    it('allows (consent assumed) when email_consent is null but not opted out', async () => {
       const supabase = createMockSupabase(makeLeadData({ email_consent: null }))
       const result = await assertConsent(supabase as any, 'lead-1', 'email')
 
-      expect(result.allowed).toBe(false)
-      if (!result.allowed) {
-        expect(result.reason).toBe('no_consent')
-      }
+      expect(result.allowed).toBe(true)
     })
   })
 
@@ -187,7 +178,7 @@ describe('assertConsent', () => {
       }
     })
 
-    it('denies with no_consent when voice_consent is null', async () => {
+    it('allows (consent assumed) when voice_consent is null but not opted out or DNC', async () => {
       const supabase = createMockSupabase(makeLeadData({
         voice_consent: null,
         voice_opt_out: false,
@@ -195,10 +186,7 @@ describe('assertConsent', () => {
       }))
       const result = await assertConsent(supabase as any, 'lead-1', 'voice')
 
-      expect(result.allowed).toBe(false)
-      if (!result.allowed) {
-        expect(result.reason).toBe('no_consent')
-      }
+      expect(result.allowed).toBe(true)
     })
   })
 

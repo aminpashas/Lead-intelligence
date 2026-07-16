@@ -124,17 +124,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No leads found' }, { status: 400 })
   }
 
-  // Filter to leads with a valid phone that pass the SMS campaign gate. Normally
-  // that means affirmative consent + not opted out; with the re-permission override
-  // (allow_unconsented) consent-UNKNOWN leads also pass, but opted-out and declined
-  // leads never do. The authoritative per-send check re-runs inside sendSMSToLead.
+  // Filter to leads with a valid phone that aren't opted out (DND). Consent is
+  // assumed — the only blocker is an explicit per-channel opt-out. The authoritative
+  // per-send check re-runs inside sendSMSToLead (also opt-out only).
   const sendable = leads.filter((l) => {
     const phone = decryptField(l.phone_formatted) || l.phone_formatted
-    return phone && smsCampaignGate(l, { allowUnconsented: allow_unconsented }).allowed
+    return phone && l.sms_opt_out !== true
   })
 
   if (sendable.length === 0) {
-    return NextResponse.json({ error: 'No sendable leads (no SMS consent, opted out, or missing phone)' }, { status: 400 })
+    return NextResponse.json({ error: 'No sendable leads (opted out or missing phone)' }, { status: 400 })
   }
 
   // Per-org daily SMS cap (real-money guardrail). Trim observably rather than

@@ -1,11 +1,13 @@
 /**
  * Channel eligibility tally for a set of leads.
  *
- * A lead is reachable on a channel only with affirmative consent, no opt-out,
- * and a contact address. Exclusion reasons are mutually exclusive and checked in
- * priority order (opted_out > no_consent > no_contact), so the three buckets sum
- * to exactly `total - eligible`. Contact presence is a null-check on the address
- * column — it works on encrypted PII (a non-null ciphertext still means "has one").
+ * Consent is assumed: a lead is reachable on a channel when it has NOT opted out
+ * (DND) and has a contact address. Exclusion reasons are mutually exclusive and
+ * checked in priority order (opted_out > no_contact), so the buckets sum to
+ * exactly `total - eligible`. The `no_consent` bucket is retained in the shape
+ * for backward compatibility but is always 0 now that consent is not required.
+ * Contact presence is a null-check on the address column — it works on encrypted
+ * PII (a non-null ciphertext still means "has one").
  */
 
 export type ChannelEligibility = {
@@ -37,16 +39,15 @@ export function computeEligibility(
     no_contact: 0,
   }
   for (const l of leads) {
-    const consent = channel === 'sms' ? l.sms_consent === true : l.email_consent === true
     const optedOut = channel === 'sms' ? l.sms_opt_out === true : l.email_opt_out === true
     const hasContact = channel === 'sms' ? !!l.phone_formatted : !!l.email
 
-    if (consent && !optedOut && hasContact) {
+    // Consent is assumed — a lead is reachable unless it opted out (DND) or has no
+    // contact address on this channel. no_consent is never incremented anymore.
+    if (!optedOut && hasContact) {
       out.eligible++
     } else if (optedOut) {
       out.opted_out++
-    } else if (!consent) {
-      out.no_consent++
     } else {
       out.no_contact++
     }

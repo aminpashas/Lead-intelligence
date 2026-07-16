@@ -250,8 +250,9 @@ async function executeAIMessageStep(
   const leadId = lead.id as string
   const channel = step.channel as 'sms' | 'email'
 
-  const hasPhone = lead.phone_formatted && lead.sms_consent && !lead.sms_opt_out
-  const hasEmail = lead.email && lead.email_consent && !lead.email_opt_out
+  // Consent assumed — reachable on a channel with an address and no opt-out (DND).
+  const hasPhone = lead.phone_formatted && !lead.sms_opt_out
+  const hasEmail = lead.email && !lead.email_opt_out
   const recipient =
     channel === 'sms'
       ? hasPhone

@@ -1204,7 +1204,7 @@ async function executeSendFinancingLink(
       return {
         success: false,
         data: {},
-        message: 'Could not send financing link via SMS — patient has not given SMS consent or has opted out. Share the financing information verbally in the conversation.',
+        message: 'Could not send financing link via SMS — patient has opted out of SMS (DND). Share the financing information verbally in the conversation.',
       }
     }
 
@@ -1359,8 +1359,8 @@ async function executeSendSMSToLead(
   }
 
   // Consent check
-  if (!context.lead.sms_consent || context.lead.sms_opt_out) {
-    return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Provide the information verbally instead.' }
+  if (context.lead.sms_opt_out) {
+    return { success: false, data: {}, message: 'Cannot send SMS — patient has opted out of SMS (DND). Provide the information verbally instead.' }
   }
 
   const { phone, leadName, orgName } = await getCrossChannelContext(supabase, context)
@@ -1375,7 +1375,7 @@ async function executeSendSMSToLead(
       supabase, leadId: context.lead_id, to: phone, body: formattedMessage, caller: 'autopilot.send_sms_to_lead',
     })
     if (!sendRes.sent) {
-      return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Provide the information verbally instead.' }
+      return { success: false, data: {}, message: 'Cannot send SMS — patient has opted out of SMS (DND). Provide the information verbally instead.' }
     }
     const result = { sid: sendRes.sid }
 
@@ -1452,8 +1452,8 @@ async function executeSendEmailToLead(
   message: string
 ): Promise<ToolResult> {
   // Consent check
-  if (!context.lead.email_consent || context.lead.email_opt_out) {
-    return { success: false, data: {}, message: 'Cannot send email — patient has not given email consent or has opted out. Provide the information verbally or via SMS instead.' }
+  if (context.lead.email_opt_out) {
+    return { success: false, data: {}, message: 'Cannot send email — patient has opted out of email (DND). Provide the information verbally or via SMS instead.' }
   }
 
   const { email, leadName, orgName } = await getCrossChannelContext(supabase, context)
@@ -1573,7 +1573,7 @@ async function executeSendPracticeInfo(
   await incrementUsage(supabase, practiceInfo.id)
 
   if (deliveryChannel === 'sms') {
-    if (!context.lead.sms_consent || context.lead.sms_opt_out || !phone) {
+    if (context.lead.sms_opt_out || !phone) {
       return { success: false, data: {}, message: 'Cannot send SMS — no consent or no phone. Share practice info verbally.' }
     }
 
@@ -1582,7 +1582,7 @@ async function executeSendPracticeInfo(
       supabase, leadId: context.lead_id, to: phone, body: smsContent, caller: 'autopilot.send_asset',
     })
     if (!sendRes.sent) {
-      return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Share verbally instead.' }
+      return { success: false, data: {}, message: 'Cannot send SMS — patient has opted out of SMS (DND). Share verbally instead.' }
     }
     const result = { sid: sendRes.sid }
 
@@ -1620,7 +1620,7 @@ async function executeSendPracticeInfo(
     return { success: true, data: { content_asset_id: practiceInfo.id }, message: 'Practice address and directions have been texted to the patient.' }
   } else {
     // Email delivery
-    if (!context.lead.email_consent || context.lead.email_opt_out || !email) {
+    if (context.lead.email_opt_out || !email) {
       return { success: false, data: {}, message: 'Cannot send email — no consent or no email address. Try SMS or share verbally.' }
     }
 
@@ -1688,13 +1688,13 @@ async function executeSendTestimonial(
 
     if (url) {
       if (deliveryChannel === 'sms') {
-        if (!context.lead.sms_consent || context.lead.sms_opt_out || !phone) {
+        if (context.lead.sms_opt_out || !phone) {
           return { success: false, data: {}, message: 'Cannot send SMS — no consent or no phone. Mention the testimonials verbally.' }
         }
         const body = `${leadName ? leadName + ', ' : ''}here are real ${orgName} patients sharing their full-arch journey: ${url}`
         const sendRes = await sendSMSToLead({ supabase, leadId: context.lead_id, to: phone, body, caller: 'autopilot.send_asset' })
         if (!sendRes.sent) {
-          return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Share verbally instead.' }
+          return { success: false, data: {}, message: 'Cannot send SMS — patient has opted out of SMS (DND). Share verbally instead.' }
         }
         await supabase.from('lead_activities').insert({
           organization_id: context.organization_id,
@@ -1706,7 +1706,7 @@ async function executeSendTestimonial(
         return { success: true, data: { url }, message: 'Sent the practice testimonial video link to the patient via SMS.' }
       }
 
-      if (!context.lead.email_consent || context.lead.email_opt_out || !email) {
+      if (context.lead.email_opt_out || !email) {
         return { success: false, data: {}, message: 'Cannot send email — no consent or no email. Mention the testimonials verbally.' }
       }
       await sendEmail({
@@ -1732,7 +1732,7 @@ async function executeSendTestimonial(
   await incrementUsage(supabase, testimonial.id)
 
   if (deliveryChannel === 'sms') {
-    if (!context.lead.sms_consent || context.lead.sms_opt_out || !phone) {
+    if (context.lead.sms_opt_out || !phone) {
       return { success: false, data: {}, message: 'Cannot send SMS — no consent or no phone. Mention the testimonials verbally.' }
     }
 
@@ -1741,7 +1741,7 @@ async function executeSendTestimonial(
       supabase, leadId: context.lead_id, to: phone, body: smsContent, caller: 'autopilot.send_asset',
     })
     if (!sendRes.sent) {
-      return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Share verbally instead.' }
+      return { success: false, data: {}, message: 'Cannot send SMS — patient has opted out of SMS (DND). Share verbally instead.' }
     }
     const result = { sid: sendRes.sid }
 
@@ -1778,7 +1778,7 @@ async function executeSendTestimonial(
 
     return { success: true, data: { content_asset_id: testimonial.id, title: testimonial.title }, message: `Patient testimonial "${testimonial.title}" has been texted to the patient with a link to the video.` }
   } else {
-    if (!context.lead.email_consent || context.lead.email_opt_out || !email) {
+    if (context.lead.email_opt_out || !email) {
       return { success: false, data: {}, message: 'Cannot send email — no consent or no email. Try SMS or mention verbally.' }
     }
 
@@ -1842,7 +1842,7 @@ async function executeSendBeforeAfter(
   await incrementUsage(supabase, photo.id)
 
   if (deliveryChannel === 'sms') {
-    if (!context.lead.sms_consent || context.lead.sms_opt_out || !phone) {
+    if (context.lead.sms_opt_out || !phone) {
       return { success: false, data: {}, message: 'Cannot send SMS — no consent or no phone. Try email or mention verbally.' }
     }
 
@@ -1851,7 +1851,7 @@ async function executeSendBeforeAfter(
       supabase, leadId: context.lead_id, to: phone, body: smsContent, caller: 'autopilot.send_asset',
     })
     if (!sendRes.sent) {
-      return { success: false, data: {}, message: 'Cannot send SMS — patient has not given SMS consent or has opted out. Share verbally instead.' }
+      return { success: false, data: {}, message: 'Cannot send SMS — patient has opted out of SMS (DND). Share verbally instead.' }
     }
     const result = { sid: sendRes.sid }
 
@@ -1888,7 +1888,7 @@ async function executeSendBeforeAfter(
 
     return { success: true, data: { content_asset_id: photo.id }, message: `Before/after transformation "${photo.title}" has been texted to the patient with a link to view the photos.` }
   } else {
-    if (!context.lead.email_consent || context.lead.email_opt_out || !email) {
+    if (context.lead.email_opt_out || !email) {
       return { success: false, data: {}, message: 'Cannot send email — no consent or no email. Try SMS instead.' }
     }
 
