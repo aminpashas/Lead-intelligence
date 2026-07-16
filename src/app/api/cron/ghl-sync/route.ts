@@ -18,13 +18,18 @@ import { withCron } from '@/lib/cron/with-cron'
 import { getGhlConfig } from '@/lib/ghl/client'
 import { reconcileGhlStages } from '@/lib/ghl/reconcile'
 import type { ReconcileReport } from '@/lib/ghl/reconcile'
-import { promoteEngagedNewLeads, type UnstaleReport } from '@/lib/pipeline/unstale-new-stage'
+import {
+  promoteEngagedNewLeads,
+  parkAgedNewLeads,
+  type UnstaleReport,
+  type ParkAgedReport,
+} from '@/lib/pipeline/unstale-new-stage'
 
 /** The reconcile sweep can take minutes; give the function room. */
 export const maxDuration = 300
 
 type OrgRunResult =
-  | ({ organization_id: string; unstale?: UnstaleReport } & ReconcileReport)
+  | ({ organization_id: string; unstale?: UnstaleReport; parkAged?: ParkAgedReport } & ReconcileReport)
   | { organization_id: string; status: 'skipped' | 'failed'; reason: string }
 
 export const POST = withCron('ghl-sync', async ({ supabase }) => {
@@ -58,9 +63,19 @@ export const POST = withCron('ghl-sync', async ({ supabase }) => {
       // never advances these, and the send-paths don't move stage. LI-truth pass,
       // so it also unsticks LI-only (e.g. WhatConverts) leads GHL never sees.
       const unstale = await promoteEngagedNewLeads(supabase, org.organization_id)
+      // Then park what is left in New Lead but too old to be new and never
+      // worked. GHL's intake stages are literally named "New Lead" even inside a
+      // cold nurturing database, so the reconcile above keeps re-asserting "new"
+      // on month-old imports; age is the signal that stage name lacks. Runs last
+      // so it corrects the reconcile rather than being reverted by it.
+      const parkAged = await parkAgedNewLeads(supabase, org.organization_id)
       const stageChanges =
-        r.stageChanges + unstale.toContacted + unstale.toConsultationScheduled + unstale.toConsultationCompleted
-      results.push({ organization_id: org.organization_id, ...r, stageChanges, unstale })
+        r.stageChanges +
+        unstale.toContacted +
+        unstale.toConsultationScheduled +
+        unstale.toConsultationCompleted +
+        parkAged.parked
+      results.push({ organization_id: org.organization_id, ...r, stageChanges, unstale, parkAged })
     } catch (err) {
       results.push({
         organization_id: org.organization_id,
