@@ -28,6 +28,7 @@ import { LeadActions } from './lead-actions'
 import { EngagementMeter } from './engagement-meter'
 import { StageBadge } from './stage-select'
 import { LEAD_DATE_RANGES } from '@/lib/leads/date-range'
+import { leadDisplayName, leadInitials } from '@/lib/leads/display-name'
 import { cn } from '@/lib/utils'
 import { useState, type ReactNode } from 'react'
 
@@ -376,7 +377,7 @@ export function LeadsTable({
           </TableHeader>
           <TableBody>
             {leads.map((lead) => {
-              const initials = `${lead.first_name?.[0] || ''}${lead.last_name?.[0] || ''}`.toUpperCase()
+              const initials = leadInitials(lead)
               const tags = leadTagsMap?.[lead.id] || []
               // Exact campaign line ("Google Ads — Implants June") synced from
               // DGS; the bare source_type stays as the fallback label.
@@ -401,7 +402,7 @@ export function LeadsTable({
                             className="outline-none focus-visible:underline"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {lead.first_name} {lead.last_name}
+                            {leadDisplayName(lead)}
                           </Link>
                         </p>
                         <p className="font-mono text-[11px] text-aurea-ink-3">

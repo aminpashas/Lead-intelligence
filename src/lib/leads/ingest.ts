@@ -20,6 +20,8 @@ import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { deriveConsentFields } from '@/lib/consent/ingest'
 import { formatToE164 } from '@/lib/leads/phone'
 import { findExistingLeads } from '@/lib/leads/dedupe'
+import { scrubPhoneNames, NAME_UNKNOWN_TAG } from '@/lib/leads/phone-name'
+import { leadDisplayName } from '@/lib/leads/display-name'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
 
 export type IngestConsentInput = {
@@ -78,6 +80,19 @@ export function buildLeadInsert(
   const phoneFormatted = input.phoneFormatted ?? (phoneRaw ? formatToE164(phoneRaw) : null)
   const email = input.email?.trim() || null
 
+  // Upstream stores a contact's phone as its `name` when it has no name, and
+  // every caller splits that on whitespace — so the phone lands in the name
+  // columns and we greet a patient "Hi (925),". Drop the number rather than the
+  // lead: a nameless lead is still a real prospect, and `leadDisplayName` falls
+  // back to the phone. See phone-name.ts.
+  const { first: firstName, last: lastName, changed: nameScrubbed } = scrubPhoneNames({
+    first: input.firstName,
+    last: input.lastName,
+  })
+  const tags = nameScrubbed && !(input.tags ?? []).includes(NAME_UNKNOWN_TAG)
+    ? [...(input.tags ?? []), NAME_UNKNOWN_TAG]
+    : input.tags
+
   const consentFields = deriveConsentFields({
     sms_consent: input.consent?.sms,
     email_consent: input.consent?.email,
@@ -88,8 +103,9 @@ export function buildLeadInsert(
 
   return {
     organization_id: input.organizationId,
-    first_name: input.firstName,
-    last_name: input.lastName ?? null,
+    // `first_name` is NOT NULL in the schema — '' is how it spells "no name".
+    first_name: firstName ?? '',
+    last_name: lastName,
     email,
     phone: phoneRaw,
     ...(phoneFormatted ? { phone_formatted: phoneFormatted } : {}),
@@ -98,7 +114,7 @@ export function buildLeadInsert(
     notes: input.notes ?? null,
     source_type: input.sourceType ?? input.source ?? null,
     ...(input.status ? { status: input.status } : {}),
-    ...(input.tags && input.tags.length ? { tags: input.tags } : {}),
+    ...(tags && tags.length ? { tags } : {}),
     ...(input.externalRef ? { external_ref: input.externalRef } : {}),
     ...consentFields,
     ...(input.utm_source ? { utm_source: input.utm_source } : {}),
@@ -159,7 +175,8 @@ export async function ingestLead(
     stageId = defaultStage?.id ?? null
   }
 
-  const insertData = encryptLeadPII(buildLeadInsert(input, { sourceId, stageId, now }))
+  const plainRow = buildLeadInsert(input, { sourceId, stageId, now })
+  const insertData = encryptLeadPII(plainRow)
 
   const { data: lead, error } = await supabase
     .from('leads')
@@ -192,7 +209,14 @@ export async function ingestLead(
     lead_id: leadId,
     activity_type: 'created',
     title: `Lead created via ${opts.caller}`,
-    description: `${input.firstName} ${input.lastName ?? ''}`.trim(),
+    // Read back off the built row, not `input` — a phone parsed into the name
+    // columns is scrubbed by then, and the activity feed should agree with the
+    // lead rather than preserving the number we just rejected.
+    description: leadDisplayName({
+      first_name: plainRow.first_name as string | null,
+      last_name: plainRow.last_name as string | null,
+      phone_formatted: plainRow.phone_formatted as string | null,
+    }),
   })
 
   await auditPHIWrite(

@@ -41,6 +41,7 @@ import {
 import { toast } from 'sonner'
 import { AppointmentsCalendar } from '@/components/crm/appointments-calendar'
 import { ScheduleAppointment } from '@/components/crm/schedule-appointment'
+import { leadDisplayName } from '@/lib/leads/display-name'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -541,7 +542,7 @@ function AppointmentDetail({
     <div className="space-y-4">
       <DialogHeader>
         <DialogTitle className="aurea-display text-[22px] font-normal text-aurea-ink">
-          {lead?.first_name} {lead?.last_name || ''}
+          {leadDisplayName(lead)}
         </DialogTitle>
       </DialogHeader>
 
@@ -637,7 +638,7 @@ function AppointmentCard({
       title="Mark as no-show?"
       description={
         <>
-          This flags {lead?.first_name} {lead?.last_name || ''}&rsquo;s {apt.type.replace('_', ' ')} as a no-show.
+          This flags {leadDisplayName(lead)}&rsquo;s {apt.type.replace('_', ' ')} as a no-show.
           It feeds the no-show analytics and may trigger fee handling if a card is on file.
         </>
       }
@@ -663,7 +664,7 @@ function AppointmentCard({
                     href={`/leads/${apt.lead_id}`}
                     className="font-semibold text-sm hover:text-aurea-primary hover:underline"
                   >
-                    {lead?.first_name} {lead?.last_name || ''}
+                    {leadDisplayName(lead)}
                   </Link>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                     {lead?.phone && (
@@ -908,7 +909,7 @@ function ReminderLogTab({
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
                   <User className="h-4 w-4 text-muted-foreground" />
-                  {apt?.lead?.first_name} {apt?.lead?.last_name || ''}
+                  {leadDisplayName(apt?.lead)}
                   <ChevronRight className="h-3 w-3 text-muted-foreground" />
                   <span className="text-muted-foreground font-normal capitalize">
                     {apt?.type?.replace('_', ' ')}
@@ -1077,7 +1078,7 @@ function NoShowAnalyticsTab({
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">
-                      {apt.lead?.first_name} {apt.lead?.last_name || ''}
+                      {leadDisplayName(apt.lead)}
                     </span>
                     <Badge variant="secondary" className="text-xs capitalize">
                       {apt.type.replace('_', ' ')}

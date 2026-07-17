@@ -53,3 +53,6 @@ supabase/.temp/
 
 # Brainstorming visual companion (superpowers)
 .superpowers/
+
+# Backfill snapshots — contain patient PHI (names/phones). Local-only, never commit.
+scripts/*.snapshot.json

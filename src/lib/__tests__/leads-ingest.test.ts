@@ -14,6 +14,43 @@ import { buildLeadInsert, ingestLead, type IngestInput } from '@/lib/leads/inges
 const NOW = '2026-06-30T12:00:00.000Z'
 
 describe('buildLeadInsert (pure payload shaping)', () => {
+  // Regression: every GHL/bridge importer splits a nameless contact's phone into
+  // the name columns, so leads landed named "(925) 497-0821" and AI SMS opened
+  // with "Hi (925),". The guard belongs here because this is the one path every
+  // importer shares. See phone-name.ts.
+  it('scrubs a phone number parsed into the name columns, and tags the lead', () => {
+    const row = buildLeadInsert(
+      { organizationId: 'o', firstName: '(925)', lastName: '497-0821', phoneRaw: '9254970821' },
+      { sourceId: null, stageId: 'stage-1', now: NOW },
+    )
+    // '' not null: leads.first_name is NOT NULL, so the scrub writes an empty
+    // string. Writing null here throws 23502 on real ingest — the mocked
+    // encryption in these tests cannot see that constraint, so assert it.
+    expect(row.first_name).toBe('')
+    expect(row.last_name).toBeNull()
+    expect(row.tags).toEqual(['name-unknown'])
+    // The lead itself survives — it is a real prospect, just a nameless one.
+    expect(row.phone).toBe('9254970821')
+    expect(row.phone_formatted).toBe('+19254970821')
+  })
+
+  it('keeps a real name beside a stray phone, and leaves ordinary names alone', () => {
+    const stray = buildLeadInsert(
+      { organizationId: 'o', firstName: 'chris', lastName: '606-2595' },
+      { sourceId: null, stageId: null, now: NOW },
+    )
+    expect(stray.first_name).toBe('chris')
+    expect(stray.last_name).toBeNull()
+
+    const ordinary = buildLeadInsert(
+      { organizationId: 'o', firstName: 'Ada', lastName: 'Lovelace', tags: ['ghl'] },
+      { sourceId: null, stageId: null, now: NOW },
+    )
+    expect(ordinary.first_name).toBe('Ada')
+    expect(ordinary.last_name).toBe('Lovelace')
+    expect(ordinary.tags).toEqual(['ghl']) // untouched — no spurious tag
+  })
+
   it('defaults consent to UNKNOWN — never writes a boolean the gate could allow', () => {
     const row = buildLeadInsert(
       { organizationId: 'o', firstName: 'Jane', email: 'jane@x.com', consent: { source: 'ghl_import' } },

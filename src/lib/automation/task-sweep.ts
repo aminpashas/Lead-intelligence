@@ -33,6 +33,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
 import { decryptField } from '@/lib/encryption'
+import { leadDisplayName } from '@/lib/leads/display-name'
 import { createHumanTask, resolveAssignee, type HumanTaskPriority } from './tasks'
 
 /** Most rows one rule may mint in a single run (backstop against a rule going wide). */
@@ -192,7 +193,7 @@ async function deliberatingDueLeads(
 ): Promise<SweepLead[]> {
   const { data, error } = await supabase
     .from('leads')
-    .select('id, first_name, last_name, last_contacted_at, last_responded_at, created_at, closing_follow_up_at')
+    .select('id, first_name, last_name, phone_formatted, last_contacted_at, last_responded_at, created_at, closing_follow_up_at')
     .eq('organization_id', orgId)
     .eq('closing_temperature', 'deliberating')
     .not('closing_follow_up_at', 'is', null)
@@ -205,11 +206,18 @@ async function deliberatingDueLeads(
   }
   return (data ?? []).map((r) => ({
     id: r.id as string,
-    name:
-      [decryptField(r.first_name), decryptField(r.last_name)]
-        .filter(Boolean)
-        .join(' ')
-        .trim() || 'this lead',
+    // Leads whose name column held a phone number are scrubbed to no-name (see
+    // lib/leads/phone-name.ts), so fall back to the phone before the generic
+    // string — "Book +14155551234" is triageable, 4k identical "Book this lead"
+    // rows are not.
+    name: leadDisplayName(
+      {
+        first_name: decryptField(r.first_name),
+        last_name: decryptField(r.last_name),
+        phone_formatted: decryptField(r.phone_formatted),
+      },
+      'this lead',
+    ),
     last_contacted_at: r.last_contacted_at,
     last_responded_at: r.last_responded_at,
     created_at: r.created_at,

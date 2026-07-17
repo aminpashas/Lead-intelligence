@@ -33,6 +33,8 @@ import { deriveConsentFields } from '@/lib/consent/ingest'
 import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
 import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
 import { isJunkCallerContact } from '@/lib/leads/junk-contact'
+import { scrubPhoneNames, NAME_UNKNOWN_TAG } from '@/lib/leads/phone-name'
+import { leadDisplayName } from '@/lib/leads/display-name'
 import { classifyTestOrSpamLead, spamDisqualifiedReason } from '@/lib/leads/test-spam-contact'
 import { routedIntakeStageSlug } from '@/lib/leads/intake-routing'
 import { serviceLineFromIntakeSignals, serviceLineTag } from '@/lib/leads/service-line'
@@ -451,10 +453,23 @@ export async function POST(request: NextRequest) {
   })
   const intakeServiceTag = intakeServiceLine ? serviceLineTag(intakeServiceLine) : null
 
+  // Upstream sends `full_name` = the phone number when the contact has no name,
+  // and `splitName` above dutifully spreads it across the two name columns —
+  // which is how "Hi (925)," reaches a patient. Scrub at the persistence
+  // boundary, deliberately AFTER the junk/spam classifiers: those are tuned on
+  // the raw caller-ID string, and a nameless row reads as junk to them, so
+  // scrubbing earlier would silently disqualify real leads. See phone-name.ts.
+  const scrubbedName = scrubPhoneNames({ first: first_name, last: last_name })
+  const nameTags = [
+    ...(intakeServiceTag ? [intakeServiceTag] : []),
+    ...(scrubbedName.changed ? [NAME_UNKNOWN_TAG] : []),
+  ]
+
   const insertData = encryptLeadPII({
     organization_id: customerId,
-    first_name,
-    last_name,
+    // `first_name` is NOT NULL in the schema — '' is how it spells "no name".
+    first_name: scrubbedName.first ?? '',
+    last_name: scrubbedName.last,
     email,
     phone: phoneRaw || null,
     phone_formatted: phoneFormatted ?? undefined,
@@ -482,7 +497,7 @@ export async function POST(request: NextRequest) {
     ...(campaignAttribution ? { campaign_attribution: campaignAttribution } : {}),
     ...(external_ref ? { external_ref } : {}),
     ...(intakeServiceLine ? { custom_fields: { treatment_interest: intakeServiceLine } } : {}),
-    ...(intakeServiceTag ? { tags: [intakeServiceTag] } : {}),
+    ...(nameTags.length ? { tags: nameTags } : {}),
   })
 
   const { data: lead, error } = await supabase
@@ -514,7 +529,11 @@ export async function POST(request: NextRequest) {
     lead_id: lead.id,
     activity_type: 'created',
     title: `Lead created via ${caller}`,
-    description: `${first_name} ${last_name ?? ''}`.trim() + ` added by service bridge`,
+    description: leadDisplayName({
+      first_name: scrubbedName.first,
+      last_name: scrubbedName.last,
+      phone_formatted: phoneFormatted,
+    }) + ` added by service bridge`,
   })
 
   await auditPHIWrite(
@@ -614,8 +633,10 @@ export async function POST(request: NextRequest) {
         sourceCreatedAt,
         lead: {
           id: String(lead.id),
-          firstName: first_name,
-          lastName: last_name,
+          // Scrubbed, so the alert agrees with the stored lead. The phone rides
+          // along below regardless, so nothing reachable is lost.
+          firstName: scrubbedName.first ?? '',
+          lastName: scrubbedName.last,
           email,
           phone: phoneFormatted ?? phoneRaw ?? null,
           source: sourceName,

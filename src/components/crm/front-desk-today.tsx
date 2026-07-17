@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { format, formatDistanceToNow, isToday, isTomorrow } from 'date-fns'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { leadDisplayName } from '@/lib/leads/display-name'
 import {
   Calendar, Clock, MapPin, Phone, MessageSquare, ArrowRight,
   CheckCircle2, AlertCircle, Brain, ShieldAlert, Target, Sparkles,
@@ -38,11 +39,7 @@ function titleize(s?: string | null) {
 }
 
 function leadName(lead: Record<string, unknown> | null | undefined) {
-  if (!lead) return 'Unknown patient'
-  const first = (lead.first_name as string) || ''
-  const last = (lead.last_name as string) || ''
-  const full = `${first} ${last}`.trim()
-  return full || 'Unknown patient'
+  return leadDisplayName(lead as Parameters<typeof leadDisplayName>[0], 'Unknown patient')
 }
 
 type Consult = Record<string, any>
