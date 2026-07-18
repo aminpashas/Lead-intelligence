@@ -623,6 +623,20 @@ export function ConversationThread({
                 </>
               )}
             </div>
+            {/* Prominent, color-coded status pill directly under the name — the
+                lead's pipeline stage at a glance, and one click to change it. */}
+            {stages.length > 0 && (
+              <div className="mt-1.5">
+                <StageSelect
+                  stages={stages}
+                  value={stageId}
+                  onChange={moveStage}
+                  disabled={movingStage}
+                  variant="pill"
+                  aria-label="Change pipeline stage"
+                />
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2.5">
@@ -638,23 +652,8 @@ export function ConversationThread({
               showLabel={false}
             />
           )}
-          {/* Move the lead's stage without leaving the thread. Shows the current
-              stage rather than a bare "Move stage" label, so it stays useful when
-              the summary rail is collapsed. */}
-          {stages.length > 0 && (
-            <>
-              <div className="h-6 w-px bg-aurea-border" />
-              <StageSelect
-                stages={stages}
-                value={stageId}
-                onChange={moveStage}
-                disabled={movingStage}
-                size="sm"
-                aria-label="Change pipeline stage"
-                className="w-[168px]"
-              />
-            </>
-          )}
+          {/* The stage picker now lives as a prominent pill under the lead name
+              (see header above), so it is not duplicated in this toolbar. */}
           <div className="h-6 w-px bg-aurea-border" />
           <Button
             variant="outline"
