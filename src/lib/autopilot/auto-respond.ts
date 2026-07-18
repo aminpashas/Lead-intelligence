@@ -15,6 +15,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import Anthropic from '@anthropic-ai/sdk'
 import { routeToAgent, getHandoffHistory } from '@/lib/ai/agent-handoff'
 import { getAgentIdForRole } from '@/lib/agents/agent-resolver'
 import { getPatientProfile } from '@/lib/ai/patient-psychology'
@@ -231,17 +232,71 @@ export async function processAutoResponse(
   try {
     agentResponse = await routeToAgent(supabase, agentContext)
   } catch (error) {
-    logger.error('Agent system failed during auto-response', { conversation_id, lead_id }, error instanceof Error ? error : undefined)
+    const detail = error instanceof Error ? error.message : 'Unknown'
+    const outage = isServiceOutage(error)
 
-    await createEscalation(supabase, {
+    logger.error(
+      outage
+        ? 'AI SERVICE OUTAGE — agent unavailable, patient held for human'
+        : 'Agent system failed during auto-response',
+      { conversation_id, lead_id, outage },
+      error instanceof Error ? error : undefined
+    )
+
+    // An outage is not this patient's problem and not this thread's problem — it
+    // is every thread's problem. Mark it 'urgent' so staff notify renders it as
+    // [URGENT] 🚨 instead of a routine escalation that reads like all the others,
+    // and lead ai_notes with a scannable banner. (reason stays 'agent_failure':
+    // the DB check constraint on escalations.reason has no outage value, and a
+    // migration isn't worth it — priority + banner carry the signal.)
+    const escalationId = await createEscalation(supabase, {
       organization_id,
       conversation_id,
       lead_id,
       reason: 'agent_failure',
-      ai_notes: `Agent system threw error: ${error instanceof Error ? error.message : 'Unknown'}`,
+      priority: outage ? 'urgent' : 'normal',
+      ai_notes: outage
+        ? `⚠️ AI SERVICE OUTAGE — the AI could not reply and every conversation is affected, ` +
+          `not just this one. No AI answer was sent; the patient got a holding message only. ` +
+          `Check the provider account (billing caps / credits / key) before clearing this. ` +
+          `Provider error: ${detail}`
+        : `Agent system threw error: ${detail}`,
     })
 
-    return { action: 'escalated', reason: 'agent_failure' }
+    // No dead air. The patient sent a real message and the AI cannot answer it —
+    // tell them a human has it rather than leaving them on read. Best-effort and
+    // deduped: an outage lasting hours must not text the same patient on a loop.
+    // Suppressed in shadow mode to avoid double-texting beside GHL.
+    if (outage && !config.outreach_suppressed) {
+      try {
+        if (await hasRecentOutageAck(supabase, conversation_id)) {
+          logger.info('Outage holding ack suppressed (already sent this window)', {
+            conversation_id,
+          })
+        } else {
+          await sendHoldingAcknowledgment(supabase, {
+            organization_id,
+            conversation_id,
+            lead_id,
+            channel,
+            sender_contact,
+            kind: 'ai_outage',
+          })
+        }
+      } catch (err) {
+        logger.warn('Outage holding acknowledgment failed', {
+          conversation_id,
+          channel,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    return {
+      action: 'escalated',
+      reason: outage ? 'ai_service_outage' : 'agent_failure',
+      escalation_id: escalationId,
+    }
   }
 
   // 6b. Clinical-question safety gate. A specific medical question must go to a
@@ -275,6 +330,7 @@ export async function processAutoResponse(
         lead_id,
         channel,
         sender_contact,
+        kind: 'medical',
       }).catch((err) =>
         logger.warn('Medical holding acknowledgment failed', {
           conversation_id,
@@ -698,7 +754,35 @@ const MEDICAL_HOLDING_ACK =
   "I'm looping in a member of our care team to help, and they'll follow up with you shortly."
 
 /**
- * Send the non-clinical holding acknowledgment and record it on the thread.
+ * Sent when the agent could not produce a reply at all (see isServiceOutage).
+ * Says nothing about WHY — no apology for a system failure, no promise of a
+ * timeframe we can't keep. It exists so a hard AI outage is never dead air on a
+ * live thread: the patient knows a human has it, and the urgent escalation makes
+ * that true. Contains no clinical, financial, or scheduling commitment.
+ */
+const AI_OUTAGE_HOLDING_ACK =
+  "Thanks for the message! I'm passing this to someone on our team and they'll get back to you shortly."
+
+type HoldingAckKind = 'medical' | 'ai_outage'
+
+const HOLDING_ACKS: Record<
+  HoldingAckKind,
+  { body: string; caller: string; subject: string }
+> = {
+  medical: {
+    body: MEDICAL_HOLDING_ACK,
+    caller: 'autopilot.medical_holding',
+    subject: 'We received your question',
+  },
+  ai_outage: {
+    body: AI_OUTAGE_HOLDING_ACK,
+    caller: 'autopilot.outage_holding',
+    subject: 'We received your message',
+  },
+}
+
+/**
+ * Send a fixed holding acknowledgment and record it on the thread.
  * Throws if the send is blocked (consent/compliance) so the caller can log it;
  * the caller treats delivery as best-effort and never fails the escalation.
  */
@@ -710,9 +794,11 @@ async function sendHoldingAcknowledgment(
     lead_id: string
     channel: 'sms' | 'email'
     sender_contact: string
+    kind: HoldingAckKind
   }
 ): Promise<void> {
-  const { organization_id, conversation_id, lead_id, channel, sender_contact } = params
+  const { organization_id, conversation_id, lead_id, channel, sender_contact, kind } = params
+  const ack = HOLDING_ACKS[kind]
   let externalId: string | undefined
 
   if (channel === 'sms') {
@@ -720,8 +806,8 @@ async function sendHoldingAcknowledgment(
       supabase,
       leadId: lead_id,
       to: sender_contact,
-      body: MEDICAL_HOLDING_ACK,
-      caller: 'autopilot.medical_holding',
+      body: ack.body,
+      caller: ack.caller,
       aiGenerated: true,
       blockOnReview: true,
     })
@@ -733,10 +819,10 @@ async function sendHoldingAcknowledgment(
       supabase,
       leadId: lead_id,
       to: email,
-      subject: 'We received your question',
-      html: `<div style="font-family: -apple-system, sans-serif; padding: 24px;">${MEDICAL_HOLDING_ACK}</div>`,
-      text: MEDICAL_HOLDING_ACK,
-      caller: 'autopilot.medical_holding',
+      subject: ack.subject,
+      html: `<div style="font-family: -apple-system, sans-serif; padding: 24px;">${ack.body}</div>`,
+      text: ack.body,
+      caller: ack.caller,
       aiGenerated: true,
       blockOnReview: true,
     })
@@ -750,18 +836,57 @@ async function sendHoldingAcknowledgment(
     lead_id,
     direction: 'outbound',
     channel,
-    body: MEDICAL_HOLDING_ACK,
+    body: ack.body,
     sender_type: 'ai',
     status: 'sent',
     external_id: externalId || null,
     ai_generated: true,
-    metadata: { holding_ack: true, medical_escalation: true },
+    metadata: { holding_ack: true, holding_ack_kind: kind, medical_escalation: kind === 'medical' },
   })
 
   await supabase.rpc('increment_conversation_counters', {
     p_conversation_id: conversation_id,
-    p_last_message_preview: MEDICAL_HOLDING_ACK.substring(0, 100),
+    p_last_message_preview: ack.body.substring(0, 100),
   })
+}
+
+/**
+ * True when the agent failed because the AI SERVICE is unusable (billing cap hit,
+ * credits out, auth, rate limit, provider 5xx) rather than because of anything
+ * about this particular message. Mirrors the discriminator the score-sweep cron
+ * uses (`err instanceof Anthropic.APIError`) so both paths agree on what an
+ * outage is.
+ *
+ * Why it matters: a per-message failure affects one thread and a human is already
+ * being pulled in. An outage silently kills EVERY thread at once — exactly when
+ * no human knows to step in. Those need different alerting, so we separate them.
+ */
+export function isServiceOutage(error: unknown): boolean {
+  return error instanceof Anthropic.APIError
+}
+
+/**
+ * During an outage every inbound message would otherwise earn its own holding
+ * ack — the patient who texts three times gets told three times that a human is
+ * coming. One ack per thread per window is enough; the escalation still fires for
+ * each message either way.
+ */
+const OUTAGE_ACK_DEDUPE_HOURS = 6
+
+async function hasRecentOutageAck(
+  supabase: SupabaseClient,
+  conversation_id: string
+): Promise<boolean> {
+  const since = new Date(Date.now() - OUTAGE_ACK_DEDUPE_HOURS * 3600 * 1000).toISOString()
+  const { data } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', conversation_id)
+    .eq('direction', 'outbound')
+    .gte('created_at', since)
+    .contains('metadata', { holding_ack_kind: 'ai_outage' })
+    .limit(1)
+  return (data?.length ?? 0) > 0
 }
 
 /**
