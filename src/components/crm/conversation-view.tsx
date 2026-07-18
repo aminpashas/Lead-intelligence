@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { MessagesSquare, GitBranch } from 'lucide-react'
 import { ConversationThread } from './conversation-thread'
 import { TimelineFeed } from './lead-timeline'
-import type { Conversation, Lead, Message, VoiceCall, ConversationAnalysis, PatientProfile } from '@/types/database'
+import type { Conversation, Lead, Message, VoiceCall, ConversationAnalysis, PatientProfile, PipelineStage } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
 
 type Mode = 'thread' | 'timeline'
@@ -18,6 +18,7 @@ type Mode = 'thread' | 'timeline'
  */
 export function ConversationView({
   lead,
+  stages = [],
   conversation,
   messages,
   calls,
@@ -31,6 +32,8 @@ export function ConversationView({
   canTrainAi = false,
 }: {
   lead: Lead
+  /** Org pipeline stages, forwarded so the thread can move the lead's stage. */
+  stages?: PipelineStage[]
   conversation: Conversation
   messages: Message[]
   calls: VoiceCall[]
@@ -64,7 +67,7 @@ export function ConversationView({
 
       {mode === 'thread' ? (
         <div className="min-h-0 flex-1">
-          <ConversationThread lead={lead} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} canTrainAi={canTrainAi} />
+          <ConversationThread lead={lead} stages={stages} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} canTrainAi={canTrainAi} />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">

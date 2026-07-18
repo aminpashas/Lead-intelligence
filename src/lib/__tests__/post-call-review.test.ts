@@ -3,6 +3,7 @@ import {
   normalizeCallOutcome,
   parseCallReview,
   detectSystemFindings,
+  isMachineAnsweredBy,
 } from '@/lib/voice/post-call-review'
 
 describe('normalizeCallOutcome', () => {
@@ -24,6 +25,34 @@ describe('normalizeCallOutcome', () => {
     expect(normalizeCallOutcome({ disconnectionReason: 'dial_busy' })).toBe('no_answer')
     // legacy plain values used by processCallEnd
     expect(normalizeCallOutcome({ disconnectionReason: 'busy' })).toBe('no_answer')
+  })
+
+  it('maps a Twilio AMD machine verdict to voicemail_left', () => {
+    // Twilio's AsyncAmdStatusCallback is the only voicemail signal on the
+    // browser/bridge path — Retell's disconnection_reason never applies there.
+    expect(normalizeCallOutcome({ answeredBy: 'machine_end_beep' })).toBe('voicemail_left')
+    expect(normalizeCallOutcome({ answeredBy: 'machine_start' })).toBe('voicemail_left')
+    expect(normalizeCallOutcome({ answeredBy: 'machine_end_silence' })).toBe('voicemail_left')
+    expect(normalizeCallOutcome({ answeredBy: 'machine_end_other' })).toBe('voicemail_left')
+  })
+
+  it('does not treat human / fax / unknown AMD verdicts as voicemail', () => {
+    // `unknown` means AMD gave up, not that a machine answered. Treating it as
+    // voicemail would silently suppress review on real conversations.
+    expect(
+      normalizeCallOutcome({ answeredBy: 'human', durationSeconds: 60, hasTranscript: true })
+    ).toBeNull()
+    expect(
+      normalizeCallOutcome({ answeredBy: 'unknown', durationSeconds: 60, hasTranscript: true })
+    ).toBeNull()
+    expect(normalizeCallOutcome({ answeredBy: 'fax', durationSeconds: 60, hasTranscript: true })).toBeNull()
+  })
+
+  it('lets a booking and a live transfer outrank an AMD machine verdict', () => {
+    // AMD can mis-fire on a slow "hello…"; a real booking or bridged transfer is
+    // hard evidence a human was there.
+    expect(normalizeCallOutcome({ answeredBy: 'machine_start', appointmentBooked: true })).toBe('appointment_booked')
+    expect(normalizeCallOutcome({ answeredBy: 'machine_start', disconnectionReason: 'call_transfer' })).toBe('transferred')
   })
 
   it('maps platform errors to technical_failure', () => {
@@ -114,5 +143,32 @@ describe('detectSystemFindings', () => {
   it('flags platform-error disconnections with a per-reason fingerprint', () => {
     const findings = detectSystemFindings({ ...base, disconnectionReason: 'dial_failed' })
     expect(findings.some((f) => f.fingerprint === 'system:telephony:disconnect_dial_failed')).toBe(true)
+  })
+
+  it('does not blame the transcript pipeline for a voicemail', () => {
+    // A voicemail looks identical to a broken transcript pipeline: long duration,
+    // no words captured. Without this suppression every machine answer would
+    // upsert a critical engineering ticket.
+    const findings = detectSystemFindings({ ...base, hasTranscript: false, durationSeconds: 45, isVoicemail: true })
+    expect(findings.some((f) => f.fingerprint === 'system:telephony:empty_transcript_answered_call')).toBe(false)
+  })
+
+  it('still flags a genuinely empty transcript when the call was not voicemail', () => {
+    const findings = detectSystemFindings({ ...base, hasTranscript: false, durationSeconds: 45, isVoicemail: false })
+    expect(findings.some((f) => f.fingerprint === 'system:telephony:empty_transcript_answered_call')).toBe(true)
+  })
+})
+
+describe('isMachineAnsweredBy', () => {
+  it('recognises every Twilio machine verdict', () => {
+    for (const v of ['machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other']) {
+      expect(isMachineAnsweredBy(v)).toBe(true)
+    }
+  })
+
+  it('is false for human, fax, unknown, and absent verdicts', () => {
+    for (const v of ['human', 'fax', 'unknown', '', null, undefined]) {
+      expect(isMachineAnsweredBy(v)).toBe(false)
+    }
   })
 })

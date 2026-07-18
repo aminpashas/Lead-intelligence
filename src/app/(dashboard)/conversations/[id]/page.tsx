@@ -7,7 +7,7 @@ import { decryptLeadPII } from '@/lib/encryption'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
 import { isFlagEnabled } from '@/lib/org/flags'
 import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
-import type { ConversationAnalysis, PatientProfile } from '@/types/database'
+import type { ConversationAnalysis, PatientProfile, PipelineStage } from '@/types/database'
 
 export default async function ConversationDetailPage({
   params,
@@ -103,9 +103,20 @@ export default async function ConversationDetailPage({
   const { data: ownProfile } = await getOwnProfile(supabase, 'role')
   const canTrainAi = !!ownProfile && isAdminRole(ownProfile.role)
 
+  // Pipeline stages — lets staff move the lead's stage from inside the thread,
+  // right after the call or text that earned the move.
+  const { data: stages } = conversation.organization_id
+    ? await supabase
+        .from('pipeline_stages')
+        .select('*')
+        .eq('organization_id', conversation.organization_id as string)
+        .order('position')
+    : { data: null }
+
   return (
     <ConversationView
       lead={decryptLeadPII(conversation.lead as Record<string, unknown>) as any}
+      stages={(stages as PipelineStage[] | null) ?? []}
       conversation={conversation}
       messages={messages || []}
       calls={calls || []}
