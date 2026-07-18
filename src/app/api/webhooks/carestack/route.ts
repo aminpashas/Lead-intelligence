@@ -203,6 +203,16 @@ async function handleAppointmentEvent(
       external_source: 'carestack',
       metadata: { source: 'carestack', trigger, raw: data },
     })
+
+    // A new EHR appointment for a matched lead advances the board to
+    // Consultation Scheduled. Monotonic + fail-soft; the guard leaves
+    // existing-patient / junk parking records untouched.
+    const { advanceStageOnBooking } = await import('@/lib/pipeline/booking-stage')
+    await advanceStageOnBooking(supabase, {
+      organizationId,
+      leadId,
+      source: 'booking:carestack',
+    })
   } else if (existing) {
     await supabase.from('appointments')
       .update({

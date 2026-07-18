@@ -151,6 +151,15 @@ export async function POST(request: NextRequest) {
           .eq('id', leadId)
       }
 
+      // Advance the pipeline BOARD stage too (status above only sets the text
+      // field; the board groups by stage_id). Monotonic + fail-soft.
+      const { advanceStageOnBooking } = await import('@/lib/pipeline/booking-stage')
+      await advanceStageOnBooking(supabase, {
+        organizationId: lead.organization_id,
+        leadId,
+        source: 'booking:cal_com',
+      })
+
       // Exit all active nurture campaigns — booking is the desired outcome.
       await exitAllCampaigns(supabase, leadId, 'Booked consultation via Cal.com').catch(() => {})
 

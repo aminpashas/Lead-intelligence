@@ -202,6 +202,16 @@ export async function POST(request: NextRequest) {
     })
     .eq('id', parsed.data.lead_id)
 
+  // Move the pipeline BOARD stage too (status above only sets the text field).
+  // Monotonic + fail-soft. Attributed to the staff member who booked it.
+  const { advanceStageOnBooking } = await import('@/lib/pipeline/booking-stage')
+  await advanceStageOnBooking(supabase, {
+    organizationId: orgId,
+    leadId: parsed.data.lead_id,
+    source: 'booking:staff',
+    userId: profile.id,
+  })
+
   // Log activity
   await supabase.from('lead_activities').insert({
     organization_id: orgId,
