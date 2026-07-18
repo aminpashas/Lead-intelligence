@@ -41,6 +41,7 @@ import {
   GitBranch,
   PanelRightClose,
   PanelRightOpen,
+  ChevronDown,
 } from 'lucide-react'
 import type { Lead, PipelineStage, LeadActivity, Conversation, Message, VoiceCall, UserProfile, Tag, PatientProfile, ConversationAnalysis } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
@@ -109,6 +110,9 @@ export function LeadDetail({
   // Details panel starts closed to avoid a hydration mismatch (localStorage is
   // browser-only), then we sync to the user's remembered preference on mount.
   const [showDetails, setShowDetails] = useState(false)
+  // Activity + audit trail start collapsed so the rail stays scannable at a glance.
+  const [showActivity, setShowActivity] = useState(false)
+  const [showAudit, setShowAudit] = useState(false)
   const router = useRouter()
 
   // Remember whether the Details panel is open across leads: once the user opens
@@ -614,33 +618,64 @@ export function LeadDetail({
 
             {/* Activity + full audit trail */}
             <div className="aurea-card overflow-hidden">
-              <div className="border-b border-aurea-border px-5 py-4">
-                <h2 className="aurea-display text-[18px] text-aurea-ink">Activity</h2>
-              </div>
-              <div>
-                {activities.map((act, i) => (
-                  <div
-                    key={act.id}
-                    className={`flex items-start gap-3 px-5 py-3.5 ${i < activities.length - 1 ? 'border-b border-aurea-border' : ''}`}
-                  >
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-aurea-ink-3" />
-                    <div className="flex-1">
-                      <p className="text-[14px] font-medium text-aurea-ink">{act.title}</p>
-                      {act.description && (
-                        <p className="mt-0.5 text-[12px] text-aurea-ink-3">{act.description}</p>
-                      )}
-                      <p className="mt-0.5 font-mono text-[11px] tabular-nums text-aurea-ink-3">
-                        {format(new Date(act.created_at), 'MMM d, yyyy h:mm a')}
-                      </p>
+              <button
+                type="button"
+                onClick={() => setShowActivity((v) => !v)}
+                aria-expanded={showActivity}
+                className={`flex w-full items-center justify-between px-5 py-4 text-left transition-colors hover:bg-aurea-surface-2 ${showActivity ? 'border-b border-aurea-border' : ''}`}
+              >
+                <span className="flex items-center gap-2">
+                  <h2 className="aurea-display text-[18px] text-aurea-ink">Activity</h2>
+                  {activities.length > 0 && (
+                    <span className="rounded-full bg-aurea-surface-2 px-2 py-0.5 font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                      {activities.length}
+                    </span>
+                  )}
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-aurea-ink-3 transition-transform ${showActivity ? '' : '-rotate-90'}`}
+                />
+              </button>
+              {showActivity && (
+                <div>
+                  {activities.map((act, i) => (
+                    <div
+                      key={act.id}
+                      className={`flex items-start gap-3 px-5 py-3.5 ${i < activities.length - 1 ? 'border-b border-aurea-border' : ''}`}
+                    >
+                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-aurea-ink-3" />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-medium text-aurea-ink">{act.title}</p>
+                        {act.description && (
+                          <p className="mt-0.5 text-[12px] text-aurea-ink-3">{act.description}</p>
+                        )}
+                        <p className="mt-0.5 font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                          {format(new Date(act.created_at), 'MMM d, yyyy h:mm a')}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div>
-              <h3 className="aurea-display mb-2 text-[16px] text-aurea-ink">Audit trail</h3>
-              <AuditTimeline query={`resourceType=leads&resourceId=${lead.id}`} />
+            <div className="aurea-card overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowAudit((v) => !v)}
+                aria-expanded={showAudit}
+                className={`flex w-full items-center justify-between px-5 py-4 text-left transition-colors hover:bg-aurea-surface-2 ${showAudit ? 'border-b border-aurea-border' : ''}`}
+              >
+                <h3 className="aurea-display text-[16px] text-aurea-ink">Audit trail</h3>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-aurea-ink-3 transition-transform ${showAudit ? '' : '-rotate-90'}`}
+                />
+              </button>
+              {showAudit && (
+                <div className="px-5 py-4">
+                  <AuditTimeline query={`resourceType=leads&resourceId=${lead.id}`} />
+                </div>
+              )}
             </div>
 
             {/* Financing panel temporarily removed until live integrations are available */}
