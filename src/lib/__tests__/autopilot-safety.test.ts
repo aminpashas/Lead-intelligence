@@ -11,9 +11,11 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
+import Anthropic from '@anthropic-ai/sdk'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
 import { detectStopWord, getLocalHourAndDay } from '@/lib/autopilot/config'
+import { isServiceOutage } from '@/lib/autopilot/auto-respond'
 
 // NOTE on transport: blocked content returns { sent: false } BEFORE any Twilio /
 // Resend client is touched, so these tests never hit the network. We assert the
@@ -161,5 +163,53 @@ describe('FIX 4 — stop-word whole-word boundary matching', () => {
     const result = detectStopWord('I want to opt out now', stopWords)
     expect(result.detected).toBe(true)
     expect(result.word).toBe('opt out')
+  })
+})
+
+// ── FIX 5 — AI service outage must be distinguishable from a per-message failure.
+//
+// Incident (2026-07-14/15): the Anthropic account hit its configured monthly
+// usage cap, so every agent call threw 400 "You have reached your specified API
+// usage limits." processAutoResponse caught it, filed a routine 'agent_failure'
+// escalation, and sent the patient NOTHING. Two live inbound texts — including a
+// "I can't make it" that should have cancelled an appointment — sat unanswered
+// for two days because the escalation looked like every other escalation.
+//
+// isServiceOutage is what splits "the AI is down for everyone" (urgent + send the
+// patient a holding ack) from "this one message tripped something" (routine).
+describe('FIX 5 — AI service outage detection', () => {
+  function anthropicError(status: number, message: string) {
+    // Anthropic.APIError(status, error, message, headers)
+    return new Anthropic.APIError(status, { type: 'error', error: { message } }, message, undefined)
+  }
+
+  it('treats the real usage-cap 400 that caused the incident as an outage', () => {
+    const err = anthropicError(
+      400,
+      'You have reached your specified API usage limits. You will regain access on 2026-08-01 at 00:00 UTC.'
+    )
+    expect(isServiceOutage(err)).toBe(true)
+  })
+
+  it('treats a depleted credit balance as an outage', () => {
+    expect(
+      isServiceOutage(anthropicError(400, 'Your credit balance is too low to access the API'))
+    ).toBe(true)
+  })
+
+  it('treats auth, rate-limit and provider 5xx failures as outages', () => {
+    expect(isServiceOutage(anthropicError(401, 'invalid x-api-key'))).toBe(true)
+    expect(isServiceOutage(anthropicError(429, 'rate_limit_error'))).toBe(true)
+    expect(isServiceOutage(anthropicError(529, 'overloaded_error'))).toBe(true)
+  })
+
+  it('does NOT treat an ordinary application error as an outage', () => {
+    // A bug in our own context-building is a per-message failure: one thread is
+    // affected and a human is already being pulled in. It must stay routine, or
+    // an everyday exception would page staff as a systemwide outage.
+    expect(isServiceOutage(new TypeError('lead.first_name is undefined'))).toBe(false)
+    expect(isServiceOutage(new Error('boom'))).toBe(false)
+    expect(isServiceOutage('a string')).toBe(false)
+    expect(isServiceOutage(null)).toBe(false)
   })
 })

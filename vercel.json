@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/ai-health",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/batch-15m",
       "schedule": "*/15 * * * *"
     },
