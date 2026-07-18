@@ -86,12 +86,15 @@ export async function POST(request: NextRequest) {
   // statusCallback (tagged with ?voiceCallId=) drives ringing → answered →
   // completed, and the recording callback carries the same tag for matching.
   const statusCallbackUrl = `${origin}/api/voice/status?voiceCallId=${call.id}`
+  // Answering-machine verdict arrives separately (async AMD), tagged the same way.
+  const amdStatusCallbackUrl = `${origin}/api/voice/amd?voiceCallId=${call.id}`
   try {
     const leadCallSid = await dialLeadIntoConference({
       callId: call.id,
       toNumber: call.to_number,
       callerId: call.from_number,
       statusCallbackUrl,
+      amdStatusCallbackUrl,
     })
     await supabase.from('voice_calls').update({ twilio_lead_call_sid: leadCallSid }).eq('id', call.id)
   } catch (err) {

@@ -125,14 +125,37 @@ export function buildAgentConferenceTwiml(params: {
  * `?voiceCallId=`) feeds /api/voice/status exactly like the old child leg did.
  * `waitUrl`/hold music is left to Twilio's default so there's no external asset to
  * depend on. Returns the lead leg's Call SID (stored so we can hold it).
+ *
+ * Answering Machine Detection
+ * ───────────────────────────
+ * `amdStatusCallbackUrl` opts this leg into AMD so a machine answer becomes a real
+ * `voicemail_left` outcome instead of the rep's memory. Two choices worth knowing:
+ *
+ *   • asyncAmd MUST stay 'true'. Synchronous AMD (Twilio's default) withholds the
+ *     TwiML until it has decided, which on a conference bridge means several
+ *     seconds of silence for a lead whose rep is already sitting in the room.
+ *     Async connects immediately and reports out-of-band.
+ *   • machineDetection 'Enable' returns the verdict the moment it is made;
+ *     'DetectMessageEnd' withholds a machine verdict until the greeting's beep.
+ *     'Enable' is right here because a live rep is on the line and hears the
+ *     greeting themselves — they need the tag fast so they can move to the next
+ *     number, not after the beep. An automated leave-a-message dialer would want
+ *     'DetectMessageEnd' instead.
+ *
+ * Caveat for future callers: async AMD consumes one of Twilio's four per-call
+ * forked audio streams, shared with Media Streams / SIPREC / Real-Time
+ * Transcription. Post-call Voice Intelligence (the voice-transcribe cron) works
+ * off the recording and does not compete, but a real-time stream would.
  */
 export async function dialLeadIntoConference(params: {
   callId: string
   toNumber: string
   callerId: string
   statusCallbackUrl: string
+  /** Opts this leg into async AMD. Omit to dial with no machine detection. */
+  amdStatusCallbackUrl?: string
 }): Promise<string> {
-  const { callId, toNumber, callerId, statusCallbackUrl } = params
+  const { callId, toNumber, callerId, statusCallbackUrl, amdStatusCallbackUrl } = params
 
   const twiml = new twilio.twiml.VoiceResponse()
   const dial = twiml.dial({ answerOnBridge: true })
@@ -152,6 +175,14 @@ export async function dialLeadIntoConference(params: {
     statusCallback: statusCallbackUrl,
     statusCallbackMethod: 'POST',
     statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+    ...(amdStatusCallbackUrl
+      ? {
+          machineDetection: 'Enable' as const,
+          asyncAmd: 'true' as const,
+          asyncAmdStatusCallback: amdStatusCallbackUrl,
+          asyncAmdStatusCallbackMethod: 'POST' as const,
+        }
+      : {}),
   })
   return call.sid
 }

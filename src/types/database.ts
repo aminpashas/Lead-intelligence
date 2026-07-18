@@ -1270,6 +1270,16 @@ export type VoiceCall = {
   outcome: VoiceCallOutcome | null
   outcome_notes: string | null
 
+  /**
+   * Twilio AMD verdict, verbatim: human | fax | unknown | machine_start |
+   * machine_end_beep | machine_end_silence | machine_end_other. Null on Retell/AI
+   * calls (they report voicemail via disconnection_reason instead) and on calls
+   * dialed before AMD was enabled. Use isMachineAnsweredBy() — never compare raw.
+   */
+  answered_by: string | null
+  /** Milliseconds Twilio took to reach that verdict. Kept for AMD tuning. */
+  answered_by_ms: number | null
+
   // Post-call AI review (null = call predates the review pipeline)
   review_status: VoiceCallReviewStatus | null
   /** Patient-facing issues the post-call review flagged (CallIssue[] shape). */

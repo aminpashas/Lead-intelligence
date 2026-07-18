@@ -51,6 +51,8 @@ export type NormalizeOutcomeInput = {
   appointmentBooked?: boolean
   durationSeconds?: number
   hasTranscript?: boolean
+  /** Twilio AMD verdict (voice_calls.answered_by). Only set on browser/bridge calls. */
+  answeredBy?: string | null
 }
 
 /** disconnection_reason values that mean the platform (not the patient) failed. */
@@ -64,6 +66,23 @@ const TECHNICAL_DISCONNECTS = new Set([
 ])
 
 /**
+ * Twilio AnsweredBy values that mean a machine picked up. `unknown` is excluded
+ * deliberately — it means AMD gave up, not that it found a machine, and treating
+ * it as voicemail would suppress review on real conversations.
+ */
+const MACHINE_ANSWERED_BY = new Set([
+  'machine_start',
+  'machine_end_beep',
+  'machine_end_silence',
+  'machine_end_other',
+])
+
+/** True when Twilio's AMD verdict says a machine, not a person, answered. */
+export function isMachineAnsweredBy(answeredBy?: string | null): boolean {
+  return MACHINE_ANSWERED_BY.has((answeredBy || '').toLowerCase())
+}
+
+/**
  * Map raw Retell signals onto the voice_calls.outcome CHECK vocabulary.
  * Returns null only for a connected call with a transcript that genuinely
  * needs the AI pass to classify — the UI renders that as "Needs Review".
@@ -73,7 +92,11 @@ export function normalizeCallOutcome(input: NormalizeOutcomeInput): VoiceCallOut
 
   if (input.appointmentBooked) return 'appointment_booked'
   if (reason === 'call_transfer') return 'transferred'
+  // Voicemail from either path: Retell reports it on the AI leg, Twilio AMD on the
+  // browser/bridge leg. Both rank below a booking/transfer, which are hard proof a
+  // human was on the line and AMD simply mis-fired on a slow greeting.
   if (reason === 'voicemail_reached' || reason === 'machine_detected') return 'voicemail_left'
+  if (isMachineAnsweredBy(input.answeredBy)) return 'voicemail_left'
   if (['dial_no_answer', 'dial_busy', 'no_answer', 'busy'].includes(reason)) return 'no_answer'
   if (TECHNICAL_DISCONNECTS.has(reason) || reason.startsWith('error')) return 'technical_failure'
 
@@ -285,6 +308,8 @@ export type SystemCheckInput = {
   hasTranscript: boolean
   disconnectionReason?: string | null
   retellFetchOk: boolean
+  /** Suppresses the empty-transcript check — see below. */
+  isVoicemail?: boolean
 }
 
 /** Technical findings that need no model — pure signal inspection. */
@@ -308,7 +333,10 @@ export function detectSystemFindings(input: SystemCheckInput): TechnicalFinding[
     })
   }
 
-  if (input.durationSeconds > 20 && !input.hasTranscript) {
+  // A voicemail is indistinguishable from a broken transcript pipeline by these
+  // signals alone — both are "long call, no words". Only the AMD/Retell verdict
+  // tells them apart, so a known voicemail is never evidence of a platform bug.
+  if (input.durationSeconds > 20 && !input.hasTranscript && !input.isVoicemail) {
     findings.push({
       category: 'telephony',
       severity: 'critical',
@@ -496,6 +524,8 @@ export async function runPostCallReview(
       disconnection_reason: input.disconnectionReason || null,
     }
 
+    const isVoicemail = input.currentOutcome === 'voicemail_left'
+
     // ── System checks (always run — they don't need a transcript) ──
     const systemFindings = detectSystemFindings({
       attributed: !!(input.organizationId && input.callId),
@@ -503,6 +533,7 @@ export async function runPostCallReview(
       hasTranscript: input.transcript.trim().length > 0,
       disconnectionReason: input.disconnectionReason,
       retellFetchOk: input.retellFetchOk ?? true,
+      isVoicemail,
     })
     for (const finding of systemFindings) {
       await raiseImprovementTicket(supabase, {
@@ -515,6 +546,19 @@ export async function runPostCallReview(
 
     // ── AI review (needs a transcript + an attributed call to act on) ──
     if (!input.callId || !input.organizationId) return
+
+    // Voicemail is a settled outcome, not a defect: the deterministic layer already
+    // classified it, and there is no patient conversation to grade. Reviewing it
+    // would spend a Haiku call per dial and — since any issue it invented would
+    // open a human_task, and a "critical" one would fire an urgent admin SMS —
+    // page the practice on routine machine answers. Mark it clear and stop.
+    // System findings above still ran, so genuine platform faults are not lost.
+    if (isVoicemail) {
+      await supabase.from('voice_calls').update({ review_status: 'clear' }).eq('id', input.callId)
+      logger.info('PostCallReview: voicemail — skipped AI review', { call_id: input.callId })
+      return
+    }
+
     const review = await reviewCallWithAI({
       transcript: input.transcript,
       direction: input.direction,
