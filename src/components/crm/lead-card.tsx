@@ -72,10 +72,31 @@ export function LeadCard({
               {lead.first_name} {lead.last_name}
             </Link>
           </p>
-          <div className="mt-0.5 flex items-center gap-2">
-            {lead.phone && <Phone className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />}
-            {lead.email && <Mail className="h-3 w-3 text-aurea-ink-3" strokeWidth={1.75} />}
-            <span className="truncate text-[11px] text-aurea-ink-3">
+          {/* Contact details — the actual phone & email, not just presence icons.
+              Each is a tel:/mailto: link so staff can act from the board without
+              opening the lead. stopPropagation keeps the card's drag/onClick intact. */}
+          <div className="mt-1 space-y-0.5">
+            {lead.phone && (
+              <a
+                href={`tel:${lead.phone}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1.5 text-[11px] text-aurea-ink-2 hover:text-aurea-primary hover:underline"
+              >
+                <Phone className="h-3 w-3 shrink-0 text-aurea-ink-3" strokeWidth={1.75} />
+                <span className="truncate font-mono tabular-nums">{lead.phone}</span>
+              </a>
+            )}
+            {lead.email && (
+              <a
+                href={`mailto:${lead.email}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1.5 text-[11px] text-aurea-ink-2 hover:text-aurea-primary hover:underline"
+              >
+                <Mail className="h-3 w-3 shrink-0 text-aurea-ink-3" strokeWidth={1.75} />
+                <span className="truncate">{lead.email}</span>
+              </a>
+            )}
+            <span className="flex items-center gap-1.5 truncate text-[11px] text-aurea-ink-3">
               {lead.city
                 ? `${lead.city}, ${lead.state}`
                 : displaySourceLabel(lead.source_type, lead.campaign_attribution?.channel)?.replace(/_/g, ' ')}
