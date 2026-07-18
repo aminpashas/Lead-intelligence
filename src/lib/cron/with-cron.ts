@@ -143,6 +143,7 @@ export const EXPECTED_CRONS: Record<string, number> = {
   'pipeline-recommendations': 90, // hourly :40 + grace
   'recommendation-outcomes': 26 * 60, // daily 01:50 UTC + grace
   'dgs-lead-quality': 26 * 60, // daily 07:00 UTC
+  'ai-health': 40, // every 15 min — the AI outage canary; if IT goes dark, ops-digest surfaces it
   'score-sweep': 40, // every 15 min (fanned out by batch-15m) + grace
   'engagement-sweep': 40, // every 15 min (fanned out by batch-15m) + grace
   // Batch dispatchers (see fan-out.ts): if one stalls, its whole group goes dark,
