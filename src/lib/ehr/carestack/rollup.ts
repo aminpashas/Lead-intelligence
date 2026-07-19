@@ -23,6 +23,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { moveLeadToNoShowStage } from '@/lib/pipeline/no-show-stage'
 
 export const PROC_STATUS_ACCEPTED = 3
 export const PROC_STATUS_COMPLETED = 8
@@ -413,6 +414,24 @@ export async function rollupConsultOutcomes(
       const { error } = await supabase.from('leads').update(patch).eq('id', leadId)
       if (error) { failed++; continue }
       updated++
+
+      // Board sync for EHR-detected no-shows, so a card the practice can see
+      // matches what CareStack already knows. Gated on this rollup being the
+      // thing that just flipped the status, which bounds it to real transitions
+      // instead of re-moving every historical no-show on every run.
+      //
+      // Deliberately NO recovery enrollment here: this pass reconciles the full
+      // appointment history, and the sequence opens with a same-day "we missed
+      // you today" SMS. Enrolling from a backfill would text patients about
+      // consultations they missed months ago. Real-time no-shows enroll at their
+      // own write paths (the staff PATCH in api/appointments).
+      if (patch.status === 'no_show') {
+        await moveLeadToNoShowStage(supabase, {
+          organizationId,
+          leadId,
+          source: 'no_show:ehr_rollup',
+        })
+      }
     }
 
     return {

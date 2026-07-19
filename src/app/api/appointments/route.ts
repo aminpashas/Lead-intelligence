@@ -9,6 +9,8 @@ import { decryptField, decryptLeadPII } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
 import { seedPostConsultNurture } from '@/lib/campaigns/post-consult-nurture'
+import { seedNoShowRecovery } from '@/lib/campaigns/no-show-recovery'
+import { moveLeadToNoShowStage } from '@/lib/pipeline/no-show-stage'
 import { z } from 'zod'
 
 // Pre-close statuses a consult attendee advances FROM. Leads already past this
@@ -441,7 +443,14 @@ export async function PATCH(request: NextRequest) {
     })
   }
 
-  // If marking as no-show, increment the lead's no_show_count
+  // If marking as no-show, increment the lead's no_show_count, move the board
+  // card into the No-Show triage column, and enroll in the recovery sequence.
+  //
+  // The status/count write applies to ANY missed appointment type. The board move
+  // and the recovery enrollment are CONSULTATION-only: a missed treatment visit
+  // belongs to Dion Clinical's scheduling workflow, and dragging a signed patient
+  // back onto the sales board (or texting them "want to rebook your consult?")
+  // would be wrong on both counts.
   if (status === 'no_show' && appointment.lead) {
     const lead = appointment.lead as any
     await supabase
@@ -451,6 +460,37 @@ export async function PATCH(request: NextRequest) {
         status: 'no_show',
       })
       .eq('id', lead.id)
+
+    if ((appointment as any).type === 'consultation') {
+      // Board first: a triage queue that lags the recovery text is worse than
+      // useless — staff would get replies about a card they cannot find.
+      const { eligible } = await moveLeadToNoShowStage(supabase, {
+        organizationId: orgId,
+        leadId: lead.id,
+        source: 'no_show:staff',
+        userId: profile.id,
+      })
+
+      // Enrollment rides the SAME guard as the board move, so the two can never
+      // disagree. A deep-funnel lead (Treatment Presented / Financing) is neither
+      // moved nor texted: a rep is mid-negotiation and a generic "want to grab
+      // another time?" would cut straight across their financing conversation.
+      //
+      // Non-fatal: a nurture failure must not break the no-show write, which also
+      // drives the fee capture and the EHR cancel.
+      if (eligible) {
+        try {
+          await seedNoShowRecovery(supabase, orgId)
+          await processTriggerCampaigns(supabase, {
+            event: 'appointment_no_show',
+            lead_id: lead.id,
+            organization_id: orgId,
+          })
+        } catch (err) {
+          console.error('[appointments] no_show recovery enrollment failed:', err instanceof Error ? err.message : err)
+        }
+      }
+    }
   }
 
   // Consult ATTENDED but not yet closed: advance the lead to consultation_completed,

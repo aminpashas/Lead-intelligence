@@ -24,15 +24,25 @@ import { serviceLineFromPipelineName, serviceLineTag } from '@/lib/leads/service
 import { newLeadMaxAgeDays } from '@/lib/pipeline/unstale-new-stage'
 import type { GhlConfig } from './types'
 
-/** Most-advanced-wins priority when a lead has multiple opportunities. */
+/**
+ * Most-advanced-wins priority when a lead has multiple opportunities.
+ *
+ * Only ever compared relatively (`PRIORITY[a] > PRIORITY[b]`), so the absolute
+ * values carry no meaning and the ladder can be renumbered freely.
+ *
+ * 'no-show' sits just BELOW 'consultation-scheduled': a missed consult proves
+ * more intent than 'qualified' (they committed to a time), but if another
+ * opportunity says the lead is scheduled they have rebooked, and that should win.
+ */
 export const PRIORITY: Record<LiStageSlug, number> = {
-  completed: 14,
-  'contract-signed': 13,
-  scheduled: 12,
-  financing: 11,
-  'treatment-presented': 10,
-  'consultation-completed': 9,
-  'consultation-scheduled': 8,
+  completed: 15,
+  'contract-signed': 14,
+  scheduled: 13,
+  financing: 12,
+  'treatment-presented': 11,
+  'consultation-completed': 10,
+  'consultation-scheduled': 9,
+  'no-show': 8,
   qualified: 7,
   engaged: 6,
   contacted: 5,

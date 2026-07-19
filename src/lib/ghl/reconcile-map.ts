@@ -36,6 +36,7 @@ export type LiStageSlug =
   | 'lost'
   | 'no-communication'
   | 'dnd-sms'
+  | 'no-show'
 
 export type ReconcileTarget = {
   stageSlug: LiStageSlug
