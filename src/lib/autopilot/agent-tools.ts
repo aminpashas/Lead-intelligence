@@ -971,6 +971,15 @@ async function executeCreateBooking(
     }))
     .eq('id', context.lead_id)
 
+  // Advance the pipeline BOARD stage too (status above only moves the text
+  // field; the board groups by stage_id). Monotonic + fail-soft.
+  const { advanceStageOnBooking } = await import('@/lib/pipeline/booking-stage')
+  await advanceStageOnBooking(supabase, {
+    organizationId: context.organization_id,
+    leadId: context.lead_id,
+    source: 'booking:ai',
+  })
+
   // Log activity
   await supabase.from('lead_activities').insert({
     organization_id: context.organization_id,

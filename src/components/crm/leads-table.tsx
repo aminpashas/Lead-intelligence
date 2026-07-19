@@ -26,6 +26,7 @@ import { formatCampaignAttribution, displaySourceLabel } from '@/lib/attribution
 import type { Lead, PipelineStage, Tag } from '@/types/database'
 import { LeadActions } from './lead-actions'
 import { EngagementMeter } from './engagement-meter'
+import { StageBadge } from './stage-select'
 import { LEAD_DATE_RANGES } from '@/lib/leads/date-range'
 import { cn } from '@/lib/utils'
 import { useState, type ReactNode } from 'react'
@@ -418,15 +419,7 @@ export function LeadsTable({
                     />
                   </TableCell>
                   <TableCell>
-                    {lead.pipeline_stage && (
-                      <div className="flex items-center gap-1.5">
-                        <div
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: lead.pipeline_stage.color }}
-                        />
-                        <span className="text-[13px] text-aurea-ink-2">{lead.pipeline_stage.name}</span>
-                      </div>
-                    )}
+                    <StageBadge stage={lead.pipeline_stage} />
                   </TableCell>
                   <TableCell>
                     {tags.length > 0 ? (
