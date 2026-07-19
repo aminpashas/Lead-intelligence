@@ -1,5 +1,6 @@
 'use client'
 
+import { useCallback, useEffect, useRef } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -73,6 +74,7 @@ export function PipelineColumn({
   suggestionByLead,
   onApplySuggestion,
   enrollments,
+  revealToken,
 }: {
   stage: PipelineStage
   leads: Lead[]
@@ -87,11 +89,32 @@ export function PipelineColumn({
   onApplySuggestion?: (leadId: string, toStageId: string) => void
   /** Follow-up cadence enrollment per lead (Following Up / Engaged stages only). */
   enrollments?: Record<string, TimelineEnrollment>
+  /** Bumped by the board when a lead is dropped into THIS column. The card is
+   *  prepended, but a column the user had scrolled down would still hide it —
+   *  so snap back to the top and actually show them the card they just moved. */
+  revealToken?: number
 }) {
   // Only the Following Up / Engaged columns carry a cadence timeline — everywhere
   // else `cadence` stays undefined and the card renders no badge.
   const isCadenceStage = isActiveContactStage(stage.slug)
   const { setNodeRef, isOver } = useDroppable({ id: stage.id })
+
+  // The card list is its own scroll container, so it needs a ref of our own
+  // alongside dnd-kit's droppable ref — fan one callback out to both.
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const setListRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      listRef.current = node
+      setNodeRef(node)
+    },
+    [setNodeRef]
+  )
+
+  useEffect(() => {
+    if (!revealToken) return
+    // scrollTo is unimplemented in jsdom — optional-call so tests don't throw.
+    listRef.current?.scrollTo?.({ top: 0, behavior: 'smooth' })
+  }, [revealToken])
 
   // Header count is the true stage total when supplied; otherwise the rendered
   // card count. Note the cap when the book is larger than what we render.
@@ -139,7 +162,7 @@ export function PipelineColumn({
 
       {/* Cards */}
       <div
-        ref={setNodeRef}
+        ref={setListRef}
         className="flex-1 overflow-y-auto p-2 space-y-2 min-h-[200px]"
       >
         <SortableContext

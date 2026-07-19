@@ -17,6 +17,8 @@ export async function GET(request: NextRequest) {
     action: sp.get('action') ?? undefined,
     since: sp.get('since') ?? undefined,
     limit: sp.get('limit') ? Number(sp.get('limit')) : undefined,
+    // Default-on; `?materialOnly=false` opens the raw firehose.
+    materialOnly: sp.get('materialOnly') !== 'false',
   }
   const rows = await fetchAuditTimeline(supabase, guard.orgId, filter)
   return NextResponse.json({ rows })

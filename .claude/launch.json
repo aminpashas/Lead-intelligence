@@ -81,6 +81,15 @@
         "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/campaign-blueprints-onboarding' && exec /usr/local/bin/node '/Users/aminsamadian/Lead Intelligence/node_modules/.bin/next' dev -p 3110"
       ],
       "port": 3110
+    },
+    {
+      "name": "pipeline-list-view",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence' && exec /usr/local/bin/node node_modules/.bin/next dev -p 3140"
+      ],
+      "port": 3140
     }
   ]
 }

@@ -1,11 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
-import { Bot, User, Cog, Clock, Webhook, Loader2, History } from 'lucide-react'
+import { Bot, User, Cog, Clock, Webhook, Loader2, History, Undo2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import type { ActorType, TimelineRow } from '@/lib/audit/types'
+import { meaningfulFields } from '@/lib/audit/fields'
 
 const ACTOR_META: Record<
   ActorType,
@@ -49,14 +52,50 @@ function autonomyNote(row: TimelineRow): string | null {
   return null
 }
 
-function TimelineRowItem({ row }: { row: TimelineRow }) {
+type UndoState = { status: 'idle' | 'pending' | 'done' | 'error'; message?: string }
+
+function TimelineRowItem({
+  row,
+  onUndone,
+}: {
+  row: TimelineRow
+  onUndone: () => void
+}) {
   const meta = actorMetaFor(row.actorType)
   const Icon = meta.icon
   const badgeLabel =
-    row.actorType === 'ai_agent' && row.ai?.agent_role
-      ? `AI ${row.ai.agent_role}`
-      : meta.label
+    row.actorType === 'ai_agent' && row.ai?.agent_role ? `AI ${row.ai.agent_role}` : meta.label
   const autonomy = autonomyNote(row)
+  const [undo, setUndo] = useState<UndoState>({ status: 'idle' })
+
+  // Derived churn (updated_at, counters) is noise in the "changed" line even
+  // on rows that also carry a real edit — show only what a person would call
+  // a change, and fall back to the raw list when everything was derived.
+  const shownFields = meaningfulFields(row.changedFields)
+  const fieldsLine = shownFields.length > 0 ? shownFields : row.changedFields
+
+  const handleUndo = useCallback(async () => {
+    if (
+      !window.confirm(
+        `Undo this change? ${shownFields.join(', ')} will be set back to the previous value.`
+      )
+    ) {
+      return
+    }
+    setUndo({ status: 'pending' })
+    try {
+      const res = await fetch(`/api/audit/${row.id}/undo`, { method: 'POST' })
+      const body = await res.json()
+      if (!res.ok) {
+        setUndo({ status: 'error', message: body.error ?? 'Undo failed.' })
+        return
+      }
+      setUndo({ status: 'done', message: body.message })
+      onUndone()
+    } catch {
+      setUndo({ status: 'error', message: 'Undo failed — check your connection.' })
+    }
+  }, [row.id, shownFields, onUndone])
 
   return (
     <li className="flex items-start gap-3 border-b border-aurea-border px-5 py-3.5 last:border-b-0">
@@ -69,8 +108,25 @@ function TimelineRowItem({ row }: { row: TimelineRow }) {
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge className={`text-[10px] h-4 px-1.5 ${meta.badgeClass}`}>{badgeLabel}</Badge>
           <span className="text-[13px] font-medium text-aurea-ink">{row.action}</span>
-          {row.actorLabel && (
-            <span className="text-[12px] text-aurea-ink-3">by {row.actorLabel}</span>
+          {row.actorName && (
+            <span className="text-[12px] text-aurea-ink-2">
+              by <span className="font-medium text-aurea-ink">{row.actorName}</span>
+            </span>
+          )}
+          {row.resourceLabel && (
+            <span className="text-[12px] text-aurea-ink-3">
+              on{' '}
+              {row.resourceHref ? (
+                <Link
+                  href={row.resourceHref}
+                  className="font-medium text-aurea-primary hover:underline"
+                >
+                  {row.resourceLabel}
+                </Link>
+              ) : (
+                <span className="font-medium text-aurea-ink">{row.resourceLabel}</span>
+              )}
+            </span>
           )}
           {autonomy && (
             <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-aurea-ink-2">
@@ -90,17 +146,42 @@ function TimelineRowItem({ row }: { row: TimelineRow }) {
           )}
         </div>
 
-        {row.changedFields.length > 0 && (
-          <p className="mt-1 text-[12px] text-aurea-ink-3">
-            changed: {row.changedFields.join(', ')}
-          </p>
+        {fieldsLine.length > 0 && (
+          <p className="mt-1 text-[12px] text-aurea-ink-3">changed: {fieldsLine.join(', ')}</p>
         )}
 
         <p className="mt-1 font-mono text-[11px] tabular-nums text-aurea-ink-3">
           {new Date(row.occurredAt).toLocaleString()} ·{' '}
           {formatDistanceToNow(new Date(row.occurredAt), { addSuffix: true })}
         </p>
+
+        {undo.message && (
+          <p
+            className={`mt-1.5 text-[12px] ${
+              undo.status === 'error' ? 'text-aurea-rose' : 'text-aurea-ink-2'
+            }`}
+          >
+            {undo.message}
+          </p>
+        )}
       </div>
+
+      {row.undoable && undo.status !== 'done' && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleUndo}
+          disabled={undo.status === 'pending'}
+          className="h-7 shrink-0 gap-1.5 px-2 text-[12px]"
+        >
+          {undo.status === 'pending' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
+          ) : (
+            <Undo2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+          )}
+          Undo
+        </Button>
+      )}
     </li>
   )
 }
@@ -109,12 +190,17 @@ export function AuditTimeline({ query }: { query?: string }) {
   const [rows, setRows] = useState<TimelineRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showAll, setShowAll] = useState(false)
+  // Bumped after a successful undo so the feed reloads and shows the revert.
+  const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetch(`/api/audit?${query ?? ''}`)
+    const params = new URLSearchParams(query ?? '')
+    if (showAll) params.set('materialOnly', 'false')
+    fetch(`/api/audit?${params.toString()}`)
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return
@@ -129,7 +215,22 @@ export function AuditTimeline({ query }: { query?: string }) {
     return () => {
       cancelled = true
     }
-  }, [query])
+  }, [query, showAll, reloadToken])
+
+  const handleUndone = useCallback(() => setReloadToken((n) => n + 1), [])
+
+  const toggle = (
+    <div className="flex justify-end">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setShowAll((v) => !v)}
+        className="h-7 text-[12px] text-aurea-ink-2"
+      >
+        {showAll ? 'Hide system bookkeeping' : 'Show all activity'}
+      </Button>
+    </div>
+  )
 
   if (loading) {
     return (
@@ -152,22 +253,28 @@ export function AuditTimeline({ query }: { query?: string }) {
 
   if (rows.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center py-10 text-center text-sm text-aurea-ink-3">
-          <History className="mb-2 h-8 w-8 text-aurea-ink-3" strokeWidth={1.75} />
-          No audit history yet.
-        </CardContent>
-      </Card>
+      <div className="space-y-2">
+        {toggle}
+        <Card>
+          <CardContent className="flex flex-col items-center py-10 text-center text-sm text-aurea-ink-3">
+            <History className="mb-2 h-8 w-8 text-aurea-ink-3" strokeWidth={1.75} />
+            No audit history yet.
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
   return (
-    <div className="aurea-card overflow-hidden">
-      <ol>
-        {rows.map((row) => (
-          <TimelineRowItem key={row.id} row={row} />
-        ))}
-      </ol>
+    <div className="space-y-2">
+      {toggle}
+      <div className="aurea-card overflow-hidden">
+        <ol>
+          {rows.map((row) => (
+            <TimelineRowItem key={row.id} row={row} onUndone={handleUndone} />
+          ))}
+        </ol>
+      </div>
     </div>
   )
 }
