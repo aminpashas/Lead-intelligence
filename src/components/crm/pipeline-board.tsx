@@ -23,7 +23,7 @@ import type { Lead, PipelineStage } from '@/types/database'
 import type { StageSuggestion } from '@/lib/pipeline/suggest-stage'
 import { classifyContactedState, type TimelineEnrollment } from '@/lib/pipeline/contacted-state'
 import { isActiveContactStage } from '@/lib/pipeline/stage-groups'
-import { SERVICE_LINES } from '@/lib/leads/service-line'
+import { PipelineServiceChips } from './pipeline-service-chips'
 import { toast } from 'sonner'
 
 // Spoken to screen-reader users when a card receives focus — the cards are
@@ -69,6 +69,9 @@ export function PipelineBoard({
   // no longer round-trip the whole page (no router.refresh), so the column
   // headers stay truthful by adjusting the counts client-side instead.
   const [countDelta, setCountDelta] = useState<Record<string, number>>({})
+  // Destination of the most recent move, plus a monotonic nonce so two moves
+  // into the same column still register as distinct reveals.
+  const [reveal, setReveal] = useState<{ stageId: string; n: number } | null>(null)
   const router = useRouter()
 
   useEffect(() => { setMounted(true) }, [])
@@ -90,18 +93,6 @@ export function PipelineBoard({
       return base + (countDelta[stageId] ?? 0)
     },
     [stageCounts, countDelta]
-  )
-
-  // Switching treatment is a server round-trip: the URL drives which service the
-  // board fetches (and counts), so clicking a chip shows that treatment's REAL
-  // leads across the funnel — not a filter of the ≤80/stage sample. Toggling the
-  // active chip (or "All") clears the filter.
-  const selectService = useCallback(
-    (key: string | null) => {
-      const next = key && key !== activeService ? `/pipeline?service=${key}` : '/pipeline'
-      router.push(next)
-    },
-    [activeService, router]
   )
 
   const sensors = useSensors(
@@ -189,11 +180,19 @@ export function PipelineBoard({
       const lead = leads.find((l) => l.id === leadId)
       if (!lead || lead.stage_id === newStageId) return
       const fromStageId = lead.stage_id
+      // Where the card sat in the server ordering — used to put it back exactly
+      // if the PATCH fails.
+      const fromIndex = leads.findIndex((l) => l.id === leadId)
 
-      // Optimistic update
-      setLeads((prev) =>
-        prev.map((l) => (l.id === leadId ? { ...l, stage_id: newStageId } : l))
-      )
+      // Optimistic update. Columns render `leads.filter(stage)` in array order,
+      // so re-stamping stage_id in place would drop the card wherever its old
+      // index happens to land in the new column — usually buried below the fold.
+      // Prepend it instead: a card you just moved should be the one you see.
+      setLeads((prev) => [
+        { ...lead, stage_id: newStageId },
+        ...prev.filter((l) => l.id !== leadId),
+      ])
+      setReveal((prev) => ({ stageId: newStageId, n: (prev?.n ?? 0) + 1 }))
 
       // Update via API — same endpoint the drag path uses
       try {
@@ -215,12 +214,13 @@ export function PipelineBoard({
         })
         toast.success('Lead moved successfully')
       } catch {
-        // Revert on failure
-        setLeads((prev) =>
-          prev.map((l) =>
-            l.id === leadId ? { ...l, stage_id: lead.stage_id } : l
-          )
-        )
+        // Revert on failure — stage AND position, or the card would sit at the
+        // top of the column it never actually left.
+        setLeads((prev) => {
+          const without = prev.filter((l) => l.id !== leadId)
+          without.splice(fromIndex, 0, lead)
+          return without
+        })
         toast.error('Failed to move lead')
       }
     },
@@ -249,28 +249,14 @@ export function PipelineBoard({
     [moveLeadToStage]
   )
 
-  // Treatment filter chips — only services with leads get a chip. Mirrors GHL's
-  // "switch pipeline" but over one shared funnel. Counts are whole-book totals
-  // computed server-side (serviceCounts), so the chips no longer disagree with
-  // the funnel. Clicking one re-scopes the board via the URL.
+  // Treatment filter chips — shared with the List view (see
+  // PipelineServiceChips) so both renderings of the funnel filter identically.
   const chipRow = (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
-      <ServiceChip
-        label="All"
-        count={totalLeadCount}
-        active={activeService === null}
-        onClick={() => selectService(null)}
-      />
-      {SERVICE_LINES.filter((s) => (serviceCounts[s.key] ?? 0) > 0).map((s) => (
-        <ServiceChip
-          key={s.key}
-          label={s.label}
-          count={serviceCounts[s.key]}
-          active={activeService === s.key}
-          onClick={() => selectService(s.key)}
-        />
-      ))}
-    </div>
+    <PipelineServiceChips
+      totalLeadCount={totalLeadCount}
+      serviceCounts={serviceCounts}
+      activeService={activeService}
+    />
   )
 
   // Prevent hydration mismatch — DnD-kit generates unique IDs at runtime
@@ -315,6 +301,7 @@ export function PipelineBoard({
                 suggestionByLead={suggestionByLead}
                 onApplySuggestion={handleApplySuggestion}
                 enrollments={enrollments}
+                revealToken={reveal?.stageId === stage.id ? reveal.n : undefined}
               />
             )
           })}
@@ -324,39 +311,5 @@ export function PipelineBoard({
         {activeLead && <LeadCard lead={activeLead} cadence={activeCadence} />}
       </DragOverlay>
     </DndContext>
-  )
-}
-
-function ServiceChip({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string
-  count: number
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] transition-colors ${
-        active
-          ? 'border-aurea-ink bg-aurea-ink text-white'
-          : 'border-aurea-border bg-white text-aurea-ink-2 hover:border-aurea-ink/40 hover:text-aurea-ink'
-      }`}
-    >
-      <span>{label}</span>
-      <span
-        className={`font-mono text-[11px] tabular-nums ${
-          active ? 'text-white/70' : 'text-aurea-ink-3'
-        }`}
-      >
-        {count}
-      </span>
-    </button>
   )
 }

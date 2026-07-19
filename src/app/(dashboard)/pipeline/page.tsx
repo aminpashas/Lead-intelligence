@@ -23,7 +23,21 @@ import {
   applyDerivedFilter,
 } from '@/lib/pipeline/derived-columns'
 import { PipelineSignalColumns } from '@/components/crm/pipeline-signal-columns'
+import { PipelineList } from '@/components/crm/pipeline-list'
+import { PipelineServiceChips } from '@/components/crm/pipeline-service-chips'
+import { PipelineViewToggle } from '@/components/crm/pipeline-view-toggle'
 import { SERVICE_LINES, serviceLineOrFilter } from '@/lib/leads/service-line'
+import type { Lead } from '@/types/database'
+
+// URL sort key → leads column for the List view, whitelisted so the param can't
+// order by an arbitrary (e.g. encrypted, or non-existent) column.
+const LIST_SORT_COLUMNS: Record<string, string> = {
+  name: 'first_name',
+  engagement: 'engagement_score',
+  value: 'treatment_value',
+  activity: 'last_contacted_at',
+  created: 'created_at',
+}
 
 export default async function PipelinePage({
   searchParams,
@@ -63,6 +77,26 @@ export default async function PipelinePage({
   const allStages = (stages || []).filter(
     (s) => !isPostCloseStage(s.slug) && !isOffFunnelStage(s.slug),
   )
+  const boardStageIds = allStages.map((s) => s.id)
+
+  // Board (kanban) vs. List (spreadsheet) are two DIFFERENT reads of this
+  // funnel, not two renderings of one payload — the board wants a capped card
+  // slice per stage, the list wants one paginated whole-book query. Branch the
+  // fetching so neither view pays for the other's queries.
+  const isListView = params.view === 'list'
+
+  // The board's population rule, as a single predicate for flat queries: sales
+  // stages drop disqualified/lost, operational buckets (No Communication, DND
+  // SMS, Nurturing) keep everything — those are work queues, not sales
+  // positions. Expressed as one OR so the list's total matches the sum of the
+  // board's column headers instead of quietly undercounting ~8k leads.
+  const operationalStageIds = allStages
+    .filter((s) => isOperationalStage(s.slug))
+    .map((s) => s.id)
+  const FUNNEL_POPULATION_OR =
+    operationalStageIds.length > 0
+      ? `stage_id.in.(${operationalStageIds.join(',')}),status.not.in.(disqualified,lost)`
+      : null
 
   // A whole practice book is tens of thousands of leads — you can neither render
   // that many cards nor trust a single capped fetch (PostgREST's default row cap
@@ -72,7 +106,7 @@ export default async function PipelinePage({
   // exact total (`count`). The header shows the true total; only up to CARD_CAP
   // cards are actually rendered/dragged.
   const CARD_CAP = 80
-  const perStage = await Promise.all(
+  const perStage = isListView ? [] : await Promise.all(
     allStages.map(async (s) => {
       // Operational columns (No Communication, DND SMS, Nurturing) are work-queue
       // buckets, not sales positions — their population is orthogonal to sales
@@ -129,30 +163,89 @@ export default async function PipelinePage({
     totalLeadCount += p.total
   }
 
+  // List mode never runs the per-stage fan-out, so the "All" chip needs its own
+  // grand total: one exact head-count over the whole funnel under the same
+  // population rule — deliberately UNfiltered by treatment, since "All" means
+  // the whole book regardless of which chip is lit.
+  if (isListView && boardStageIds.length > 0) {
+    let tq = supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .in('stage_id', boardStageIds)
+    tq = FUNNEL_POPULATION_OR
+      ? tq.or(FUNNEL_POPULATION_OR)
+      : tq.not('status', 'in', '("disqualified","lost")')
+    const { count } = await tq
+    totalLeadCount = count ?? 0
+  }
+
   // Full-book per-service counts for the chip row — one exact head-count per
-  // service line across the board's sales stages, so the chips reflect the real
-  // book instead of the loaded card sample. (Excludes disqualified/lost, matching
-  // the sales-stage rule; a chip counts the active funnel for that treatment.)
-  const boardStageIds = allStages.map((s) => s.id)
+  // service line across the board's stages, so the chips reflect the real book
+  // instead of the loaded card sample.
+  //
+  // These use the SAME population rule as the "All" chip and the column headers
+  // (FUNNEL_POPULATION_OR). They previously applied a blanket disqualified/lost
+  // exclusion to every stage, which silently dropped treatment leads parked in
+  // the operational buckets — the TMJ chip read 1,839 while the board's own
+  // columns held 2,206 of them. Harmless while the board never showed both
+  // numbers in the same units; the List view puts a chip directly above a total,
+  // so the two rules had to be reconciled.
   const serviceEntries = await Promise.all(
     SERVICE_LINES.map(async ({ key }) => {
       const or = serviceLineOrFilter(key)
       if (!or || boardStageIds.length === 0) return [key, 0] as const
-      const { count } = await supabase
+      let sq = supabase
         .from('leads')
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .in('stage_id', boardStageIds)
-        .not('status', 'in', '("disqualified","lost")')
-        .or(or)
+      sq = FUNNEL_POPULATION_OR
+        ? sq.or(FUNNEL_POPULATION_OR)
+        : sq.not('status', 'in', '("disqualified","lost")')
+      const { count } = await sq.or(or)
       return [key, count ?? 0] as const
     })
   )
   const serviceCounts: Record<string, number> = Object.fromEntries(serviceEntries)
 
-  // Rendered card set = the union of every stage's capped slice.
-  // PII is encrypted at rest — decrypt server-side before rendering.
-  const allLeads = decryptLeadsPII(perStage.flatMap((p) => p.rows))
+  // ── List view: ONE paginated whole-book query over the funnel ──────────────
+  // The board can only ever show its ≤80-cards-per-stage slice; the list is the
+  // surface where every lead is actually reachable, so it pages over the real
+  // population instead of flattening the board's sample.
+  const LIST_PER_PAGE = 50
+  const listPage = Math.max(1, Number.parseInt(params.page || '1', 10) || 1)
+  let listRows: Lead[] = []
+  let listTotal = 0
+  if (isListView && boardStageIds.length > 0) {
+    const sortCol = LIST_SORT_COLUMNS[params.sort] || 'created_at'
+    const ascending = params.dir === 'asc'
+    let lq = supabase
+      .from('leads')
+      .select('*', { count: 'exact' })
+      .eq('organization_id', orgId)
+      .in('stage_id', boardStageIds)
+    lq = FUNNEL_POPULATION_OR
+      ? lq.or(FUNNEL_POPULATION_OR)
+      : lq.not('status', 'in', '("disqualified","lost")')
+    if (serviceOr) lq = lq.or(serviceOr)
+    const { data, count } = await lq
+      .order(sortCol, { ascending, nullsFirst: false })
+      // `id` is a stable tiebreaker. Without it, a sort whose values tie across
+      // thousands of rows (treatment_value is null for most of the book) leaves
+      // the row order undefined between requests — leads would appear on two
+      // pages and vanish from a third as you page through.
+      .order('id', { ascending: true })
+      .range((listPage - 1) * LIST_PER_PAGE, listPage * LIST_PER_PAGE - 1)
+    listRows = data || []
+    listTotal = count ?? 0
+  }
+
+  // Rendered lead set: the list's page, or the union of every stage's capped
+  // slice. PII is encrypted at rest — decrypt server-side before rendering.
+  const allLeads = decryptLeadsPII(
+    isListView ? listRows : perStage.flatMap((p) => p.rows)
+  )
   const nowMs = Date.now()
 
   // Following Up / Engaged cards show a Day-N cadence badge sourced from the
@@ -162,9 +255,13 @@ export default async function PipelinePage({
   const activeContactStageIds = new Set(
     allStages.filter((s) => isActiveContactStage(s.slug)).map((s) => s.id)
   )
-  const activeContactLeadIds = allLeads
-    .filter((l) => l.stage_id && activeContactStageIds.has(l.stage_id))
-    .map((l) => l.id)
+  // Board-only: the cadence badge is a card affordance, so list mode skips the
+  // enrollment fetch entirely rather than paying for a badge nothing renders.
+  const activeContactLeadIds = isListView
+    ? []
+    : allLeads
+        .filter((l) => l.stage_id && activeContactStageIds.has(l.stage_id))
+        .map((l) => l.id)
 
   const enrollments: Record<
     string,
@@ -205,6 +302,10 @@ export default async function PipelinePage({
     recommendations = buildRecommendations(signals)
   }
 
+  // Base rate is derived from whatever lead set this view loaded — the board's
+  // ~1k cards, or the list's 50-row page. The page-sized sample is noisier, but
+  // it only feeds the FALLBACK heuristic below; leads the calibrate-scoring cron
+  // has stamped read their calibrated probability regardless of sample size.
   const baseRate = computeCloseBaseRate(allLeads.map((l) => l.status))
   const probabilityByLead: Record<string, number> = {}
   const suggestionByLead: Record<string, StageSuggestion> = {}
@@ -225,9 +326,13 @@ export default async function PipelinePage({
   // stale GHL stage label that makes "New Lead" read 10k. Each is one exact,
   // whole-book, treatment-aware count plus a capped card slice, scoped to the
   // board's (pre-close) stages. Cheap COUNT + a small card fetch per column.
+  //
+  // Board-only: these render as card columns, so list mode skips their
+  // count + card fetches (two queries per column) rather than paying for a
+  // strip it doesn't draw.
   const SIGNAL_CARD_CAP = 40
   const signalCutoffIso = new Date(nowMs - ACTIVE_COMMS_WINDOW_DAYS * 86_400_000).toISOString()
-  const signalColumns = await Promise.all(
+  const signalColumns = isListView ? [] : await Promise.all(
     DERIVED_COLUMNS.map(async (col) => {
       // Exact whole-book count for the header (head:true = count only, no rows).
       let cq = supabase
@@ -276,23 +381,50 @@ export default async function PipelinePage({
         <p className="aurea-eyebrow mb-2">Sales Pipeline</p>
         <h1 className="aurea-display text-[32px] text-aurea-ink sm:text-[40px]">Pipeline</h1>
         <p className="mt-2 text-[14px] leading-relaxed text-aurea-ink-2">
-          Drag leads between stages to update their status
+          {isListView
+            ? 'Every lead in the funnel — sort, page, and change stage inline'
+            : 'Drag leads between stages to update their status'}
         </p>
-        <FunnelViewNav current="/pipeline" />
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <FunnelViewNav current="/pipeline" />
+          <PipelineViewToggle current={isListView ? 'list' : 'board'} />
+        </div>
       </header>
       <PipelineRecommendations recommendations={recommendations} />
-      <PipelineSignalColumns columns={signalColumns} />
-      <PipelineBoard
-        stages={allStages}
-        leads={allLeads}
-        stageCounts={stageCounts}
-        totalLeadCount={totalLeadCount}
-        serviceCounts={serviceCounts}
-        activeService={activeService}
-        probabilityByLead={probabilityByLead}
-        suggestionByLead={suggestionByLead}
-        enrollments={enrollments}
-      />
+      {isListView ? (
+        <>
+          {/* Same chips as the board — filtering must mean the same thing in
+              both views, so the control is shared rather than reimplemented. */}
+          <PipelineServiceChips
+            totalLeadCount={totalLeadCount}
+            serviceCounts={serviceCounts}
+            activeService={activeService}
+          />
+          <PipelineList
+            leads={allLeads}
+            stages={allStages}
+            total={listTotal}
+            page={listPage}
+            perPage={LIST_PER_PAGE}
+            probabilityByLead={probabilityByLead}
+          />
+        </>
+      ) : (
+        <>
+          <PipelineSignalColumns columns={signalColumns} />
+          <PipelineBoard
+            stages={allStages}
+            leads={allLeads}
+            stageCounts={stageCounts}
+            totalLeadCount={totalLeadCount}
+            serviceCounts={serviceCounts}
+            activeService={activeService}
+            probabilityByLead={probabilityByLead}
+            suggestionByLead={suggestionByLead}
+            enrollments={enrollments}
+          />
+        </>
+      )}
     </div>
   )
 }
