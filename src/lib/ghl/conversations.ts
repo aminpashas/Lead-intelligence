@@ -48,7 +48,15 @@ export type GhlMessage = {
 }
 
 /** LI-normalized channel for a GHL message, or a routing marker. */
-export type NormalizedChannel = 'sms' | 'email' | 'web_chat' | 'whatsapp' | 'call' | null
+export type NormalizedChannel =
+  | 'sms'
+  | 'email'
+  | 'web_chat'
+  | 'whatsapp'
+  | 'messenger'
+  | 'instagram'
+  | 'call'
+  | null
 
 /** Call-connection state, derived defensively from GHL's per-revision call fields. */
 export type GhlCallState = 'answered' | 'no_answer' | 'voicemail' | 'busy' | 'failed' | 'unknown'
@@ -158,7 +166,12 @@ export async function getConversationMessages(
 /**
  * Map a GHL messageType to an LI channel. Calls/voicemails return 'call' so the
  * caller logs them as an activity (the conversations.channel CHECK constraint
- * has no 'call' value). Unsupported channels (FB/IG/GMB) return null → skipped.
+ * has no 'call' value). Genuinely unsupported channels (e.g. GMB) return null.
+ *
+ * FB/IG were previously dropped here, which is why inbound Messenger/Instagram
+ * DMs never reached LI at all — no thread, no lead, no new-lead alert. GHL owns
+ * the Meta connection (capture-only); LI mirrors what GHL already received, so
+ * this needs no Meta app permissions of its own.
  */
 export function mapGhlChannel(messageType: string | undefined): NormalizedChannel {
   const t = (messageType || '').toUpperCase()
@@ -168,6 +181,11 @@ export function mapGhlChannel(messageType: string | undefined): NormalizedChanne
   if (t.includes('SMS')) return 'sms'
   if (t.includes('EMAIL')) return 'email'
   if (t.includes('WHATSAPP')) return 'whatsapp'
+  // Instagram before Facebook: GHL labels IG DMs TYPE_INSTAGRAM, but some
+  // revisions prefix them with the parent platform (e.g. "FB_INSTAGRAM"), which
+  // would otherwise classify as messenger.
+  if (t.includes('INSTAGRAM') || t.includes('_IG')) return 'instagram'
+  if (t.includes('FACEBOOK') || t.includes('MESSENGER') || t.includes('_FB')) return 'messenger'
   if (t.includes('LIVE_CHAT') || t.includes('WEBCHAT') || t.includes('WEB_CHAT') || t.includes('CHAT'))
     return 'web_chat'
   return null

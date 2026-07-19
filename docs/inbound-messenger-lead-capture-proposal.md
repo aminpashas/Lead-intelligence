@@ -1,9 +1,43 @@
 # Inbound Facebook/Instagram Messenger → Lead Capture
 
-**Status:** Proposal / cross-product requirement
+**Status:** ⚠️ **Superseded in practice — read §0 first.** The direct-Meta plan below
+is still the correct long-term shape, but is NOT what shipped.
 **Raised by:** Lead Intelligence (LI)
 **Owner (proposed):** Growth Studio (demand-gen) — with Patient Engagement / Dion Desk for the conversation surface
-**LI's role:** downstream `lead.*` consumer only — **LI will not build a Messenger inbox**
+**LI's role:** downstream consumer — **LI does not own a Messenger inbox**
+
+---
+
+## 0. What actually shipped (2026-07-19): capture via GHL, not direct Meta
+
+The plan below routes FB/IG through a **direct Meta `messages` subscription** owned
+by Growth Studio. That is blocked on Meta **App Review** for `pages_messaging`
+(weeks of lead time) and on a repo that isn't checked out.
+
+**GHL already holds the Meta page connection** (the `ghl-capture-only → LI
+operations` architecture), so it is *already receiving* these DMs. LI was simply
+throwing them away. The shipped fix removes that discard:
+
+| Blocker | Fix |
+|---|---|
+| `mapGhlChannel('TYPE_FACEBOOK')` → `null`, dropped before persist | maps to `messenger` / `instagram` (`src/lib/ghl/conversations.ts`) |
+| `isConversational()` allowed only sms/email/web_chat/whatsapp | social channels included (`src/lib/ghl/ingest-message.ts`) |
+| `conversations.channel` / `messages.channel` CHECK rejected the insert | `supabase/migrations/20260719120000_social_dm_channels.sql` |
+| unknown contact → `no_lead` → dropped (**the actual missing alert**) | inbound social DM from an unknown contact creates the lead + fires `notifyNewLead` (`src/app/api/webhooks/ghl/message/route.ts`) |
+
+This keeps LI within its lane: it does **not** connect to Meta and does **not**
+build a Messenger inbox — it mirrors what GHL already captured, exactly as it
+already does for SMS/email. The reply surface stays with GHL/PE/Desk.
+
+**Preconditions this depends on (verify before trusting it):**
+1. the FB/IG page is connected inside GHL;
+2. GHL is configured to POST each message to
+   `/api/webhooks/ghl/message?org=<uuid>` with the `x-ghl-webhook-secret` header;
+3. `GHL_WEBHOOK_SECRET` is set in Vercel (it is absent from `.env.local.example`);
+4. the migration is applied to prod.
+
+The `lead.captured` bus consumer (§4) remains built and inert — it is the
+migration path for when a direct-Meta producer does exist.
 
 ---
 

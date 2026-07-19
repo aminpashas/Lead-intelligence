@@ -30,9 +30,18 @@ describe('mapGhlChannel', () => {
     expect(mapGhlChannel('TYPE_WEBCHAT')).toBe('web_chat')
   })
 
-  it('returns null for unsupported channels', () => {
-    expect(mapGhlChannel('TYPE_FACEBOOK')).toBeNull()
-    expect(mapGhlChannel('TYPE_INSTAGRAM')).toBeNull()
+  it('maps social DM channels (previously dropped — no lead, no alert)', () => {
+    expect(mapGhlChannel('TYPE_FACEBOOK')).toBe('messenger')
+    expect(mapGhlChannel('TYPE_MESSENGER')).toBe('messenger')
+    expect(mapGhlChannel('TYPE_INSTAGRAM')).toBe('instagram')
+  })
+
+  it('classifies IG before FB so a parent-prefixed IG type is not messenger', () => {
+    expect(mapGhlChannel('TYPE_FB_INSTAGRAM')).toBe('instagram')
+  })
+
+  it('returns null for genuinely unsupported channels', () => {
+    expect(mapGhlChannel('TYPE_GMB')).toBeNull()
     expect(mapGhlChannel(undefined)).toBeNull()
   })
 })
@@ -89,8 +98,21 @@ describe('normalizeGhlMessage', () => {
 
   it('skips empty-body non-call messages and unsupported channels', () => {
     expect(normalizeGhlMessage({ id: 'e1', messageType: 'TYPE_SMS', body: '   ' })).toBeNull()
-    expect(normalizeGhlMessage({ id: 'f1', messageType: 'TYPE_FACEBOOK', body: 'hey' })).toBeNull()
+    expect(normalizeGhlMessage({ id: 'f1', messageType: 'TYPE_GMB', body: 'hey' })).toBeNull()
     expect(normalizeGhlMessage({ id: '', messageType: 'TYPE_SMS', body: 'x' })).toBeNull()
+  })
+
+  it('normalizes an inbound Messenger DM into a persistable thread', () => {
+    const n = normalizeGhlMessage({
+      id: 'm1',
+      messageType: 'TYPE_FACEBOOK',
+      body: 'Do you do full arch implants?',
+      direction: 'inbound',
+    })
+    expect(n).not.toBeNull()
+    expect(n!.channel).toBe('messenger')
+    expect(n!.isCall).toBe(false)
+    expect(n!.direction).toBe('inbound')
   })
 })
 

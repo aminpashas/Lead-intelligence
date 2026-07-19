@@ -44,9 +44,21 @@ export type PersistParams = {
   conversationCache?: Map<string, string>
 }
 
+/** Channels that persist as a conversation thread (everything except call/voicemail). */
+export type ConversationalChannel = 'sms' | 'email' | 'web_chat' | 'whatsapp' | 'messenger' | 'instagram'
+
+const CONVERSATIONAL_CHANNELS: readonly ConversationalChannel[] = [
+  'sms',
+  'email',
+  'web_chat',
+  'whatsapp',
+  'messenger',
+  'instagram',
+]
+
 /** A message insert with no persistable conversation channel (call/voicemail). */
 function isConversational(n: NormalizedGhlMessage): boolean {
-  return n.channel === 'sms' || n.channel === 'email' || n.channel === 'web_chat' || n.channel === 'whatsapp'
+  return CONVERSATIONAL_CHANNELS.includes(n.channel as ConversationalChannel)
 }
 
 /** Seconds → "m:ss" (e.g. 8 → "0:08", 252 → "4:12"). */
@@ -83,7 +95,7 @@ async function resolveConversation(
   supabase: SupabaseClient,
   organizationId: string,
   leadId: string,
-  channel: 'sms' | 'email' | 'web_chat' | 'whatsapp',
+  channel: ConversationalChannel,
   cache?: Map<string, string>,
 ): Promise<string | null> {
   const key = `${leadId}:${channel}`
@@ -211,7 +223,7 @@ export async function persistGhlMessage(
   }
 
   if (!isConversational(n)) return { status: 'skipped' }
-  const channel = n.channel as 'sms' | 'email' | 'web_chat' | 'whatsapp'
+  const channel = n.channel as ConversationalChannel
 
   const conversationId = await resolveConversation(
     supabase,
