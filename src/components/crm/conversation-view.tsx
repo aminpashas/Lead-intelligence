@@ -6,6 +6,7 @@ import { ConversationThread } from './conversation-thread'
 import { TimelineFeed } from './lead-timeline'
 import type { Conversation, Lead, Message, VoiceCall, ConversationAnalysis, PatientProfile, PipelineStage } from '@/types/database'
 import type { TimelineEntry } from '@/lib/timeline/types'
+import type { LeadNote } from './lead-notes-panel'
 
 type Mode = 'thread' | 'timeline'
 
@@ -30,6 +31,8 @@ export function ConversationView({
   timeZone,
   embedded = false,
   canTrainAi = false,
+  notes = [],
+  currentUserId = null,
 }: {
   lead: Lead
   /** Org pipeline stages, forwarded so the thread can move the lead's stage. */
@@ -53,6 +56,10 @@ export function ConversationView({
   /** Rendered inside the messenger shell — drop the thread's standalone card
    *  chrome + back arrow (the inbox rail already provides navigation). */
   embedded?: boolean
+  /** Manual team notes for the lead, forwarded to the thread's Notes panel. */
+  notes?: LeadNote[]
+  /** Viewer's user id — notes expose edit/delete only on the author's own rows. */
+  currentUserId?: string | null
 }) {
   const [mode, setMode] = useState<Mode>('thread')
 
@@ -67,7 +74,7 @@ export function ConversationView({
 
       {mode === 'thread' ? (
         <div className="min-h-0 flex-1">
-          <ConversationThread lead={lead} stages={stages} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} canTrainAi={canTrainAi} />
+          <ConversationThread lead={lead} stages={stages} conversation={conversation} messages={messages} calls={calls} prequalEnabled={prequalEnabled} noShowFeeEnabled={noShowFeeEnabled} savedAnalysis={savedAnalysis} patientProfile={patientProfile} timeZone={timeZone} embedded={embedded} canTrainAi={canTrainAi} notes={notes} currentUserId={currentUserId} />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
@@ -90,8 +97,13 @@ function ModeButton({ active, onClick, icon, label }: { active: boolean; onClick
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium transition-colors ${
-        active ? 'bg-aurea-ink text-aurea-canvas' : 'text-aurea-ink-3 hover:text-aurea-ink'
+      // The inactive half used to sit at ink-3 (the faintest ink in the system),
+      // which read as decoration — staff never found the Timeline view. ink-2 +
+      // a hover surface makes it legible as a real control.
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition-colors ${
+        active
+          ? 'bg-aurea-ink text-aurea-canvas'
+          : 'text-aurea-ink-2 hover:bg-aurea-surface-2 hover:text-aurea-ink'
       }`}
     >
       {icon}

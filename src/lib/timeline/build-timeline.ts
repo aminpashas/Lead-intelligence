@@ -4,6 +4,13 @@ const NOTE_ACTIVITY = 'note_added'
 const STAGE_ACTIVITY = 'stage_changed'
 
 /**
+ * The only `lead_activities` types this feed renders. Callers MUST filter on
+ * these in the query itself — filtering after a `.limit()` lets high-volume
+ * activity types starve notes and stage changes out of the result set.
+ */
+export const TIMELINE_ACTIVITY_TYPES = [NOTE_ACTIVITY, STAGE_ACTIVITY] as const
+
+/**
  * Merge a lead's messages, voice calls, and select activities into one
  * time-ascending feed (oldest first). Pure — the caller fetches org-scoped rows.
  * Ties on timestamp are broken by id for deterministic ordering.

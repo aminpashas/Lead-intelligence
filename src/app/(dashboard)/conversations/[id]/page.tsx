@@ -5,6 +5,7 @@ import { ConversationView } from '@/components/crm/conversation-view'
 import { notFound } from 'next/navigation'
 import { decryptLeadPII } from '@/lib/encryption'
 import { buildTimeline } from '@/lib/timeline/build-timeline'
+import { fetchLeadNotes } from '@/lib/timeline/lead-notes'
 import { isFlagEnabled } from '@/lib/org/flags'
 import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 import type { ConversationAnalysis, PatientProfile, PipelineStage } from '@/types/database'
@@ -99,9 +100,13 @@ export default async function ConversationDetailPage({
   // with the browser on day boundaries.
   const timeZone = await resolvePracticeTimeZone(supabase, conversation.organization_id as string | null)
 
-  // Admins get the per-call "Use for AI training" control on call cards.
-  const { data: ownProfile } = await getOwnProfile(supabase, 'role')
+  // Admins get the per-call "Use for AI training" control on call cards. `id` is
+  // also needed so the Notes panel knows which notes the viewer may edit.
+  const { data: ownProfile } = await getOwnProfile(supabase, 'id, role')
   const canTrainAi = !!ownProfile && isAdminRole(ownProfile.role)
+
+  // Manual team notes for the lead behind this conversation.
+  const notes = leadId ? await fetchLeadNotes(supabase, leadId) : []
 
   // Pipeline stages — lets staff move the lead's stage from inside the thread,
   // right after the call or text that earned the move.
@@ -128,6 +133,8 @@ export default async function ConversationDetailPage({
       timeZone={timeZone}
       embedded
       canTrainAi={canTrainAi}
+      notes={notes}
+      currentUserId={ownProfile?.id ?? null}
     />
   )
 }

@@ -17,6 +17,7 @@ import { LeadActions } from './lead-actions'
 import { EngagementMeter } from './engagement-meter'
 import { TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
+import type { LeadNote } from './lead-notes-panel'
 import { StageSelect } from './stage-select'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
 import { ScheduleAppointment } from './schedule-appointment'
@@ -78,6 +79,8 @@ export function LeadDetail({
   noShowFeeEnabled = false,
   timeZone,
   canTrainAi = false,
+  notes = [],
+  currentUserId = null,
 }: {
   lead: Lead
   activities: LeadActivity[]
@@ -100,6 +103,10 @@ export function LeadDetail({
   /** Admin roles only (computed server-side): shows the per-call "Use for AI
    *  training" control, forwarded to the thread's call cards. */
   canTrainAi?: boolean
+  /** Manual team notes for this lead, forwarded to the thread's Notes panel. */
+  notes?: LeadNote[]
+  /** Viewer's user id — notes expose edit/delete only on the author's own rows. */
+  currentUserId?: string | null
 }) {
   const [lead, setLead] = useState(initialLead)
   const [scoring, setScoring] = useState(false)
@@ -230,8 +237,11 @@ export function LeadDetail({
               <ModeButton active={mode === 'thread'} onClick={() => setMode('thread')} icon={<MessagesSquare className="h-3.5 w-3.5" strokeWidth={1.75} />} label="Thread" />
               <ModeButton active={mode === 'timeline'} onClick={() => setMode('timeline')} icon={<GitBranch className="h-3.5 w-3.5" strokeWidth={1.75} />} label="Timeline" />
             </div>
+            {/* Ghost when closed: as an outline button it visually outranked the
+                Thread/Timeline toggle beside it, which is the control staff
+                actually need to find. */}
             <Button
-              variant={showDetails ? 'default' : 'outline'}
+              variant={showDetails ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setShowDetails((v) => !v)}
               aria-pressed={showDetails}
@@ -264,6 +274,8 @@ export function LeadDetail({
               patientProfile={patientProfile}
               timeZone={timeZone}
               canTrainAi={canTrainAi}
+              notes={notes}
+              currentUserId={currentUserId}
             />
           ) : (
             <div className="h-full overflow-y-auto px-5 py-6">
@@ -692,8 +704,12 @@ function ModeButton({ active, onClick, icon, label }: { active: boolean; onClick
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-medium transition-colors ${
-        active ? 'bg-aurea-ink text-aurea-canvas' : 'text-aurea-ink-3 hover:text-aurea-ink'
+      // Matches ConversationView's toggle: the inactive half sits at ink-2, not
+      // the near-invisible ink-3, so Timeline reads as a control staff can click.
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition-colors ${
+        active
+          ? 'bg-aurea-ink text-aurea-canvas'
+          : 'text-aurea-ink-2 hover:bg-aurea-surface-2 hover:text-aurea-ink'
       }`}
     >
       {icon}

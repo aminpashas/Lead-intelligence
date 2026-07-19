@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildTimeline } from '@/lib/timeline/build-timeline'
+import { buildTimeline, TIMELINE_ACTIVITY_TYPES } from '@/lib/timeline/build-timeline'
 import type { TimelineInput } from '@/lib/timeline/types'
 
 const empty: TimelineInput = { messages: [], calls: [], activities: [] }
@@ -46,6 +46,50 @@ describe('buildTimeline', () => {
     })
     expect(out.map((e) => e.kind)).toEqual(['note', 'stage_change'])
     expect(out[0]).toMatchObject({ kind: 'note', body: 'called back later' })
+  })
+
+  // Regression: /leads/[id] used to fetch the 50 most recent activities of ANY
+  // type and let buildTimeline filter afterwards. With 29 activity types, a busy
+  // lead's notes and stage changes fell outside that window and the Timeline view
+  // rendered empty. The fix filters in the query; these two tests pin the pieces
+  // that make the fix hold.
+  describe('activity-type starvation regression', () => {
+    it('exposes the query filter the builder actually honours, so the two cannot drift', () => {
+      // If someone teaches buildTimeline a new activity kind but forgets to widen
+      // the query filter, the new kind is silently never fetched. Pinning the
+      // constant here makes that omission a failing test rather than a blank feed.
+      expect([...TIMELINE_ACTIVITY_TYPES].sort()).toEqual(['note_added', 'stage_changed'])
+    })
+
+    it('still surfaces a note buried under a flood of newer high-volume activities', () => {
+      // Mirrors the production shape: one old note, then 60 newer score updates.
+      // Pre-fix, a .limit(50) on created_at DESC returned only score_updated rows
+      // and this note was gone before the builder ever saw it.
+      const note = {
+        id: 'note-1',
+        created_at: '2026-06-01T08:00:00.000Z',
+        activity_type: 'note_added',
+        title: 'Note',
+        description: 'patient asked about financing',
+      }
+      const noise = Array.from({ length: 60 }, (_, i) => ({
+        id: `score-${i}`,
+        created_at: `2026-06-02T${String(i % 24).padStart(2, '0')}:00:00.000Z`,
+        activity_type: 'score_updated',
+        title: 'Score updated',
+        description: null,
+      }))
+
+      // The query now hands the builder only the timeline-relevant types, in the
+      // same order Postgres would. The note survives.
+      const fetched = [...noise, note].filter((a) =>
+        (TIMELINE_ACTIVITY_TYPES as readonly string[]).includes(a.activity_type),
+      )
+      const out = buildTimeline({ ...empty, activities: fetched })
+
+      expect(out).toHaveLength(1)
+      expect(out[0]).toMatchObject({ kind: 'note', body: 'patient asked about financing' })
+    })
   })
 
   it('interleaves channels in ascending time order, tie-breaking by id', () => {

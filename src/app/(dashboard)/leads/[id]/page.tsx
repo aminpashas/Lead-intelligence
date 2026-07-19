@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation'
 import { getOwnProfile } from '@/lib/auth/active-org'
 import { isAdminRole } from '@/lib/auth/permissions'
 import { LeadDetail } from '@/components/crm/lead-detail'
-import { buildTimeline } from '@/lib/timeline/build-timeline'
+import { buildTimeline, TIMELINE_ACTIVITY_TYPES } from '@/lib/timeline/build-timeline'
+import { fetchLeadNotes } from '@/lib/timeline/lead-notes'
 import { pickConversationToAnalyze } from '@/lib/timeline/pick-conversation'
 import { decryptLeadPII } from '@/lib/encryption'
 import { isFlagEnabled } from '@/lib/org/flags'
@@ -41,6 +42,7 @@ export default async function LeadDetailPage({
   // and the unified timeline — are derived from that single result.
   const [
     { data: activities },
+    { data: timelineActivities },
     { data: conversations },
     { data: allMessages },
     { data: allVoiceCalls },
@@ -61,12 +63,24 @@ export default async function LeadDetailPage({
     { data: ownProfile },
     { data: leadTagRows },
   ] = await Promise.all([
+    // Audit trail for the Details panel — every activity type, most recent first.
     supabase
       .from('lead_activities')
       .select('*')
       .eq('lead_id', id)
       .order('created_at', { ascending: false })
       .limit(50),
+    // Timeline activities — notes + stage changes only. Filtered in the QUERY,
+    // not after it: the audit query above caps at 50 rows of *any* type, and on a
+    // busy lead (29 activity types — score updates, tags, campaign enrolments)
+    // notes and stage changes get pushed out of that window before the timeline
+    // builder ever sees them, silently emptying the Timeline view.
+    supabase
+      .from('lead_activities')
+      .select('id, created_at, activity_type, title, description')
+      .eq('lead_id', id)
+      .in('activity_type', TIMELINE_ACTIVITY_TYPES)
+      .order('created_at', { ascending: true }),
     supabase
       .from('conversations')
       .select('*')
@@ -113,7 +127,9 @@ export default async function LeadDetailPage({
       .eq('organization_id', lead.organization_id)
       .maybeSingle(),
     resolvePracticeTimeZone(supabase, lead.organization_id),
-    getOwnProfile(supabase, 'role'),
+    // `id` too: the Notes panel needs the viewer's id to decide which notes
+    // expose edit/delete controls.
+    getOwnProfile(supabase, 'id, role'),
     supabase
       .from('lead_tags')
       .select('tag:tags(*)')
@@ -137,8 +153,10 @@ export default async function LeadDetailPage({
   const timeline = buildTimeline({
     messages: (allMessages || []).slice(0, 300),
     calls: (allVoiceCalls || []).slice(0, 300),
-    activities: activities || [],
+    activities: timelineActivities || [],
   })
+
+  const notes = await fetchLeadNotes(supabase, id)
 
   const analyzableConversationId = pickConversationToAnalyze(conversations || [])
 
@@ -170,6 +188,8 @@ export default async function LeadDetailPage({
       noShowFeeEnabled={noShowFeeEnabled}
       timeZone={timeZone}
       canTrainAi={canTrainAi}
+      notes={notes}
+      currentUserId={ownProfile?.id ?? null}
     />
   )
 }

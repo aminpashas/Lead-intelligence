@@ -1,7 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
+import { toast } from 'sonner'
 import {
   PhoneIncoming,
   PhoneOutgoing,
@@ -11,11 +13,20 @@ import {
   ChevronRight,
   GraduationCap,
   Loader2,
+  NotebookPen,
   X,
 } from 'lucide-react'
 import type { VoiceCall } from '@/types/database'
 import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
 import { recordingPlaybackUrl } from '@/lib/voice/recording-playback'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 
 const AGENT_LABEL: Record<string, string> = { setter: 'Setter', closer: 'Closer' }
 
@@ -165,6 +176,35 @@ function TrainingControl({ call }: { call: VoiceCall }) {
  */
 export function CallCard({ call, canTrainAi = false }: { call: VoiceCall; canTrainAi?: boolean }) {
   const [open, setOpen] = useState(false)
+  const [editingNotes, setEditingNotes] = useState(false)
+  const [noteDraft, setNoteDraft] = useState(call.outcome_notes ?? '')
+  const [savingNotes, setSavingNotes] = useState(false)
+  const router = useRouter()
+
+  function beginEditNotes() {
+    setNoteDraft(call.outcome_notes ?? '')
+    setEditingNotes(true)
+    setOpen(true)
+  }
+
+  async function saveNotes() {
+    if (savingNotes) return
+    setSavingNotes(true)
+    try {
+      const res = await fetch(`/api/voice/calls/${call.id}/disposition`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: noteDraft.trim() }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to save notes')
+      setEditingNotes(false)
+      router.refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save notes')
+    } finally {
+      setSavingNotes(false)
+    }
+  }
 
   const outbound = call.direction === 'outbound'
   // A browser/bridge call is placed by a human; only an actual AI leg is labelled "AI".
@@ -189,8 +229,15 @@ export function CallCard({ call, canTrainAi = false }: { call: VoiceCall; canTra
   const expandable = lines.length > 0 || !!call.transcript_summary || !!call.recording_url
 
   return (
-    <div className="mx-auto w-full max-w-[540px]">
-      <div className="overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface">
+    <div className="group/call mx-auto w-full max-w-[540px]">
+      {/* Right-click anywhere on the card to amend the notes — for a call the
+          staffer didn't get to disposition at the time. A hover "Edit notes"
+          button mirrors it, so the action is discoverable and reachable without
+          a right mouse button (trackpads, touch). */}
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={<div className="relative overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface" />}
+        >
         {/* Summary row (click to expand) */}
         <button
           type="button"
@@ -234,6 +281,20 @@ export function CallCard({ call, canTrainAi = false }: { call: VoiceCall; canTra
             ))}
         </button>
 
+        {/* Visible twin of the right-click action. Rendered as a sibling of the
+            expand button rather than inside it — a button cannot nest a button. */}
+        <div className="pointer-events-none absolute right-9 top-2.5 opacity-0 transition-opacity group-hover/call:opacity-100 focus-within:opacity-100">
+          <button
+            type="button"
+            onClick={beginEditNotes}
+            title="Edit call notes"
+            aria-label="Edit call notes"
+            className="pointer-events-auto flex h-6 w-6 items-center justify-center rounded text-aurea-ink-3 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
+          >
+            <NotebookPen className="h-3.5 w-3.5" strokeWidth={1.75} />
+          </button>
+        </div>
+
         {/* Expanded: summary + transcript + recording */}
         {open && (
           <div className="border-t border-aurea-border px-3.5 py-3">
@@ -242,6 +303,39 @@ export function CallCard({ call, canTrainAi = false }: { call: VoiceCall; canTra
                 {call.transcript_summary}
               </p>
             )}
+
+            {/* Staff notes — editable in place, for a call nobody dispositioned
+                at the time. Saving records the previous text to the audit trail. */}
+            {editingNotes ? (
+              <div className="mb-3 space-y-2">
+                <Textarea
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  rows={3}
+                  maxLength={2000}
+                  autoFocus
+                  placeholder="What happened on this call?"
+                  className="resize-none text-[12.5px]"
+                />
+                <div className="flex justify-end gap-1.5">
+                  <Button size="sm" variant="ghost" onClick={() => setEditingNotes(false)} className="gap-1">
+                    <X className="h-3 w-3" strokeWidth={1.75} />
+                    Cancel
+                  </Button>
+                  <Button size="sm" onClick={saveNotes} disabled={savingNotes} className="gap-1">
+                    {savingNotes ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    Save notes
+                  </Button>
+                </div>
+              </div>
+            ) : call.outcome_notes ? (
+              <div className="mb-3 rounded-lg border-l-2 border-aurea-primary/50 bg-aurea-canvas px-3 py-2">
+                <p className="mb-0.5 text-[10px] uppercase tracking-wide text-aurea-ink-3">Staff notes</p>
+                <p className="whitespace-pre-wrap text-[12.5px] leading-[1.5] text-aurea-ink-2">
+                  {call.outcome_notes}
+                </p>
+              </div>
+            ) : null}
 
             {lines.length === 0 ? (
               call.transcript_summary ? null : (
@@ -288,7 +382,14 @@ export function CallCard({ call, canTrainAi = false }: { call: VoiceCall; canTra
             {canTrainAi && <TrainingControl call={call} />}
           </div>
         )}
-      </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={beginEditNotes}>
+            <NotebookPen className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {call.outcome_notes ? 'Edit call notes' : 'Add call notes'}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   )
 }

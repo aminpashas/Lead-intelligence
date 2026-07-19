@@ -26,6 +26,7 @@ import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { formatToE164 } from '@/lib/leads/phone'
 import { syncStaffCallThreadMarker } from '@/lib/voice/staff-call-thread'
+import { recordAudit } from '@/lib/audit/record'
 
 const OUTCOME_VALUES = [
   'appointment_booked',
@@ -124,7 +125,7 @@ export async function PATCH(
   // Load the call so we can compose an accurate summary and know if it needs a lead.
   const { data: call } = await supabase
     .from('voice_calls')
-    .select('id, lead_id, direction, duration_seconds, to_number')
+    .select('id, lead_id, direction, duration_seconds, to_number, call_mode, transcript, transcript_summary, outcome_notes')
     .eq('id', id)
     .eq('organization_id', orgId)
     .maybeSingle()
@@ -203,7 +204,17 @@ export async function PATCH(
     notes,
   })
 
-  const updates: Record<string, unknown> = { transcript_summary: summary }
+  // Only recompose the summary for calls that have no real transcript of their
+  // own. `buildSummary` produces a synthetic one-liner from the call's facts —
+  // fine for a staff browser call (which never has an AI transcript), but it
+  // would destroy the AI-generated summary of an agent call. Staff amending the
+  // notes on an AI call must not silently wipe that call's summary.
+  const hasAiTranscript =
+    (Array.isArray(call.transcript) ? call.transcript.length > 0 : Boolean(call.transcript)) ||
+    call.call_mode === 'ai'
+
+  const updates: Record<string, unknown> = {}
+  if (!hasAiTranscript) updates.transcript_summary = summary
   if (outcome) updates.outcome = outcome
   if (notes !== undefined) updates.outcome_notes = notes || null
   if (leadId && leadId !== call.lead_id) updates.lead_id = leadId
@@ -219,6 +230,26 @@ export async function PATCH(
     .eq('organization_id', orgId)
 
   if (error) return NextResponse.json({ error: 'Failed to save disposition' }, { status: 500 })
+
+  // Amending the notes on an already-dispositioned call overwrites what was
+  // there. voice_calls is excluded from the row-change audit trigger, so record
+  // the prior value explicitly — otherwise the previous notes are unrecoverable
+  // and there's no record of who changed them.
+  if (notes !== undefined && (call.outcome_notes ?? null) !== (notes || null)) {
+    const { data: actor } = await authClient.auth.getUser()
+    await recordAudit(supabase, {
+      organizationId: orgId,
+      action: 'voice_call.notes_amended',
+      actor: { actorType: 'user', actorId: actor.user?.id ?? null },
+      source: 'api_route',
+      resourceType: 'voice_calls',
+      resourceId: id,
+      before: { outcome_notes: call.outcome_notes ?? null },
+      after: { outcome_notes: notes || null },
+      changedFields: ['outcome_notes'],
+      metadata: { lead_id: leadId },
+    })
+  }
 
   // If the staffer marked do-not-call, honor it on the lead immediately.
   if (outcome === 'do_not_call' && leadId) {

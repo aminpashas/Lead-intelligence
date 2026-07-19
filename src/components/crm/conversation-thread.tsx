@@ -47,6 +47,7 @@ import { LeadActions } from './lead-actions'
 import { StageSelect } from './stage-select'
 import { LiveCallIndicator, LiveCallPanel } from './live-call-panel'
 import { CallCard } from './call-card'
+import { LeadNotesPanel, type LeadNote } from './lead-notes-panel'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
 import { useConversationPresence } from '@/lib/hooks/use-conversation-presence'
 import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
@@ -165,6 +166,8 @@ export function ConversationThread({
   timeZone = DEFAULT_PRACTICE_TIMEZONE,
   embedded = false,
   canTrainAi = false,
+  notes = [],
+  currentUserId = null,
 }: {
   lead: Lead
   /** The org's pipeline stages, for the stage control in the toolbar + summary
@@ -196,6 +199,10 @@ export function ConversationThread({
   savedAnalysis?: ConversationAnalysis | null
   /** Persisted patient psychology profile — powers the always-on Lead Summary. */
   patientProfile?: PatientProfile | null
+  /** Manual team notes for this lead, rendered in the intelligence rail. */
+  notes?: LeadNote[]
+  /** Viewer's user id — notes only expose edit/delete on the author's own rows. */
+  currentUserId?: string | null
 }) {
   const router = useRouter()
   const [messages, setMessages] = useState(initialMessages)
@@ -964,6 +971,12 @@ export function ConversationThread({
               stage={stage}
               onStageChange={moveStage}
               movingStage={movingStage}
+            />
+            <LeadNotesPanel
+              leadId={lead.id}
+              notes={notes}
+              currentUserId={currentUserId}
+              timeZone={timeZone}
             />
             {analysisResult || followUpResult ? (
               <InsightsPanel analysisResult={analysisResult} followUpResult={followUpResult} />
