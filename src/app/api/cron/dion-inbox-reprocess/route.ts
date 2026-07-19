@@ -1,6 +1,6 @@
 import { withCron } from '@/lib/cron/with-cron'
 import { safeParseConsumedEvent } from '@/lib/bridges/dion/consumed'
-import { handleEncounterSummarized } from '@/lib/bridges/dion-encounter-brief'
+import { dispatchConsumedEvent } from '@/lib/bridges/dion/dispatch'
 
 /**
  * Reprocess Dion bus events that /api/bus/receive recorded but couldn't process
@@ -38,7 +38,7 @@ const handler = withCron('dion-inbox-reprocess', async ({ supabase }) => {
       continue
     }
     try {
-      await handleEncounterSummarized(supabase, parsed.data)
+      await dispatchConsumedEvent(supabase, parsed.data)
       await supabase
         .from('dion_inbox')
         .update({ processed_at: new Date().toISOString(), process_error: null })

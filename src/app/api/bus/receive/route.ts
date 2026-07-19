@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { checkForwardSecret } from '@/lib/bridges/dion/forward-secret'
 import { safeParseConsumedEvent } from '@/lib/bridges/dion/consumed'
-import { handleEncounterSummarized } from '@/lib/bridges/dion-encounter-brief'
+import { dispatchConsumedEvent } from '@/lib/bridges/dion/dispatch'
+import { isSelfEmitted } from '@/lib/bridges/dion/lead'
 
 /**
  * Dion bus receiver — LI's FIRST inbound bus surface, the mirror of Dion
@@ -57,6 +58,14 @@ export async function POST(req: NextRequest) {
   }
 
   const event = result.data
+
+  // Echo-loop guard: LI emits lead.* itself. If the hub ever fans one of our own
+  // emissions back to us, ingesting it would mint a duplicate lead. Ack (so the
+  // hub stops retrying) but do nothing.
+  if (isSelfEmitted(event)) {
+    return NextResponse.json({ accepted: event.type, ignored: 'self_emitted' })
+  }
+
   const supabase = createServiceClient()
 
   // Idempotent record. A redelivery collides on the envelope id (pk) → duplicate.
@@ -77,7 +86,7 @@ export async function POST(req: NextRequest) {
   // Process inline (best-effort). Failures are captured for reprocessing, not
   // returned as 5xx — the hub already delivered successfully.
   try {
-    const outcome = await handleEncounterSummarized(supabase, event)
+    const outcome = await dispatchConsumedEvent(supabase, event)
     await supabase
       .from('dion_inbox')
       .update({ processed_at: new Date().toISOString(), process_error: null })

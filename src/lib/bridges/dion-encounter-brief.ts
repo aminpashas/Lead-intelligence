@@ -19,7 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchEncounterBrief, type DionEncounterBrief } from './dion-clinical'
 import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
-import type { DionConsumedEvent } from './dion/consumed'
+import type { DionClinicalEvent } from './dion/clinical'
 
 export type EncounterBriefOutcome =
   | { status: 'landed'; leadId: string; encounterId: string }
@@ -73,7 +73,7 @@ export async function resolveLeadForBrief(
 
 export async function handleEncounterSummarized(
   supabase: SupabaseClient,
-  event: DionConsumedEvent,
+  event: DionClinicalEvent,
 ): Promise<EncounterBriefOutcome> {
   const dionPracticeId = event.dionPracticeId
   if (!dionPracticeId) return { status: 'no_practice' }
