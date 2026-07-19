@@ -203,6 +203,22 @@ export function classifyLeadServiceLines(lead: Lead): string[] {
   return matched
 }
 
+/**
+ * The ONE service line to show on a lead card / row. `classifyLeadServiceLines`
+ * returns every match and always includes 'implants' (the residual), so the raw
+ * array reads "Implants" for a clearly-signalled TMJ lead. For display we want
+ * the most specific answer: the niche match if there is one, else Implants.
+ */
+export function primaryServiceLine(lead: Lead): string {
+  const matched = classifyLeadServiceLines(lead)
+  return matched.find((k) => (NICHE_SERVICES as readonly string[]).includes(k)) ?? 'implants'
+}
+
+/** Human label for a service key ('sleep_apnea' → 'Sleep Apnea'). */
+export function serviceLineLabel(key: string): string {
+  return SERVICE_LINES.find((s) => s.key === key)?.label ?? key
+}
+
 // GHL pipeline-name → service-line patterns. GHL carries the treatment as the
 // PIPELINE the opportunity lives in ("AOX Nurturing Database", "Full-Arch Leads",
 // "TMJ", …); the stage reconcile otherwise discards it. Niche patterns are checked

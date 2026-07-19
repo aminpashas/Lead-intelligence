@@ -11,6 +11,20 @@ import { closingQueueState } from '@/lib/pipeline/closing'
 import { LeadCadenceBadge } from './lead-cadence-badge'
 import { EngagementTempChip } from './engagement-meter'
 import { displaySourceLabel } from '@/lib/attribution'
+import { primaryServiceLine, serviceLineLabel } from '@/lib/leads/service-line'
+
+// Service line (treatment) chip. Aurea reserves rose/amber for the AI
+// qualification grade, so the treatment palette deliberately avoids both —
+// otherwise a TMJ chip would read as "warm" at a glance. Implants is the
+// residual line (~40k of 52k leads), so it stays neutral ink: colouring the
+// majority case would be noise, not signal.
+const serviceLineColors: Record<string, string> = {
+  implants: 'bg-aurea-ink/8 text-aurea-ink ring-1 ring-aurea-ink/15',
+  cosmetic: 'bg-violet-500/10 text-violet-700 ring-1 ring-violet-500/25',
+  tmj: 'bg-sky-500/10 text-sky-700 ring-1 ring-sky-500/25',
+  sleep_apnea: 'bg-indigo-500/10 text-indigo-700 ring-1 ring-indigo-500/25',
+  lanap: 'bg-teal-500/10 text-teal-700 ring-1 ring-teal-500/25',
+}
 
 // Lead qualification chips — hot=rose, warm=amber, cold=neutral ink
 const qualificationColors: Record<string, string> = {
@@ -38,6 +52,11 @@ export function LeadCard({
   cadence?: { enrollment: TimelineEnrollment | null; engaged: boolean }
 }) {
   const initials = `${lead.first_name?.[0] || ''}${lead.last_name?.[0] || ''}`.toUpperCase() || '?'
+
+  // Treatment line — the single most useful thing to know about a card at a
+  // glance, so it sits on the name row where the wrapping badge row can never
+  // push it out of view.
+  const serviceKey = primaryServiceLine(lead)
 
   // Deliberating pill: a deal the closer parked to circle back. "waiting" (timer
   // in the future) reads muted; "due" (timer arrived, or no timer) reads as an
@@ -103,9 +122,15 @@ export function LeadCard({
             </span>
           </div>
         </div>
+        <span
+          className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${serviceLineColors[serviceKey]}`}
+          title={`Treatment line: ${serviceLineLabel(serviceKey)}`}
+        >
+          {serviceLineLabel(serviceKey)}
+        </span>
       </div>
 
-      <div className="mt-2.5 flex items-center gap-2">
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {/* Behavioral temperature (engagement sweep) — sits beside the AI grade. */}
         <EngagementTempChip temperature={lead.engagement_temperature} />
 

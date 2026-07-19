@@ -4,6 +4,8 @@ import {
   serviceLineOrFilter,
   serviceLineFromPipelineName,
   serviceLineFromIntakeSignals,
+  primaryServiceLine,
+  serviceLineLabel,
 } from '@/lib/leads/service-line'
 import type { Lead } from '@/types/database'
 
@@ -158,5 +160,31 @@ describe('serviceLineFromIntakeSignals (bridge ingest stamper)', () => {
       serviceLineFromIntakeSignals({ landingPageUrl: 'https://example.com/dental-implants' })
     ).toBeNull()
     expect(serviceLineFromIntakeSignals({ message: null, landingPageUrl: null })).toBeNull()
+  })
+})
+
+describe('primaryServiceLine — the one line a lead card shows', () => {
+  it('shows Implants for the residual book (no treatment signal at all)', () => {
+    expect(primaryServiceLine(lead({}))).toBe('implants')
+  })
+
+  it('shows the niche, not Implants, when a lead carries BOTH signals', () => {
+    // classifyLeadServiceLines returns ['implants', 'tmj'] here — a card that
+    // rendered matched[0] would label a clearly-signalled TMJ lead "Implants".
+    const both = lead({ tags: ['full-arch-cold', 'src:tmj'] })
+    expect(classifyLeadServiceLines(both)).toEqual(['implants', 'tmj'])
+    expect(primaryServiceLine(both)).toBe('tmj')
+  })
+
+  it('shows each niche line from its real intake signal', () => {
+    expect(primaryServiceLine(lead({ tags: ['src:sleep'] }))).toBe('sleep_apnea')
+    expect(primaryServiceLine(lead({ tags: ['veneers'] }))).toBe('cosmetic')
+    expect(primaryServiceLine(lead({ utm_campaign: 'LANAP Search' }))).toBe('lanap')
+  })
+
+  it('labels every key it can return', () => {
+    expect(serviceLineLabel('sleep_apnea')).toBe('Sleep Apnea')
+    expect(serviceLineLabel('implants')).toBe('Implants')
+    expect(serviceLineLabel('tmj')).toBe('TMJ')
   })
 })

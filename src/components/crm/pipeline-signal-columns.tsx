@@ -1,7 +1,9 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { ChevronDown, ChevronRight, Activity } from 'lucide-react'
 import { LeadCard } from './lead-card'
 import type { Lead } from '@/types/database'
 
@@ -22,22 +24,58 @@ export interface SignalColumn {
  * (Untouched / Active Communication / Financially Unqualified) computed from real
  * lead activity rather than the stale GHL stage label. Read-only by design: cards
  * open the lead, but there is no drop target — the stage board below owns moves.
+ *
+ * Collapsed by default: this is a reference lens, not the workspace. Expanded it
+ * is a ~470px wall of cards that pushes the drag board — the thing staff actually
+ * work — below the fold. The header keeps every count visible, so collapsing
+ * costs no information; only the card previews are behind the toggle.
  */
 export function PipelineSignalColumns({ columns }: { columns: SignalColumn[] }) {
   const router = useRouter()
+  const [collapsed, setCollapsed] = useState(true)
 
   // Nothing to say if every signal is empty (e.g. a treatment filter with no hits).
   if (!columns.some((c) => c.count > 0)) return null
 
   return (
-    <section className="mb-6">
-      <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <h2 className="aurea-eyebrow">By signal</h2>
-        <span className="text-[12px] leading-snug text-aurea-ink-3">
-          Live lenses from real activity — read-only, independent of the stage board below.
-        </span>
-      </div>
-      <div className="flex gap-3 overflow-x-auto pb-2">
+    <section className="mb-6 rounded-xl border border-aurea-border bg-aurea-surface">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex items-center gap-2 text-left"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-aurea-surface-2 text-aurea-ink-2">
+            <Activity className="h-4 w-4" strokeWidth={1.75} />
+          </span>
+          <span className="text-[14px] font-medium text-aurea-ink">By signal</span>
+          {collapsed ? (
+            <ChevronRight className="h-4 w-4 text-aurea-ink-2" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-aurea-ink-2" />
+          )}
+        </button>
+
+        {/* Counts stay on the header so the collapsed state still answers
+            "how many are untouched?" without a click. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {columns.map((col) => (
+            <Link
+              key={col.key}
+              href={col.href}
+              className="flex items-center gap-1.5 text-[12px] text-aurea-ink-2 transition-colors hover:text-aurea-ink"
+              title={col.description}
+            >
+              <span>{col.label}</span>
+              <span className="font-mono tabular-nums text-aurea-ink-3">
+                {col.count.toLocaleString()}
+              </span>
+            </Link>
+          ))}
+        </div>
+      </header>
+
+      {!collapsed && (
+      <div className="flex gap-3 overflow-x-auto px-4 pb-4">
         {columns.map((col) => (
           <div
             key={col.key}
@@ -82,6 +120,7 @@ export function PipelineSignalColumns({ columns }: { columns: SignalColumn[] }) 
           </div>
         ))}
       </div>
+      )}
     </section>
   )
 }
