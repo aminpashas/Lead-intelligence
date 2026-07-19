@@ -15,13 +15,18 @@
 --
 -- ── On bypassing WORM ──────────────────────────────────────────────────────
 -- audit_events carries trg_audit_events_append_only (prevent_row_mutation),
--- which blocks UPDATE and DELETE for everyone including service_role. Rather
--- than ALTER TABLE ... DISABLE TRIGGER — which is a persistent catalog change
--- that leaves the log unprotected if anything fails midway — this function
--- declares `SET session_replication_role = replica` in its own definition.
--- Postgres scopes a function-level SET to the call and restores it on exit,
--- INCLUDING on exception. Tamper protection is therefore never off outside
--- the body of this one function.
+-- which blocks UPDATE and DELETE for everyone including service_role, with no
+-- bypass in its body.
+--
+-- The preferred approach — a function-level `SET session_replication_role =
+-- replica`, scoped to the call and restored even on exception — is NOT
+-- available: Supabase's postgres role gets "permission denied to set parameter
+-- session_replication_role". So the operator must ALTER TABLE ... DISABLE
+-- TRIGGER around the run, which is a PERSISTENT catalog change.
+--
+-- ⚠️ The log is unprotected for the duration. The runbook at the bottom of
+-- this file re-enables it and verifies tgenabled = 'O'. If a run dies midway,
+-- re-enable manually before anything else.
 --
 -- Idempotent: trimming an already-trimmed row rewrites it to the same value,
 -- so re-running is safe. Drop the function when the backlog is clear.
@@ -35,7 +40,6 @@ returns table(last_at timestamptz, scanned int, deleted int, trimmed int)
 language plpgsql
 security definer
 set search_path = public
-set session_replication_role = 'replica'
 as $$
 declare
   v_ids uuid[];
