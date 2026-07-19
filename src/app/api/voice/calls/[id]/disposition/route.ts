@@ -27,6 +27,7 @@ import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { formatToE164 } from '@/lib/leads/phone'
 import { syncStaffCallThreadMarker } from '@/lib/voice/staff-call-thread'
 import { recordAudit } from '@/lib/audit/record'
+import { hasOwnTranscript } from '@/lib/voice/call-summary-guard'
 
 const OUTCOME_VALUES = [
   'appointment_booked',
@@ -204,17 +205,10 @@ export async function PATCH(
     notes,
   })
 
-  // Only recompose the summary for calls that have no real transcript of their
-  // own. `buildSummary` produces a synthetic one-liner from the call's facts —
-  // fine for a staff browser call (which never has an AI transcript), but it
-  // would destroy the AI-generated summary of an agent call. Staff amending the
-  // notes on an AI call must not silently wipe that call's summary.
-  const hasAiTranscript =
-    (Array.isArray(call.transcript) ? call.transcript.length > 0 : Boolean(call.transcript)) ||
-    call.call_mode === 'ai'
-
+  // Only recompose the summary for calls that have no transcript of their own —
+  // see hasOwnTranscript for why overwriting an AI call's summary loses data.
   const updates: Record<string, unknown> = {}
-  if (!hasAiTranscript) updates.transcript_summary = summary
+  if (!hasOwnTranscript(call)) updates.transcript_summary = summary
   if (outcome) updates.outcome = outcome
   if (notes !== undefined) updates.outcome_notes = notes || null
   if (leadId && leadId !== call.lead_id) updates.lead_id = leadId
