@@ -138,12 +138,22 @@ export async function POST(request: NextRequest) {
   // refreshes it instead of spawning duplicates.
   const { data: existing } = await supabase
     .from('smart_lists')
-    .select('id')
+    .select('id, criteria')
     .eq('organization_id', orgId)
     .eq('name', segmentName)
     .maybeSingle()
 
-  const { count } = await resolveSmartListLeads(supabase, orgId, criteria, {
+  // A refresh replaces the rec's own filters but must NOT wipe the leads the
+  // user manually removed from the list (criteria.excluded_lead_ids) — those
+  // are the user's edits, not the recommendation's.
+  const priorExcluded = (existing?.criteria as { excluded_lead_ids?: string[] } | null)
+    ?.excluded_lead_ids
+  const effectiveCriteria =
+    priorExcluded && priorExcluded.length > 0
+      ? { ...criteria, excluded_lead_ids: priorExcluded }
+      : criteria
+
+  const { count } = await resolveSmartListLeads(supabase, orgId, effectiveCriteria, {
     countOnly: true,
   })
 
@@ -153,7 +163,7 @@ export async function POST(request: NextRequest) {
     await supabase
       .from('smart_lists')
       .update({
-        criteria,
+        criteria: effectiveCriteria,
         lead_count: count,
         last_refreshed_at: new Date().toISOString(),
       })
@@ -219,7 +229,7 @@ export async function POST(request: NextRequest) {
       // refreshes the task (and its count) instead of duplicating it.
       dedupe_key: `recommendation:${smartListId}`,
       metadata: {
-        criteria,
+        criteria: effectiveCriteria,
         lead_count: count,
         smart_list_id: smartListId,
         action_type: actionType,
@@ -283,7 +293,7 @@ export async function POST(request: NextRequest) {
     const automationErrors: Array<{ leadId: string; error: string }> = []
     const maxIterations = Math.ceil(AUTO_APPLY_CAP / AUTO_APPLY_PAGE) + 1
     for (let i = 0; i < maxIterations && moved < AUTO_APPLY_CAP; i++) {
-      const { leadIds } = await resolveSmartListLeads(supabase, orgId, criteria, {
+      const { leadIds } = await resolveSmartListLeads(supabase, orgId, effectiveCriteria, {
         limit: AUTO_APPLY_PAGE,
       })
       if (leadIds.length === 0) break

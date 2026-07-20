@@ -90,10 +90,27 @@ export async function PATCH(
 
   // If criteria changed, recalculate lead count
   if (parsed.data.criteria) {
+    // The builder edits filters wholesale and doesn't know about manual
+    // removals — carry existing excluded_lead_ids forward unless the payload
+    // sets the key itself (an explicit [] clears them via the exclusions API).
+    if (!('excluded_lead_ids' in parsed.data.criteria)) {
+      const { data: existing } = await supabase
+        .from('smart_lists')
+        .select('criteria')
+        .eq('id', id)
+        .eq('organization_id', orgId)
+        .single()
+      const prior = (existing?.criteria as { excluded_lead_ids?: string[] } | null)
+        ?.excluded_lead_ids
+      if (prior && prior.length > 0) {
+        updates.criteria = { ...parsed.data.criteria, excluded_lead_ids: prior }
+      }
+    }
+
     const { count } = await resolveSmartListLeads(
       supabase,
       orgId,
-      parsed.data.criteria as any,
+      updates.criteria as any,
       { countOnly: true }
     )
     updates.lead_count = count

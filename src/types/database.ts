@@ -1153,6 +1153,11 @@ export type SmartListCriteria = {
    *  express — the cohort is resolved once and pinned. Combines with the other
    *  filters (AND), so consent/contactability criteria still apply on top. */
   lead_ids?: string[]
+  /** Manual removals: leads the user pulled out of the list by hand. Applied
+   *  as a NOT IN after every other filter, so a removed lead stays out even
+   *  when it matches the criteria — and out of every consumer (list view,
+   *  counts, mass sends, campaign enrollment). Max 1000. */
+  excluded_lead_ids?: string[]
 }
 
 export type SmartList = {

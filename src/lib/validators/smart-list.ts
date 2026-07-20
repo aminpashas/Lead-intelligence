@@ -64,4 +64,8 @@ export const smartListCriteriaSchema = z.object({
    *  cohorts (Action Center queues) pinned at materialization time. Capped at
    *  1000 — the PostgREST .in() practical limit used across the resolver. */
   lead_ids: z.array(z.string().uuid()).min(1).max(1000).optional(),
+  /** Manual removals: leads the user pulled out of the list by hand, excluded
+   *  no matter what the other filters match. Empty array allowed (clears all
+   *  removals). Same 1000 cap as lead_ids (PostgREST not-in limit). */
+  excluded_lead_ids: z.array(z.string().uuid()).max(1000).optional(),
 })

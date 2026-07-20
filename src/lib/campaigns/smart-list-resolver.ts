@@ -95,6 +95,15 @@ export function applySmartListCriteria(
     query = query.in('id', criteria.lead_ids.slice(0, 1000))
   }
 
+  // Manual removals: leads the user pulled out by hand stay out no matter what
+  // the other filters match. Applied here for the same reason as lead_ids —
+  // every consumer (view, counts, sends, enrollment) must honor a removal.
+  if (criteria.excluded_lead_ids && criteria.excluded_lead_ids.length > 0) {
+    query = query.not(
+      'id', 'in', `(${criteria.excluded_lead_ids.slice(0, 1000).join(',')})`
+    )
+  }
+
   // Status filter
   if (criteria.statuses && criteria.statuses.length > 0) {
     query = query.in('status', criteria.statuses)

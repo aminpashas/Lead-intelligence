@@ -17,7 +17,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   ArrowLeft, Users, Megaphone, Brain, Pencil, ChevronLeft,
-  ChevronRight, Loader2, RefreshCw, MessageSquare, Mail,
+  ChevronRight, Loader2, RefreshCw, MessageSquare, Mail, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { TagBadgeList } from './tag-badge'
@@ -48,6 +48,7 @@ export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onB
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
+  const [removingId, setRemovingId] = useState<string | null>(null)
   const [leadTags, setLeadTags] = useState<Record<string, Tag[]>>({})
   const router = useRouter()
   const perPage = 50
@@ -80,6 +81,50 @@ export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onB
     toast.success('Smart List refreshed')
   }
 
+  /** Manually pull a lead out of this list (criteria.excluded_lead_ids). The
+   *  lead itself is untouched — it just stops matching this one list, across
+   *  every consumer (view, counts, mass sends, campaigns). Undo via the toast. */
+  async function removeLead(lead: Lead) {
+    setRemovingId(lead.id)
+    try {
+      const res = await fetch(`/api/smart-lists/${smartList.id}/exclusions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId: lead.id, action: 'exclude' }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'Failed to remove lead')
+
+      // Optimistic row removal; the count comes back exact from the server.
+      setLeads((prev) => prev.filter((l) => l.id !== lead.id))
+      if (typeof data?.leadCount === 'number') setTotal(data.leadCount)
+
+      const name = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Lead'
+      toast.success(`${name} removed from this list`, {
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            const undo = await fetch(`/api/smart-lists/${smartList.id}/exclusions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ leadId: lead.id, action: 'include' }),
+            })
+            if (undo.ok) {
+              toast.success(`${name} restored`)
+              fetchLeads()
+            } else {
+              toast.error('Could not undo the removal')
+            }
+          },
+        },
+      })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to remove lead')
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
   // Summarize criteria for display
   const criteriaLabels: string[] = []
   const c = smartList.criteria
@@ -96,6 +141,7 @@ export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onB
   if (c.has_email) criteriaLabels.push('Has email')
   if (c.sms_consent) criteriaLabels.push('SMS consent')
   if (c.lead_ids?.length) criteriaLabels.push(`Pinned snapshot: ${c.lead_ids.length} leads`)
+  if (c.excluded_lead_ids?.length) criteriaLabels.push(`${c.excluded_lead_ids.length} removed manually`)
 
   return (
     <div className="space-y-6 animate-in fade-in-0 duration-500">
@@ -214,6 +260,7 @@ export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onB
                     <TableHead>Source</TableHead>
                     <TableHead>Value</TableHead>
                     <TableHead>Created</TableHead>
+                    <TableHead className="w-10" aria-label="Remove" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -280,6 +327,27 @@ export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onB
                           <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
                             {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
                           </span>
+                        </TableCell>
+                        <TableCell className="pr-3">
+                          {/* Row click navigates — stop propagation so remove stays a remove. */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-aurea-ink-3 hover:text-aurea-rose"
+                            aria-label="Remove from this list"
+                            title="Remove from this list"
+                            disabled={removingId === lead.id}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              removeLead(lead)
+                            }}
+                          >
+                            {removingId === lead.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+                            )}
+                          </Button>
                         </TableCell>
                       </TableRow>
                     )
