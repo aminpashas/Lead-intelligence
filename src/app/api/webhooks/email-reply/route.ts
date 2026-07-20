@@ -136,14 +136,8 @@ export async function POST(request: NextRequest) {
     .select('id')
     .single()
 
-  // Update lead engagement stats (atomic increment to prevent race conditions)
-  await supabase.rpc('increment_lead_messages_received', { p_lead_id: leadId })
-
-  // Update conversation stats (atomic increment)
-  await supabase.rpc('increment_conversation_counters', {
-    p_conversation_id: convoId,
-    p_last_message_preview: emailBody.substring(0, 100),
-  })
+  // Lead + conversation counters are bumped by the on_message_insert trigger
+  // off the messages insert above — no RPC here.
 
   // Exit campaigns with if_replied exit condition
   await exitCampaignsOnReply(supabase, leadId, orgId)

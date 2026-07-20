@@ -83,8 +83,11 @@ begin
       when 'ready_to_book' then l.conversation_intent = 'ready_to_book'
       else (
         -- Shared SMS-reachability (mirrors reachableSms in pipeline-signals.ts):
+        -- consent is ASSUMED for every imported lead, so the gate is opt-out
+        -- only. A positive `sms_consent = true` check here would both violate
+        -- the consent model (CLAUDE.md) and shrink the EV segment below the
+        -- lead count the board displays for it.
         l.phone_formatted is not null
-        and l.sms_consent = true
         and l.sms_opt_out = false
         and case p_signal
           -- Never contacted OR contacted before the staleness cutoff.

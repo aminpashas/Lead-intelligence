@@ -731,11 +731,7 @@ async function sendAgentResponse(
     },
   })
 
-  // Update conversation stats
-  await supabase.rpc('increment_conversation_counters', {
-    p_conversation_id: conversation_id,
-    p_last_message_preview: agentResponse.message.substring(0, 100),
-  })
+  // Conversation stats are bumped by the on_message_insert trigger.
 
   // Update lead last_contacted_at
   await supabase
@@ -844,10 +840,7 @@ async function sendHoldingAcknowledgment(
     metadata: { holding_ack: true, holding_ack_kind: kind, medical_escalation: kind === 'medical' },
   })
 
-  await supabase.rpc('increment_conversation_counters', {
-    p_conversation_id: conversation_id,
-    p_last_message_preview: ack.body.substring(0, 100),
-  })
+  // Conversation stats are bumped by the on_message_insert trigger.
 }
 
 /**

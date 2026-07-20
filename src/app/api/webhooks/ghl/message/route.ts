@@ -130,7 +130,6 @@ export async function POST(request: NextRequest) {
       organizationId: orgId,
       lead,
       normalized,
-      bumpCounters: true,
     })
     return NextResponse.json({ ok: true, action: result.status })
   } catch (err) {

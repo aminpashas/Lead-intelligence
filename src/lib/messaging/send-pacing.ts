@@ -230,10 +230,7 @@ export async function drainDeferredSms(
         },
       })
 
-      await supabase.rpc('increment_conversation_counters', {
-        p_conversation_id: row.conversation_id,
-        p_last_message_preview: row.body.substring(0, 100),
-      })
+      // Conversation stats are bumped by the on_message_insert trigger.
       await supabase
         .from('leads')
         .update({ last_contacted_at: new Date().toISOString() })

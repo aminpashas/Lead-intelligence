@@ -9,13 +9,12 @@
  *     'call' value, and GHL call records rarely carry a transcript)
  *   • fold TCPA opt-out / opt-in keywords into the lead's consent state
  *
- * Counter behavior is caller-controlled:
- *   • webhook  (bumpCounters=true)  — mirror the live Twilio path: increment the
- *     atomic counter RPCs so unread/last_message reflect the just-arrived message.
- *   • backfill (bumpCounters=false) — insert only; the caller runs the
- *     authoritative recompute (recompute_*_stats) once at the end so year-old
- *     history never stamps NOW() onto recency fields. Messages MUST be fed in
- *     chronological order so opt-out/opt-in settles last-wins.
+ * Counter behavior is NOT caller-controlled: the on_message_insert trigger bumps
+ * unread/message counts and lead recency off every messages insert, webhook and
+ * backfill alike. It stamps new.created_at (not now()), so replayed history
+ * lands with its true timestamps; backfill callers still run the authoritative
+ * recompute (recompute_*_stats) at the end to settle unread. Messages MUST be
+ * fed in chronological order so opt-out/opt-in settles last-wins.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -38,8 +37,6 @@ export type PersistParams = {
   organizationId: string
   lead: IngestLead
   normalized: NormalizedGhlMessage
-  /** Increment live counters (webhook) vs. defer to end-of-run recompute (backfill). */
-  bumpCounters: boolean
   /** Optional (leadId:channel)→conversationId cache to avoid re-querying in bulk. */
   conversationCache?: Map<string, string>
 }
@@ -175,7 +172,7 @@ export async function persistGhlMessage(
   supabase: SupabaseClient,
   params: PersistParams,
 ): Promise<PersistResult> {
-  const { organizationId, lead, normalized: n, bumpCounters, conversationCache } = params
+  const { organizationId, lead, normalized: n, conversationCache } = params
 
   // ── Idempotency: never insert the same GHL message twice ──
   const { data: dupe } = await supabase
@@ -267,25 +264,6 @@ export async function persistGhlMessage(
       await applyConsentKeyword(supabase, organizationId, lead.id, n.createdAt, false)
       consentChanged = true
     }
-  }
-
-  // ── Live counter bump (webhook only) — mirrors the Twilio path ──
-  if (bumpCounters) {
-    if (n.direction === 'inbound') {
-      await supabase.rpc('increment_lead_sms_received', { p_lead_id: lead.id }).then(
-        () => {},
-        () => {},
-      )
-    }
-    await supabase
-      .rpc('increment_conversation_counters', {
-        p_conversation_id: conversationId,
-        p_last_message_preview: n.body.substring(0, 100),
-      })
-      .then(
-        () => {},
-        () => {},
-      )
   }
 
   return { status: 'inserted', conversationId, consentChanged }
