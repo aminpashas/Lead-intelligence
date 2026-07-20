@@ -134,16 +134,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   })
   if ('error' in owned) return owned.error
 
-  const { data: note, error } = await supabase
+  // No `.single()`: with no UPDATE policy on lead_activities, RLS filters the
+  // row out and the update matches nothing. `.single()` would surface that as a
+  // generic 500, blaming the server for what is really a permission denial.
+  const { data: updated, error } = await supabase
     .from('lead_activities')
     .update({ description: parsed.data.body })
     .eq('id', parsed.data.note_id)
     .select('id, created_at, description, user_id')
-    .single()
 
-  if (error || !note) {
+  if (error) {
     return NextResponse.json({ error: 'Failed to update note' }, { status: 500 })
   }
+  if (!updated?.length) {
+    return NextResponse.json(
+      { error: 'Note could not be updated — you may not have permission.' },
+      { status: 403 }
+    )
+  }
+  const note = updated[0]
 
   await recordAudit(supabase, {
     organizationId: auth.orgId,
@@ -181,13 +190,26 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   })
   if ('error' in owned) return owned.error
 
-  const { error } = await supabase
+  // `.select()` so we can count what was actually removed. Without it an RLS
+  // denial is indistinguishable from success: Postgres filters the row out, the
+  // DELETE matches nothing, and PostgREST returns no error. We would then report
+  // ok:true and write a deletion audit event for a row still sitting in the
+  // table. `lead_activities` has no DELETE policy today, so this is the live
+  // behaviour, not a hypothetical.
+  const { data: removed, error } = await supabase
     .from('lead_activities')
     .delete()
     .eq('id', parsed.data.note_id)
+    .select('id')
 
   if (error) {
     return NextResponse.json({ error: 'Failed to delete note' }, { status: 500 })
+  }
+  if (!removed?.length) {
+    return NextResponse.json(
+      { error: 'Note could not be deleted — you may not have permission.' },
+      { status: 403 }
+    )
   }
 
   // The row is gone for good — lead_activities has no soft-delete column and is
