@@ -5,6 +5,8 @@ import { updateLeadSchema } from '@/lib/validators/lead'
 import { decryptLeadPII, encryptLeadPII } from '@/lib/encryption'
 import { auditPHIRead, auditPHIWrite, auditPHIDeletion } from '@/lib/hipaa-audit'
 import { applyStageMove } from '@/lib/pipeline/stage-move'
+import { formatToE164 } from '@/lib/leads/phone'
+import { findPhoneConflicts, describeConflict } from '@/lib/leads/contact-conflict'
 
 // GET /api/leads/[id] - Get lead details
 export async function GET(
@@ -150,7 +152,70 @@ export async function PATCH(
     return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
   }
 
-  const updateData = encryptLeadPII(parsed.data as Record<string, unknown>)
+  // Staff-entered contact edits arrive as a plain `phone`/`email`. Two things
+  // have to happen before the write that the Zod validator cannot do:
+  //
+  //  1. Derive `phone_formatted` (E.164). Every send path hard-rejects on a null
+  //     phone_formatted (see /api/sms/send), so a phone written without it shows
+  //     in the UI but can never be texted — the number looks present and the
+  //     lead is silently unreachable.
+  //  2. encryptLeadPII derives phone_hash from phone_formatted when present and
+  //     falls back to raw `phone` otherwise. Skipping (1) would stamp a hash over
+  //     "(415) 555-1212" while every other row hashes "+14155551212", quietly
+  //     breaking dedup lookups (lib/leads/dedupe.ts) for this lead alone.
+  //
+  // Clearing a field must also clear its search hash — encryptLeadPII only
+  // *sets* hashes for truthy values, so a stale hash would otherwise survive and
+  // keep matching a contact the lead no longer has.
+  const patch: Record<string, unknown> = { ...parsed.data }
+
+  if (typeof patch.phone === 'string') {
+    const raw = patch.phone.trim()
+    if (!raw) {
+      patch.phone = null
+      patch.phone_formatted = null
+      patch.phone_hash = null
+    } else {
+      const e164 = formatToE164(raw)
+      if (!e164) {
+        return NextResponse.json(
+          { error: 'That does not look like a valid phone number. Enter a 10-digit US number.' },
+          { status: 400 },
+        )
+      }
+      patch.phone = raw
+      patch.phone_formatted = e164
+
+      // No unique index guards phone (households share lines), so a duplicate
+      // writes cleanly and only bites later, when an inbound message resolves
+      // to the wrong lead. Surface it once and let the caller confirm.
+      if (body?.confirm_duplicate_phone !== true) {
+        const conflicts = await findPhoneConflicts(supabase, orgId, e164, id)
+        if (conflicts.length > 0) {
+          return NextResponse.json(
+            {
+              error: 'duplicate_phone',
+              message: `${describeConflict(conflicts[0])} already has this number. Inbound texts and calls may route to either lead.`,
+              conflicts: conflicts.map((c) => ({ id: c.id, name: describeConflict(c) })),
+            },
+            { status: 409 },
+          )
+        }
+      }
+    }
+  }
+
+  if (typeof patch.email === 'string') {
+    const raw = patch.email.trim().toLowerCase()
+    if (!raw) {
+      patch.email = null
+      patch.email_hash = null
+    } else {
+      patch.email = raw
+    }
+  }
+
+  const updateData = encryptLeadPII(patch)
 
   const { data: lead, error } = await supabase
     .from('leads')
@@ -160,6 +225,15 @@ export async function PATCH(
     .single()
 
   if (error) {
+    // Email is uniquely indexed per org (phone deliberately is not — households
+    // share a line). Surface the collision as a real message instead of a bare
+    // 500, mirroring how ingest.ts:242 treats the same violation.
+    if (error.code === '23505') {
+      return NextResponse.json(
+        { error: 'Another lead in this practice already uses that email address.' },
+        { status: 409 },
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

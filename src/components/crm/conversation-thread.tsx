@@ -54,6 +54,7 @@ import { StageSelect } from './stage-select'
 import { LiveCallIndicator, LiveCallPanel } from './live-call-panel'
 import { CallCard } from './call-card'
 import { LeadNotesPanel, type LeadNote } from './lead-notes-panel'
+import { LeadContactField } from './lead-contact-field'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
 import { useConversationPresence } from '@/lib/hooks/use-conversation-presence'
 import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
@@ -235,10 +236,22 @@ export function ConversationThread({
   const [stage, setStage] = useState<PipelineStage | null>(lead.pipeline_stage ?? null)
   const [movingStage, setMovingStage] = useState(false)
 
+  // Phone/email are editable inline in the header, but `lead` is a prop that
+  // only changes on a route refresh — mirror them so a save shows immediately
+  // and, more importantly, unblocks the SMS/email composer toggles right away.
+  const [contact, setContact] = useState<{ phone: string | null; email: string | null }>({
+    phone: lead.phone ?? null,
+    email: lead.email ?? null,
+  })
+
   useEffect(() => {
     setStageId(lead.stage_id ?? null)
     setStage(lead.pipeline_stage ?? null)
   }, [lead.stage_id, lead.pipeline_stage])
+
+  useEffect(() => {
+    setContact({ phone: lead.phone ?? null, email: lead.email ?? null })
+  }, [lead.phone, lead.email])
 
   async function moveStage(nextId: string) {
     if (!nextId || nextId === stageId || movingStage) return
@@ -648,12 +661,24 @@ export function ConversationThread({
                 <ChannelIcon channel={conversation?.channel ?? sendChannel} className="h-3 w-3" tinted />
                 {channelMeta(conversation?.channel ?? sendChannel).label}
               </span>
-              {lead.phone && (
-                <>
-                  <span className="text-aurea-border-strong">·</span>
-                  <span>{lead.phone}</span>
-                </>
-              )}
+              {/* Always rendered, even when empty — a social lead often arrives
+                  with no phone or email, and this is where staff are looking when
+                  the lead finally hands one over mid-thread. */}
+              <span className="text-aurea-border-strong">·</span>
+              <LeadContactField
+                leadId={lead.id}
+                field="phone"
+                value={contact.phone}
+                onSaved={(phone) => { setContact((c) => ({ ...c, phone })); router.refresh() }}
+              />
+              <span className="text-aurea-border-strong">·</span>
+              <LeadContactField
+                leadId={lead.id}
+                field="email"
+                value={contact.email}
+                onSaved={(email) => { setContact((c) => ({ ...c, email })); router.refresh() }}
+                className="max-w-[180px]"
+              />
               <span className="text-aurea-border-strong">·</span>
               <span>{messages.length} messages</span>
               {conversation?.sentiment && (
@@ -904,14 +929,16 @@ export function ConversationThread({
                   {(['sms', 'email'] as const).map((ch) => {
                     const active = sendChannel === ch
                     const Icon = ch === 'sms' ? MessageSquare : Mail
-                    const blocked = ch === 'sms' ? !lead.phone : !lead.email
+                    // Reads the locally-mirrored contact so adding a number in
+                    // the header unblocks this toggle without a page refresh.
+                    const blocked = ch === 'sms' ? !contact.phone : !contact.email
                     return (
                       <button
                         key={ch}
                         type="button"
                         onClick={() => setSendChannel(ch)}
                         disabled={blocked}
-                        title={blocked ? (ch === 'sms' ? 'No phone number' : 'No email address') : `Send as ${ch === 'sms' ? 'text' : 'email'}`}
+                        title={blocked ? (ch === 'sms' ? 'No phone number — add one in the header' : 'No email address — add one in the header') : `Send as ${ch === 'sms' ? 'text' : 'email'}`}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                           active
                             ? 'bg-aurea-ink text-aurea-canvas'

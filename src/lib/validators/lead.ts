@@ -51,6 +51,11 @@ export const createLeadSchema = z.object({
 })
 
 export const updateLeadSchema = createLeadSchema.partial().extend({
+  // Staff editing a lead can also *clear* a contact field. createLeadSchema's
+  // phone regex requires at least one character, so an explicit empty-string
+  // branch is needed to express "remove this number" (email already has one).
+  // The route turns '' into a null column write plus a null search hash.
+  phone: z.string().regex(PHONE_RE, 'Invalid phone number').optional().or(z.literal('')),
   status: z.enum([
     'new', 'contacted', 'qualified', 'consultation_scheduled',
     'consultation_completed', 'treatment_presented', 'financing',

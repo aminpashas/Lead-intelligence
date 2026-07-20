@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { LeadActions } from './lead-actions'
+import { LeadContactField } from './lead-contact-field'
 import { EngagementMeter } from './engagement-meter'
 import { TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
@@ -321,18 +322,27 @@ export function LeadDetail({
               </div>
 
               <div className="space-y-1.5 text-[13px] text-aurea-ink-3">
-                {lead.phone && (
-                  <span className="flex items-center gap-1.5">
-                    <Phone className="h-[13px] w-[13px]" strokeWidth={1.75} />
-                    <span className="font-mono">{lead.phone}</span>
-                  </span>
-                )}
-                {lead.email && (
-                  <span className="flex items-center gap-1.5">
-                    <Mail className="h-[13px] w-[13px]" strokeWidth={1.75} />
-                    <span className="truncate">{lead.email}</span>
-                  </span>
-                )}
+                {/* Rendered unconditionally so a lead with no phone/email still
+                    shows a way to add one — previously these rows vanished
+                    entirely and there was no path to fill them in. */}
+                <span className="flex items-center gap-1.5">
+                  <Phone className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                  <LeadContactField
+                    leadId={lead.id}
+                    field="phone"
+                    value={lead.phone}
+                    onSaved={(phone) => setLead({ ...lead, phone })}
+                  />
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Mail className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                  <LeadContactField
+                    leadId={lead.id}
+                    field="email"
+                    value={lead.email}
+                    onSaved={(email) => setLead({ ...lead, email })}
+                  />
+                </span>
                 {lead.city && (
                   <span className="flex items-center gap-1.5">
                     <MapPin className="h-[13px] w-[13px]" strokeWidth={1.75} />
