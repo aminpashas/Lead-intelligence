@@ -29,6 +29,7 @@ import { TagBadge } from './tag-badge'
 import { channelLabel, displaySourceLabel } from '@/lib/attribution'
 import { TagSelector } from './tag-selector'
 import { PersonalityProfileCard } from './personality-profile-card'
+import { HoldBadge } from './hold-badge'
 import { AuditTimeline } from '@/components/audit/AuditTimeline'
 import {
   ArrowLeft,
@@ -327,10 +328,13 @@ export function LeadDetail({
                   <h2 className="aurea-display truncate text-[20px] text-aurea-ink">
                     {lead.first_name} {lead.last_name}
                   </h2>
-                  <span className={`mt-1 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[12px] font-semibold ${qualificationColors[lead.ai_qualification]}`}>
-                    <Brain className="h-3 w-3" strokeWidth={1.75} />
-                    <span className="font-mono tabular-nums">{lead.ai_score}/100</span>
-                    <span className="capitalize">· {lead.ai_qualification}</span>
+                  <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[12px] font-semibold ${qualificationColors[lead.ai_qualification]}`}>
+                      <Brain className="h-3 w-3" strokeWidth={1.75} />
+                      <span className="font-mono tabular-nums">{lead.ai_score}/100</span>
+                      <span className="capitalize">· {lead.ai_qualification}</span>
+                    </span>
+                    <HoldBadge lead={lead} />
                   </span>
                 </div>
               </div>
