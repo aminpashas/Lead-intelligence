@@ -31,11 +31,15 @@ export function LeadNotesPanel({
   notes,
   currentUserId,
   timeZone,
+  variant = 'rail',
 }: {
   leadId: string
   notes: LeadNote[]
   currentUserId: string | null
   timeZone?: string
+  /** 'rail' — flat section inside the thread's intelligence rail (default).
+   *  'card' — standalone aurea-card for the lead Details panel. */
+  variant?: 'rail' | 'card'
 }) {
   const tz = timeZone || DEFAULT_PRACTICE_TIMEZONE
   const [draft, setDraft] = useState('')
@@ -110,11 +114,27 @@ export function LeadNotesPanel({
     }
   }
 
+  const card = variant === 'card'
+  const pad = card ? 'px-5' : 'px-4'
+
   return (
-    <section className="border-t border-aurea-border">
-      <div className="flex items-center gap-2 px-4 pb-2 pt-4">
-        <NotebookPen className="h-3.5 w-3.5 text-aurea-ink-3" strokeWidth={1.75} />
-        <span className="aurea-eyebrow">Notes</span>
+    <section className={card ? 'aurea-card overflow-hidden' : 'border-t border-aurea-border'}>
+      <div
+        className={
+          card
+            ? 'flex items-center gap-2 border-b border-aurea-border px-5 py-4'
+            : 'flex items-center gap-2 px-4 pb-2 pt-4'
+        }
+      >
+        <NotebookPen
+          className={card ? 'h-[15px] w-[15px] text-aurea-ink-3' : 'h-3.5 w-3.5 text-aurea-ink-3'}
+          strokeWidth={1.75}
+        />
+        {card ? (
+          <h2 className="aurea-display text-[18px] text-aurea-ink">Notes</h2>
+        ) : (
+          <span className="aurea-eyebrow">Notes</span>
+        )}
         {notes.length > 0 && (
           <span className="rounded-full bg-aurea-surface-2 px-1.5 text-[11px] text-aurea-ink-3">
             {notes.length}
@@ -122,7 +142,7 @@ export function LeadNotesPanel({
         )}
       </div>
 
-      <div className="px-4 pb-3">
+      <div className={`${pad} pb-3 ${card ? 'pt-4' : ''}`}>
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -147,7 +167,7 @@ export function LeadNotesPanel({
       </div>
 
       {notes.length === 0 ? (
-        <p className="px-4 pb-4 text-[12px] leading-relaxed text-aurea-ink-3">
+        <p className={`${pad} pb-4 text-[12px] leading-relaxed text-aurea-ink-3`}>
           No notes yet. Anything you add here is visible to the whole team and shows up in the lead&apos;s timeline.
         </p>
       ) : (
@@ -157,7 +177,7 @@ export function LeadNotesPanel({
             const editing = editingId === note.id
 
             return (
-              <li key={note.id} className="group px-4 py-2.5 hover:bg-aurea-surface-2/50">
+              <li key={note.id} className={`group ${pad} py-2.5 hover:bg-aurea-surface-2/50`}>
                 {editing ? (
                   <div className="space-y-2">
                     <Textarea

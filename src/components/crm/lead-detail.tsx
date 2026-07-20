@@ -18,7 +18,7 @@ import { LeadContactField } from './lead-contact-field'
 import { EngagementMeter } from './engagement-meter'
 import { TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
-import type { LeadNote } from './lead-notes-panel'
+import { LeadNotesPanel, type LeadNote } from './lead-notes-panel'
 import { StageSelect } from './stage-select'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
 import { ScheduleAppointment } from './schedule-appointment'
@@ -256,7 +256,7 @@ export function LeadDetail({
               {showDetails
                 ? <PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.75} />
                 : <PanelRightOpen className="h-3.5 w-3.5" strokeWidth={1.75} />}
-              Details
+              <span className="hidden sm:inline">Details</span>
             </Button>
           </div>
         </div>
@@ -302,6 +302,20 @@ export function LeadDetail({
         // Phone: full-screen overlay over the conversation (toggled by the
         // Details button). Desktop: unchanged 380px sibling rail.
         <aside className="absolute inset-0 z-20 w-full overflow-y-auto border-l border-aurea-border bg-aurea-canvas lg:relative lg:inset-auto lg:z-auto lg:w-[380px] lg:shrink-0">
+          {/* Phone-only escape hatch — once the overlay is scrolled, the Details
+              toggle in the strip above is off-screen, so the overlay carries its
+              own way back. Sticky so it survives the scroll. */}
+          <div className="sticky top-0 z-10 border-b border-aurea-border bg-aurea-canvas px-2 py-1.5 lg:hidden">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-aurea-ink-2"
+              onClick={() => setShowDetails(false)}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Back to conversation
+            </Button>
+          </div>
           <div className="space-y-4 p-4">
             {/* Identity + primary actions */}
             <div className="space-y-3 border-b border-aurea-border pb-4">
@@ -362,6 +376,16 @@ export function LeadDetail({
                 </Button>
               </div>
             </div>
+
+            {/* Team notes — same rows as the thread rail's Notes panel, surfaced
+                here so adding a note never requires opening the Insights rail. */}
+            <LeadNotesPanel
+              leadId={lead.id}
+              notes={notes}
+              currentUserId={currentUserId}
+              timeZone={timeZone}
+              variant="card"
+            />
 
             {/* Other threads — quick links when the patient has more than one
                 channel conversation. */}
