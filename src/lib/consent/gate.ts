@@ -92,8 +92,9 @@ export async function assertConsent(
     return { allowed: false, reason: lead ? 'lookup_failed' : 'lead_not_found', lead: null }
   }
 
-  // A lead on hold is paused on EVERY channel for automation. Human sends
-  // bypass the gate entirely (see callers), so this only affects automation.
+  // A lead on hold is paused on every channel. Automation callers are denied
+  // here; manual staff sends also hit this gate by design (a hold hard-blocks
+  // until cleared — the UI offers "clear hold" as the override).
   if (isOnHold(lead)) {
     return { allowed: false, reason: 'on_hold', lead }
   }

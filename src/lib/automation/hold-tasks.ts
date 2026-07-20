@@ -41,7 +41,10 @@ export function buildHoldTaskInput(params: {
     organization_id: params.organizationId,
     lead_id: params.leadId,
     kind: 'callback',
-    title: `Call back ${params.leadName} (on hold until ${holdDateLabel(params.holdUntil)})`,
+    // No date baked into the title: refreshExistingTask (tasks.ts) updates due_at
+    // on re-hold but not title, so a stale date here would linger through re-holds.
+    // The date lives on due_at (shown on /tasks) and in metadata.hold_until.
+    title: `Call back ${params.leadName}`,
     detail: params.reason || null,
     due_at: params.holdUntil,
     assigned_to: params.assignedTo,

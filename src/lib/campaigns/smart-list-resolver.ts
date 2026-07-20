@@ -87,7 +87,8 @@ export async function resolveKeywordLeadIds(
 export function applySmartListCriteria(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   query: any,
-  criteria: SmartListCriteria
+  criteria: SmartListCriteria,
+  opts?: { includeHeld?: boolean }
 ) {
   // Static snapshot: pin to an explicit ID set (Action Center cohorts et al).
   // Applied here — not in resolveSmartListLeads — so every criteria consumer
@@ -237,8 +238,12 @@ export function applySmartListCriteria(
   }
 
   // Held leads are excluded from every smart-list audience by default — a smart
-  // list is an automation audience, and a hold pauses automation.
-  query = applyNotOnHold(query)
+  // list is an automation audience, and a hold pauses automation. The eligibility
+  // preview passes includeHeld so held leads stay in the resolved set and get
+  // bucketed as `on_hold` by computeEligibility, instead of vanishing silently.
+  if (!opts?.includeHeld) {
+    query = applyNotOnHold(query)
+  }
 
   return query
 }
@@ -251,9 +256,9 @@ export async function resolveSmartListLeads(
   supabase: SupabaseClient,
   organizationId: string,
   criteria: SmartListCriteria,
-  options: { limit?: number; offset?: number; countOnly?: boolean } = {}
+  options: { limit?: number; offset?: number; countOnly?: boolean; includeHeld?: boolean } = {}
 ): Promise<{ leadIds: string[]; count: number }> {
-  const { limit = 500, offset = 0, countOnly = false } = options
+  const { limit = 500, offset = 0, countOnly = false, includeHeld = false } = options
 
   // If we have tag criteria, we need to resolve tag-matching leads first
   let tagFilteredLeadIds: string[] | null = null
@@ -335,7 +340,7 @@ export async function resolveSmartListLeads(
   }
 
   // Apply all other criteria
-  query = applySmartListCriteria(query, criteria)
+  query = applySmartListCriteria(query, criteria, { includeHeld })
 
   if (countOnly) {
     const { count } = await query

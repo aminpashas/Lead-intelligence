@@ -27,8 +27,12 @@ export async function GET(
 
   if (!smartList) return NextResponse.json({ error: 'Smart List not found' }, { status: 404 })
 
+  // includeHeld: this is a preview, not a send/enrollment audience — held leads
+  // must stay in the resolved set so computeEligibility can bucket them as
+  // `on_hold` instead of silently vanishing (see smart-list-resolver.ts).
   const { leadIds, count } = await resolveSmartListLeads(supabase, orgId, smartList.criteria, {
     limit: SAMPLE_CAP,
+    includeHeld: true,
   })
 
   const empty = { total: 0, eligible: 0, no_consent: 0, opted_out: 0, no_contact: 0, on_hold: 0 }
