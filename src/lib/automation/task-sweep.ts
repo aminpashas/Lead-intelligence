@@ -35,6 +35,7 @@ import { logger } from '@/lib/logger'
 import { decryptField } from '@/lib/encryption'
 import { leadDisplayName } from '@/lib/leads/display-name'
 import { createHumanTask, resolveAssignee, type HumanTaskPriority } from './tasks'
+import { clearLeadHold } from './hold-tasks'
 
 /** Most rows one rule may mint in a single run (backstop against a rule going wide). */
 const PER_RULE_CAP = 200
@@ -341,6 +342,32 @@ async function sweepRule(
   return result
 }
 
+/**
+ * Clear holds whose date has passed: null the columns and complete the callback
+ * task. Runs inside the 15-min sweep — no dedicated cron. Capped like the rules.
+ */
+async function expireHolds(supabase: SupabaseClient, orgId: string): Promise<number> {
+  const nowIso = new Date().toISOString()
+  const { data: expired } = await supabase
+    .from('leads')
+    .select('id')
+    .eq('organization_id', orgId)
+    .not('hold_until', 'is', null)
+    .lt('hold_until', nowIso)
+    .limit(PER_RULE_CAP)
+
+  let cleared = 0
+  for (const row of expired ?? []) {
+    const { ok } = await clearLeadHold(supabase, {
+      organizationId: orgId,
+      leadId: (row as { id: string }).id,
+      via: 'expiry',
+    })
+    if (ok) cleared++
+  }
+  return cleared
+}
+
 /** Run every rule for one org. */
 export async function sweepOrg(supabase: SupabaseClient, orgId: string): Promise<SweepResult> {
   const total: SweepResult = { minted: 0, closed: 0, skipped: 0 }
@@ -359,5 +386,16 @@ export async function sweepOrg(supabase: SupabaseClient, orgId: string): Promise
       })
     }
   }
+
+  try {
+    const clearedHolds = await expireHolds(supabase, orgId)
+    total.closed += clearedHolds
+  } catch (err) {
+    logger.warn('TaskSweep: expireHolds threw', {
+      orgId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
   return total
 }
