@@ -4,21 +4,16 @@ import { type ReactNode } from 'react'
 import Link from 'next/link'
 import { DEFAULT_PRACTICE_TIMEZONE, zonedDateLabel, zonedTimeLabel, zonedDateTimeLabel } from '@/lib/time/zoned'
 import {
-  MessageSquare, Mail, Phone, PhoneIncoming, PhoneOutgoing,
+  PhoneIncoming, PhoneOutgoing,
   StickyNote, GitBranch, Sparkles, User,
 } from 'lucide-react'
+import { channelLabel } from '@/lib/channels'
+import { ChannelIcon } from '@/components/crm/channel-icon'
 import type { TimelineEntry } from '@/lib/timeline/types'
 import { entryActor, type TimelineActor } from '@/lib/timeline/actor'
 import { CallRecordingPlayer } from '@/components/voice/call-recording-player'
 import { recordingPlaybackUrl } from '@/lib/voice/recording-playback'
 
-const CHANNEL_ICON = {
-  sms: MessageSquare,
-  whatsapp: MessageSquare,
-  web_chat: MessageSquare,
-  email: Mail,
-  voice: Phone,
-} as const
 
 /** Optional per-entry decorations. Only the org-wide activity monitor supplies
  *  these — the per-conversation timeline passes neither and renders as before.
@@ -146,8 +141,7 @@ function NodeIcon({ entry }: { entry: TimelineEntry }) {
       : <PhoneIncoming className="h-3.5 w-3.5" strokeWidth={1.75} />
   }
   if (entry.kind === 'message') {
-    const Icon = CHANNEL_ICON[entry.channel] ?? MessageSquare
-    return <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+    return <ChannelIcon channel={entry.channel} className="h-3.5 w-3.5" tinted />
   }
   if (entry.kind === 'note') return <StickyNote className="h-3.5 w-3.5" strokeWidth={1.75} />
   return <GitBranch className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -155,8 +149,8 @@ function NodeIcon({ entry }: { entry: TimelineEntry }) {
 
 function typeLabel(entry: TimelineEntry): string {
   if (entry.kind === 'message') {
-    const ch = entry.channel === 'email' ? 'Email' : entry.channel === 'sms' ? 'SMS' : 'Message'
-    return `${entry.direction === 'outbound' ? 'Sent' : 'Received'} · ${ch}`
+    // Registry-driven: a Messenger DM used to read as a generic "Message" here.
+    return `${entry.direction === 'outbound' ? 'Sent' : 'Received'} · ${channelLabel(entry.channel)}`
   }
   if (entry.kind === 'call') return entry.direction === 'outbound' ? 'Outbound call' : 'Inbound call'
   if (entry.kind === 'note') return 'Note'

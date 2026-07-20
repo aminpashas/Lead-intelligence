@@ -342,7 +342,7 @@ export function CampaignBuilder({
           </span>
         </DialogTrigger>
       )}
-      <DialogContent className={`aurea ${aureaFontVars} max-w-3xl max-h-[85vh] overflow-y-auto bg-aurea-surface`}>
+      <DialogContent className={`aurea ${aureaFontVars} sm:max-w-3xl max-h-[85dvh] overflow-y-auto bg-aurea-surface`}>
         <DialogHeader className="space-y-1">
           <p className="aurea-eyebrow">{isEditing ? 'Edit campaign' : 'New campaign'}</p>
           <DialogTitle

@@ -12,7 +12,7 @@
  * without a live GHL location (see src/lib/__tests__/ghl-conversations.test.ts).
  */
 
-import { ghlFetch } from './client'
+import { ghlFetch, ghlPost } from './client'
 import type { GhlConfig } from './types'
 
 /** GHL Conversations API is versioned separately from the opportunities API. */
@@ -44,6 +44,11 @@ export type GhlMessage = {
   conversationId?: string
   /** Email threads carry the subject + html here on some revisions. */
   subject?: string
+  /**
+   * File URLs attached to the message. Social DMs routinely arrive with an
+   * empty `body` and a single image here — confirmed against live FB payloads.
+   */
+  attachments?: string[]
   meta?: Record<string, unknown>
 }
 
@@ -79,6 +84,14 @@ export type NormalizedGhlMessage = {
   body: string
   subject: string | null
   createdAt: string
+  /** Attachment URLs (images on social DMs). Empty when none. */
+  attachments: string[]
+  /**
+   * GHL's raw messageType (e.g. "TYPE_FACEBOOK"). Kept for provenance: the
+   * mapped channel is lossy, and when a channel misclassifies this is the only
+   * way to tell what GHL actually sent.
+   */
+  sourceType: string | null
   /** True when this is a call/voicemail record (logged as an activity, not a message). */
   isCall: boolean
   /** Populated only when isCall — duration/outcome/recording pulled from GHL's meta. */
@@ -159,6 +172,35 @@ export async function getConversationMessages(
     messages,
     nextLastMessageId: inner.nextPage && inner.lastMessageId ? inner.lastMessageId : undefined,
   }
+}
+
+/** What GHL echoes back after accepting an outbound message. */
+export type GhlSendResult = {
+  conversationId?: string
+  messageId?: string
+}
+
+/**
+ * Send an outbound message through GHL.
+ *
+ * LI relays social replies rather than talking to Meta directly: GHL owns the
+ * Facebook/Instagram Page connection, so this needs no Meta app review and the
+ * practice keeps one outbound identity. `type` is GHL's channel discriminator
+ * (`FB`, `IG`, …) — see the channel registry's `ghlSendType`.
+ *
+ * Requires the `conversations/message.write` scope on the Private Integration
+ * Token; without it GHL answers 401 "not authorized for this scope".
+ */
+export async function sendGhlMessage(
+  config: GhlConfig,
+  params: { type: string; contactId: string; message: string; conversationId?: string },
+): Promise<GhlSendResult> {
+  return ghlPost<GhlSendResult>(conversationsConfig(config), '/conversations/messages', {
+    type: params.type,
+    contactId: params.contactId,
+    message: params.message,
+    ...(params.conversationId ? { conversationId: params.conversationId } : {}),
+  })
 }
 
 // ── Pure normalizers (unit-tested) ───────────────────────────────────────────
@@ -245,9 +287,16 @@ export function extractGhlCall(msg: GhlMessage): NormalizedGhlCall {
   return { durationSec, state, recordingUrl: recordingUrl || null, raw: (msg.meta as Record<string, unknown>) ?? null }
 }
 
+/** Attachment URLs off a GHL message, defensively (the key is absent on most). */
+function extractAttachments(msg: GhlMessage): string[] {
+  const raw = msg.attachments
+  if (!Array.isArray(raw)) return []
+  return raw.filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+}
+
 /**
  * Convert a raw GHL message into the persist-ready shape, or null when it should
- * be skipped (unsupported channel, or empty non-call body). Pure.
+ * be skipped (unsupported channel, or a genuinely empty non-call message). Pure.
  */
 export function normalizeGhlMessage(msg: GhlMessage): NormalizedGhlMessage | null {
   if (!msg.id) return null
@@ -256,9 +305,13 @@ export function normalizeGhlMessage(msg: GhlMessage): NormalizedGhlMessage | nul
 
   const isCall = channel === 'call'
   const body = (msg.body || '').trim()
-  // Non-call messages with no body carry no context — skip. Calls are kept even
-  // without a body (the metadata itself is the record).
-  if (!isCall && !body) return null
+  const attachments = extractAttachments(msg)
+  // A non-call message with neither text nor a file carries no context — skip.
+  // An empty body ALONE is not enough: inbound social DMs are frequently just a
+  // photo, and treating those as empty silently discarded patient-sent images
+  // (verified against a live inbound Facebook message whose only content was a
+  // .png). Calls are kept regardless — their metadata is the record.
+  if (!isCall && !body && attachments.length === 0) return null
 
   return {
     externalId: `ghl_msg:${msg.id}`,
@@ -266,6 +319,8 @@ export function normalizeGhlMessage(msg: GhlMessage): NormalizedGhlMessage | nul
     direction: mapGhlDirection(msg.direction),
     body,
     subject: msg.subject?.trim() || null,
+    attachments,
+    sourceType: msg.messageType ?? null,
     createdAt: msg.dateAdded || new Date().toISOString(),
     isCall,
     ...(isCall ? { call: extractGhlCall(msg) } : {}),

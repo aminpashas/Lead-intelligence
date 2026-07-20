@@ -125,7 +125,11 @@ export function LeadDetail({
   // Remember whether the Details panel is open across leads: once the user opens
   // it, it stays open on every lead they visit (and vice-versa), scoped per-browser.
   useEffect(() => {
-    if (localStorage.getItem(DETAILS_PREF_KEY) === 'open') setShowDetails(true)
+    // Only restore "open" on desktop. On a phone the panel is a full-screen
+    // overlay, so rehydrating it open would bury the conversation behind the
+    // details rail every time staff opened a lead.
+    const isDesktop = window.matchMedia('(min-width: 1024px)').matches
+    if (isDesktop && localStorage.getItem(DETAILS_PREF_KEY) === 'open') setShowDetails(true)
   }, [])
 
   useEffect(() => {
@@ -206,7 +210,8 @@ export function LeadDetail({
   const scoreBreakdown = (lead.ai_score_breakdown as any)?.dimensions || []
 
   return (
-    <div className="flex h-full min-h-0 animate-in fade-in-0 duration-500">
+    // `relative` anchors the mobile full-screen Details overlay below.
+    <div className="relative flex h-full min-h-0 animate-in fade-in-0 duration-500">
       {/* ── Conversation (hero) — the same chat window as /conversations ── */}
       <section className="flex min-w-0 flex-1 flex-col">
         {/* Top strip — Thread ⇄ Timeline + the Details toggle. When there's no
@@ -293,7 +298,9 @@ export function LeadDetail({
 
       {/* ── Details panel (collapsible) — every lead feature, one page ──── */}
       {showDetails && (
-        <aside className="w-[380px] shrink-0 overflow-y-auto border-l border-aurea-border bg-aurea-canvas">
+        // Phone: full-screen overlay over the conversation (toggled by the
+        // Details button). Desktop: unchanged 380px sibling rail.
+        <aside className="absolute inset-0 z-20 w-full overflow-y-auto border-l border-aurea-border bg-aurea-canvas lg:relative lg:inset-auto lg:z-auto lg:w-[380px] lg:shrink-0">
           <div className="space-y-4 p-4">
             {/* Identity + primary actions */}
             <div className="space-y-3 border-b border-aurea-border pb-4">

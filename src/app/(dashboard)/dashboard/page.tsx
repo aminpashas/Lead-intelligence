@@ -81,7 +81,7 @@ async function OpsDashboardView({
     weekLeadsResult,
     awaitingContactResult,
     bookedResult,
-    unreadThreadsResult,
+    awaitingReplyResult,
     pipelineValue,
     upcomingResult,
     hotLeadsResult,
@@ -114,11 +114,12 @@ async function OpsDashboardView({
       .lt('scheduled_at', sevenDaysAhead)
       .in('status', ['scheduled', 'confirmed']),
 
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
-      .gt('unread_count', 0),
+    // Same "patient is waiting on us" signal the agency dashboard uses — see the
+    // note there on why conversations.unread_count can't be trusted.
+    supabase.rpc('conversations_awaiting_reply', {
+      p_org: orgId,
+      p_since: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    }),
 
     // Pipeline value — probability-weighted forecast from the In-Closing board.
     weightedPipelineForecast(supabase, orgId),
@@ -162,7 +163,7 @@ async function OpsDashboardView({
         weekLeads: weekLeadsResult.count ?? 0,
         bookedThisWeek: bookedResult.count ?? 0,
         awaitingContact: awaitingContactResult.count ?? 0,
-        unreadThreads: unreadThreadsResult.count ?? 0,
+        awaitingReplyCount: awaitingReplyResult.data?.length ?? 0,
         pipelineValue,
       }}
       stages={stages}
@@ -278,6 +279,11 @@ async function AgencyDashboard({
   const weekStart = resolveLeadDateRange('7d', now)!.gte
   const prevWeekStart = resolveLeadDateRange('14d', now)!.gte
 
+  // How far back the "waiting on us" rail looks. 30 days keeps the list
+  // actionable — a patient who went quiet three months ago is a re-engagement
+  // campaign, not an unanswered message — and bounds the RPC's message scan.
+  const awaitingReplySince = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
   // Run all queries in parallel
   const [
     hotLeadsResult,
@@ -292,7 +298,6 @@ async function AgencyDashboard({
     awaitingContactResult,
     engagedResult,
     upcomingApptsResult,
-    unreadThreadsResult,
     pipelineValue,
   ] = await Promise.all([
     // Hot leads needing attention (no response in 24h+)
@@ -326,14 +331,18 @@ async function AgencyDashboard({
       .order('created_at', { ascending: false })
       .limit(8),
 
-    // Unread conversations
-    supabase
-      .from('conversations')
-      .select('id, channel, unread_count, last_message_preview, last_message_at, lead:leads(id, first_name, last_name)')
-      .eq('organization_id', orgId)
-      .gt('unread_count', 0)
-      .order('last_message_at', { ascending: false })
-      .limit(5),
+    // Threads where the patient spoke last and is still waiting on us.
+    //
+    // This deliberately does NOT filter on conversations.unread_count. That
+    // counter is only ever *cleared* (zeroed when a thread is opened) and is
+    // incremented only on the Twilio webhook path — the GHL ingest, which
+    // carries nearly all volume, never touches it. Keying the rail on it
+    // surfaced 35 threads, 34 of them stale 2025 backfill artifacts, while
+    // hundreds of live threads awaiting a reply stayed invisible.
+    supabase.rpc('conversations_awaiting_reply', {
+      p_org: orgId,
+      p_since: awaitingReplySince,
+    }),
 
     // Active campaigns
     supabase
@@ -403,19 +412,22 @@ async function AgencyDashboard({
       .lt('scheduled_at', sevenDaysAhead)
       .in('status', ['scheduled', 'confirmed']),
 
-    // Conversation threads with unread messages (the list above only fetches 5).
-    supabase
-      .from('conversations')
-      .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
-      .gt('unread_count', 0),
-
     // Pipeline value — probability-weighted forecast from the In-Closing board.
     weightedPipelineForecast(supabase, orgId),
   ])
 
   // PII is encrypted at rest — decrypt server-side before rendering.
   const hotLeads = decryptLeadsPII(hotLeadsResult.data || [])
+
+  // The RPC returns flat rows (names encrypted, same as a PostgREST select).
+  // Decrypt, then re-nest under `lead` so the card keeps its existing shape.
+  // The full set is the count; the rail renders the 5 most recent.
+  const awaitingReply = decryptLeadsPII(
+    (unreadConvosResult.data || []) as Array<Record<string, unknown>>
+  ).map((row: Record<string, any>) => ({
+    ...row,
+    lead: { id: row.lead_id, first_name: row.first_name, last_name: row.last_name },
+  }))
   const todayAppointments = (todayApptsResult.data || []).map((appt) => ({
     ...appt,
     lead: appt.lead ? decryptLeadPII(appt.lead as Record<string, unknown>) : appt.lead,
@@ -429,7 +441,7 @@ async function AgencyDashboard({
         hotLeads={hotLeads}
         todayAppointments={todayAppointments}
         recentLeads={recentLeadsResult.data || []}
-        unreadConversations={unreadConvosResult.data || []}
+        awaitingReply={awaitingReply.slice(0, 5)}
         activeCampaigns={activeCampaignsResult.data || []}
         recentActivities={recentActivitiesResult.data || []}
         kpis={{
@@ -440,7 +452,7 @@ async function AgencyDashboard({
           engaged: engagedResult.count ?? 0,
           pipelineValue,
           upcomingAppointments: upcomingApptsResult.count ?? 0,
-          unreadThreads: unreadThreadsResult.count ?? 0,
+          awaitingReplyCount: awaitingReply.length,
         }}
       />
     </div>

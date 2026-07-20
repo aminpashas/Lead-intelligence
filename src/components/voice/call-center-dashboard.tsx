@@ -1071,7 +1071,7 @@ function NewCampaignDialog({ onCreated }: { onCreated: () => void }) {
           <Plus className="h-4 w-4" strokeWidth={1.75} /> New Campaign
         </Button>
       } />
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-aurea-ink">
             <Zap className="h-4 w-4 text-aurea-ink-3" strokeWidth={1.75} /> New calling automation

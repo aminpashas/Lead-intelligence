@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
 import { decryptLeadPII } from '@/lib/encryption'
 import { ConversationsSidebar, type ConversationListItem } from '@/components/crm/conversations-sidebar'
+import { MessengerPanes } from '@/components/crm/messenger-panes'
 
 /**
  * Messenger shell for the Conversations hub.
@@ -61,7 +62,10 @@ export default async function ConversationsLayout({
       return {
         id: c.id as string,
         leadId: (lead?.id as string) ?? null,
-        channel: (c.channel as string) ?? 'sms',
+        // Pass the channel through verbatim. This used to default to 'sms',
+        // which quietly disguised any channel the UI didn't recognize as a text
+        // thread; `channelMeta()` now handles unknown values explicitly.
+        channel: c.channel as string,
         unread: (c.unread_count as number) ?? 0,
         lastAt: (c.last_message_at as string) ?? null,
         preview: (c.last_message_preview as string) ?? null,
@@ -80,9 +84,8 @@ export default async function ConversationsLayout({
   }
 
   return (
-    <div className="flex h-full overflow-hidden rounded-xl border border-aurea-border bg-aurea-surface">
-      <ConversationsSidebar conversations={items} />
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-    </div>
+    <MessengerPanes rail={<ConversationsSidebar conversations={items} />}>
+      {children}
+    </MessengerPanes>
   )
 }

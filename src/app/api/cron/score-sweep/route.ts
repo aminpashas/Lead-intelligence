@@ -27,7 +27,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { withCron } from '@/lib/cron/with-cron'
-import { rescoreAndPersistLead } from '@/lib/ai/scoring'
+import { rescoreAndPersistLead, ScoringTruncationError } from '@/lib/ai/scoring'
 import type { Lead } from '@/types/database'
 
 /** The sweep makes N sequential Claude calls per run; give the function room.
@@ -66,16 +66,50 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
   for (const org of orgs as Array<{ id: string }>) {
     if (scored >= MAX_PER_RUN) break
 
-    // Newest unscored, non-terminal leads first — mirrors the dialer's freshest-first
-    // queue so the leads a rep is most likely to work get graded soonest.
-    const { data: leads, error: fetchError } = await supabase
+    const budget = Math.min(MAX_PER_ORG, MAX_PER_RUN - scored)
+
+    // The backlog is partitioned by "has this lead ever replied to us", and the
+    // replied side drains first.
+    //
+    // Ordering purely by created_at DESC looked right (freshest-first, like the
+    // dialer) but starved the only leads that can actually score hot: urgency and
+    // engagement are graded from the conversation, so a lead with no thread has a
+    // low ceiling no matter how new it is. The engaged leads are mostly OLD
+    // imports, so they sat at the tail of a 55k queue and were never reached —
+    // 5,014 leads who had replied, including 457 the analyst flagged
+    // ready_to_book/considering, were all still unscored.
+    //
+    // Within the replied tier, most-recent-reply first: a reply last week is
+    // worth more than a reply last year.
+    const engaged = await supabase
       .from('leads')
       .select('*')
       .eq('organization_id', org.id)
       .is('ai_score_updated_at', null)
       .not('status', 'in', TERMINAL_STATUSES)
-      .order('created_at', { ascending: false })
-      .limit(Math.min(MAX_PER_ORG, MAX_PER_RUN - scored))
+      .not('last_responded_at', 'is', null)
+      .order('last_responded_at', { ascending: false })
+      .limit(budget)
+
+    // Backfill the rest of the budget with never-replied leads, freshest first.
+    // The `last_responded_at IS NULL` filter makes the two tiers disjoint, so no
+    // lead can be fetched (or scored) twice in one run.
+    const remaining = budget - (engaged.data?.length ?? 0)
+    const cold =
+      remaining > 0
+        ? await supabase
+            .from('leads')
+            .select('*')
+            .eq('organization_id', org.id)
+            .is('ai_score_updated_at', null)
+            .not('status', 'in', TERMINAL_STATUSES)
+            .is('last_responded_at', null)
+            .order('created_at', { ascending: false })
+            .limit(remaining)
+        : { data: [], error: null }
+
+    const fetchError = engaged.error || cold.error
+    const leads = [...(engaged.data || []), ...(cold.data || [])]
 
     // Don't swallow a fetch error: PostgREST returns `{ data: null, error }` on a
     // rejected query, and a bare `const { data }` made that indistinguishable from
@@ -108,6 +142,13 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
           apiOutage = msg
           break
         }
+        // Truncated / unparseable model output is also not the lead's fault, but
+        // unlike an outage it's isolated — skip this lead WITHOUT stamping and
+        // keep the run going. It'll be retried next tick. Stamping here would
+        // retire exactly the leads with the longest transcripts (the most
+        // engaged ones), since long threads are what push the response over
+        // max_tokens in the first place.
+        if (err instanceof ScoringTruncationError) continue
         // Genuine per-lead failure (e.g. unparseable data): stamp the attempt so an
         // un-scoreable lead can't be re-selected every run. Leaves ai_score untouched
         // (still reads as unscored in the UI) — matches cron/enrich's failed-marking.

@@ -9,6 +9,8 @@ const msg = (over: Partial<NormalizedGhlMessage>): NormalizedGhlMessage => ({
   body: 'hi',
   subject: null,
   createdAt: '2026-07-20T00:00:00Z',
+  attachments: [],
+  sourceType: 'TYPE_FACEBOOK',
   isCall: false,
   ...over,
 })

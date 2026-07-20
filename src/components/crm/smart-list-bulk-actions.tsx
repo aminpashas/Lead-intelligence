@@ -277,7 +277,7 @@ export function SmartListBulkActions({ smartList, total, stages, tags, onDone }:
       </Button>
 
       <Dialog open={open} onOpenChange={(v) => !running && setOpen(v)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="aurea-display text-[18px] text-aurea-ink">
               Bulk action — {smartList.name}

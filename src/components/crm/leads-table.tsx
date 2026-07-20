@@ -363,15 +363,20 @@ export function LeadsTable({
         <Table>
           <TableHeader>
             <TableRow className="border-b border-aurea-border hover:bg-transparent">
+              {/* All ten columns rendered at once meant a ~900px horizontal
+                  swipe per row on a phone. Secondary columns drop out by
+                  breakpoint, leaving Lead · Engagement · Actions — which fits
+                  343px without scrolling. Each `hidden …:table-cell` here has a
+                  matching class on its body cell below; they must stay in sync. */}
               <SortableHead label="Lead" sortKey="name" />
               <SortableHead label="Engagement" sortKey="score" />
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Stage</TableHead>
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Tags</TableHead>
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Condition</TableHead>
-              <TableHead className="aurea-eyebrow text-aurea-ink-3">Source</TableHead>
-              <SortableHead label="Activity" sortKey="activity" />
-              <SortableHead label="Value" sortKey="value" />
-              <SortableHead label="Created" sortKey="created" />
+              <TableHead className="aurea-eyebrow text-aurea-ink-3 hidden md:table-cell">Stage</TableHead>
+              <TableHead className="aurea-eyebrow text-aurea-ink-3 hidden xl:table-cell">Tags</TableHead>
+              <TableHead className="aurea-eyebrow text-aurea-ink-3 hidden xl:table-cell">Condition</TableHead>
+              <TableHead className="aurea-eyebrow text-aurea-ink-3 hidden lg:table-cell">Source</TableHead>
+              <SortableHead label="Activity" sortKey="activity" className="hidden lg:table-cell" />
+              <SortableHead label="Value" sortKey="value" className="hidden md:table-cell" />
+              <SortableHead label="Created" sortKey="created" className="hidden xl:table-cell" />
               <TableHead className="aurea-eyebrow text-aurea-ink-3 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -419,22 +424,22 @@ export function LeadsTable({
                       score={lead.engagement_score}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     <StageBadge stage={lead.pipeline_stage} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden xl:table-cell">
                     {tags.length > 0 ? (
                       <TagBadgeList tags={tags} maxVisible={2} compact />
                     ) : (
                       <span className="font-mono text-[11px] text-aurea-ink-3">—</span>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden xl:table-cell">
                     <span className="text-[13px] text-aurea-ink-2 capitalize">
                       {lead.dental_condition?.replace(/_/g, ' ') || '—'}
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden lg:table-cell">
                     <div className="flex flex-col">
                       <span className="text-[13px] text-aurea-ink-3 capitalize">
                         {displaySourceLabel(lead.source_type, lead.campaign_attribution?.channel)?.replace(/_/g, ' ') || '—'}
@@ -449,12 +454,12 @@ export function LeadsTable({
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden lg:table-cell">
                     <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
                       {lead.total_messages_sent + lead.total_messages_received} msgs
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     {lead.treatment_value ? (
                       <span className="font-mono text-[13px] font-medium tabular-nums text-aurea-primary">
                         ${lead.treatment_value.toLocaleString()}
@@ -463,7 +468,7 @@ export function LeadsTable({
                       <span className="font-mono text-[11px] text-aurea-ink-3">—</span>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden xl:table-cell">
                     <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
                       {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
                     </span>

@@ -153,8 +153,62 @@ function MonthView({
   const todayKey = dayKey(new Date())
   const currentMonth = anchor.getMonth()
 
+  // Days of the anchored month that actually have something on them, in order.
+  // Drives the phone agenda below — staff on a phone want "what's coming up",
+  // not a 7-column grid whose cells are ~49px wide.
+  const agendaDays = useMemo(
+    () =>
+      cells
+        .filter((d) => d.getMonth() === currentMonth)
+        .map((d) => ({ day: d, key: dayKey(d), appts: byDay.get(dayKey(d)) || [] }))
+        .filter((d) => d.appts.length > 0),
+    [cells, byDay, currentMonth]
+  )
+
   return (
     <div>
+      {/* ── Phone: agenda list ───────────────────────────────────
+          The month grid stays available from `lg` up; below that the cells are
+          too narrow to read a name in, so we list the month instead. */}
+      <div className="lg:hidden">
+        {agendaDays.length === 0 ? (
+          <p className="px-4 py-10 text-center text-[13px] text-aurea-ink-3">
+            No appointments this month.
+          </p>
+        ) : (
+          <ul className="divide-y divide-aurea-border">
+            {agendaDays.map(({ day, key, appts }) => (
+              <li key={key} className="px-1 py-3">
+                <div className="mb-1.5 flex items-baseline gap-2 px-2">
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] tabular-nums ${
+                      key === todayKey
+                        ? 'bg-aurea-primary font-semibold text-primary-foreground'
+                        : 'text-aurea-ink'
+                    }`}
+                  >
+                    {day.getDate()}
+                  </span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-aurea-ink-3">
+                    {WEEKDAY_LABELS[day.getDay()]}
+                  </span>
+                  <span className="ml-auto text-[11px] tabular-nums text-aurea-ink-3">
+                    {appts.length}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {appts.map((a) => (
+                    <AgendaRow key={a.id} appt={a} onSelect={onSelect} />
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* ── Desktop: month grid ──────────────────────────────── */}
+      <div className="hidden lg:block">
       {/* Weekday header */}
       <div className="grid grid-cols-7 border-b border-aurea-border">
         {WEEKDAY_LABELS.map((d) => (
@@ -210,7 +264,35 @@ function MonthView({
           )
         })}
       </div>
+      </div>
     </div>
+  )
+}
+
+// One appointment on the phone agenda. Same data as MonthChip, but sized to be
+// tappable and readable rather than squeezed into a 49px grid cell.
+function AgendaRow({
+  appt,
+  onSelect,
+}: {
+  appt: CalendarAppointment
+  onSelect?: (a: CalendarAppointment) => void
+}) {
+  const c = statusColors(appt)
+  return (
+    <button
+      onClick={() => onSelect?.(appt)}
+      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition ${c.chipBg} ${c.chipText} hover:brightness-95`}
+    >
+      <span className={`h-2 w-2 shrink-0 rounded-full ${c.dot}`} />
+      <span className="shrink-0 text-[12px] font-medium tabular-nums">
+        {formatTimeCompact(appt.scheduled_at)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[13px]">{leadName(appt)}</span>
+      <span className="shrink-0 text-[11px] capitalize opacity-70">
+        {appt.type.replace('_', ' ')}
+      </span>
+    </button>
   )
 }
 

@@ -155,7 +155,7 @@ export function NewLeadDialog() {
           Add Lead
         </span>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[85dvh] sm:max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="aurea-display text-[22px] text-aurea-ink">Add New Lead</DialogTitle>
         </DialogHeader>

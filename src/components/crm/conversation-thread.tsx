@@ -34,12 +34,18 @@ import {
   AlertTriangle,
   MessageSquare,
   Mail,
+  Paperclip,
   PanelRightClose,
   PanelRightOpen,
   Zap,
   TrendingUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
+// NB: `@/lib/attribution` also exports a `channelLabel`, but that one names a
+// *marketing* channel (paid social, organic…). Import the registry's metadata
+// accessor instead of aliasing, so the two never get confused at a call site.
+import { channelMeta, type ConversationChannel } from '@/lib/channels'
+import { ChannelIcon } from '@/components/crm/channel-icon'
 import type { Conversation, Message, Lead, AgentType, VoiceCall, ConversationAnalysis, PatientProfile, PipelineStage } from '@/types/database'
 import { AgentMessageLabel } from './agent-indicator'
 import { AIModeToggle } from './ai-mode-toggle'
@@ -270,10 +276,22 @@ export function ConversationThread({
   // No-ops until a conversation exists (new-lead composer).
   useConversationPresence(conversation?.id)
   // Which channel the composer sends on. Seeded from the thread's channel but
-  // switchable inline, so text + email both happen here — no popup dialog.
-  const [sendChannel, setSendChannel] = useState<'sms' | 'email'>(
-    conversation?.channel === 'email' ? 'email' : 'sms'
+  // switchable inline for SMS/email, so text + email both happen here.
+  //
+  // Social threads are LOCKED to their own channel. This used to seed to 'sms'
+  // for anything that wasn't email, so replying to a Messenger DM quietly sent
+  // a *text message* to the lead's phone — a misroute and a consent problem
+  // (DMing a page is not permission to text).
+  const threadMeta = channelMeta(conversation?.channel)
+  const socialLocked = threadMeta.isSocial
+  const [sendChannel, setSendChannel] = useState<ConversationChannel>(
+    threadMeta.canSend ? threadMeta.key : 'sms'
   )
+  // A thread can change under the composer (navigating between threads reuses
+  // this component), so re-lock when the underlying channel changes.
+  useEffect(() => {
+    if (threadMeta.canSend && threadMeta.isSocial) setSendChannel(threadMeta.key)
+  }, [threadMeta.key, threadMeta.canSend, threadMeta.isSocial])
   const [sending, setSending] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [aiMode, setAiMode] = useState<string>('education')
@@ -388,10 +406,20 @@ export function ConversationThread({
     setSending(true)
 
     try {
-      const endpoint = sendChannel === 'sms' ? '/api/sms/send' : '/api/email/send'
-      const payload = sendChannel === 'sms'
-        ? { lead_id: lead.id, message: draft }
-        : { lead_id: lead.id, subject: conversation?.subject || 'Follow up', body: draft }
+      // Social replies relay through GHL (it owns the Meta connection); SMS and
+      // email go out on LI's own transports.
+      const endpoint =
+        sendChannel === 'sms'
+          ? '/api/sms/send'
+          : sendChannel === 'email'
+            ? '/api/email/send'
+            : '/api/social/send'
+      const payload =
+        sendChannel === 'sms'
+          ? { lead_id: lead.id, message: draft }
+          : sendChannel === 'email'
+            ? { lead_id: lead.id, subject: conversation?.subject || 'Follow up', body: draft }
+            : { lead_id: lead.id, conversation_id: conversation?.id, channel: sendChannel, message: draft }
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -588,7 +616,9 @@ export function ConversationThread({
 
   return (
     <div
-      className={`flex h-full overflow-hidden bg-aurea-surface ${
+      // `relative` anchors the mobile full-screen intelligence panel, which is
+      // `absolute inset-0` below `lg`. No effect on the desktop layout.
+      className={`relative flex h-full overflow-hidden bg-aurea-surface ${
         embedded ? '' : 'rounded-xl border border-aurea-border'
       }`}
     >
@@ -614,7 +644,10 @@ export function ConversationThread({
               {lead.first_name} {lead.last_name}
             </h3>
             <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-aurea-ink-3">
-              <span className="font-mono uppercase tracking-[0.12em]">{conversation?.channel ?? sendChannel}</span>
+              <span className="inline-flex items-center gap-1 font-mono uppercase tracking-[0.12em]">
+                <ChannelIcon channel={conversation?.channel ?? sendChannel} className="h-3 w-3" tinted />
+                {channelMeta(conversation?.channel ?? sendChannel).label}
+              </span>
               {lead.phone && (
                 <>
                   <span className="text-aurea-border-strong">·</span>
@@ -836,7 +869,9 @@ export function ConversationThread({
             placeholder={
               sendChannel === 'sms'
                 ? `Text ${lead.first_name || 'this lead'}...`
-                : `Email ${lead.first_name || 'this lead'}...`
+                : sendChannel === 'email'
+                  ? `Email ${lead.first_name || 'this lead'}...`
+                  : `Reply to ${lead.first_name || 'this lead'} on ${channelMeta(sendChannel).label}...`
             }
             style={{ height: composerHeight }}
             className="resize-none text-[13.5px] [field-sizing:fixed]"
@@ -851,31 +886,45 @@ export function ConversationThread({
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               {/* Channel toggle — send this message as a text or an email,
-                  right here. No separate window. */}
-              <div className="inline-flex overflow-hidden rounded-lg border border-aurea-border">
-                {(['sms', 'email'] as const).map((ch) => {
-                  const active = sendChannel === ch
-                  const Icon = ch === 'sms' ? MessageSquare : Mail
-                  const blocked = ch === 'sms' ? !lead.phone : !lead.email
-                  return (
-                    <button
-                      key={ch}
-                      type="button"
-                      onClick={() => setSendChannel(ch)}
-                      disabled={blocked}
-                      title={blocked ? (ch === 'sms' ? 'No phone number' : 'No email address') : `Send as ${ch === 'sms' ? 'text' : 'email'}`}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                        active
-                          ? 'bg-aurea-ink text-aurea-canvas'
-                          : 'text-aurea-ink-3 hover:bg-aurea-surface-2 hover:text-aurea-ink'
-                      }`}
-                    >
-                      <Icon className="h-3 w-3" strokeWidth={1.75} />
-                      {ch === 'sms' ? 'Text' : 'Email'}
-                    </button>
-                  )
-                })}
-              </div>
+                  right here. No separate window.
+
+                  A social thread shows a fixed badge instead: the reply must go
+                  back out on the channel the patient used, so there is nothing
+                  to choose. */}
+              {socialLocked ? (
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-aurea-border px-2.5 py-1.5 text-[12px] font-medium text-aurea-ink-2"
+                  title={`Replies go back to ${threadMeta.label}. DMing the page isn't permission to text or email.`}
+                >
+                  <ChannelIcon channel={threadMeta.key} className="h-3 w-3" tinted />
+                  Reply on {threadMeta.label}
+                </span>
+              ) : (
+                <div className="inline-flex overflow-hidden rounded-lg border border-aurea-border">
+                  {(['sms', 'email'] as const).map((ch) => {
+                    const active = sendChannel === ch
+                    const Icon = ch === 'sms' ? MessageSquare : Mail
+                    const blocked = ch === 'sms' ? !lead.phone : !lead.email
+                    return (
+                      <button
+                        key={ch}
+                        type="button"
+                        onClick={() => setSendChannel(ch)}
+                        disabled={blocked}
+                        title={blocked ? (ch === 'sms' ? 'No phone number' : 'No email address') : `Send as ${ch === 'sms' ? 'text' : 'email'}`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                          active
+                            ? 'bg-aurea-ink text-aurea-canvas'
+                            : 'text-aurea-ink-3 hover:bg-aurea-surface-2 hover:text-aurea-ink'
+                        }`}
+                      >
+                        <Icon className="h-3 w-3" strokeWidth={1.75} />
+                        {ch === 'sms' ? 'Text' : 'Email'}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -935,8 +984,13 @@ export function ConversationThread({
       {/* ── Intelligence side panel (collapsible) ──────────── */}
       {showPanel && (
         <aside
-          className="relative flex shrink-0 flex-col border-l border-aurea-border bg-aurea-surface"
-          style={{ width: panelWidth }}
+          // Phone: the panel can't sit beside the chat column, so it slides over
+          // it as a full-screen overlay (the Insights button toggles it shut).
+          // Desktop: unchanged resizable sibling. Width goes through a CSS var
+          // rather than an inline `width` so the mobile `w-full` isn't
+          // overridden by the inline style at every breakpoint.
+          className="absolute inset-0 z-20 flex w-full flex-col border-l border-aurea-border bg-aurea-surface lg:relative lg:inset-auto lg:z-auto lg:w-(--panel-w) lg:shrink-0"
+          style={{ '--panel-w': `${panelWidth}px` } as React.CSSProperties}
         >
           {/* Drag grip on the left edge — widen/narrow the panel; double-click resets. */}
           <div
@@ -946,7 +1000,10 @@ export function ConversationThread({
             aria-orientation="vertical"
             aria-label="Resize intelligence panel"
             title="Drag to resize · double-click to reset"
-            className="group absolute left-0 top-0 z-20 h-full w-2.5 -translate-x-1/2 cursor-col-resize touch-none"
+            // Desktop-only: `touch-none` on a full-height strip swallows swipes,
+            // and there's nothing to resize when the panel is a full-screen
+            // overlay.
+            className="group absolute left-0 top-0 z-20 hidden h-full w-2.5 -translate-x-1/2 cursor-col-resize touch-none lg:block"
           >
             <div className="mx-auto h-full w-px bg-transparent transition-colors group-hover:bg-aurea-primary/60" />
           </div>
@@ -1298,7 +1355,13 @@ function MessageGroup({ messages, lead, timeZone }: { messages: Message[]; lead:
                     {msg.subject}
                   </p>
                 )}
-                <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55]">{msg.body}</p>
+                {msg.body && (
+                  <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55]">{msg.body}</p>
+                )}
+                {/* Attachments — social DMs are often a photo with no text at
+                    all (a patient sending a picture of their teeth), so the
+                    bubble has to stand on the image alone. */}
+                <MessageAttachments message={msg} hasBody={Boolean(msg.body)} />
               </div>
               {msg.status === 'failed' && (
                 <span className="mt-1 rounded border border-aurea-rose/30 bg-aurea-rose/10 px-1.5 py-0.5 text-[10px] font-medium text-aurea-rose">
@@ -1309,6 +1372,55 @@ function MessageGroup({ messages, lead, timeZone }: { messages: Message[]; lead:
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Attachments on a message bubble.
+ *
+ * Images render inline (that's the whole point — a photo of a smile is the
+ * message); anything else becomes a labelled link. Files are hosted by GHL and
+ * open in a new tab; `noopener` because these are third-party URLs.
+ */
+function MessageAttachments({ message, hasBody }: { message: Message; hasBody: boolean }) {
+  const urls = Array.isArray(message.attachments) ? message.attachments : []
+  if (urls.length === 0) return null
+
+  const isImage = (u: string) => /\.(png|jpe?g|gif|webp|heic|bmp)(\?|#|$)/i.test(u)
+
+  return (
+    <div className={`flex flex-col gap-1.5 ${hasBody ? 'mt-2' : ''}`}>
+      {urls.map((url, i) => {
+        const key = `${message.id}:${i}`
+        if (!isImage(url)) {
+          return (
+            <a
+              key={key}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[12.5px] underline underline-offset-2 opacity-90 hover:opacity-100"
+            >
+              <Paperclip className="h-3 w-3" strokeWidth={1.75} />
+              Attachment {urls.length > 1 ? i + 1 : ''}
+            </a>
+          )
+        }
+        return (
+          <a key={key} href={url} target="_blank" rel="noopener noreferrer" className="block">
+            {/* Plain <img>: these are arbitrary third-party GHL asset hosts, not
+                a configured next/image remote pattern. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt="Attachment"
+              loading="lazy"
+              className="max-h-64 w-auto max-w-full rounded-lg border border-aurea-border/40 object-contain"
+            />
+          </a>
+        )
+      })}
     </div>
   )
 }

@@ -376,7 +376,10 @@ function AppointmentsPageInner() {
       </div>
 
       {/* ── Tabs ── */}
-      <div className="flex items-center gap-1 border-b pb-0">
+      {/* Five tabs need ~600px of min-content; they scroll rather than overflow
+          the viewport on a phone. Negative margin lets the row bleed to the
+          screen edge so it reads as scrollable. */}
+      <div className="-mx-4 flex items-center gap-1 overflow-x-auto border-b px-4 pb-0 sm:mx-0 sm:px-0">
         {([
           { key: 'calendar', label: 'Calendar', icon: CalendarDays, count: appointments.length },
           { key: 'upcoming', label: 'Upcoming', icon: Calendar, count: upcomingApts.length },
@@ -705,7 +708,7 @@ function AppointmentCard({
             </div>
 
             {/* Appointment Details */}
-            <div className="flex items-center gap-4 text-sm mb-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm mb-3">
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Calendar className="h-3.5 w-3.5" />
                 <span className={isToday ? 'text-aurea-primary font-semibold' : ''}>
@@ -825,8 +828,10 @@ function ReminderTimeline({
     { key: '1h', label: '1h SMS', icon: MessageSquare, sent: appointment.reminder_sent_1h, channel: 'sms' },
   ]
 
+  // Nodes carry `whitespace-nowrap` labels (~415px min-content), so this
+  // reminder timeline scrolls inside its card instead of stretching it.
   return (
-    <div className="flex items-center gap-0 mt-2">
+    <div className="mt-2 flex items-center gap-0 overflow-x-auto">
       {stages.map((stage, i) => {
         const stageReminders = reminders.filter(r => r.reminder_type === stage.key)
         const confirmed = stageReminders.some(r => r.confirmation_status === 'confirmed')
@@ -925,7 +930,7 @@ function ReminderLogTab({
             <CardContent className="pt-0">
               <div className="space-y-2">
                 {rems.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map((r) => (
-                  <div key={r.id} className="flex items-center gap-3 py-1.5 text-sm border-b last:border-0">
+                  <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-sm border-b last:border-0">
                     <ChannelIcon channel={r.channel} />
                     <Badge variant="secondary" className="text-xs capitalize">
                       {r.reminder_type}

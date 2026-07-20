@@ -169,7 +169,7 @@ export function LeadMessaging({
           )}
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="aurea-display text-[22px] text-aurea-ink">
             Message {lead.first_name} {lead.last_name}

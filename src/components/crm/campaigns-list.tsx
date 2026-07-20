@@ -281,7 +281,7 @@ function ActivationConfirm({ campaign, onClose }: { campaign: Campaign; onClose:
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="aurea max-w-lg bg-aurea-surface">
+      <DialogContent className="aurea sm:max-w-lg bg-aurea-surface">
         <DialogHeader className="space-y-1">
           <p className="aurea-eyebrow">Activate campaign</p>
           <DialogTitle

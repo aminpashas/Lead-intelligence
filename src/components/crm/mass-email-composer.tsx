@@ -562,7 +562,7 @@ export function MassEmailComposer({ initialSmartListId, onClose }: MassEmailComp
 
       {/* Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-aurea-ink">
               <Eye className="h-[17px] w-[17px] text-aurea-ink-3" strokeWidth={1.75} /> Email Preview

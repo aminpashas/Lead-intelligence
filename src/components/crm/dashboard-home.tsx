@@ -60,7 +60,7 @@ type DashboardProps = {
   hotLeads: any[]
   todayAppointments: any[]
   recentLeads: any[]
-  unreadConversations: any[]
+  awaitingReply: any[]
   activeCampaigns: any[]
   recentActivities: any[]
   kpis: {
@@ -71,7 +71,7 @@ type DashboardProps = {
     engaged: number
     pipelineValue: number
     upcomingAppointments: number
-    unreadThreads: number
+    awaitingReplyCount: number
   }
 }
 
@@ -80,7 +80,7 @@ export function DashboardHome({
   hotLeads,
   todayAppointments,
   recentLeads,
-  unreadConversations,
+  awaitingReply,
   activeCampaigns,
   recentActivities,
   kpis,
@@ -117,10 +117,10 @@ export function DashboardHome({
         />
         <MiniKPI
           icon={Bell}
-          label="Unread"
-          value={kpis.unreadThreads}
-          sub="conversations"
-          accent={kpis.unreadThreads > 0 ? 'rose' : undefined}
+          label="Needs Reply"
+          value={kpis.awaitingReplyCount}
+          sub="patient waiting"
+          accent={kpis.awaitingReplyCount > 0 ? 'rose' : undefined}
           href="/conversations?filter=unread"
         />
         <MiniKPI
@@ -171,29 +171,27 @@ export function DashboardHome({
         </div>
 
         <div className="space-y-5">
-          {/* Unread Messages */}
-          {unreadConversations.length > 0 && (
+          {/* Threads where the patient spoke last — they're waiting on us. */}
+          {awaitingReply.length > 0 && (
             <section className="aurea-card overflow-hidden">
               <div className="flex items-center gap-2 border-b border-aurea-border px-5 py-4">
                 <span className="flex h-1.5 w-1.5 rounded-full bg-aurea-rose" />
                 <h2 className="aurea-display text-[18px] text-aurea-ink">
-                  Unread Messages
+                  Needs Reply
                 </h2>
                 <span className="font-mono text-[12px] tabular-nums text-aurea-ink-3">
-                  ({kpis.unreadThreads})
+                  ({kpis.awaitingReplyCount})
                 </span>
               </div>
               <div className="px-5">
-                {unreadConversations.map((convo: any) => (
+                {awaitingReply.map((convo: any) => (
                   <Link
                     key={convo.id}
                     href={`/conversations/${convo.id}`}
                     className="flex items-center justify-between gap-3 border-b border-aurea-border py-3 transition-colors last:border-0 hover:bg-aurea-surface-2 -mx-5 px-5"
                   >
                     <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-aurea-rose/10 px-1 text-[11px] font-semibold tabular-nums text-aurea-rose ring-1 ring-aurea-rose/20">
-                        {convo.unread_count}
-                      </span>
+                      <span className="mt-1 flex h-1.5 w-1.5 shrink-0 self-start rounded-full bg-aurea-rose" />
                       <div className="min-w-0">
                         <p className="truncate text-[14px] font-medium text-aurea-ink">
                           {convo.lead?.first_name} {convo.lead?.last_name}
@@ -203,6 +201,7 @@ export function DashboardHome({
                         </p>
                       </div>
                     </div>
+                    {/* Time since the patient wrote = how long they've waited. */}
                     <span className="shrink-0 font-mono text-[11px] text-aurea-ink-3">
                       {convo.last_message_at
                         ? formatDistanceToNow(new Date(convo.last_message_at), { addSuffix: true })

@@ -349,7 +349,7 @@ export function LeadCSVImport() {
           Import CSV
         </span>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] w-[95vw] max-w-6xl overflow-y-auto">
+      <DialogContent className="max-h-[85dvh] w-[95vw] sm:max-w-6xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="aurea-display text-[22px] text-aurea-ink">Import Leads from CSV</DialogTitle>
           <StepIndicator step={step} />

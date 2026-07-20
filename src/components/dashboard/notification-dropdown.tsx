@@ -59,7 +59,7 @@ export function NotificationDropdown() {
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-80 p-0 bg-aurea-surface border-aurea-border"
+        className="w-80 max-w-[calc(100vw-1rem)] p-0 bg-aurea-surface border-aurea-border"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-aurea-border">
@@ -98,7 +98,7 @@ export function NotificationDropdown() {
                 return (
                   <div
                     key={notification.id}
-                    className={`flex items-start gap-3 px-4 py-3 hover:bg-aurea-surface-2 cursor-pointer transition-colors border-b border-aurea-border last:border-0 ${
+                    className={`group flex items-start gap-3 px-4 py-3 hover:bg-aurea-surface-2 cursor-pointer transition-colors border-b border-aurea-border last:border-0 ${
                       !notification.read ? 'bg-aurea-primary/5' : ''
                     }`}
                     onClick={() => handleClick(notification.id, notification.actionUrl)}
@@ -128,7 +128,11 @@ export function NotificationDropdown() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 hover:opacity-100 text-aurea-ink-3 hover:text-aurea-ink hover:bg-aurea-surface-2"
+                      // Was permanently invisible: `group-hover:` had no `group`
+                      // ancestor to resolve against. The parent row now declares
+                      // it. Touch devices have no hover at all, so reveal there
+                      // unconditionally.
+                      className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 text-aurea-ink-3 hover:text-aurea-ink hover:bg-aurea-surface-2"
                       onClick={(e) => {
                         e.stopPropagation()
                         dismiss(notification.id)

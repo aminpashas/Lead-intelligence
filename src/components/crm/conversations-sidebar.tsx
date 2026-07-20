@@ -6,9 +6,6 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import {
   Search,
   MessageSquare,
-  Mail,
-  Phone,
-  Globe,
   SlidersHorizontal,
   X,
   Bot,
@@ -16,6 +13,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react'
+import { CONVERSATION_CHANNELS, channelMeta } from '@/lib/channels'
+import { ChannelIcon } from '@/components/crm/channel-icon'
 
 // Persisted so the collapsed/expanded choice survives a full page reload.
 // (Across thread navigation the sidebar lives in the layout and never
@@ -50,7 +49,10 @@ export type ConversationListItem = {
 // `convIds` holds every thread it stands for, `channels` drives the icon cluster.
 type GroupedRow = ConversationListItem & { convIds: string[]; channels: string[] }
 
-type ChannelFilter = 'all' | 'sms' | 'email' | 'voice'
+// 'all' plus any channel in the registry. Previously this was a hardcoded
+// sms/email/voice triple, which made Messenger and Instagram threads reachable
+// only under "All" — and invisible the moment you filtered.
+type ChannelFilter = 'all' | (typeof CONVERSATION_CHANNELS)[number]
 type SortKey = 'recent' | 'unread' | 'score'
 
 const QUALIFICATIONS = ['hot', 'warm', 'cold', 'unqualified'] as const
@@ -77,13 +79,6 @@ function shortAgo(iso: string | null): string {
   return `${Math.floor(d / 365)}y`
 }
 
-function ChannelIcon({ channel, className }: { channel: string; className?: string }) {
-  const c = className ?? 'h-3 w-3'
-  if (channel === 'email') return <Mail className={c} strokeWidth={1.75} />
-  if (channel === 'voice') return <Phone className={c} strokeWidth={1.75} />
-  if (channel === 'web_chat' || channel === 'whatsapp') return <Globe className={c} strokeWidth={1.75} />
-  return <MessageSquare className={c} strokeWidth={1.75} />
-}
 
 const QUAL_DOT: Record<string, string> = {
   hot: 'bg-aurea-rose',
@@ -119,7 +114,12 @@ export function ConversationsSidebar({
   // Rehydrate the collapsed preference after mount (avoids SSR/client mismatch).
   useEffect(() => {
     try {
-      setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === '1')
+      // Collapsing is a desktop affordance — it exists to hand width back to the
+      // thread pane. On phones only one pane is on screen at a time, so a
+      // collapsed 52px strip would just be an inbox you can't read. Ignore a
+      // stored preference below `lg`.
+      const isDesktop = window.matchMedia('(min-width: 1024px)').matches
+      setCollapsed(isDesktop && window.localStorage.getItem(COLLAPSE_KEY) === '1')
     } catch {
       /* localStorage unavailable — default to expanded */
     }
@@ -164,6 +164,26 @@ export function ConversationsSidebar({
     setAiOnly(false)
     setSort('recent')
   }
+
+  // Segmented tabs are derived from the channels actually present in the inbox,
+  // in registry order. A practice with no Instagram threads never sees an empty
+  // IG tab, and a channel that starts arriving shows up on its own — no code
+  // change, no hardcoded list to forget to update.
+  const channelTabs = useMemo(() => {
+    const present = new Set(conversations.map((c) => c.channel))
+    const tabs: { value: ChannelFilter; label: string }[] = [{ value: 'all', label: 'All' }]
+    for (const key of CONVERSATION_CHANNELS) {
+      if (present.has(key)) tabs.push({ value: key, label: channelMeta(key).short })
+    }
+    return tabs
+  }, [conversations])
+
+  // Keep the active filter valid: if the selected channel disappears from the
+  // inbox (last thread archived), fall back to All rather than showing an empty
+  // list under a tab that no longer exists.
+  useEffect(() => {
+    if (channel !== 'all' && !channelTabs.some((t) => t.value === channel)) setChannel('all')
+  }, [channelTabs, channel])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -259,7 +279,9 @@ export function ConversationsSidebar({
   }
 
   return (
-    <aside className="flex h-full w-[320px] shrink-0 flex-col border-r border-aurea-border bg-aurea-surface lg:w-[380px]">
+    // Full-bleed on phones (MessengerPanes hides the thread pane there, so the
+    // rail owns the screen); fixed rail width only once there's room for both.
+    <aside className="flex h-full w-full shrink-0 flex-col border-r border-aurea-border bg-aurea-surface lg:w-[380px]">
       {/* ── Header ───────────────────────────────────────────── */}
       <div className="border-b border-aurea-border px-4 pb-3 pt-4">
         <div className="flex items-baseline justify-between">
@@ -322,13 +344,10 @@ export function ConversationsSidebar({
 
         {/* Channel segmented + Filters toggle */}
         <div className="mt-2.5 flex items-center gap-2">
-          <div className="inline-flex flex-1 overflow-hidden rounded-lg border border-aurea-border">
-            {([
-              ['all', 'All'],
-              ['sms', 'SMS'],
-              ['email', 'Email'],
-              ['voice', 'Voice'],
-            ] as const).map(([value, label]) => {
+          {/* Scrolls horizontally rather than squeezing: with SMS, Email, Voice,
+              FB and IG all present the tabs no longer fit a phone's width. */}
+          <div className="flex flex-1 overflow-x-auto rounded-lg border border-aurea-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {channelTabs.map(({ value, label }) => {
               const active = channel === value
               return (
                 <button
@@ -336,12 +355,15 @@ export function ConversationsSidebar({
                   type="button"
                   onClick={() => setChannel(value)}
                   aria-pressed={active}
-                  className={`flex-1 px-2 py-1.5 text-[11.5px] font-medium transition-colors ${
+                  className={`flex flex-1 shrink-0 items-center justify-center gap-1 whitespace-nowrap px-2 py-1.5 text-[11.5px] font-medium transition-colors ${
                     active
                       ? 'bg-aurea-ink text-aurea-canvas'
                       : 'text-aurea-ink-3 hover:bg-aurea-surface-2 hover:text-aurea-ink'
                   }`}
                 >
+                  {value !== 'all' && (
+                    <ChannelIcon channel={value} className="h-3 w-3" tinted={!active} />
+                  )}
                   {label}
                 </button>
               )
@@ -496,7 +518,7 @@ export function ConversationsSidebar({
                         </span>
                       </div>
                       <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-aurea-surface bg-aurea-surface-2 text-aurea-ink-3">
-                        <ChannelIcon channel={c.channel} className="h-2.5 w-2.5" />
+                        <ChannelIcon channel={c.channel} className="h-2.5 w-2.5" tinted />
                       </span>
                     </div>
 
@@ -516,10 +538,10 @@ export function ConversationsSidebar({
                           {c.channels.length > 1 && (
                             <span
                               className="flex items-center gap-0.5 text-aurea-ink-3"
-                              title={`Channels: ${c.channels.join(', ')}`}
+                              title={`Channels: ${c.channels.map((ch) => channelMeta(ch).label).join(', ')}`}
                             >
                               {c.channels.map((ch) => (
-                                <ChannelIcon key={ch} channel={ch} className="h-3 w-3" />
+                                <ChannelIcon key={ch} channel={ch} className="h-3 w-3" tinted />
                               ))}
                             </span>
                           )}

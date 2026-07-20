@@ -402,6 +402,24 @@ export function Sidebar() {
 
 // Mobile sidebar — overlay drawer
 export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  // While the drawer is open, lock the page behind it. Without this iOS scrolls
+  // and rubber-bands the underlying page whenever a swipe lands on the backdrop.
+  useEffect(() => {
+    if (!open) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      document.body.style.overflow = previous
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open, onClose])
+
   return (
     <>
       {/* Backdrop */}
@@ -414,6 +432,10 @@ export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () =>
 
       {/* Drawer */}
       <aside
+        // The drawer stays mounted so it can animate, which means when closed it
+        // is an off-screen but still-focusable list of ~16 nav links. `inert`
+        // takes it out of the tab order and the accessibility tree entirely.
+        inert={!open}
         className={cn(
           'fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-card shadow-xl lg:hidden transition-transform duration-300 ease-in-out',
           open ? 'translate-x-0' : '-translate-x-full'

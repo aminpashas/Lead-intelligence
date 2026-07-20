@@ -102,6 +102,47 @@ describe('normalizeGhlMessage', () => {
     expect(normalizeGhlMessage({ id: '', messageType: 'TYPE_SMS', body: 'x' })).toBeNull()
   })
 
+  // Regression: a real inbound Facebook DM arrived with body:'' and a single
+  // .png on `attachments`, and the empty-body rule discarded it entirely — a
+  // patient photographing their teeth produced no message and no alert.
+  it('keeps an attachment-only message even when the body is empty', () => {
+    const n = normalizeGhlMessage({
+      id: 'a1',
+      messageType: 'TYPE_FACEBOOK',
+      body: '',
+      direction: 'inbound',
+      attachments: ['https://static-assets.example/conversations/x.png'],
+    })
+    expect(n).not.toBeNull()
+    expect(n!.channel).toBe('messenger')
+    expect(n!.body).toBe('')
+    expect(n!.attachments).toEqual(['https://static-assets.example/conversations/x.png'])
+  })
+
+  it('still skips a message with neither body nor attachments', () => {
+    expect(
+      normalizeGhlMessage({ id: 'a2', messageType: 'TYPE_FACEBOOK', body: '', attachments: [] })
+    ).toBeNull()
+  })
+
+  it('defaults attachments to [] and ignores non-string entries', () => {
+    expect(normalizeGhlMessage(base)!.attachments).toEqual([])
+    const n = normalizeGhlMessage({
+      ...base,
+      attachments: ['https://ok/1.png', '', '  '] as string[],
+    })
+    expect(n!.attachments).toEqual(['https://ok/1.png'])
+  })
+
+  it('preserves the raw GHL messageType so FB and IG stay distinguishable', () => {
+    expect(normalizeGhlMessage({ ...base, messageType: 'TYPE_INSTAGRAM' })!.sourceType).toBe(
+      'TYPE_INSTAGRAM'
+    )
+    expect(normalizeGhlMessage({ ...base, messageType: 'TYPE_FACEBOOK' })!.sourceType).toBe(
+      'TYPE_FACEBOOK'
+    )
+  })
+
   it('normalizes an inbound Messenger DM into a persistable thread', () => {
     const n = normalizeGhlMessage({
       id: 'm1',

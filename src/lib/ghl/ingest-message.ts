@@ -251,7 +251,11 @@ export async function persistGhlMessage(
     status: 'delivered',
     external_id: n.externalId,
     created_at: n.createdAt,
-    metadata: { source: 'ghl' },
+    attachments: n.attachments,
+    // `ghl_message_type` is the raw discriminator (TYPE_FACEBOOK vs
+    // TYPE_INSTAGRAM). The mapped channel loses that distinction for anything
+    // that collapses, and it's the only way to audit a misclassification.
+    metadata: { source: 'ghl', ghl_message_type: n.sourceType },
   })
 
   // ── Compliance: opt-out/opt-in only meaningful on inbound SMS ──

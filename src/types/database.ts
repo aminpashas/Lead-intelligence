@@ -382,7 +382,12 @@ export type Lead = {
   assigned_user?: UserProfile
 }
 
-export type ConversationChannel = 'sms' | 'email' | 'web_chat' | 'whatsapp' | 'voice'
+// Re-exported from the channel registry so this union can never drift from the
+// DB CHECK constraint again. It previously omitted messenger/instagram, which
+// ingest was already writing — the inbox rendered them blind as a result.
+export type { ConversationChannel } from '@/lib/channels'
+import type { ConversationChannel } from '@/lib/channels'
+
 export type AIMode = 'auto' | 'assist' | 'off'
 export type AgentType = 'setter' | 'closer' | 'none'
 
@@ -439,6 +444,8 @@ export type Message = {
   status: MessageStatus
   error_message: string | null
   external_id: string | null
+  /** Attachment URLs (e.g. a photo on a Messenger DM). May be non-empty while `body` is ''. */
+  attachments: string[]
   ai_generated: boolean
   ai_confidence: number | null
   ai_model: string | null

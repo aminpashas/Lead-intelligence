@@ -134,6 +134,34 @@ export async function ghlFetch<T = unknown>(
   throw new Error(`GHL ${path}: exhausted retries`)
 }
 
+/**
+ * POST to GHL. The write counterpart of `ghlFetch`.
+ *
+ * Deliberately does NOT retry on 429 the way the read path does: a send is not
+ * idempotent, and a retried message is a message the patient receives twice.
+ * The caller surfaces rate limits to the user instead.
+ */
+export async function ghlPost<T = unknown>(
+  config: GhlConfig,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const url = new URL(`${config.baseUrl}${path.startsWith('/') ? path : '/' + path}`)
+  assertGhlHost(url.toString())
+
+  const res = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { ...ghlHeaders(config), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`GHL ${res.status} ${path}: ${text.slice(0, 300)}`)
+  }
+  return (await res.json()) as T
+}
+
 /** List the location's opportunity pipelines (with their stages). */
 export async function fetchPipelines(config: GhlConfig): Promise<GhlPipeline[]> {
   const data = await ghlFetch<{ pipelines?: GhlPipeline[] }>(config, '/opportunities/pipelines', {

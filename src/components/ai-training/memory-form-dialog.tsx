@@ -86,7 +86,7 @@ export function MemoryFormDialog({ open, onOpenChange, memory, onSave }: MemoryF
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit Memory' : 'Add Training Memory'}</DialogTitle>
         </DialogHeader>

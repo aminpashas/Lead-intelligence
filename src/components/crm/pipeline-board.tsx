@@ -7,7 +7,8 @@ import {
   DragOverlay,
   closestCorners,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type Announcements,
@@ -95,9 +96,17 @@ export function PipelineBoard({
     [stageCounts, countDelta]
   )
 
+  // Split Mouse/Touch rather than using PointerSensor. PointerSensor treats a
+  // finger like a mouse, so its distance-only constraint made an 8px swipe start
+  // a drag — which fought the column's vertical scroll and the board's
+  // horizontal scroll, leaving the board effectively undraggable on a phone.
+  // Touch now needs a deliberate long-press; a quick swipe scrolls as expected.
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 8 },
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,

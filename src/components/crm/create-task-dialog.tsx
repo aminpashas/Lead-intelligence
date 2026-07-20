@@ -119,7 +119,7 @@ export function CreateTaskDialog({ onCreated }: { onCreated: () => void }) {
           New task
         </span>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="aurea-display text-[22px] text-aurea-ink">New task</DialogTitle>
         </DialogHeader>

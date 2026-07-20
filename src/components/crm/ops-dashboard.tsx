@@ -33,7 +33,7 @@ type Props = {
     weekLeads: number
     bookedThisWeek: number
     awaitingContact: number
-    unreadThreads: number
+    awaitingReplyCount: number
     pipelineValue: number
   }
   stages: Stage[]
@@ -168,7 +168,7 @@ export function OpsDashboard({ userName, kpis, stages, upcomingConsults, hotLead
         <Kpi icon={TrendingUp} label="New this week" value={formatCount(kpis.weekLeads)} href="/leads" />
         <Kpi icon={Calendar} label="Consults this wk" value={formatCount(kpis.bookedThisWeek)} href="/appointments" />
         <Kpi icon={PhoneOff} label="Awaiting contact" value={formatCount(kpis.awaitingContact)} href="/leads" tone="warn" />
-        <Kpi icon={MessageSquare} label="Unread threads" value={formatCount(kpis.unreadThreads)} href="/conversations" tone="warn" />
+        <Kpi icon={MessageSquare} label="Needs reply" value={formatCount(kpis.awaitingReplyCount)} href="/conversations" tone="warn" />
         <Kpi icon={DollarSign} label="Pipeline value" value={formatCurrency(kpis.pipelineValue)} href="/closing" />
       </div>
 

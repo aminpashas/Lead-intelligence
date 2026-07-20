@@ -134,7 +134,7 @@ export function LogCallDialog({
           )}
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="aurea-display text-[22px] text-aurea-ink">Log a call</DialogTitle>
         </DialogHeader>

@@ -339,8 +339,15 @@ export function Softphone() {
   return (
     <div
       className={cn(
-        'fixed bottom-4 right-4 z-50 flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-2xl transition-[width] duration-200',
-        expanded ? 'w-[32rem]' : 'w-[22rem]'
+        // Phone: edge-to-edge card above the home indicator. The desktop
+        // expanded width (32rem = 512px) overflows every phone, so width is
+        // only applied from `sm` up — on mobile the panel is always full-bleed
+        // and the expand toggle just reveals more rows.
+        // z-30 (not z-50) so an open nav drawer, whose backdrop is z-40, covers
+        // the softphone instead of losing to it on DOM order.
+        'fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-2xl transition-[width] duration-200',
+        'sm:inset-x-auto sm:right-4 sm:bottom-4 sm:max-h-[calc(100dvh-2rem)]',
+        expanded ? 'sm:w-[32rem]' : 'sm:w-[22rem]'
       )}
     >
       {/* ── Live call ─────────────────────────────────────────────── */}

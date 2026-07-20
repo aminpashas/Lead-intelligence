@@ -136,8 +136,11 @@ function TaskRow({
       : null
 
   return (
-    <li className="border-b border-aurea-border px-5 py-3.5 last:border-b-0">
-      <div className="flex items-start gap-3">
+    <li className="border-b border-aurea-border px-4 py-3.5 last:border-b-0 sm:px-5">
+      {/* The four actions total ~260px and can't shrink, which left no room for
+          the title on a phone. Below `sm` they drop to their own row instead. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
         <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 border border-aurea-border">
           <Icon className="h-3.5 w-3.5 text-aurea-ink-2" strokeWidth={1.75} />
         </span>
@@ -172,7 +175,8 @@ function TaskRow({
             </div>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 pl-9 sm:pl-0">
           {openLink && (
             <Link
               href={openLink}
