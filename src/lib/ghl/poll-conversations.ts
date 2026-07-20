@@ -223,6 +223,11 @@ export async function pollGhlConversations(
               organizationId,
               lead,
               normalized: n,
+              // Insert only. Despite being a live tail, this poller ends its run
+              // with the same authoritative recompute_* RPCs over exactly the
+              // conversations and leads it touched, so per-message counter
+              // bumps would double-count on top of that recompute.
+              bumpCounters: false,
               conversationCache,
             })
             if (r.status === 'inserted') {

@@ -250,6 +250,10 @@ export async function backfillGhlConversations(
               organizationId,
               lead,
               normalized,
+              // Insert only — this chunk ends with the authoritative
+              // recompute_* RPCs, so incrementing here would double-count and
+              // stamp NOW() onto the recency fields of year-old history.
+              bumpCounters: false,
               conversationCache,
             })
             if (result.status === 'inserted') {
