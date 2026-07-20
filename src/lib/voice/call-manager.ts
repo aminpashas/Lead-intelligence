@@ -21,6 +21,7 @@ import {
 import { decryptField, searchHash } from '@/lib/encryption'
 import { formatToE164, formatPhoneForSpeech } from '@/lib/leads/phone'
 import { checkSendWindow } from '@/lib/campaigns/send-window'
+import { isOnHold } from '@/lib/leads/hold'
 import { auditPHITransmission } from '@/lib/hipaa-audit'
 import { logHIPAAEvent } from '@/lib/ai/hipaa'
 import { logger } from '@/lib/logger'
@@ -68,7 +69,7 @@ export async function preCallCheck(
       voice_consent, voice_opt_out, do_not_call,
       sms_consent, sms_opt_out,
       phone_valid, phone_line_type,
-      state, timezone
+      state, timezone, hold_until
     `)
     .eq('id', leadId)
     .eq('organization_id', organizationId)
@@ -88,6 +89,12 @@ export async function preCallCheck(
   // above. We no longer require a positive voice_consent grant.
   if (lead.voice_opt_out) {
     return { allowed: false, reason: 'voice_opt_out' }
+  }
+
+  // Lead on hold: automated + speed-to-lead calls pause until the hold date.
+  // A staff softphone dial can still override in the UI; this path is automation.
+  if (isOnHold(lead)) {
+    return { allowed: false, reason: 'on_hold' }
   }
 
   // TCPA calling window: no autodialed calls before 8am / after 9pm in the lead's
