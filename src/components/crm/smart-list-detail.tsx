@@ -130,6 +130,7 @@ export function SmartListDetail({ smartList, stages = [], tags = [], onEdit, onB
   const c = smartList.criteria
   if (c.tags?.ids?.length) criteriaLabels.push(`${c.tags.ids.length} tag${c.tags.ids.length > 1 ? 's' : ''} (${c.tags.operator?.toUpperCase()})`)
   if (c.statuses?.length) criteriaLabels.push(`${c.statuses.length} statuses`)
+  if (c.exclude_statuses?.length) criteriaLabels.push(`Not: ${c.exclude_statuses.join(', ').replace(/_/g, ' ')}`)
   if (c.ai_qualifications?.length) criteriaLabels.push(c.ai_qualifications.join(', '))
   if (c.conversation_intents?.length) criteriaLabels.push(`Intent: ${c.conversation_intents.join(', ').replace(/_/g, ' ')}`)
   if (c.conversation_sentiments?.length) criteriaLabels.push(`Sentiment: ${c.conversation_sentiments.join(', ')}`)

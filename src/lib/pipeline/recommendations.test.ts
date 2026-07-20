@@ -319,3 +319,91 @@ describe('evEligibleSignals', () => {
     expect(evEligibleSignals(nurture)).toEqual(['staleReachableSms'])
   })
 })
+
+// ── Status exclusion + terminal stages (2026-07 disqualified-segment incident) ─
+
+describe('segment status exclusion', () => {
+  it('bars disqualified/unresponsive from every emitted segment', () => {
+    const stage = makeStage({
+      stageId: 's1',
+      position: 1,
+      staleReachableSms: RECOMMENDATION_CONFIG.minStaleLeads,
+      hotWarmReachableSms: RECOMMENDATION_CONFIG.minHotLeads,
+      readyToBook: RECOMMENDATION_CONFIG.minReadyToBook,
+      deliberatingDue: RECOMMENDATION_CONFIG.minDeliberatingDue,
+    })
+    const next = makeStage({ stageId: 's2', slug: 'engaged', position: 2 })
+    const recs = buildRecommendations(makeSignals([stage, next]))
+    expect(recs.length).toBeGreaterThan(0)
+    for (const r of recs) {
+      expect(r.action.criteria.exclude_statuses).toEqual([
+        ...RECOMMENDATION_CONFIG.excludeStatuses,
+      ])
+      expect(r.execution.segment.exclude_statuses).toEqual([
+        ...RECOMMENDATION_CONFIG.excludeStatuses,
+      ])
+    }
+  })
+})
+
+describe('terminal stages (Lost / No-Show)', () => {
+  it('never advances leads INTO a terminal stage', () => {
+    const financing = makeStage({
+      stageId: 'fin',
+      slug: 'financing',
+      position: 5,
+      readyToBook: RECOMMENDATION_CONFIG.minReadyToBook,
+    })
+    const lost = makeStage({ stageId: 'lost', slug: 'lost', position: 6 })
+    const noShow = makeStage({ stageId: 'ns', slug: 'no-show', position: 7 })
+    const recs = buildRecommendations(makeSignals([financing, lost, noShow]))
+    expect(recs.filter((r) => r.kind === 'advance_stage')).toEqual([])
+  })
+
+  it('skips over a terminal stage to the next real sales stage', () => {
+    const financing = makeStage({
+      stageId: 'fin',
+      slug: 'financing',
+      position: 5,
+      readyToBook: RECOMMENDATION_CONFIG.minReadyToBook,
+    })
+    const lost = makeStage({ stageId: 'lost', slug: 'lost', position: 6 })
+    const closing = makeStage({ stageId: 'close', slug: 'in-closing', position: 7 })
+    const recs = buildRecommendations(makeSignals([financing, lost, closing]))
+    const advance = recs.find((r) => r.kind === 'advance_stage')
+    expect(advance).toBeDefined()
+    expect(advance?.action.type === 'bulk_stage' && advance.action.toStageSlug).toBe('in-closing')
+  })
+
+  it('never advances leads FROM a terminal stage (win-back, not stage-move)', () => {
+    const lost = makeStage({
+      stageId: 'lost',
+      slug: 'lost',
+      position: 6,
+      readyToBook: 100,
+    })
+    const noShow = makeStage({ stageId: 'ns', slug: 'no-show', position: 7 })
+    const recs = buildRecommendations(makeSignals([lost, noShow]))
+    expect(recs.filter((r) => r.kind === 'advance_stage')).toEqual([])
+    expect(evEligibleSignals(lost)).not.toContain('readyToBook')
+  })
+
+  it('emits NO rules-engine recs for a terminal stage, however loud its signals', () => {
+    // Lost with every signal maxed: no follow-up blast, no strike-hot, no
+    // deliberating nudge — terminal buckets are outcomes, not work queues.
+    const lost = makeStage({
+      stageId: 'lost',
+      slug: 'lost',
+      position: 6,
+      staleReachableSms: 5000,
+      hotWarmReachableSms: 500,
+      readyToBook: 100,
+      deliberatingDue: 50,
+      neverContacted: 1000,
+    })
+    const noShow = makeStage({ stageId: 'ns', slug: 'no-show', position: 7, staleReachableSms: 5000 })
+    expect(buildRecommendations(makeSignals([lost, noShow]))).toEqual([])
+    expect(evEligibleSignals(lost)).toEqual([])
+    expect(evEligibleSignals(noShow)).toEqual([])
+  })
+})

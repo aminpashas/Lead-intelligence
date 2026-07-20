@@ -247,6 +247,17 @@ export const RECOMMENDATION_CONFIG = {
   nurtureSlugs: ['nurturing', 'dormant', 'cold'],
   /** Slug of the never-contacted work queue. */
   noCommunicationSlug: 'no-communication',
+  /** Terminal outcome stages (Lost / No-Show). They sit at the end of the
+   *  position order but are NOT forward progress — advance_stage must never
+   *  pick one as a move target (the engine once recommended "advance
+   *  ready-to-book leads to Lost"). */
+  terminalSlugs: ['lost', 'no-show'],
+  /** Lead statuses barred from every recommendation segment. A disqualified or
+   *  unresponsive lead may still carry a stage/intent/heat signal, but it is
+   *  not actionable — including them made segments read as contradictions
+   *  ("ready to book" lists full of Disqualified pills). Mirrored by the
+   *  signal counts in pipeline-signals.ts so counts == segment size. */
+  excludeStatuses: ['disqualified', 'unresponsive'],
   /** Max extra priority points a recommendation can earn from expected value.
    *  See applyEvBoost for the formula. */
   evBoostMax: 15,
@@ -268,13 +279,24 @@ function stageWeight(s: StageSignal, maxPosition: number): number {
 
 /** Base SMS-eligibility criteria shared by every broadcast recommendation. */
 function reachableSmsBase(stageId: string): SmartListCriteria {
-  return { stages: [stageId], has_phone: true, sms_consent: true }
+  return {
+    stages: [stageId],
+    has_phone: true,
+    sms_consent: true,
+    exclude_statuses: [...RECOMMENDATION_CONFIG.excludeStatuses],
+  }
 }
 
-/** The next sales stage forward from `s` by position, or undefined if last. */
+/** True when the stage is a terminal outcome bucket (Lost / No-Show). */
+function isTerminalStage(slug: string | null): boolean {
+  return !!slug && (RECOMMENDATION_CONFIG.terminalSlugs as readonly string[]).includes(slug)
+}
+
+/** The next sales stage forward from `s` by position, or undefined if none.
+ *  Terminal stages (Lost / No-Show) are never a valid advance target. */
 function nextSalesStage(s: StageSignal, stages: StageSignal[]): StageSignal | undefined {
   return stages
-    .filter((x) => x.kind === 'sales' && x.position > s.position)
+    .filter((x) => x.kind === 'sales' && x.position > s.position && !isTerminalStage(x.slug))
     .sort((a, b) => a.position - b.position)[0]
 }
 
@@ -296,10 +318,13 @@ function isNurtureStage(slug: string | null): boolean {
 export function evEligibleSignals(s: StageSignal): SignalEvKey[] {
   const cfg = RECOMMENDATION_CONFIG
   const keys: SignalEvKey[] = []
-  if (s.kind === 'sales' && s.deliberatingDue >= cfg.minDeliberatingDue) keys.push('deliberatingDue')
-  if (s.kind === 'sales' && s.hotWarmReachableSms >= cfg.minHotLeads) keys.push('hotWarmReachableSms')
+  // "Active sales" mirrors buildRecommendations: terminal outcome buckets
+  // (Lost / No-Show) fire no rules-engine recs, so they need no EV either.
+  const activeSales = s.kind === 'sales' && !isTerminalStage(s.slug)
+  if (activeSales && s.deliberatingDue >= cfg.minDeliberatingDue) keys.push('deliberatingDue')
+  if (activeSales && s.hotWarmReachableSms >= cfg.minHotLeads) keys.push('hotWarmReachableSms')
   if (
-    (s.kind === 'sales' || isNurtureStage(s.slug)) &&
+    (activeSales || isNurtureStage(s.slug)) &&
     s.staleReachableSms >= cfg.minStaleLeads
   ) {
     keys.push('staleReachableSms')
@@ -307,7 +332,9 @@ export function evEligibleSignals(s: StageSignal): SignalEvKey[] {
   if (s.slug === cfg.noCommunicationSlug && s.neverContacted >= cfg.minNeverContacted) {
     keys.push('neverContacted')
   }
-  if (s.kind === 'sales' && s.readyToBook >= cfg.minReadyToBook) keys.push('readyToBook')
+  if (activeSales && s.readyToBook >= cfg.minReadyToBook) {
+    keys.push('readyToBook')
+  }
   return keys
 }
 
@@ -368,12 +395,17 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
 
   for (const s of signals.stages) {
     const weight = stageWeight(s, maxPosition)
+    // Terminal outcome buckets (Lost / No-Show) get NO rules-engine recs: they
+    // are where deals END, so "follow up with 3,212 cooling leads in Lost" is
+    // an accidental win-back blast, not a funnel nudge. Deliberate win-backs
+    // stay possible via the analyst (LLM) recs and the Nurturing re_engage.
+    const activeSales = s.kind === 'sales' && !isTerminalStage(s.slug)
 
     // R0 — Due follow-ups: deliberating deals whose agreed follow-up date has
     // arrived. Highest lift of any rec — the patient chose to keep talking and
     // today is the day, so a nudge lands on the warmest, most explicit intent
-    // we track. Fires only in sales stages (deliberating is a closing state).
-    if (s.kind === 'sales' && s.deliberatingDue >= cfg.minDeliberatingDue) {
+    // we track. Fires only in active sales stages (deliberating is a closing state).
+    if (activeSales && s.deliberatingDue >= cfg.minDeliberatingDue) {
       const ev = s.ev?.deliberatingDue ?? null
       const criteria: SmartListCriteria = {
         ...reachableSmsBase(s.stageId),
@@ -410,9 +442,9 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
       })
     }
 
-    // R1 — Strike while hot: high-intent leads in a sales stage that are
+    // R1 — Strike while hot: high-intent leads in an active sales stage that are
     // SMS-reachable and haven't been nudged. Most urgent because intent decays.
-    if (s.kind === 'sales' && s.hotWarmReachableSms >= cfg.minHotLeads) {
+    if (activeSales && s.hotWarmReachableSms >= cfg.minHotLeads) {
       const ev = s.ev?.hotWarmReachableSms ?? null
       const criteria: SmartListCriteria = {
         ...reachableSmsBase(s.stageId),
@@ -450,7 +482,7 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
 
     // R2 — Follow up the stale: SMS-reachable leads in an active sales stage
     // with no contact in the staleness window.
-    if (s.kind === 'sales' && s.staleReachableSms >= cfg.minStaleLeads) {
+    if (activeSales && s.staleReachableSms >= cfg.minStaleLeads) {
       const ev = s.ev?.staleReachableSms ?? null
       const criteria: SmartListCriteria = {
         ...reachableSmsBase(s.stageId),
@@ -527,14 +559,17 @@ export function buildRecommendations(signals: PipelineSignals): Recommendation[]
     // R5 — Advance the ready: leads the conversation sweep flagged ready-to-book
     // that are still parked in this sales stage belong further down the funnel.
     // A move backed by real intent — not a blanket push. Only fires when there
-    // IS a next sales stage and enough flagged leads.
-    if (s.kind === 'sales' && s.readyToBook >= cfg.minReadyToBook) {
+    // IS a next sales stage and enough flagged leads. Terminal stages (Lost /
+    // No-Show) are excluded as a source: a ready-to-book lead sitting in Lost
+    // is a win-back conversation, not a bulk stage-move.
+    if (activeSales && s.readyToBook >= cfg.minReadyToBook) {
       const next = nextSalesStage(s, signals.stages)
       if (next?.slug) {
         const ev = s.ev?.readyToBook ?? null
         const criteria: SmartListCriteria = {
           stages: [s.stageId],
           conversation_intents: ['ready_to_book'],
+          exclude_statuses: [...RECOMMENDATION_CONFIG.excludeStatuses],
         }
         recs.push({
           id: `advance_stage:${s.stageId}`,

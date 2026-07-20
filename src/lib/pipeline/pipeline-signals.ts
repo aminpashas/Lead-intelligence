@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { PipelineStage } from '@/types/database'
 import { isOperationalStage } from './stage-groups'
-import { evEligibleSignals } from './recommendations'
+import { RECOMMENDATION_CONFIG, evEligibleSignals } from './recommendations'
 import type { PipelineSignals, SegmentEv, SignalEvKey, StageSignal } from './recommendations'
 
 /**
@@ -94,6 +94,11 @@ export async function gatherPipelineSignals(
           .select('id', { count: 'exact', head: true })
           .eq('organization_id', orgId)
           .eq('stage_id', s.id)
+          // Mirror the segments' exclude_statuses (recommendations.ts
+          // RECOMMENDATION_CONFIG.excludeStatuses): a disqualified or
+          // unresponsive lead must neither be counted nor targeted, or the
+          // rec's promised leadCount drifts from the real segment.
+          .not('status', 'in', `(${RECOMMENDATION_CONFIG.excludeStatuses.join(',')})`)
         if (serviceOr) q = q.or(serviceOr)
         return q
       }

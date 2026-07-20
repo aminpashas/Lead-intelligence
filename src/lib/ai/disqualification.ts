@@ -36,6 +36,11 @@ export const defaultRules: Omit<DisqualificationRule, 'id'>[] = [
     name: 'Very Low AI Score After Engagement',
     description: 'Lead scored below 15 after at least 5 message exchanges',
     condition: (lead) => {
+      // An unscored lead has ai_score 0 by DEFAULT, not by judgment — the rule
+      // must only fire on a real (low) verdict. Skipping this check once
+      // mass-disqualified 11k+ engaged-but-unscored leads, including leads the
+      // conversation analyst had flagged ready_to_book (2026-07 incident).
+      if (lead.ai_qualification === 'unscored' || lead.ai_score == null) return false
       const totalMessages = ((lead.total_messages_sent as number) || 0) + ((lead.total_messages_received as number) || 0)
       return (lead.ai_score as number) < 15 && totalMessages >= 5
     },
