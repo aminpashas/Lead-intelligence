@@ -273,7 +273,7 @@ export function PipelineBoard({
     return (
       <div>
         {chipRow}
-        <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-16rem)]">
+        <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100dvh-19.5rem-env(safe-area-inset-bottom))] lg:h-[calc(100dvh-16rem)]">
           {stages.filter((s) => !s.is_lost).map((stage) => {
             const stageLeads = leads.filter((l) => l.stage_id === stage.id)
             return (
@@ -294,7 +294,7 @@ export function PipelineBoard({
       onDragEnd={handleDragEnd}
     >
       {chipRow}
-      <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100vh-16rem)]">
+      <div className="flex gap-3 overflow-x-auto pb-4 h-[calc(100dvh-19.5rem-env(safe-area-inset-bottom))] lg:h-[calc(100dvh-16rem)]">
         {stages
           .filter((s) => !s.is_lost)
           .map((stage) => {

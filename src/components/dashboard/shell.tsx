@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Sidebar, MobileSidebar } from './sidebar'
 import { Topbar } from './topbar'
+import { BottomNav } from './bottom-nav'
 import { useOrgStore } from '@/lib/store/use-org'
 import type { Organization, UserProfile } from '@/types/database'
 import { Toaster } from '@/components/ui/sonner'
@@ -37,7 +38,7 @@ export function DashboardShell({
 
   return (
     <SoftphoneProvider>
-      <div className={`aurea flex h-screen overflow-hidden bg-aurea-canvas ${fontClassName ?? ''}`}>
+      <div className={`aurea flex h-dvh overflow-hidden bg-aurea-canvas ${fontClassName ?? ''}`}>
         <Sidebar />
         <MobileSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -45,6 +46,8 @@ export function DashboardShell({
           <main className="aurea-floor flex-1 overflow-y-auto p-4 lg:p-6">
             {children}
           </main>
+          {/* In-flow (not fixed) so full-height surfaces shrink to clear it */}
+          <BottomNav />
         </div>
         <Softphone />
         <Toaster />

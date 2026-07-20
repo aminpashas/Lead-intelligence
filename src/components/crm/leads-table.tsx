@@ -212,6 +212,24 @@ export function LeadsTable({
 
   const totalPages = Math.ceil(total / perPage)
 
+  // Mobile sort — the sortable column headers disappear with the table below
+  // `md`, so surface the same URL-param sort as a select + direction flip.
+  const SORT_OPTIONS = [
+    { value: 'created', label: 'Created' },
+    { value: 'name', label: 'Name' },
+    { value: 'score', label: 'Engagement' },
+    { value: 'activity', label: 'Activity' },
+    { value: 'value', label: 'Value' },
+  ]
+  const sortItems: Record<string, ReactNode> = {}
+  for (const o of SORT_OPTIONS) {
+    sortItems[o.value] = (
+      <span>
+        <span className="text-aurea-ink-3">Sort:</span> {o.label}
+      </span>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -358,16 +376,121 @@ export function LeadsTable({
         )}
       </div>
 
+      {/* Mobile sort control — pairs with the md:hidden card list below */}
+      <div className="flex items-center gap-2 md:hidden">
+        <Select
+          items={sortItems}
+          value={activeSort}
+          onValueChange={(v) => {
+            if (v && v !== activeSort) toggleSort(v)
+          }}
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 gap-1.5"
+          onClick={() => toggleSort(activeSort)}
+          aria-label={`Sort ${activeDir === 'asc' ? 'ascending' : 'descending'} — tap to flip`}
+        >
+          {activeDir === 'asc' ? (
+            <ArrowUp className="h-3.5 w-3.5" strokeWidth={1.75} />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.75} />
+          )}
+        </Button>
+      </div>
+
+      {/* Mobile card list — the table below md hides most lead data, so phones
+          get cards carrying the full picture instead. Same row → /leads/[id]. */}
+      <div className="space-y-2 md:hidden">
+        {leads.map((lead) => {
+          const tags = leadTagsMap?.[lead.id] || []
+          const campaignLine = formatCampaignAttribution(lead.campaign_attribution)
+          return (
+            <div
+              key={lead.id}
+              className="aurea-card cursor-pointer p-3 transition-colors hover:bg-aurea-surface-2"
+              onClick={() => router.push(`/leads/${lead.id}`)}
+            >
+              <div className="flex items-start gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 text-[11px] font-semibold text-aurea-ink-2 ring-1 ring-aurea-border">
+                  {leadInitials(lead)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[14px] font-medium text-aurea-ink">
+                    <Link
+                      href={`/leads/${lead.id}`}
+                      className="outline-none focus-visible:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {leadDisplayName(lead)}
+                    </Link>
+                  </p>
+                  <p className="truncate font-mono text-[11px] text-aurea-ink-3">
+                    {lead.email || lead.phone}
+                  </p>
+                </div>
+                <div onClick={(e) => e.stopPropagation()}>
+                  <LeadActions lead={lead} variant="compact" />
+                </div>
+              </div>
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <StageBadge stage={lead.pipeline_stage} />
+                <EngagementMeter
+                  temperature={lead.engagement_temperature}
+                  score={lead.engagement_score}
+                />
+                {lead.treatment_value ? (
+                  <span className="font-mono text-[12px] font-medium tabular-nums text-aurea-primary">
+                    ${lead.treatment_value.toLocaleString()}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-[11px] capitalize text-aurea-ink-3">
+                  {displaySourceLabel(lead.source_type, lead.campaign_attribution?.channel)?.replace(/_/g, ' ') || '—'}
+                </span>
+                {campaignLine && (
+                  <span className="max-w-full truncate font-mono text-[11px] text-aurea-ink-2" title={campaignLine}>
+                    {campaignLine}
+                  </span>
+                )}
+                <span className="font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                  {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
+                </span>
+              </div>
+              {tags.length > 0 && (
+                <div className="mt-1.5">
+                  <TagBadgeList tags={tags} maxVisible={3} compact />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
       {/* Table */}
-      <div className="aurea-card overflow-hidden">
+      <div className="aurea-card overflow-hidden hidden md:block">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-aurea-border hover:bg-transparent">
-              {/* All ten columns rendered at once meant a ~900px horizontal
-                  swipe per row on a phone. Secondary columns drop out by
-                  breakpoint, leaving Lead · Engagement · Actions — which fits
-                  343px without scrolling. Each `hidden …:table-cell` here has a
-                  matching class on its body cell below; they must stay in sync. */}
+              {/* Below md the table is replaced by the card list above, so the
+                  narrowest table render is md. Secondary columns still drop out
+                  by breakpoint between md and xl. Each `hidden …:table-cell`
+                  here has a matching class on its body cell below; they must
+                  stay in sync — and any field added here should also be added
+                  to the mobile card list above. */}
               <SortableHead label="Lead" sortKey="name" />
               <SortableHead label="Engagement" sortKey="score" />
               <TableHead className="aurea-eyebrow text-aurea-ink-3 hidden md:table-cell">Stage</TableHead>

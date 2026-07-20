@@ -35,12 +35,19 @@ import {
   AlertTriangle,
   MessageSquare,
   Mail,
+  MoreVertical,
   Paperclip,
   PanelRightClose,
   PanelRightOpen,
   Zap,
   TrendingUp,
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 // NB: `@/lib/attribution` also exports a `channelLabel`, but that one names a
 // *marketing* channel (paid social, organic…). Import the registry's metadata
@@ -667,7 +674,7 @@ export function ConversationThread({
             <h3 className="aurea-display truncate text-[20px] text-aurea-ink">
               {lead.first_name} {lead.last_name}
             </h3>
-            <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-aurea-ink-3">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-aurea-ink-3">
               <span className="inline-flex items-center gap-1 font-mono uppercase tracking-[0.12em]">
                 <ChannelIcon channel={conversation?.channel ?? sendChannel} className="h-3 w-3" tinted />
                 {channelMeta(conversation?.channel ?? sendChannel).label}
@@ -730,13 +737,15 @@ export function ConversationThread({
           )}
           {/* The stage picker now lives as a prominent pill under the lead name
               (see header above), so it is not duplicated in this toolbar. */}
-          <div className="h-6 w-px bg-aurea-border" />
+          <div className="hidden h-6 w-px bg-aurea-border md:block" />
+          {/* Analyze + Smart Follow-Up don't fit a phone header — below md they
+              fold into the overflow menu at the end of this row. */}
           <Button
             variant="outline"
             size="sm"
             onClick={analyzeConversation}
             disabled={analyzing || !conversation || messages.length < 2}
-            className="gap-1.5"
+            className="hidden gap-1.5 md:inline-flex"
           >
             {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" strokeWidth={1.75} />}
             Analyze
@@ -746,7 +755,7 @@ export function ConversationThread({
             size="sm"
             onClick={getFollowUpPlan}
             disabled={generatingFollowUp || !conversation}
-            className="gap-1.5"
+            className="hidden gap-1.5 md:inline-flex"
           >
             {generatingFollowUp ? <Loader2 className="h-3 w-3 animate-spin" /> : <Heart className="h-3 w-3" strokeWidth={1.75} />}
             Smart Follow-Up
@@ -762,8 +771,32 @@ export function ConversationThread({
             {showPanel
               ? <PanelRightClose className="h-3.5 w-3.5" strokeWidth={1.75} />
               : <PanelRightOpen className="h-3.5 w-3.5" strokeWidth={1.75} />}
-            Insights
+            <span className="hidden md:inline">Insights</span>
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label="More actions"
+              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-aurea-ink-2 transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink md:hidden"
+            >
+              <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={analyzeConversation}
+                disabled={analyzing || !conversation || messages.length < 2}
+              >
+                {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" strokeWidth={1.75} />}
+                Analyze
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={getFollowUpPlan}
+                disabled={generatingFollowUp || !conversation}
+              >
+                {generatingFollowUp ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Heart className="h-3.5 w-3.5" strokeWidth={1.75} />}
+                Smart Follow-Up
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -951,9 +984,10 @@ export function ConversationThread({
             }}
           />
 
-          {/* Toolbar */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+          {/* Toolbar — wraps on phones so channel toggle, AI draft, and Send
+              never overflow a 375px composer */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="flex flex-wrap items-center gap-2">
               {/* Channel toggle — send this message as a text or an email,
                   right here. No separate window.
 
@@ -1011,7 +1045,8 @@ export function ConversationThread({
                 ) : (
                   <Brain className="h-3 w-3 text-aurea-primary" strokeWidth={1.75} />
                 )}
-                AI Agent Draft
+                <span className="hidden sm:inline">AI Agent Draft</span>
+                <span className="sm:hidden">AI Draft</span>
               </Button>
               {/* Legacy mode selector as fallback */}
               <Select items={AI_MODE_LABELS} value={aiMode} onValueChange={(v) => v && setAiMode(v)}>

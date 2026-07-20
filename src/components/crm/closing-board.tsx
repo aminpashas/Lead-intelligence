@@ -156,6 +156,76 @@ const TEMP_ORDER: ClosingTemperature[] = ['hot', 'warm', 'deliberating', 'cold',
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString()}`
 
+/**
+ * The two inline-editable fields, shared by the desktop table and the mobile
+ * card list so a change to either editor can't drift between layouts. Module
+ * level (not nested in ClosingBoard) so re-renders never remount the input and
+ * drop focus mid-edit.
+ */
+function TemperatureControl({
+  temp,
+  isOverride,
+  onChange,
+}: {
+  temp: ClosingTemperature
+  isOverride: boolean
+  onChange: (t: ClosingTemperature) => void
+}) {
+  const style = TEMP_STYLE[temp]
+  return (
+    <div className="flex items-center gap-2">
+      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: style.dot }} />
+      <select
+        value={temp}
+        onChange={(e) => onChange(e.target.value as ClosingTemperature)}
+        className={`bg-transparent text-[12px] font-medium ${style.text} focus:outline-none`}
+      >
+        {TEMP_ORDER.map((t) => (
+          <option key={t} value={t}>
+            {TEMP_STYLE[t].label}
+          </option>
+        ))}
+      </select>
+      {!isOverride ? <span className="text-[10px] text-aurea-ink-3">auto</span> : null}
+    </div>
+  )
+}
+
+function NextStepEditor({
+  value,
+  editing,
+  onEdit,
+  onCancel,
+  onCommit,
+}: {
+  value: string
+  editing: boolean
+  onEdit: () => void
+  onCancel: () => void
+  onCommit: (v: string) => void
+}) {
+  return editing ? (
+    <input
+      autoFocus
+      defaultValue={value}
+      onBlur={(e) => onCommit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        if (e.key === 'Escape') onCancel()
+      }}
+      placeholder="e.g. offered 3rd-party financing"
+      className="w-56 max-w-full rounded border border-aurea-border bg-aurea-surface-2 px-2 py-1 text-[12px] text-aurea-ink focus:outline-none"
+    />
+  ) : (
+    <button
+      onClick={onEdit}
+      className="max-w-[240px] truncate text-left text-[12px] text-aurea-ink-2 hover:text-aurea-ink"
+    >
+      {value || <span className="text-aurea-ink-3">Add next step…</span>}
+    </button>
+  )
+}
+
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-lg border border-aurea-border bg-aurea-card px-4 py-3">
@@ -197,6 +267,27 @@ export function ClosingBoard({
     }
   }
 
+  // Optimistic write + revert for the two editable fields — shared by both the
+  // table cells and the mobile cards.
+  async function changeTemp(rowId: string, val: ClosingTemperature) {
+    const prev = temps[rowId] ?? null
+    setTemps((s) => ({ ...s, [rowId]: val }))
+    if (!(await save(rowId, { temperature: val }))) {
+      setTemps((s) => ({ ...s, [rowId]: prev }))
+      toast.error('Could not update temperature')
+    }
+  }
+
+  async function commitStep(rowId: string, v: string) {
+    const prev = steps[rowId] ?? ''
+    setSteps((s) => ({ ...s, [rowId]: v }))
+    setEditingStep(null)
+    if (!(await save(rowId, { nextStep: v || null }))) {
+      setSteps((s) => ({ ...s, [rowId]: prev }))
+      toast.error('Could not save next step')
+    }
+  }
+
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-aurea-border bg-aurea-card px-6 py-16 text-center">
@@ -224,7 +315,78 @@ export function ClosingBoard({
         />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-aurea-border bg-aurea-card">
+      {/* Mobile card list — same rows, same two editable fields, no 980px
+          side-scroll. Interactive zones stop propagation like the table cells. */}
+      <div className="space-y-2 lg:hidden">
+        {rows.map((row) => {
+          const temp = temps[row.id] ?? row.derivedTemperature
+          const isOverride = temps[row.id] != null
+          const days = row.daysSinceContact
+          const name = `${row.firstName} ${row.lastName}`.trim() || 'Unnamed'
+          const openLead = row.leadId ? () => router.push(`/leads/${row.leadId}`) : undefined
+          const stop = (e: MouseEvent) => e.stopPropagation()
+          return (
+            <div
+              key={row.id}
+              onClick={openLead}
+              className={`rounded-lg border border-aurea-border bg-aurea-card p-3 ${
+                row.won ? 'border-l-2 border-l-emerald-500 bg-emerald-500/[0.06]' : ''
+              } ${openLead ? 'cursor-pointer' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-[14px] font-medium text-aurea-ink">
+                    {name}
+                    {row.won ? (
+                      <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} />
+                        Closed · Won
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="mt-0.5 truncate text-[12px] capitalize text-aurea-ink-2">
+                    {[row.service?.trim(), row.statusRaw?.trim()].filter(Boolean).join(' · ') || '—'}
+                  </p>
+                </div>
+                <div onClick={stop}>
+                  {row.lead ? (
+                    <LeadActions lead={row.lead} variant="compact" />
+                  ) : (
+                    <LinkPatient rowId={row.id} name={name} />
+                  )}
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-aurea-ink-2">
+                <span className="font-medium text-aurea-ink">
+                  {row.caseValue ? usd(row.caseValue) : '—'}
+                </span>
+                <span className="font-medium text-aurea-ink">
+                  {Math.round(row.closeProbability * 100)}% close
+                </span>
+                <span>
+                  {days === null ? 'never contacted' : days === 0 ? 'contacted today' : `contacted ${days}d ago`}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2" onClick={stop}>
+                <TemperatureControl
+                  temp={temp}
+                  isOverride={isOverride}
+                  onChange={(val) => void changeTemp(row.id, val)}
+                />
+                <NextStepEditor
+                  value={steps[row.id] || ''}
+                  editing={editingStep === row.id}
+                  onEdit={() => setEditingStep(row.id)}
+                  onCancel={() => setEditingStep(null)}
+                  onCommit={(v) => void commitStep(row.id, v)}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-lg border border-aurea-border bg-aurea-card lg:block">
         <table className="w-full min-w-[980px] text-left text-[13px]">
           <thead>
             <tr className="border-b border-aurea-border text-aurea-ink-3">
@@ -242,7 +404,6 @@ export function ClosingBoard({
           <tbody>
             {rows.map((row) => {
               const temp = temps[row.id] ?? row.derivedTemperature
-              const style = TEMP_STYLE[temp]
               const isOverride = temps[row.id] != null
               const days = row.daysSinceContact
               const name = `${row.firstName} ${row.lastName}`.trim() || 'Unnamed'
@@ -293,60 +454,20 @@ export function ClosingBoard({
                     {Math.round(row.closeProbability * 100)}%
                   </td>
                   <td className="px-4 py-3" onClick={stop}>
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: style.dot }} />
-                      <select
-                        value={temp}
-                        onChange={async (e) => {
-                          const val = e.target.value as ClosingTemperature
-                          const prev = temps[row.id] ?? null
-                          setTemps((s) => ({ ...s, [row.id]: val })) // optimistic
-                          if (!(await save(row.id, { temperature: val }))) {
-                            setTemps((s) => ({ ...s, [row.id]: prev })) // revert
-                            toast.error('Could not update temperature')
-                          }
-                        }}
-                        className={`bg-transparent text-[12px] font-medium ${style.text} focus:outline-none`}
-                      >
-                        {TEMP_ORDER.map((t) => (
-                          <option key={t} value={t}>
-                            {TEMP_STYLE[t].label}
-                          </option>
-                        ))}
-                      </select>
-                      {!isOverride ? <span className="text-[10px] text-aurea-ink-3">auto</span> : null}
-                    </div>
+                    <TemperatureControl
+                      temp={temp}
+                      isOverride={isOverride}
+                      onChange={(val) => void changeTemp(row.id, val)}
+                    />
                   </td>
                   <td className="px-4 py-3" onClick={stop}>
-                    {editingStep === row.id ? (
-                      <input
-                        autoFocus
-                        defaultValue={steps[row.id]}
-                        onBlur={async (e) => {
-                          const v = e.target.value
-                          const prev = steps[row.id] ?? ''
-                          setSteps((s) => ({ ...s, [row.id]: v })) // optimistic
-                          setEditingStep(null)
-                          if (!(await save(row.id, { nextStep: v || null }))) {
-                            setSteps((s) => ({ ...s, [row.id]: prev })) // revert
-                            toast.error('Could not save next step')
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                          if (e.key === 'Escape') setEditingStep(null)
-                        }}
-                        placeholder="e.g. offered 3rd-party financing"
-                        className="w-56 rounded border border-aurea-border bg-aurea-surface-2 px-2 py-1 text-[12px] text-aurea-ink focus:outline-none"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => setEditingStep(row.id)}
-                        className="max-w-[240px] truncate text-left text-[12px] text-aurea-ink-2 hover:text-aurea-ink"
-                      >
-                        {steps[row.id] || <span className="text-aurea-ink-3">Add next step…</span>}
-                      </button>
-                    )}
+                    <NextStepEditor
+                      value={steps[row.id] || ''}
+                      editing={editingStep === row.id}
+                      onEdit={() => setEditingStep(row.id)}
+                      onCancel={() => setEditingStep(null)}
+                      onCommit={(v) => void commitStep(row.id, v)}
+                    />
                   </td>
                   <td className="px-4 py-3" onClick={stop}>
                     {row.lead ? (

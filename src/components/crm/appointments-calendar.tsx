@@ -333,8 +333,77 @@ function WeekView({
   const todayKey = dayKey(new Date())
   const gridHeight = (WEEK_END_HOUR - WEEK_START_HOUR) * HOUR_ROW_PX
 
+  // Phone: the 720px time grid is unusable behind a side-scroll, so below `lg`
+  // the week renders as a tappable day strip + that day's agenda. Selection is
+  // derived, not reset-by-effect: a pick from another week simply stops
+  // matching and falls back to today (or the week's first day).
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const weekKeys = days.map(dayKey)
+  const effectiveKey =
+    selectedDay && weekKeys.includes(selectedDay)
+      ? selectedDay
+      : weekKeys.includes(todayKey)
+        ? todayKey
+        : weekKeys[0]
+  const selectedAppts = byDay.get(effectiveKey) || []
+  const selectedDate = days[weekKeys.indexOf(effectiveKey)]
+
   return (
-    <div className="overflow-x-auto">
+    <div>
+      {/* ── Phone: day strip + day agenda ─────────────────────── */}
+      <div className="lg:hidden">
+        <div className="grid grid-cols-7 border-b border-aurea-border">
+          {days.map((d) => {
+            const key = dayKey(d)
+            const isToday = key === todayKey
+            const isSelected = key === effectiveKey
+            const count = (byDay.get(key) || []).length
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSelectedDay(key)}
+                aria-pressed={isSelected}
+                className={`flex flex-col items-center gap-0.5 px-1 py-2 transition-colors ${
+                  isSelected ? 'bg-aurea-surface-2' : 'hover:bg-aurea-surface-2/50'
+                }`}
+              >
+                <span className="text-[10px] uppercase tracking-wide text-aurea-ink-3">
+                  {WEEKDAY_LABELS[d.getDay()]}
+                </span>
+                <span
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-[13px] tabular-nums ${
+                    isToday
+                      ? 'bg-aurea-primary font-semibold text-primary-foreground'
+                      : 'text-aurea-ink'
+                  }`}
+                >
+                  {d.getDate()}
+                </span>
+                <span
+                  className={`h-1 w-1 rounded-full ${count > 0 ? 'bg-aurea-primary' : 'bg-transparent'}`}
+                />
+              </button>
+            )
+          })}
+        </div>
+        <div className="px-2 py-3">
+          {selectedAppts.length === 0 ? (
+            <p className="py-8 text-center text-[13px] text-aurea-ink-3">
+              Nothing scheduled {effectiveKey === todayKey ? 'today' : `for ${WEEKDAY_LABELS[selectedDate.getDay()]} ${selectedDate.getDate()}`}.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {selectedAppts.map((a) => (
+                <AgendaRow key={a.id} appt={a} onSelect={onSelect} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Desktop: time-of-day grid ─────────────────────────── */}
+      <div className="hidden overflow-x-auto lg:block">
       <div className="min-w-[720px]">
         {/* Day header row */}
         <div className="grid border-b border-aurea-border" style={{ gridTemplateColumns: `56px repeat(7, 1fr)` }}>
@@ -413,6 +482,7 @@ function WeekView({
             )
           })}
         </div>
+      </div>
       </div>
     </div>
   )

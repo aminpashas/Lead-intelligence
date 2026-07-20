@@ -155,7 +155,8 @@ function useSidebarCollapsed(): [boolean, () => void] {
 
 // Open human-task count for the Tasks nav badge (Workstream D2). Fetched once
 // on mount + refreshed on a slow interval; fails silent (badge just hides).
-function useOpenTaskCount(): number {
+// Exported for the mobile BottomNav, which shows the same badge.
+export function useOpenTaskCount(): number {
   const [count, setCount] = useState(0)
 
   useEffect(() => {

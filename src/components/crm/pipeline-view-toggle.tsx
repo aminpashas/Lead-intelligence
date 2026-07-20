@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Columns3, Rows3 } from 'lucide-react'
 
@@ -26,8 +26,9 @@ export function PipelineViewToggle({ current }: { current: 'board' | 'list' }) {
     (key: string) => {
       if (key === current) return
       const params = new URLSearchParams(searchParams.toString())
-      if (key === 'board') params.delete('view')
-      else params.set('view', key)
+      // `view=board` is set explicitly (not deleted) so the mobile default
+      // below can tell "user chose board" apart from "no choice yet".
+      params.set('view', key)
       // Board has no pages; carrying a stale ?page into it (and back out) just
       // lands you mid-list on return.
       params.delete('page')
@@ -36,6 +37,20 @@ export function PipelineViewToggle({ current }: { current: 'board' | 'list' }) {
     },
     [current, router, searchParams]
   )
+
+  // Phones default to the List view — a 7-column kanban behind horizontal
+  // scroll isn't a usable funnel on 375px. Only when the URL carries no
+  // explicit choice, and only at mount (never in render — SSR markup must
+  // match; same pattern as conversations-sidebar.tsx).
+  useEffect(() => {
+    if (searchParams.get('view')) return
+    if (window.matchMedia('(min-width: 1024px)').matches) return
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('view', 'list')
+    params.delete('page')
+    router.replace(`/pipeline?${params.toString()}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time viewport check only
+  }, [])
 
   return (
     <div

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState, useEffect } from 'react'
+import { useCallback, useState, useEffect, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
@@ -13,6 +13,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight } from 'lucide-react'
 import { StageSelect } from './stage-select'
@@ -165,6 +172,24 @@ export function PipelineList({
 
   const totalPages = Math.max(1, Math.ceil(total / perPage))
 
+  // Mobile sort — mirrors the /leads table control; the sortable headers
+  // disappear with the table below `md`.
+  const SORT_OPTIONS = [
+    { value: 'created', label: 'Created' },
+    { value: 'name', label: 'Name' },
+    { value: 'engagement', label: 'Engagement' },
+    { value: 'value', label: 'Value' },
+    { value: 'activity', label: 'Last contact' },
+  ]
+  const sortItems: Record<string, ReactNode> = {}
+  for (const o of SORT_OPTIONS) {
+    sortItems[o.value] = (
+      <span>
+        <span className="text-aurea-ink-3">Sort:</span> {o.label}
+      </span>
+    )
+  }
+
   if (leads.length === 0) {
     return (
       <div className="aurea-card p-12 text-center">
@@ -175,7 +200,102 @@ export function PipelineList({
 
   return (
     <div className="space-y-4">
-      <div className="aurea-card overflow-x-auto">
+      {/* Mobile sort control — pairs with the md:hidden card list below */}
+      <div className="flex items-center gap-2 md:hidden">
+        <Select
+          items={sortItems}
+          value={activeSort}
+          onValueChange={(v) => {
+            if (v && v !== activeSort) toggleSort(v)
+          }}
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 gap-1.5"
+          onClick={() => toggleSort(activeSort)}
+          aria-label={`Sort ${activeDir === 'asc' ? 'ascending' : 'descending'} — tap to flip`}
+        >
+          {activeDir === 'asc' ? (
+            <ArrowUp className="h-3.5 w-3.5" strokeWidth={1.75} />
+          ) : (
+            <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.75} />
+          )}
+        </Button>
+      </div>
+
+      {/* Mobile card list — the drag replacement on phones: each card carries
+          the same inline StageSelect → PATCH as the table rows below. */}
+      <div className="space-y-2 md:hidden">
+        {leads.map((lead) => {
+          const probability = probabilityByLead?.[lead.id]
+          return (
+            <div key={lead.id} className="aurea-card p-3">
+              <div className="flex items-start gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-aurea-surface-2 text-[11px] font-semibold text-aurea-ink-2 ring-1 ring-aurea-border">
+                  {leadInitials(lead)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[14px] font-medium text-aurea-ink">
+                    <Link
+                      href={`/leads/${lead.id}`}
+                      className="outline-none hover:underline focus-visible:underline"
+                    >
+                      {leadDisplayName(lead)}
+                    </Link>
+                  </p>
+                  <p className="truncate font-mono text-[11px] text-aurea-ink-3">
+                    {lead.email || lead.phone}
+                  </p>
+                </div>
+                <LeadActions lead={lead} variant="compact" />
+              </div>
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <StageSelect
+                  stages={stages}
+                  value={lead.stage_id}
+                  onChange={(stageId) => void changeStage(lead.id, stageId)}
+                  disabled={pending[lead.id]}
+                  size="sm"
+                  aria-label={`Stage for ${leadDisplayName(lead)}`}
+                />
+                <EngagementMeter
+                  temperature={lead.engagement_temperature}
+                  score={lead.engagement_score}
+                />
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums text-aurea-ink-3">
+                {probability != null && (
+                  <span className="text-aurea-ink-2">{Math.round(probability * 100)}% close</span>
+                )}
+                {lead.treatment_value ? (
+                  <span className="font-medium text-aurea-primary">
+                    ${lead.treatment_value.toLocaleString()}
+                  </span>
+                ) : null}
+                <span>
+                  {lead.last_contacted_at
+                    ? `contacted ${formatDistanceToNow(new Date(lead.last_contacted_at), { addSuffix: true })}`
+                    : 'never contacted'}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="aurea-card overflow-x-auto hidden md:block">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-aurea-border hover:bg-transparent">

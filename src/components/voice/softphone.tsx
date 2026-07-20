@@ -345,8 +345,10 @@ export function Softphone() {
         // and the expand toggle just reveals more rows.
         // z-30 (not z-50) so an open nav drawer, whose backdrop is z-40, covers
         // the softphone instead of losing to it on DOM order.
-        'fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] z-30 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-2xl transition-[width] duration-200',
-        'sm:inset-x-auto sm:right-4 sm:bottom-4 sm:max-h-[calc(100dvh-2rem)]',
+        // Below lg the shell renders the BottomNav (3.5rem + safe-area), so the
+        // panel anchors above it; lg+ has no bottom bar and reverts to bottom-4.
+        'fixed inset-x-2 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] z-30 flex max-h-[calc(100dvh-5rem)] flex-col overflow-hidden rounded-2xl border border-aurea-border bg-aurea-surface shadow-2xl transition-[width] duration-200',
+        'sm:inset-x-auto sm:right-4 sm:max-h-[calc(100dvh-6rem)] lg:bottom-4 lg:max-h-[calc(100dvh-2rem)]',
         expanded ? 'sm:w-[32rem]' : 'sm:w-[22rem]'
       )}
     >
