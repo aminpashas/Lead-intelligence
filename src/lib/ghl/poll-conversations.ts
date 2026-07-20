@@ -2,16 +2,28 @@
  * GHL conversation LIVE TAIL — the go-forward pull path.
  *
  * WHY THIS EXISTS: LI ingested zero GHL conversations for six days (2026-07-13
- * → 07-19) and nothing noticed. Two independent failures stacked:
+ * → 07-19) and nothing noticed. The cause:
  *
  *   1. `backfillGhlConversations` is a ONE-TIME historical import that marks
- *      itself `done` — after which every 5-minute cron tick was a no-op.
- *   2. Go-forward capture depended entirely on GHL's webhook POSTing to
- *      /api/webhooks/ghl/message, which silently stopped firing.
+ *      itself `done` — after which every 5-minute cron tick was a no-op. The
+ *      blackout begins exactly when it finished.
+ *   2. There was no second path to fall back on. /api/webhooks/ghl/message
+ *      exists, but an audit of all 105 GHL workflows found NONE that forwards
+ *      messages to LI, and none modified within 10 days of the blackout (most
+ *      recent: 2026-02-16). GHL's API cannot create one either — `POST
+ *      /workflows/` is 404, webhook management is Marketplace-app-only, and the
+ *      location uses a Private Integration Token. So the push path was almost
+ *      certainly never wired, in this repo or in DGS, which shows the same
+ *      symptom (4,575/4,581 stageless leads).
  *
- * With both dead, LI was blind to every SMS, email and DM in GHL — and the
- * failure was invisible, because "no new messages" looks identical to "working
- * fine, quiet day".
+ * An earlier revision of this comment claimed the webhook "silently stopped
+ * firing" on Jul 13. That was a hypothesis, and the workflow audit contradicts
+ * it — recorded here because the wrong story sends the next person hunting for
+ * a break that never happened.
+ *
+ * With no pull and no push, LI was blind to every SMS, email and DM in GHL —
+ * invisibly, because "no new messages" looks identical to "working fine, quiet
+ * day". Nothing alerts on absence.
  *
  * This module is the fix: a poller that NEVER self-terminates. It is not a
  * backfill and must never grow a `done` flag.
