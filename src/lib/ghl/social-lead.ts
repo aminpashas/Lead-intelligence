@@ -36,6 +36,23 @@ export function isSocialMessage(n: NormalizedGhlMessage): boolean {
 }
 
 /**
+ * The lead's opening message — or null when we don't have one.
+ *
+ * MUST check direction. The poller matches on `isSocialMessage`, which accepts
+ * BOTH directions so outreach threads still create leads; on a thread the
+ * practice spoke in first, `normalized.body` is therefore OUR text. Quoting it
+ * as "First Messenger message" put the practice's own canned reply on the lead
+ * record and into the staff alert, as if the patient had said it.
+ */
+export function firstInboundNote(
+  sourceLabel: string,
+  n: NormalizedGhlMessage,
+): string | null {
+  if (n.direction !== 'inbound' || !n.body) return null
+  return `First ${sourceLabel} message: ${n.body}`
+}
+
+/**
  * Only an INBOUND social DM mints a lead *and alerts*.
  *
  * The webhook uses this: mid-thread it sees one message at a time and can't tell
@@ -97,12 +114,22 @@ export async function createLeadFromSocialDm(
         source: preset.source,
         sourceType: preset.sourceType,
         externalRef: contactId,
+        // Lets the DGS bridge and the bus capture path resolve to this same
+        // lead — GHL's contact id is the only id this path knows the person by.
+        identities: [{ kind: 'ghl_contact_id', value: contactId }],
         tags: [normalized.channel as string],
-        notes: normalized.body ? `First ${preset.source} message: ${normalized.body}` : null,
+        notes: firstInboundNote(preset.source, normalized),
         consent: { source: `ghl_${normalized.channel}_dm` },
         utm_source: preset.utmSource,
       },
-      { caller: opts.caller ?? `ghl-${normalized.channel}-dm`, armSpeedToLead: false },
+      {
+        caller: opts.caller ?? `ghl-${normalized.channel}-dm`,
+        armSpeedToLead: false,
+        // Meta gives no phone/email, and this path knows the person only by a
+        // GHL contact id — which the DGS bridge never sends. Without the name
+        // fallback the same person arriving down both paths duplicates.
+        socialNameMatch: true,
+      },
     )
   } catch (err) {
     logger.error('social DM lead creation failed', {
@@ -132,7 +159,9 @@ export async function createLeadFromSocialDm(
             tags: [normalized.channel as string],
             utm_source: preset.utmSource,
             utm_medium: 'social',
-            message: normalized.body || null,
+            // Same guard as the note: never quote our own outbound text to
+            // staff as though the patient wrote it.
+            message: normalized.direction === 'inbound' ? normalized.body || null : null,
           },
           // The DM's own timestamp — a replayed thread must not blast a stale alert.
           sourceCreatedAt: normalized.createdAt,

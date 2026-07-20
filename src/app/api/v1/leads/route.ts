@@ -31,6 +31,11 @@ import { safeParseBody } from '@/lib/body-size'
 import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
 import { deriveConsentFields } from '@/lib/consent/ingest'
 import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
+import {
+  resolveLeadByIdentity,
+  recordLeadIdentities,
+  type LeadIdentity,
+} from '@/lib/leads/identities'
 import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
 import { isJunkCallerContact } from '@/lib/leads/junk-contact'
 import { scrubPhoneNames, NAME_UNKNOWN_TAG } from '@/lib/leads/phone-name'
@@ -293,6 +298,24 @@ export async function POST(request: NextRequest) {
   // Cross-system correlation id (DGS inbound_leads.id). Stored in its own
   // indexed column so the writeback trigger can match without notes-regex.
   const externalRef = asStr(b?.external_ref)
+
+  // Foreign correlation ids, so a lead this bridge creates can be recognised by
+  // the OTHER two ingest paths (lib/ghl/social-lead.ts keys on the GHL contact
+  // id, lib/bridges/dion-social-lead.ts on the Meta PSID).
+  //
+  // NOTE: DGS does not currently send either field. Until it does, a social DM
+  // arriving via DGS and the same DM mirrored from GHL share NO id and cannot be
+  // linked — which is exactly how the 2026-07-20 Messenger duplicates happened.
+  // The plumbing is here so the link engages the moment DGS populates one.
+  const identities: LeadIdentity[] = [
+    ...(externalRef ? [{ kind: 'dgs_lead_id' as const, value: externalRef }] : []),
+    ...((asStr(b?.ghl_contact_id) ?? null)
+      ? [{ kind: 'ghl_contact_id' as const, value: asStr(b?.ghl_contact_id) as string }]
+      : []),
+    ...((asStr(b?.meta_psid) ?? asStr(b?.psid) ?? null)
+      ? [{ kind: 'meta_psid' as const, value: (asStr(b?.meta_psid) ?? asStr(b?.psid)) as string }]
+      : []),
+  ]
   // The source's ORIGINAL submission time, when the caller sends it (accept a few
   // spellings). Used only to suppress the staff alert on backfilled/replayed
   // leads — never affects ingestion. Absent → treated as fresh (alerts normally).
@@ -328,6 +351,20 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
     existing = (data as DedupRow | null) ?? null
   }
+  // Dedup pass 0.5: foreign correlation id. Runs before the contact hash for the
+  // same reason pass 0 does — an exact id beats a hash — and is the only pass
+  // that can fire at all for a social DM, which has no email or phone.
+  if (!existing && identities.length) {
+    const byIdentity = await resolveLeadByIdentity(supabase, customerId, identities)
+    if (byIdentity) {
+      const { data } = await supabase
+        .from('leads')
+        .select(DEDUP_COLS)
+        .eq('id', byIdentity)
+        .maybeSingle()
+      existing = (data as DedupRow | null) ?? null
+    }
+  }
   if (!existing && (emailHash || phoneHash)) {
     const orFilter = [
       emailHash ? `email_hash.eq.${emailHash}` : null,
@@ -353,6 +390,9 @@ export async function POST(request: NextRequest) {
         .eq('id', existing.id)
         .is('external_ref', null)
     }
+    // Attach ids this call carried that the lead lacked, so a later event on any
+    // of them resolves here too.
+    await recordLeadIdentities(supabase, customerId, existing.id, identities)
     const attribution_updated = await mergeAttributionOnDedup(supabase, existing, incomingAttribution)
     return NextResponse.json(
       {
@@ -523,6 +563,9 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ error: error?.message ?? 'Insert failed' }, { status: 500 })
   }
+
+  // Register correlation ids so the next event on any of them dedups here.
+  await recordLeadIdentities(supabase, customerId, lead.id, identities)
 
   await supabase.from('lead_activities').insert({
     organization_id: customerId,

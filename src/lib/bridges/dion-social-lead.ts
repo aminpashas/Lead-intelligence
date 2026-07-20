@@ -8,7 +8,7 @@
  *
  * Flow:
  *   1. envelope.dionPracticeId → LI organizations.id
- *   2. ingestLead (dedups on external_ref = PSID / email / phone)
+ *   2. ingestLead (dedups on the PSID identity, then email / phone)
  *   3. score + notifyNewLead
  *
  * LI OWNS NONE OF THE CHANNEL. It never replies on Messenger/IG — that inbox
@@ -67,7 +67,9 @@ export function splitCapturedName(
 /**
  * Map a capture event to LI's ingest shape. Pure — unit-testable without mocks.
  *
- * Dedup key is `externalRef` = PSID, because Meta gives no email/phone for a DM.
+ * Dedup key is the `meta_psid` identity, because Meta gives no email/phone for a
+ * DM — the contact-hash pass has nothing to match on. `externalRef` is kept as
+ * the human-readable provenance stamp, not as the dedup key.
  * email/phone stay null unless the person volunteered them to the channel owner.
  */
 export function buildSocialLeadIngest(
@@ -84,6 +86,9 @@ export function buildSocialLeadIngest(
     source: SOURCE_LABEL[data.channel],
     sourceType: data.channel,
     externalRef: `${data.channel}:${data.psid}`,
+    // The PSID is the real dedup key here — Meta gives no email/phone, so the
+    // contact-hash pass can never match. Bare psid, not the `channel:psid` form.
+    identities: [{ kind: 'meta_psid', value: data.psid }],
     tags: [data.channel, 'social_dm'],
     notes: data.firstMessageText?.trim() ? `First message: ${data.firstMessageText.trim()}` : null,
     utm_source: UTM_SOURCE[data.channel],
@@ -148,6 +153,9 @@ export async function handleLeadCaptured(
   const result = await ingestLead(supabase, buildSocialLeadIngest(orgId, data), {
     caller: `social-capture:${data.channel}`,
     armSpeedToLead: shouldArmSpeedToLead({ channel: data.channel, hasVolunteeredContact }),
+    // Meta gives no phone/email, so identity + hash can both miss even when we
+    // already hold this person from another path. See social-name-match.ts.
+    socialNameMatch: true,
   })
 
   if (result.deduplicated) return { status: 'deduplicated', leadId: result.id }

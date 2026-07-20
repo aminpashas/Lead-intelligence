@@ -20,6 +20,11 @@ import { encryptLeadPII, searchHash } from '@/lib/encryption'
 import { deriveConsentFields } from '@/lib/consent/ingest'
 import { formatToE164 } from '@/lib/leads/phone'
 import { findExistingLeads } from '@/lib/leads/dedupe'
+import {
+  resolveLeadByIdentity,
+  recordLeadIdentities,
+  type LeadIdentity,
+} from '@/lib/leads/identities'
 import { scrubPhoneNames, NAME_UNKNOWN_TAG } from '@/lib/leads/phone-name'
 import { leadDisplayName } from '@/lib/leads/display-name'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
@@ -52,6 +57,13 @@ export type IngestInput = {
   utm_source?: string | null
   gclid?: string | null
   fbclid?: string | null
+  /**
+   * Alternate correlation ids (Meta PSID, GHL contact id, DGS lead id). Matched
+   * BEFORE the email/phone hash pass and recorded on create — this is the only
+   * dedup signal that exists for a social DM, which carries neither a phone nor
+   * an email. See lib/leads/identities.ts.
+   */
+  identities?: LeadIdentity[]
 }
 
 export type IngestOptions = {
@@ -59,6 +71,15 @@ export type IngestOptions = {
   caller: string
   /** Arm proactive first-touch outreach. Off for cold/bulk imports. */
   armSpeedToLead?: boolean
+  /**
+   * Enable the display-name fallback match (social DMs only).
+   *
+   * OFF by default and must stay off for the general lead firehose: name
+   * collisions across 48k+ leads are common. Only social capture has both the
+   * need (no phone/email to dedup on) and the safety margin — see
+   * lib/leads/social-name-match.ts for the policy.
+   */
+  socialNameMatch?: boolean
 }
 
 export type IngestResult = {
@@ -133,22 +154,55 @@ export async function ingestLead(
   const phoneRaw = input.phoneRaw?.trim() || null
   const phoneFormatted = input.phoneFormatted ?? (phoneRaw ? formatToE164(phoneRaw) : null)
 
-  // Idempotency: dedup by email/phone hash within the org. A hit returns the
-  // existing lead (never downgrading its consent) and backfills external_ref
-  // only when the existing row has none.
-  const matches = await findExistingLeads(supabase, input.organizationId, [
-    { email, phone_formatted: phoneFormatted },
-  ])
-  const existing = matches.get(0)
-  if (existing) {
+  // Idempotency, strongest signal first. A hit returns the existing lead (never
+  // downgrading its consent) and backfills external_ref only when it has none.
+  const identities = input.identities ?? []
+
+  // Pass 1 — correlation id. An exact PSID / GHL-contact / DGS-lead match is
+  // stronger evidence than a hash match, and for a social DM it is the ONLY
+  // signal there is: Meta supplies a display name and a PSID, so `email` and
+  // `phone` are both null and pass 2 can never fire. Without this, every DM
+  // from a known person minted a duplicate.
+  let existingId = await resolveLeadByIdentity(supabase, input.organizationId, identities)
+
+  // Pass 2 — contact hash.
+  if (!existingId) {
+    const matches = await findExistingLeads(supabase, input.organizationId, [
+      { email, phone_formatted: phoneFormatted },
+    ])
+    existingId = matches.get(0)?.id ?? null
+  }
+
+  // Pass 3 — display name. The weakest signal by far, so it is opt-in, runs
+  // last, and refuses far more than it accepts. It exists because the DGS
+  // bridge and the GHL mirror share NO id namespace, so identity resolution
+  // cannot link the same person arriving down both paths.
+  if (!existingId && opts.socialNameMatch) {
+    const { findNameMatchCandidates, pickNameMatch, normalizeName } = await import(
+      '@/lib/leads/social-name-match'
+    )
+    const candidates = await findNameMatchCandidates(
+      supabase,
+      input.organizationId,
+      input.firstName,
+      input.lastName ?? null,
+    )
+    existingId = pickNameMatch(normalizeName(input.firstName, input.lastName ?? null), candidates)
+  }
+
+  if (existingId) {
     if (input.externalRef) {
       await supabase
         .from('leads')
         .update({ external_ref: input.externalRef })
-        .eq('id', existing.id)
+        .eq('id', existingId)
         .is('external_ref', null)
     }
-    return { id: existing.id, deduplicated: true, runPostIngest: async () => {} }
+    // Attach any ids this event carried that the lead didn't already have, so a
+    // later event arriving on a DIFFERENT id still resolves to this same lead.
+    // This is what actually collapses the three ingest paths onto one record.
+    await recordLeadIdentities(supabase, input.organizationId, existingId, identities)
+    return { id: existingId, deduplicated: true, runPostIngest: async () => {} }
   }
 
   // Source name → id (idempotent; null when the source isn't pre-seeded).
@@ -203,6 +257,9 @@ export async function ingestLead(
   }
 
   const leadId = String(lead.id)
+
+  // Register the correlation ids so the next event on any of them dedups here.
+  await recordLeadIdentities(supabase, input.organizationId, leadId, identities)
 
   await supabase.from('lead_activities').insert({
     organization_id: input.organizationId,
