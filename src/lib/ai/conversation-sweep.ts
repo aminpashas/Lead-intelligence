@@ -14,6 +14,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildSafeConversationHistory, buildSafeLeadContext, logHIPAAEvent } from './hipaa'
+import { rescoreAndPersistLead } from './scoring'
 import {
   CONVERSATION_INTENTS,
   CONVERSATION_SENTIMENTS,
@@ -43,6 +44,9 @@ export type CompactConversationAnalysis = {
 
 /** Hard cap on the stored summary so a runaway model reply can't bloat the row. */
 const MAX_SUMMARY_LEN = 280
+
+/** Not worth re-scoring — matches score-sweep's own terminal set. */
+const TERMINAL_STATUSES = ['lost', 'disqualified', 'completed']
 
 const SWEEP_PROMPT = `You classify dental-implant practice patient conversations for CRM segmentation. Read the conversation and output ONLY a JSON object with these fields:
 
@@ -144,6 +148,23 @@ ${safeHistory.map((m) => `[${m.role === 'user' ? 'PATIENT' : 'STAFF'}] ${m.conte
     .eq('organization_id', config.organization_id)
   if (error) throw new Error(`Failed to persist sweep result: ${error.message}`)
 
+  // The intent floor (applyIntentFloor) promotes a recently-replying
+  // `ready_to_book` lead to `hot`, but it can only see `conversation_intent` —
+  // which THIS sweep is what writes. score-sweep runs every 15 min and this
+  // analysis runs hourly, so a lead that replies and gets scored before it is
+  // classified is scored intent-blind. Because scoring stamps
+  // `ai_score_updated_at`, that lead is never re-selected and is permanently
+  // locked out of the floor. Observed in production: a lead scored 19:15:41 was
+  // classified `ready_to_book` at 19:20:58 — 5 minutes too late — and stayed
+  // `warm` at score 64 despite having replied two hours earlier.
+  //
+  // So when this sweep lands on the one intent the floor acts on, hand the lead
+  // back to the scorer. Mirrors captureQualificationFromResponse, which
+  // re-scores whenever it learns something that moves the score.
+  if (analysis.intent === 'ready_to_book') {
+    await rescoreForIntentFloor(supabase, config.lead_id, config.organization_id)
+  }
+
   // Red flags get an activity-trail entry so staff can see why a lead landed
   // in a red-flag smart list (and the escalation queue can pick it up later).
   if (analysis.red_flag) {
@@ -179,4 +200,44 @@ ${safeHistory.map((m) => `[${m.role === 'user' ? 'PATIENT' : 'STAFF'}] ${m.conte
   })
 
   return analysis
+}
+
+/**
+ * Re-score a lead whose conversation was just classified `ready_to_book`, so
+ * applyIntentFloor gets a chance to promote it to `hot`.
+ *
+ * Only fires for leads that were ALREADY scored — an unscored lead still sits in
+ * score-sweep's queue and will be picked up with the intent already on the row,
+ * so re-scoring here would just pay twice. Skips leads already `hot` (nothing to
+ * promote) and terminal leads (not worth the spend).
+ *
+ * Never throws: this runs at the tail of a bulk hourly sweep, and a failed
+ * re-score must not abort the batch or lose the classification that was already
+ * persisted above.
+ */
+async function rescoreForIntentFloor(
+  supabase: SupabaseClient,
+  leadId: string,
+  organizationId: string
+): Promise<void> {
+  try {
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', leadId)
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+
+    if (!lead) return
+    if (!lead.ai_score_updated_at) return // still queued — score-sweep will see the intent
+    if (lead.ai_qualification === 'hot') return // already there
+    if (TERMINAL_STATUSES.includes(String(lead.status))) return
+
+    await rescoreAndPersistLead(supabase, lead)
+  } catch (err) {
+    console.warn(
+      `[conversation-sweep] intent-floor re-score failed for lead ${leadId}`,
+      err instanceof Error ? err.message : err
+    )
+  }
 }
