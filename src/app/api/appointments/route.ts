@@ -8,6 +8,7 @@ import { isAdminRole } from '@/lib/auth/permissions'
 import { decryptField, decryptLeadPII } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
+import { calculateNoShowRisk } from '@/lib/campaigns/reminders'
 import { seedPostConsultNurture } from '@/lib/campaigns/post-consult-nurture'
 import { seedNoShowRecovery } from '@/lib/campaigns/no-show-recovery'
 import { moveLeadToNoShowStage } from '@/lib/pipeline/no-show-stage'
@@ -410,12 +411,13 @@ export async function PATCH(request: NextRequest) {
     updateData.no_show_risk_score = 0
   }
 
-  // Handle confirmation
+  // Handle confirmation. Risk is NOT hard-set here — it is recomputed from the
+  // full picture after the write (see below), so a confirmation lowers risk
+  // without erasing prior no-shows and dead reminders.
   if (status === 'confirmed') {
     updateData.confirmation_received = true
     updateData.confirmed_via = 'manual'
     updateData.confirmed_at = new Date().toISOString()
-    updateData.no_show_risk_score = 5
   }
 
   // Handle no-show
@@ -433,6 +435,16 @@ export async function PATCH(request: NextRequest) {
 
   if (error || !appointment) {
     return NextResponse.json({ error: error?.message || 'Not found' }, { status: error ? 500 : 404 })
+  }
+
+  // Recompute risk from the full picture now that the confirmation is persisted.
+  // Non-fatal: a scoring failure must not fail the status update itself.
+  if (status === 'confirmed') {
+    try {
+      await calculateNoShowRisk(supabase, appointment_id)
+    } catch (err) {
+      console.error('[appointments] confirm risk recompute failed:', err instanceof Error ? err.message : err)
+    }
   }
 
   // EHR sync: propagate staff cancels / no-shows to the Dion Clinical bus (fire-and-forget).
