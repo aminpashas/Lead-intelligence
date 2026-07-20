@@ -28,6 +28,7 @@ import { formatToE164 } from '@/lib/leads/phone'
 import { syncStaffCallThreadMarker } from '@/lib/voice/staff-call-thread'
 import { recordAudit } from '@/lib/audit/record'
 import { hasOwnTranscript } from '@/lib/voice/call-summary-guard'
+import { applyStageMove } from '@/lib/pipeline/stage-move'
 
 const OUTCOME_VALUES = [
   'appointment_booked',
@@ -41,6 +42,29 @@ const OUTCOME_VALUES = [
   'technical_failure',
   'transferred',
 ] as const
+
+/**
+ * Outcomes that mean a human conversation actually happened. Only these count as
+ * real contact: they stamp `last_contacted_at` and may advance the early funnel.
+ * A voicemail / no-answer / wrong number is an ATTEMPT, not communication — it
+ * must not push a lead out of New Lead / No Communication (unqualified stamping
+ * is exactly how every voicemailed lead used to end up in Following Up after the
+ * nightly promoteEngagedNewLeads sweep).
+ */
+const CONNECTED_OUTCOMES: ReadonlySet<string> = new Set([
+  'appointment_booked',
+  'interested',
+  'callback_requested',
+  'not_interested',
+  'transferred',
+  'do_not_call', // they answered and said so — a conversation, even if a short one
+])
+
+/** Early-funnel stages a connected call advances to Following Up ('contacted'). */
+const ADVANCE_FROM_SLUGS: ReadonlySet<string> = new Set(['new', 'no-communication'])
+
+/** Lifecycle statuses that must never be reactivated by a call log. */
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['lost', 'disqualified', 'completed', 'in_treatment'])
 
 const bodySchema = z.object({
   // Outcome is now optional: an auto-summary write (fired when an answered/voicemail
@@ -248,6 +272,62 @@ export async function PATCH(
   // If the staffer marked do-not-call, honor it on the lead immediately.
   if (outcome === 'do_not_call' && leadId) {
     await supabase.from('leads').update({ do_not_call: true }).eq('id', leadId).eq('organization_id', orgId)
+  }
+
+  // ── Outcome-driven contact effects ───────────────────────────────────────────
+  // The staffer's outcome is the ground truth for whether communication happened.
+  // Connected outcomes stamp last_contacted_at (the Twilio callback only stamps
+  // >60s calls, so a genuine short conversation is stamped here); an attempt-only
+  // outcome (voicemail/no-answer/wrong number) deliberately leaves the lead's
+  // contact state untouched so it stays in New Lead / No Communication.
+  if (outcome && CONNECTED_OUTCOMES.has(outcome) && leadId) {
+    await supabase
+      .from('leads')
+      .update({ last_contacted_at: new Date().toISOString() })
+      .eq('id', leadId)
+      .eq('organization_id', orgId)
+
+    // A real conversation moves an unworked lead into Following Up right away, so
+    // the board reflects what the staffer just logged instead of waiting for the
+    // nightly sweep. Do-not-call leads stay put — promoting a lead into a working
+    // column while silencing its channels would only invite more outreach.
+    if (outcome !== 'do_not_call') {
+      const { data } = await supabase
+        .from('leads')
+        .select('id, status, stage_id, stage:pipeline_stages(slug)')
+        .eq('id', leadId)
+        .eq('organization_id', orgId)
+        .maybeSingle()
+      // leads.stage_id → pipeline_stages is many-to-one, so the embed is a single
+      // object — but supabase-js's string parser can't prove that, hence the cast.
+      const leadRow = data as { status: string | null; stage: { slug: string } | { slug: string }[] | null } | null
+      const stageRel = leadRow?.stage
+      const stageSlug = (Array.isArray(stageRel) ? stageRel[0]?.slug : stageRel?.slug) ?? null
+      const status = leadRow?.status ?? null
+      if (stageSlug && ADVANCE_FROM_SLUGS.has(stageSlug) && !(status && TERMINAL_STATUSES.has(status))) {
+        const { data: contactedStage } = await supabase
+          .from('pipeline_stages')
+          .select('id')
+          .eq('organization_id', orgId)
+          .eq('slug', 'contacted')
+          .maybeSingle()
+        if (contactedStage) {
+          const { data: actor } = await authClient.auth.getUser()
+          // Automations suppressed: logging a call outcome is a record of what
+          // happened, not a hand-drag into the funnel — it must not mass-enroll
+          // leads into stage-entry campaigns as a side effect.
+          await applyStageMove(supabase, {
+            organizationId: orgId,
+            leadIds: [leadId],
+            toStageId: contactedStage.id,
+            actor: { type: 'user', userId: actor.user?.id ?? undefined, source: 'call_disposition' },
+            suppressAutomations: true,
+            activityTitle: 'Reached on a call — moved to Following Up',
+            activityMetadata: { voice_call_id: id, outcome },
+          })
+        }
+      }
+    }
   }
 
   // Reflect the disposition summary in the Conversations inbox marker so the

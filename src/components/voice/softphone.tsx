@@ -7,14 +7,18 @@
  * keypad, hold, hang up, timer) alongside a notes field the staffer can fill as they
  * talk — plus, for a manual dial to an unknown number, a capture-the-contact form.
  * When the call ends the widget stays open on the same notes/contact so the staffer
- * can finish writing them up and pick an outcome. All call state comes from
- * useSoftphone(); the notes/contact drafts live here and survive the in-call → ended
- * transition because this component never unmounts between them.
+ * can finish writing them up and pick an outcome. Picking an outcome is MANDATORY:
+ * there is no skip/dismiss and no pre-selected default, so every call is logged with
+ * the staffer's real disposition — the disposition route uses it to decide whether
+ * the call counts as actual contact (a voicemail must not move a lead's stage).
+ * All call state comes from useSoftphone(); the notes/contact drafts live here and
+ * survive the in-call → ended transition because this component never unmounts
+ * between them.
  */
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Phone, PhoneOff, Mic, MicOff, Grid3x3, Pause, Play, X, Loader2, Check, Plus, Maximize2, Minimize2 } from 'lucide-react'
+import { Phone, PhoneOff, Mic, MicOff, Grid3x3, Pause, Play, Loader2, Check, Plus, Maximize2, Minimize2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useSoftphone } from './softphone-provider'
@@ -80,7 +84,10 @@ export function Softphone() {
     clearEnded,
   } = useSoftphone()
   const [showKeypad, setShowKeypad] = useState(false)
-  const [savingOutcome, setSavingOutcome] = useState<string | null>(null)
+  // The outcome the staffer has picked but not yet saved. Deliberately starts null
+  // with no default — the staffer must make an explicit choice before Save & close
+  // unlocks, so a call can never be logged with an outcome nobody chose.
+  const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [submittingNote, setSubmittingNote] = useState(false)
   // Bigger panel when the staffer wants more room to write. Persists across the
@@ -106,6 +113,7 @@ export function Softphone() {
       setFirstName('')
       setLastName('')
       setEmail('')
+      setSelectedOutcome(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLead?.id])
@@ -200,29 +208,23 @@ export function Softphone() {
     }
   }, [notes, noteLog, endedCall, save])
 
-  async function disposition(outcome: string) {
-    setSavingOutcome(outcome)
-    const result = await save(outcome, composeNotes(noteLog, notes))
-    setSavingOutcome(null)
-    if (result) {
-      notifySaved(result, 'Call logged')
-      clearEnded()
-      router.refresh()
-    }
-  }
-
+  // The only way out of the ended panel: an outcome MUST be selected first. This is
+  // what stops "close the widget, never log the call" — and, downstream, what
+  // stops a voicemail-only call silently counting as real contact.
   async function saveAndClose() {
+    if (!selectedOutcome) return
     setSaving(true)
-    const result = await save(undefined, composeNotes(noteLog, notes))
+    const result = await save(selectedOutcome, composeNotes(noteLog, notes))
     setSaving(false)
     if (result) {
-      notifySaved(result, 'Call saved')
+      notifySaved(result, 'Call logged')
+      setSelectedOutcome(null)
       clearEnded()
       router.refresh()
     }
   }
 
-  const busy = savingOutcome !== null || saving || submittingNote
+  const busy = saving || submittingNote
 
   // Nothing to show when idle and no call is awaiting disposition.
   if (!inCall && !endedCall) return null
@@ -450,50 +452,55 @@ export function Softphone() {
                 {leadName} · {fmt(endedCall.durationSeconds)}
               </p>
             </div>
-            <div className="flex items-center gap-0.5">
-              {expandButton}
-              <button
-                onClick={clearEnded}
-                disabled={busy}
-                title="Skip"
-                className="flex h-7 w-7 items-center justify-center rounded-full text-aurea-ink-3 hover:bg-aurea-surface-2 disabled:opacity-50"
-              >
-                <X className="h-4 w-4" strokeWidth={1.75} />
-              </button>
-            </div>
+            {/* No skip/close control here on purpose: the call log cannot be
+                dismissed until an outcome is chosen and saved. */}
+            <div className="flex items-center gap-0.5">{expandButton}</div>
           </div>
 
           {/* Same notes + contact editor the staffer had during the call. */}
           {writeUp}
 
           <p className="mt-4 text-xs font-medium text-aurea-ink-2">How did it go?</p>
+          {/* Radio-style selection with NO default: the check lives on whatever the
+              staffer picked, never on a pre-anointed option, so nothing reads as
+              "Booked appt unless you say otherwise". */}
           <div className="mt-2 grid grid-cols-2 gap-1.5">
-            {OUTCOMES.map((o) => (
-              <button
-                key={o.value}
-                onClick={() => disposition(o.value)}
-                disabled={busy}
-                className="flex items-center justify-center gap-1 rounded-lg border border-aurea-border px-2 py-2 text-xs font-medium text-aurea-ink transition-colors hover:bg-aurea-surface-2 disabled:opacity-50"
-              >
-                {savingOutcome === o.value ? (
-                  <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.75} />
-                ) : (
-                  o.value === 'appointment_booked' && <Check className="h-3 w-3 text-emerald-500" strokeWidth={2} />
-                )}
-                {o.label}
-              </button>
-            ))}
+            {OUTCOMES.map((o) => {
+              const selected = selectedOutcome === o.value
+              return (
+                <button
+                  key={o.value}
+                  onClick={() => setSelectedOutcome(o.value)}
+                  disabled={busy}
+                  aria-pressed={selected}
+                  className={cn(
+                    'flex items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-medium transition-colors disabled:opacity-50',
+                    selected
+                      ? 'border-aurea-primary bg-aurea-primary/10 text-aurea-ink'
+                      : 'border-aurea-border text-aurea-ink hover:bg-aurea-surface-2'
+                  )}
+                >
+                  {selected && <Check className="h-3 w-3 text-aurea-primary" strokeWidth={2} />}
+                  {o.label}
+                </button>
+              )
+            })}
           </div>
 
-          {/* Save notes/contact without choosing an outcome. */}
+          {/* Locked until an outcome is chosen — the only exit from this panel. */}
           <button
             onClick={saveAndClose}
-            disabled={busy}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-aurea-ink-2 transition-colors hover:bg-aurea-surface-2 disabled:opacity-50"
+            disabled={busy || !selectedOutcome}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-aurea-primary py-2 text-xs font-semibold text-white transition-colors hover:bg-aurea-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving && <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.75} />}
             Save &amp; close
           </button>
+          {!selectedOutcome && (
+            <p className="mt-1.5 text-center text-[11px] text-aurea-ink-3">
+              Select an outcome to log this call.
+            </p>
+          )}
         </div>
       )}
     </div>

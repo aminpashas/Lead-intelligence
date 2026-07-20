@@ -110,6 +110,24 @@ export async function fetchDialerQueue(
   if (opts.excludeRecentlyContacted) {
     const cutoff = new Date(Date.now() - CONTACT_COOLDOWN_MS).toISOString()
     query = query.or(`last_contacted_at.is.null,last_contacted_at.lt.${cutoff}`)
+
+    // last_contacted_at only stamps real conversations (>60s or a connected
+    // disposition) — a voicemail/no-answer attempt leaves it null on purpose so
+    // the lead's stage stays honest. But the dialer must still cool those leads
+    // down, or the same number gets handed back an hour after a voicemail. Recent
+    // ATTEMPTS live in voice_calls; exclude their leads explicitly. Capped at the
+    // most recent 500 attempted leads — more staff dials than that inside one
+    // cooldown window would overflow the URL filter long before it matters.
+    const { data: recentCalls } = await supabase
+      .from('voice_calls')
+      .select('lead_id')
+      .eq('organization_id', orgId)
+      .gte('created_at', cutoff)
+      .not('lead_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(500)
+    const recentIds = [...new Set((recentCalls ?? []).map((r) => r.lead_id as string))]
+    if (recentIds.length > 0) query = query.not('id', 'in', `(${recentIds.join(',')})`)
   }
 
   // Drop leads the staffer has already seen or handled this session.

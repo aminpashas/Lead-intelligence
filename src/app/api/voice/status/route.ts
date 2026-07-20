@@ -118,7 +118,14 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    if (status === 'completed' && duration > 0) {
+    // Only a call long enough to plausibly be a real conversation counts as
+    // contact here (>60s — the same threshold encounter-stage uses for a "real"
+    // voice call). Twilio reports a voicemail drop as a completed call too, and
+    // stamping those pushed every voicemailed New lead into Following Up via the
+    // nightly promoteEngagedNewLeads sweep. Short genuine conversations still get
+    // stamped by the disposition route when the staffer logs a connected outcome
+    // (which the softphone now requires before the call log can be closed).
+    if (status === 'completed' && duration > 60) {
       await supabase
         .from('leads')
         .update({ last_contacted_at: new Date().toISOString() })

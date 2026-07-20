@@ -342,6 +342,22 @@ function MemberRow({
             )}
           </p>
           <p className="truncate font-mono text-[11px] text-aurea-ink-3">{member.email}</p>
+          {/* Phones: the Role/Status columns vanish below md, so carry them
+              under the identity instead of dropping them entirely. */}
+          <div className="mt-1 flex items-center gap-2 md:hidden">
+            <Badge
+              variant="outline"
+              className={cn('h-4 gap-1 px-1.5 py-0 text-[10px] font-medium', ROLE_COLORS[role])}
+            >
+              <RoleIcon className="h-2.5 w-2.5" />
+              {ROLE_LABELS[role] || role}
+            </Badge>
+            {member.is_active ? (
+              <span className="text-[11px] text-aurea-primary">Active</span>
+            ) : (
+              <span className="text-[11px] text-aurea-rose">Inactive</span>
+            )}
+          </div>
         </div>
       </div>
 
