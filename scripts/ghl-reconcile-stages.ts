@@ -46,6 +46,7 @@ const PRIORITY: Record<LiStageSlug, number> = {
   'treatment-presented': 10,
   'consultation-completed': 9,
   'consultation-scheduled': 8,
+  'no-show': 7.5,
   qualified: 7,
   engaged: 6,
   contacted: 5,

@@ -8,7 +8,10 @@ import { isAdminRole } from '@/lib/auth/permissions'
 import { decryptField, decryptLeadPII } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { processTriggerCampaigns } from '@/lib/campaigns/triggers'
+import { calculateNoShowRisk } from '@/lib/campaigns/reminders'
 import { seedPostConsultNurture } from '@/lib/campaigns/post-consult-nurture'
+import { seedNoShowRecovery } from '@/lib/campaigns/no-show-recovery'
+import { moveLeadToNoShowStage } from '@/lib/pipeline/no-show-stage'
 import { z } from 'zod'
 
 // Pre-close statuses a consult attendee advances FROM. Leads already past this
@@ -408,12 +411,13 @@ export async function PATCH(request: NextRequest) {
     updateData.no_show_risk_score = 0
   }
 
-  // Handle confirmation
+  // Handle confirmation. Risk is NOT hard-set here — it is recomputed from the
+  // full picture after the write (see below), so a confirmation lowers risk
+  // without erasing prior no-shows and dead reminders.
   if (status === 'confirmed') {
     updateData.confirmation_received = true
     updateData.confirmed_via = 'manual'
     updateData.confirmed_at = new Date().toISOString()
-    updateData.no_show_risk_score = 5
   }
 
   // Handle no-show
@@ -433,6 +437,16 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: error?.message || 'Not found' }, { status: error ? 500 : 404 })
   }
 
+  // Recompute risk from the full picture now that the confirmation is persisted.
+  // Non-fatal: a scoring failure must not fail the status update itself.
+  if (status === 'confirmed') {
+    try {
+      await calculateNoShowRisk(supabase, appointment_id)
+    } catch (err) {
+      console.error('[appointments] confirm risk recompute failed:', err instanceof Error ? err.message : err)
+    }
+  }
+
   // EHR sync: propagate staff cancels / no-shows to the Dion Clinical bus (fire-and-forget).
   if (status === 'canceled' || status === 'no_show') {
     void syncAppointmentToEhr(supabase, appointment_id, {
@@ -441,7 +455,14 @@ export async function PATCH(request: NextRequest) {
     })
   }
 
-  // If marking as no-show, increment the lead's no_show_count
+  // If marking as no-show, increment the lead's no_show_count, move the board
+  // card into the No-Show triage column, and enroll in the recovery sequence.
+  //
+  // The status/count write applies to ANY missed appointment type. The board move
+  // and the recovery enrollment are CONSULTATION-only: a missed treatment visit
+  // belongs to Dion Clinical's scheduling workflow, and dragging a signed patient
+  // back onto the sales board (or texting them "want to rebook your consult?")
+  // would be wrong on both counts.
   if (status === 'no_show' && appointment.lead) {
     const lead = appointment.lead as any
     await supabase
@@ -451,6 +472,37 @@ export async function PATCH(request: NextRequest) {
         status: 'no_show',
       })
       .eq('id', lead.id)
+
+    if ((appointment as any).type === 'consultation') {
+      // Board first: a triage queue that lags the recovery text is worse than
+      // useless — staff would get replies about a card they cannot find.
+      const { eligible } = await moveLeadToNoShowStage(supabase, {
+        organizationId: orgId,
+        leadId: lead.id,
+        source: 'no_show:staff',
+        userId: profile.id,
+      })
+
+      // Enrollment rides the SAME guard as the board move, so the two can never
+      // disagree. A deep-funnel lead (Treatment Presented / Financing) is neither
+      // moved nor texted: a rep is mid-negotiation and a generic "want to grab
+      // another time?" would cut straight across their financing conversation.
+      //
+      // Non-fatal: a nurture failure must not break the no-show write, which also
+      // drives the fee capture and the EHR cancel.
+      if (eligible) {
+        try {
+          await seedNoShowRecovery(supabase, orgId)
+          await processTriggerCampaigns(supabase, {
+            event: 'appointment_no_show',
+            lead_id: lead.id,
+            organization_id: orgId,
+          })
+        } catch (err) {
+          console.error('[appointments] no_show recovery enrollment failed:', err instanceof Error ? err.message : err)
+        }
+      }
+    }
   }
 
   // Consult ATTENDED but not yet closed: advance the lead to consultation_completed,

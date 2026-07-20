@@ -32,6 +32,7 @@ const EVENT_DISPLAY: Record<ConnectorEventType, { emoji: string; title: string; 
   'appointment.booked': { emoji: '📅', title: 'Appointment Booked', color: '#3b82f6' },
   'payment.received': { emoji: '💰', title: 'Payment Received', color: '#22c55e' },
   'message.received': { emoji: '💬', title: 'New Message', color: '#3b82f6' },
+  'appointment.at_risk': { emoji: '🚨', title: 'At-Risk Appointment', color: '#f97316' },
 }
 
 /** Clamp the inbound-message preview posted to Slack. The caller already

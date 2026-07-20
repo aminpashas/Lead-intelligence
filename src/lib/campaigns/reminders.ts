@@ -30,6 +30,8 @@ import {
   getConfirmationUrl,
   getRescheduleUrl,
 } from './reminder-templates'
+import { computeNoShowRisk, isCheckinExpired, CHECKIN_REPLY_WINDOW_MS } from './attendance-risk'
+import { runAttendanceEscalation } from './attendance-escalation'
 import { renderEmail } from '@/emails/render'
 import { parseBranding, type BrandLogistics } from '@/lib/branding/schema'
 import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
@@ -45,8 +47,8 @@ import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 
 export type ReminderResult = {
   appointment_id: string
-  type: '72h' | '24h' | '2h' | '1h'
-  channel: 'sms' | 'email' | 'voice_confirmation'
+  type: '72h' | '24h' | '2h' | '1h' | 'checkin_4h' | 'escalation'
+  channel: 'sms' | 'email' | 'voice_confirmation' | 'slack'
   status: 'sent' | 'skipped' | 'error'
   detail?: string
 }
@@ -96,7 +98,7 @@ type AppointmentWithLead = {
 /** Per-lead brand name: resolves the same DBA the booking confirmation used
  *  (implant-signalled leads → Dion Health brand slot; TMJ brand only for
  *  explicit TMJ/sleep signals), falling back to the org display name. */
-type BrandNameResolver = (lead: unknown) => string
+export type BrandNameResolver = (lead: unknown) => string
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN ORCHESTRATOR
@@ -136,6 +138,29 @@ export async function sendAppointmentReminders(
   // appointment time in the patient's local zone rather than the server's
   // (UTC on Vercel). Without this an 11 AM Pacific consult goes out as "6 PM".
   const timeZone = await resolvePracticeTimeZone(supabase, orgId)
+
+  // ─── RISK REFRESH ───────────────────────────────────────────
+  // Recompute for everything inside 48h each run. Risk is derived from things
+  // that change AFTER booking (reminders going unanswered, a check-in expiring),
+  // so a score computed once at booking time is stale by the day of the visit —
+  // and the escalation ladder below reads exactly this number.
+  const horizon = new Date(now.getTime() + 48 * 60 * 60 * 1000)
+  const { data: upcoming } = await supabase
+    .from('appointments')
+    .select('id')
+    .eq('organization_id', orgId)
+    .in('status', ['scheduled', 'confirmed'])
+    .gte('scheduled_at', now.toISOString())
+    .lte('scheduled_at', horizon.toISOString())
+  for (const a of upcoming || []) {
+    await calculateNoShowRisk(supabase, a.id)
+  }
+
+  // ─── ESCALATION LADDER (risk-based, day-of) ─────────────────
+  // Runs BEFORE the fixed-time tiers so a tier-1 check-in sent this pass can be
+  // seen by the 2h confirmation-call query in the same run.
+  const esc = await runAttendanceEscalation(supabase, orgId, brandNameFor, now, timeZone)
+  results.push(...esc)
 
   // ─── 72-HOUR REMINDERS (Email) ──────────────────────────────
   const r72h = await send72hReminders(supabase, orgId, brandNameFor, now, brandLogistics, timeZone)
@@ -434,10 +459,16 @@ async function send2hConfirmationCalls(
     .from('appointments')
     .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
     .eq('organization_id', orgId)
-    .in('status', ['scheduled']) // Only call unconfirmed appointments
+    .in('status', ['scheduled', 'confirmed'])
     .eq('reminder_sent_2h', false)
     .eq('confirmation_call_made', false)
-    .eq('confirmation_received', false) // Skip already confirmed
+    // Unconfirmed appointments — OR confirmed ones whose morning-of check-in
+    // went out and then sat unanswered past the reply window. Two hours of
+    // silence on the day of the visit makes a confirmation from last week
+    // stale, so the AI call is re-armed rather than skipped.
+    .or(
+      `confirmation_received.eq.false,and(checkin_sent_at.lt.${new Date(now.getTime() - CHECKIN_REPLY_WINDOW_MS).toISOString()},checkin_replied_at.is.null)`
+    )
     .gte('scheduled_at', from.toISOString())
     .lte('scheduled_at', to.toISOString())
 
@@ -618,9 +649,14 @@ export async function confirmAppointment(
       confirmation_received: true,
       confirmed_via: method,
       confirmed_at: new Date().toISOString(),
-      no_show_risk_score: 5, // Very low risk - confirmed
     })
     .eq('id', appointmentId)
+
+  // Confirmation LOWERS risk (base 30 → 5) but no longer erases history. Prior
+  // no-shows, dead reminders and an ignored check-in still count, so a serial
+  // no-shower who texts "C" no longer reads as zero-risk and drops off the
+  // escalation ladder entirely — which is why confirmed patients still no-showed.
+  await calculateNoShowRisk(supabase, appointmentId)
 
   // Get lead for sending confirmation. PII columns (email, phone) are stored
   // AES-encrypted at rest (enc::…) — they MUST be decrypted before handing to
@@ -723,56 +759,48 @@ export async function calculateNoShowRisk(
   supabase: SupabaseClient,
   appointmentId: string
 ): Promise<number> {
-  // Get appointment with reminders
   const { data: apt } = await supabase
     .from('appointments')
-    .select('*, lead:leads(no_show_count, engagement_score)')
+    // Single string literal on purpose: supabase-js infers the row type by
+    // parsing this as a literal type, and `'a, ' + 'b'` widens to `string`,
+    // which collapses the whole result to GenericStringError.
+    .select('confirmation_received, checkin_sent_at, checkin_replied_at, lead:leads(no_show_count, engagement_score)')
     .eq('id', appointmentId)
     .single()
 
   if (!apt) return 50
 
-  let risk = 30 // Base risk
-
-  // Confirmed = very low risk
-  if (apt.confirmation_received) {
-    risk = 5
-    return risk
-  }
-
-  // Check how many reminders were sent and responded to
   const { data: reminders } = await supabase
     .from('appointment_reminders')
     .select('status, confirmation_status')
     .eq('appointment_id', appointmentId)
 
-  if (reminders) {
-    const totalSent = reminders.filter((r: { status: string }) => r.status === 'sent').length
-    const totalFailed = reminders.filter((r: { status: string }) => r.status === 'failed').length
-    const noResponses = reminders.filter((r: { confirmation_status: string }) => r.confirmation_status === 'no_response').length
+  const rows = reminders ?? []
+  // PostgREST types an embedded relation as an array here even though the FK is
+  // to-one, so normalize both shapes rather than trusting either.
+  type LeadRisk = { no_show_count: number | null; engagement_score: number | null }
+  const rawLead = apt.lead as unknown as LeadRisk | LeadRisk[] | null
+  const lead: LeadRisk | null = Array.isArray(rawLead) ? rawLead[0] ?? null : rawLead
 
-    // Failed reminders = higher risk
-    if (totalFailed > 0) risk += 15
+  const risk = computeNoShowRisk({
+    confirmed: !!apt.confirmation_received,
+    priorNoShows: lead?.no_show_count ?? 0,
+    engagementScore: lead?.engagement_score ?? null,
+    remindersSent: rows.filter((r: { status: string }) => r.status === 'sent').length,
+    remindersFailed: rows.filter((r: { status: string }) => r.status === 'failed').length,
+    remindersUnanswered: rows.filter(
+      (r: { confirmation_status: string }) => r.confirmation_status === 'no_response'
+    ).length,
+    checkinExpiredUnanswered: isCheckinExpired(
+      apt.checkin_sent_at as string | null,
+      apt.checkin_replied_at as string | null,
+      new Date()
+    ),
+  })
 
-    // No responses to any reminders = higher risk
-    if (totalSent > 0 && noResponses === totalSent) risk += 20
-  }
-
-  // Previous no-shows = higher risk
-  const lead = apt.lead as any
-  if (lead?.no_show_count > 0) {
-    risk += Math.min(lead.no_show_count * 15, 30)
-  }
-
-  // Low engagement score = higher risk
-  if (lead?.engagement_score !== undefined && lead.engagement_score < 20) {
-    risk += 15
-  }
-
-  // Cap at 100
-  risk = Math.min(risk, 100)
-
-  // Update the appointment
+  // Always persist. The old version early-returned 5 for confirmed appointments
+  // WITHOUT writing, so a confirmed row silently kept whatever stale score it
+  // already had — invisible because the caller's return value looked correct.
   await supabase
     .from('appointments')
     .update({ no_show_risk_score: risk })

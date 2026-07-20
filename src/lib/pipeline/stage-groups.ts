@@ -45,10 +45,25 @@ export function isOffFunnelStage(slug: string | null | undefined): boolean {
 }
 
 /**
+ * Slug of the no-show triage column. A lead lands here when an appointment is
+ * marked `no_show` (staff UI or EHR sync) and leaves when it rebooks or the
+ * recovery sequence gives up. Deliberately its own stage rather than folding
+ * into Nurturing: nurturing means *worked, went cold*, whereas a no-show is a
+ * patient who committed to a time and did not attend. Same board, opposite copy
+ * — see lib/campaigns/no-show-recovery.ts.
+ */
+export const NO_SHOW_STAGE_SLUG = 'no-show'
+
+/**
  * Work-queue columns whose population is orthogonal to sales status. Their
  * column counts reflect the TRUE stage population (no disqualified/lost filter).
  */
-export const OPERATIONAL_STAGE_SLUGS = ['no-communication', 'dnd-sms', 'nurturing'] as const
+export const OPERATIONAL_STAGE_SLUGS = [
+  'no-communication',
+  'dnd-sms',
+  'nurturing',
+  NO_SHOW_STAGE_SLUG,
+] as const
 
 const POST_CLOSE = new Set<string>(POST_CLOSE_STAGE_SLUGS)
 const OPERATIONAL = new Set<string>(OPERATIONAL_STAGE_SLUGS)

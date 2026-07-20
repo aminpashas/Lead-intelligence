@@ -41,6 +41,7 @@ const CONCURRENCY = 10
 const PRIORITY: Record<LiStageSlug, number> = {
   completed: 14, 'contract-signed': 13, scheduled: 12, financing: 11,
   'treatment-presented': 10, 'consultation-completed': 9, 'consultation-scheduled': 8,
+  'no-show': 7.5,
   qualified: 7, engaged: 6, contacted: 5, 'no-communication': 4, 'dnd-sms': 3, lost: 2, new: 1,
 }
 
