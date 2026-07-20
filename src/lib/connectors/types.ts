@@ -27,6 +27,12 @@ export type ConnectorEventType =
   // Slack-only by design (dispatched with only:['slack']) and explicit
   // opt-in in the Slack connector — ad platforms must never fire on it.
   | 'message.received'
+  // Staff notification: an upcoming appointment crossed the tier-2 no-show risk
+  // threshold and wants a personal call. Same Slack-only contract as
+  // `message.received` — this is an internal work signal, not a conversion, and
+  // firing it at Google/Meta would corrupt bidding with an event that represents
+  // a patient who has NOT yet done anything.
+  | 'appointment.at_risk'
 
 export type ConnectorEvent = {
   type: ConnectorEventType

@@ -572,6 +572,13 @@ export type Appointment = {
   // Risk assessment
   no_show_risk_score: number
 
+  // No-show escalation ladder (lib/campaigns/attendance-escalation.ts)
+  // tier 1 = AI morning-of check-in sent, tier 2 = staff escalation fired
+  escalation_tier: 1 | 2 | null
+  escalated_at: string | null
+  checkin_sent_at: string | null
+  checkin_replied_at: string | null
+
   // Phone-first protocol: which path booked this + soft-gate override audit
   booked_via: 'ai' | 'staff' | 'public' | null
   call_gate_overridden: boolean
