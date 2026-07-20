@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SmartListCriteria } from '@/types/database'
 import { combineTermMatches, sanitizeTerm } from './keyword-match'
 import { serviceLineOrFilter } from '@/lib/leads/service-line'
+import { applyNotOnHold } from '@/lib/leads/hold'
 
 const LEAD_TEXT_COLUMNS = [
   'first_name', 'last_name', 'city',
@@ -234,6 +235,10 @@ export function applySmartListCriteria(
       .not('closing_follow_up_at', 'is', null)
       .lte('closing_follow_up_at', criteria.closing_follow_up_before)
   }
+
+  // Held leads are excluded from every smart-list audience by default — a smart
+  // list is an automation audience, and a hold pauses automation.
+  query = applyNotOnHold(query)
 
   return query
 }
