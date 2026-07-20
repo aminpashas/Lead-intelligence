@@ -9,6 +9,7 @@ import { assertActiveSubscription } from '@/lib/auth/entitlement'
 import { getGhlConfig } from '@/lib/ghl/client'
 import { sendGhlMessage } from '@/lib/ghl/conversations'
 import { CHANNEL_META, SOCIAL_CHANNELS, type ConversationChannel } from '@/lib/channels'
+import { checkSocialSend, classifyGhlSendError } from '@/lib/ghl/social-send-guards'
 
 /**
  * Send a reply on a social DM channel (Facebook Messenger, Instagram).
@@ -60,10 +61,8 @@ export async function POST(request: NextRequest) {
   const entError = await assertActiveSubscription(supabase, orgId)
   if (entError) return entError
 
-  // The thread must exist, belong to this org, and actually be on the channel
-  // the client claims — otherwise a caller could route a "Messenger" reply into
-  // an SMS thread (or vice versa) and the message would go out on the wrong
-  // transport entirely.
+  // Fetch the rows the guards reason over. Both are org-scoped as
+  // defense-in-depth beyond RLS.
   const { data: conversation } = await supabase
     .from('conversations')
     .select('id, channel, lead_id, status')
@@ -71,21 +70,6 @@ export async function POST(request: NextRequest) {
     .eq('organization_id', orgId)
     .single()
 
-  if (!conversation) {
-    return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
-  }
-  if (conversation.lead_id !== lead_id) {
-    return NextResponse.json({ error: 'Conversation does not belong to this lead' }, { status: 400 })
-  }
-  if (conversation.channel !== channel) {
-    return NextResponse.json(
-      { error: `Conversation is a ${conversation.channel} thread, not ${channel}` },
-      { status: 400 },
-    )
-  }
-
-  // The GHL contact id is the address for a social send — Meta gives no phone
-  // or email for a DM-only lead, so this mapping is the only route back.
   const { data: lead } = await supabase
     .from('leads')
     .select('id, ghl_contact_id, organization_id')
@@ -93,26 +77,28 @@ export async function POST(request: NextRequest) {
     .eq('organization_id', orgId)
     .single()
 
-  if (!lead) return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
-  if (!lead.ghl_contact_id) {
-    return NextResponse.json(
-      { error: 'Lead is not linked to a GHL contact', reason: 'no_ghl_contact' },
-      { status: 409 },
-    )
-  }
-
   const ghlConfig = await getGhlConfig(supabase, orgId)
-  if (!ghlConfig) {
+
+  // All refusal rules live in one pure, unit-tested place (social-send-guards).
+  const refusal = checkSocialSend({
+    conversation,
+    lead,
+    leadId: lead_id,
+    channel,
+    ghlConfigured: Boolean(ghlConfig),
+  })
+  if (refusal) {
     return NextResponse.json(
-      { error: 'GHL is not connected for this organization', reason: 'ghl_not_configured' },
-      { status: 409 },
+      { error: refusal.error, reason: refusal.reason },
+      { status: refusal.status },
     )
   }
 
-  const ghlSendType = CHANNEL_META[channel].ghlSendType
-  if (!ghlSendType) {
-    return NextResponse.json({ error: `No send path for ${channel}` }, { status: 400 })
+  // Non-null past the guards, but narrow for TypeScript.
+  if (!conversation || !lead?.ghl_contact_id || !ghlConfig) {
+    return NextResponse.json({ error: 'Precondition failed' }, { status: 409 })
   }
+  const ghlSendType = CHANNEL_META[channel].ghlSendType as string
 
   try {
     // HIPAA: the message body leaves our boundary for GHL/Meta. Awaited so an
@@ -187,17 +173,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: stored, ghl_message_id: result.messageId ?? null })
   } catch (err) {
     const raw = err instanceof Error ? err.message : 'Failed to send message'
-    // The PIT scope failure is the single most likely cause here and is a config
-    // problem, not a bug — name it so it isn't debugged as a generic 500.
-    const scopeIssue = /401|not authorized for this scope/i.test(raw)
+    const failure = classifyGhlSendError(raw)
     return NextResponse.json(
-      {
-        error: scopeIssue
-          ? 'GHL rejected the send — the integration token is missing the conversations/message.write scope.'
-          : raw,
-        reason: scopeIssue ? 'ghl_scope_missing' : 'ghl_send_failed',
-      },
-      { status: scopeIssue ? 502 : 500 },
+      { error: failure.error, reason: failure.reason },
+      { status: failure.status },
     )
   }
 }
