@@ -17,6 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { preCallCheck, initiateOutboundCall } from './call-manager'
 import { logger } from '@/lib/logger'
 import type { VoiceCampaignLeadStatus } from '@/types/database'
+import { applyNotOnHold } from '@/lib/leads/hold'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -263,6 +264,9 @@ export async function populateCampaignQueue(
     .eq('do_not_call', false)
     .eq('voice_opt_out', false)
     .not('phone_formatted', 'is', null)
+
+  // Held leads are excluded from campaign auto-enrollment too (spec choke point).
+  query = applyNotOnHold(query)
 
   // Audience #1: a pipeline stage (the calling-automation builder's default).
   const criteria = (campaign.target_criteria || {}) as Record<string, unknown>
