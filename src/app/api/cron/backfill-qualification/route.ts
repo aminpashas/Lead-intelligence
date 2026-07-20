@@ -140,3 +140,9 @@ export const POST = withCron('backfill-qualification', async ({ supabase }) => {
     data: { scanned, extracted, captured, failed, errors: errors.slice(0, 10) },
   }
 })
+
+// Vercel Cron invokes scheduled routes with GET; without this alias the route
+// returns 405 to the scheduler and never runs — which is exactly why this cron
+// sat silent since it was added, even though a manual POST worked. Every other
+// cron route in this repo carries the same alias for the same reason.
+export const GET = POST
