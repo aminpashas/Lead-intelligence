@@ -2,6 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "log-call-worktree",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=/usr/local/bin:$PATH && cd '/Users/aminsamadian/Lead Intelligence/.claude/worktrees/vibrant-babbage-52e515' && exec /usr/local/bin/node '/Users/aminsamadian/Lead Intelligence/node_modules/.bin/next' dev -p 3140"
+      ],
+      "port": 3140
+    },
+    {
       "name": "sidebar-flash-worktree",
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
