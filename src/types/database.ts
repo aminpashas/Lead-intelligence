@@ -286,6 +286,13 @@ export type Lead = {
   closing_updated_at: string | null
   closing_follow_up_at: string | null
 
+  // Lead hold: a dated pause on all outbound automation. null = not on hold.
+  // See src/lib/leads/hold.ts. Distinct from closing_follow_up_at above.
+  hold_until: string | null
+  hold_reason: string | null
+  hold_set_by: string | null
+  hold_set_at: string | null
+
   // Clinical visit outcome (Dion Clinical scribe → LI, see dion-encounter-brief.ts).
   // appointment_summary is INTERNAL clinical narrative — steers follow-ups, never
   // disclosed to the patient. dion_patient_id is the suite-wide identity link,

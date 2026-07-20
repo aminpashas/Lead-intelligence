@@ -37,6 +37,9 @@ export type HumanTaskKind =
   // patient awaiting a reply). Distinct from the event-driven kinds above so the
   // sweep and the allocation engine can never dedupe onto each other's rows.
   | 'follow_up'
+  // A dated callback the rep committed to; minted when a lead is put on hold.
+  // due_at is the hold date. See src/lib/automation/hold-tasks.ts.
+  | 'callback'
 
 /** Manual-task urgency. Allocation-created tasks keep the 'normal' default. */
 export type HumanTaskPriority = 'low' | 'normal' | 'high' | 'urgent'
