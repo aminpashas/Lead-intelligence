@@ -131,7 +131,14 @@ export default async function PipelinePage({
       // unstable 80-row slice — so freshly-arrived leads never surfaced as cards
       // even though the header counted them. Freshest-first within a tie makes
       // "New Lead" actually show the newest leads.
+      // stage_changed_at leads the sort so a lead someone just moved stays at
+      // the top of its new column — and, more importantly, stays inside the
+      // CARD_CAP window at all. Without it a low-scoring lead dropped into a
+      // 14k-lead column fell outside the top 80 and vanished from the board on
+      // the next load. NULL (never moved) sorts last, so the leads nobody has
+      // touched keep their existing ai_score ordering untouched.
       const { data, count } = await q
+        .order('stage_changed_at', { ascending: false, nullsFirst: false })
         .order('ai_score', { ascending: false })
         .order('created_at', { ascending: false })
         .range(0, CARD_CAP - 1)

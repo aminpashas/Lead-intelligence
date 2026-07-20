@@ -213,6 +213,9 @@ export type Lead = {
 
   // Pipeline
   stage_id: string | null
+  /** When stage_id last actually changed; null = never moved. Trigger-maintained
+   *  (trg_leads_stage_changed_at) and leads the pipeline column sort. */
+  stage_changed_at: string | null
   status: LeadStatus
 
   // Source
