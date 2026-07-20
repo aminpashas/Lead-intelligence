@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockCreate = vi.fn()
 vi.mock('@anthropic-ai/sdk', () => {
+  // APIError must be a real class on the mock: the code under test branches on
+  // `err instanceof Anthropic.APIError` to tell a systemic outage apart from a
+  // per-lead failure, and a mock without it would make that branch untestable
+  // (and silently always-false).
+  class MockAPIError extends Error {}
   class MockAnthropic {
+    static APIError = MockAPIError
     messages = { create: mockCreate }
     constructor(_opts?: unknown) {}
   }
@@ -15,6 +21,7 @@ vi.mock('@/lib/ai/hipaa', () => ({
   ),
 }))
 
+import Anthropic from '@anthropic-ai/sdk'
 import { extractQualificationFromTranscript } from '@/lib/ai/qualification-extract'
 
 function supabaseWith(rows: Array<Record<string, unknown>>) {
@@ -80,9 +87,26 @@ describe('extractQualificationFromTranscript', () => {
     expect(await extractQualificationFromTranscript(supabaseWith(msgs(12)), 'lead-1')).toBeNull()
   })
 
-  it('returns null when the model call throws — one bad lead must not abort a batch', async () => {
-    mockCreate.mockRejectedValue(new Error('rate limited'))
+  it('returns null on a generic throw — one bad lead must not abort a batch', async () => {
+    mockCreate.mockRejectedValue(new Error('something odd'))
     expect(await extractQualificationFromTranscript(supabaseWith(msgs(12)), 'lead-1')).toBeNull()
+  })
+
+  it('RETHROWS Anthropic.APIError so the caller aborts without stamping', async () => {
+    // Regression: collapsing an API outage into `null` made "the API was down"
+    // indistinguishable from "nothing to find". The caller stamps
+    // qualification_backfilled_at on every processed lead, so on the first
+    // production run a credit outage permanently retired 202 long-thread leads
+    // that were never actually examined.
+    // Cast: the mocked APIError is a plain Error subclass, while the real SDK
+    // type demands (status, error, message, headers). Only `instanceof` matters
+    // to the code under test.
+    const APIErrorCtor = Anthropic.APIError as unknown as new (m: string) => Error
+    mockCreate.mockRejectedValue(new APIErrorCtor('credit balance is too low'))
+
+    await expect(
+      extractQualificationFromTranscript(supabaseWith(msgs(12)), 'lead-1')
+    ).rejects.toThrow('credit balance is too low')
   })
 
   it('drops non-string values rather than passing them to the enum validator', async () => {
