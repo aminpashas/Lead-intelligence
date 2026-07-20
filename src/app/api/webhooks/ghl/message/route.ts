@@ -82,6 +82,15 @@ export async function POST(request: NextRequest) {
   if (rlError) return rlError
 
   if (!secretMatches(request.headers.get('x-ghl-webhook-secret'), process.env.GHL_WEBHOOK_SECRET)) {
+    // LOG, don't just 401. A rejected push is indistinguishable from no push at
+    // all when it's silent, and that ambiguity is exactly what let a six-day
+    // ingest blackout go unnoticed: nobody could tell "GHL isn't calling" from
+    // "GHL is calling and we're refusing it". Never make this branch quiet again.
+    logger.warn('GHL message webhook rejected — bad or missing secret', {
+      hasHeader: request.headers.get('x-ghl-webhook-secret') != null,
+      secretConfigured: Boolean(process.env.GHL_WEBHOOK_SECRET),
+      org: new URL(request.url).searchParams.get('org'),
+    })
     return new NextResponse('Unauthorized', { status: 401 })
   }
 
@@ -121,7 +130,14 @@ export async function POST(request: NextRequest) {
 
   if (!lead) {
     // Unknown contact — nothing to attach to. Ack (a lead may arrive later via
-    // the DGS bridge; the backfill will pick up this thread then).
+    // the DGS bridge; the poller will pick up this thread then). Logged because
+    // a burst of these means contact↔lead mapping has drifted, which otherwise
+    // shows up only as conversations quietly never appearing in LI.
+    logger.info('GHL message webhook: no matching lead', {
+      orgId,
+      contactId: extracted.contactId,
+      channel: normalized.channel,
+    })
     return NextResponse.json({ ok: true, action: 'no_lead' })
   }
 
