@@ -387,4 +387,23 @@ describe('terminal stages (Lost / No-Show)', () => {
     expect(recs.filter((r) => r.kind === 'advance_stage')).toEqual([])
     expect(evEligibleSignals(lost)).not.toContain('readyToBook')
   })
+
+  it('emits NO rules-engine recs for a terminal stage, however loud its signals', () => {
+    // Lost with every signal maxed: no follow-up blast, no strike-hot, no
+    // deliberating nudge — terminal buckets are outcomes, not work queues.
+    const lost = makeStage({
+      stageId: 'lost',
+      slug: 'lost',
+      position: 6,
+      staleReachableSms: 5000,
+      hotWarmReachableSms: 500,
+      readyToBook: 100,
+      deliberatingDue: 50,
+      neverContacted: 1000,
+    })
+    const noShow = makeStage({ stageId: 'ns', slug: 'no-show', position: 7, staleReachableSms: 5000 })
+    expect(buildRecommendations(makeSignals([lost, noShow]))).toEqual([])
+    expect(evEligibleSignals(lost)).toEqual([])
+    expect(evEligibleSignals(noShow)).toEqual([])
+  })
 })
