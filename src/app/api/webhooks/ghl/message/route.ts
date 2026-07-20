@@ -17,7 +17,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { after } from 'next/server'
 import { timingSafeEqual } from 'crypto'
 import { createServiceClient } from '@/lib/supabase/server'
 import { validateOrgId, applyDistributedRateLimit } from '@/lib/webhooks/verify'
@@ -31,7 +30,7 @@ import {
   type NormalizedGhlMessage,
 } from '@/lib/ghl/conversations'
 import { persistGhlMessage, type IngestLead } from '@/lib/ghl/ingest-message'
-import { ingestLead } from '@/lib/leads/ingest'
+import { createLeadFromSocialDm, isNewSocialLead } from '@/lib/ghl/social-lead'
 import { logger } from '@/lib/logger'
 
 /** Constant-time secret comparison; false on any length/format mismatch. */
@@ -113,11 +112,11 @@ export async function POST(request: NextRequest) {
 
   if (!lead && isNewSocialLead(normalized)) {
     // An inbound social DM from someone we've never seen IS the lead event —
-    // it's how a stranger first contacts the practice on FB/IG. Unlike SMS or
-    // email (where the number/address implies a prior touch that the DGS bridge
-    // will land), a Messenger DM has no other arrival path: Meta hands over a
-    // name and nothing else, so waiting for a bridge means waiting forever.
-    lead = await createLeadFromSocialDm(supabase, orgId, extracted.contactId, normalized)
+    // see src/lib/ghl/social-lead.ts for why social can't wait for a bridge.
+    const config = await getGhlConfig(supabase, orgId)
+    if (config) {
+      lead = await createLeadFromSocialDm(supabase, orgId, config, extracted.contactId, normalized)
+    }
   }
 
   if (!lead) {
@@ -142,116 +141,6 @@ export async function POST(request: NextRequest) {
     })
     return NextResponse.json({ error: 'persist_failed' }, { status: 500 })
   }
-}
-
-/** Per-channel presentation for a social DM lead. */
-const SOCIAL_SOURCE: Record<string, { source: string; sourceType: string; utmSource: string }> = {
-  messenger: { source: 'Messenger', sourceType: 'messenger', utmSource: 'facebook' },
-  instagram: { source: 'Instagram DM', sourceType: 'instagram', utmSource: 'instagram' },
-}
-
-/** Only an INBOUND social DM mints a lead — our own outbound reply must not. */
-function isNewSocialLead(n: NormalizedGhlMessage): boolean {
-  return n.direction === 'inbound' && n.channel !== null && n.channel in SOCIAL_SOURCE
-}
-
-/**
- * Create a lead from an inbound FB/IG DM by an unknown GHL contact, and fire the
- * staff new-lead alert.
- *
- * Meta gives a display name and no contact details, so `ingestLead`'s usual
- * email/phone dedup can't match — `externalRef` (the GHL contact id) is the
- * stable key, and `ghl_contact_id` is written so every later message in the
- * thread resolves directly.
- *
- * Consent is left UNKNOWN on sms/email/voice: they messaged a social page, which
- * is not permission to text or call. Nothing auto-contacts them until the
- * re-permission flow earns it. `armSpeedToLead` is off for the same reason —
- * there is no consented channel to be fast on, and LI cannot reply in Messenger
- * (GHL owns that inbox), so the alert to staff IS the follow-up.
- */
-async function createLeadFromSocialDm(
-  supabase: ReturnType<typeof createServiceClient>,
-  orgId: string,
-  contactId: string | null,
-  normalized: NormalizedGhlMessage,
-): Promise<IngestLead | null> {
-  if (!contactId) return null
-  const preset = SOCIAL_SOURCE[normalized.channel as string]
-  if (!preset) return null
-
-  const config = await getGhlConfig(supabase, orgId)
-  if (!config) return null
-  const contact = await getContact(config, contactId)
-  if (!contact) return null
-
-  // GHL splits the Meta display name inconsistently across revisions; fall back
-  // to `name` and let ingestLead's guard strip anything phone-shaped.
-  const first = contact.firstName?.trim() || contact.name?.trim().split(/\s+/)[0] || ''
-  const last =
-    contact.lastName?.trim() || contact.name?.trim().split(/\s+/).slice(1).join(' ') || null
-  if (!first) return null
-
-  let result
-  try {
-    result = await ingestLead(
-      supabase,
-      {
-        organizationId: orgId,
-        firstName: first,
-        lastName: last,
-        email: contact.email?.trim() || null,
-        phoneRaw: contact.phone?.trim() || null,
-        source: preset.source,
-        sourceType: preset.sourceType,
-        externalRef: contactId,
-        tags: [normalized.channel as string],
-        notes: normalized.body ? `First ${preset.source} message: ${normalized.body}` : null,
-        consent: { source: `ghl_${normalized.channel}_dm` },
-        utm_source: preset.utmSource,
-      },
-      { caller: `ghl-${normalized.channel}-dm`, armSpeedToLead: false },
-    )
-  } catch (err) {
-    logger.error('social DM lead creation failed', {
-      orgId,
-      contactId,
-      channel: normalized.channel,
-      error: err instanceof Error ? err.message : String(err),
-    })
-    return null
-  }
-
-  await supabase.from('leads').update({ ghl_contact_id: contactId }).eq('id', result.id)
-
-  if (!result.deduplicated) {
-    after(async () => {
-      await result.runPostIngest()
-      try {
-        const { notifyNewLead } = await import('@/lib/notifications/new-lead-alert')
-        await notifyNewLead(supabase, {
-          organizationId: orgId,
-          lead: {
-            id: result.id,
-            firstName: first,
-            lastName: last,
-            source: preset.source,
-            tags: [normalized.channel as string],
-            utm_source: preset.utmSource,
-            utm_medium: 'social',
-            message: normalized.body || null,
-          },
-          // The DM's own timestamp — a replayed/backfilled thread must not blast
-          // a fresh-lead alert months after the fact.
-          sourceCreatedAt: normalized.createdAt,
-        })
-      } catch {
-        /* staff alert is best-effort — never blocks capture */
-      }
-    })
-  }
-
-  return { id: result.id, first_name: first, last_name: last }
 }
 
 /**

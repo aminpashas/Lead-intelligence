@@ -25,11 +25,24 @@ import { searchHash } from '@/lib/encryption'
 import { formatToE164 } from '@/lib/leads/phone'
 import {
   getConversationMessages,
+  mapGhlChannel,
   normalizeGhlMessage,
   searchConversations,
+  type GhlConversation,
   type GhlMessage,
 } from './conversations'
 import { persistGhlMessage, type IngestLead } from './ingest-message'
+import { createLeadFromSocialDm, isNewSocialLead } from './social-lead'
+
+/**
+ * Does this conversation look like an FB/IG thread? Read from the conversation
+ * envelope so an unmatched contact's thread is only fetched when it could mint
+ * a social lead — never for the vast unmatched SMS/email backlog.
+ */
+function isSocialConversation(conv: GhlConversation): boolean {
+  const ch = mapGhlChannel(conv.lastMessageType || conv.type)
+  return ch === 'messenger' || ch === 'instagram'
+}
 
 /**
  * Two independent passes keep their own checkpoint so they never collide:
@@ -59,6 +72,8 @@ export type BackfillChunkResult = {
   callsLogged: number
   skipped: number
   leadsAffected: number
+  /** Leads minted from inbound FB/IG DMs by contacts LI had never seen. */
+  socialLeadsCreated: number
   /** True when more conversations remain — the cron should tick again. */
   moreRemain: boolean
 }
@@ -144,6 +159,7 @@ export async function backfillGhlConversations(
       callsLogged: 0,
       skipped: 0,
       leadsAffected: 0,
+      socialLeadsCreated: 0,
       moreRemain: false,
     }
   }
@@ -159,6 +175,7 @@ export async function backfillGhlConversations(
   let inserted = 0
   let calls = 0
   let skipped = 0
+  let socialLeadsCreated = 0
   let moreRemain = false
 
   outer: for (let cp = 0; cp < MAX_CONVERSATION_PAGES; cp++) {
@@ -177,9 +194,46 @@ export async function backfillGhlConversations(
       // fails identically, freezing the backfill forever. Isolate each one:
       // skip on error and let the cursor advance past it.
       try {
-        const lead = await resolveContactLead(supabase, organizationId, config, conv.contactId, contactCache)
+        let lead = await resolveContactLead(supabase, organizationId, config, conv.contactId, contactCache)
+
+        // An inbound FB/IG DM from an unknown contact IS the lead event — the
+        // sweep must mint it here for the same reason the webhook does (see
+        // ghl/social-lead.ts): Meta gives no phone/email, so neither key can
+        // ever match and no later bridge lands this person.
+        //
+        // Gated on the conversation's own type so the unmatched SMS/email
+        // backlog (240k+ skipped messages) is never fetched, let alone turned
+        // into leads. Social threads are a handful; that is the whole point.
+        const socialCandidate = !lead && isSocialConversation(conv)
+        if (!lead && !socialCandidate) {
+          continue
+        }
+
+        const thread = await fetchThread(config, conv.id)
+
+        if (socialCandidate) {
+          const firstSocial = thread
+            .map(normalizeGhlMessage)
+            .find((n): n is NonNullable<typeof n> => n != null && isNewSocialLead(n))
+          if (firstSocial) {
+            if (dryRun) {
+              // Never create or alert on a dry run — just report what would happen.
+              socialLeadsCreated += 1
+            } else {
+              lead = await createLeadFromSocialDm(
+                supabase,
+                organizationId,
+                config,
+                conv.contactId ?? null,
+                firstSocial,
+                { caller: 'ghl-backfill-social' },
+              )
+              if (lead) socialLeadsCreated += 1
+            }
+          }
+        }
+
         if (lead) {
-          const thread = await fetchThread(config, conv.id)
           for (const raw of thread) {
             const normalized = normalizeGhlMessage(raw)
             if (!normalized) {
@@ -251,6 +305,7 @@ export async function backfillGhlConversations(
       callsLogged: calls,
       skipped,
       leadsAffected: affectedLeads.size,
+      socialLeadsCreated,
       moreRemain,
     }
   }
@@ -294,6 +349,7 @@ export async function backfillGhlConversations(
     callsLogged: calls,
     skipped,
     leadsAffected: affectedLeads.size,
+    socialLeadsCreated,
     moreRemain,
   }
 }
