@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveActiveCampaignPolicy } from './policy'
+import { isOnHold } from '@/lib/leads/hold'
 
 const AUTOMATION_CALLER_PREFIXES = ['autopilot.', 'campaign.']
 
@@ -11,7 +12,7 @@ export function isAutomationCaller(caller?: string): boolean {
 
 export type CampaignSendDecision =
   | { allowed: true }
-  | { allowed: false; reason: 'no_active_campaign' | 'send_suppressed' }
+  | { allowed: false; reason: 'no_active_campaign' | 'send_suppressed' | 'on_hold' }
 
 /**
  * Deny-by-default authorization for AUTOMATION sends. A human-initiated send
@@ -26,10 +27,13 @@ export async function assertCampaignSendAllowed(
 
   const { data: lead } = await supabase
     .from('leads')
-    .select('organization_id')
+    .select('organization_id, hold_until')
     .eq('id', params.leadId)
     .single()
   if (!lead) return { allowed: false, reason: 'no_active_campaign' }
+  if (isOnHold(lead as { hold_until: string | null })) {
+    return { allowed: false, reason: 'on_hold' }
+  }
 
   const policy = await resolveActiveCampaignPolicy(supabase, params.leadId, (lead as any).organization_id)
   if (!policy) return { allowed: false, reason: 'no_active_campaign' }
