@@ -23,6 +23,9 @@ export const smartListCriteriaSchema = z.object({
     operator: z.enum(['and', 'or']),
   }).optional(),
   statuses: z.array(z.string()).optional(),
+  /** Statuses barred from the segment (NOT IN) — e.g. ['disqualified',
+   *  'unresponsive'] on recommendation-built segments. */
+  exclude_statuses: z.array(z.string()).optional(),
   ai_qualifications: z.array(z.string()).optional(),
   conversation_intents: z.array(z.enum(CONVERSATION_INTENTS)).optional(),
   conversation_sentiments: z.array(z.enum(CONVERSATION_SENTIMENTS)).optional(),
