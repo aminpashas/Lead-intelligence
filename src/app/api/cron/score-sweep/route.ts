@@ -30,20 +30,37 @@ import { withCron } from '@/lib/cron/with-cron'
 import { rescoreAndPersistLead, ScoringTruncationError } from '@/lib/ai/scoring'
 import type { Lead } from '@/types/database'
 
-/** The sweep makes N sequential Claude calls per run; give the function room.
- *  800s (Vercel Pro ceiling) fits ~200 leads/run at ~2-3s each — sized to drain
- *  the scoring backlog in ~2-3 days rather than ~18 at the old 25/run cap. */
+/** The sweep makes N sequential Claude calls per run; give the function room. */
 export const maxDuration = 800
 
-// ~200 leads/run fits the 800s maxDuration (each lead is a sequential ~2-3s
-// Claude call). At batch-15m's 15-min cadence that's ~19k/day → the ~43k
-// scoring backlog drains in ~2-3 days. A timeout mid-run is harmless — each lead
-// commits independently and unprocessed leads simply retry next tick (never
-// stamped/burned). Env-overridable; drop back toward 25-50 once the backlog
-// clears if steady-state per-tick cost matters.
+// MAX_PER_RUN is now an upper bound, not the real limiter — SOFT_DEADLINE_MS is.
+// Per-lead cost was ~2-3s when the model saw only the lead row; with the
+// conversation transcript in the prompt it measures ~16s, so a run realistically
+// lands ~40 leads inside the deadline rather than 200. At a 15-min cadence that's
+// ~160/hour. Unprocessed leads simply retry next tick (never stamped/burned), and
+// the engaged tier is ordered first, so the leads that can actually score hot are
+// reached in the first runs regardless of how far down the tail a run gets.
 const MAX_PER_RUN = Number(process.env.SCORE_SWEEP_MAX_PER_RUN) || 200
 const MAX_PER_ORG = Number(process.env.SCORE_SWEEP_MAX_PER_ORG) || 200
 const TERMINAL_STATUSES = '(lost,disqualified,completed)'
+
+/**
+ * Stop pulling new leads once the run has been going this long, leaving headroom
+ * inside maxDuration (800s) to finish the in-flight lead and return normally.
+ *
+ * A lead-count cap alone is not enough. Measured per-lead cost is ~16s (min 12.9,
+ * max 20.6 over n=40) now that the transcript is in the prompt and max_tokens is
+ * 3000 — so MAX_PER_RUN=200 implies ~3,200s and the function was being killed at
+ * 800s EVERY run. withCron writes its cron_runs row in a finally-block, so a
+ * killed run reports nothing at all: the sweep was scoring ~50 leads a run while
+ * appearing, from the heartbeat, never to have run. (Same failure shape as
+ * score-sweep being awaited inside batch-15m's 300s budget — one level up.)
+ *
+ * A deadline is preferred over lowering the count because per-lead latency is not
+ * stable: it moves with prompt size, model, and transcript length. This self-tunes;
+ * a magic number silently goes stale the next time scoring gets heavier.
+ */
+const SOFT_DEADLINE_MS = Number(process.env.SCORE_SWEEP_DEADLINE_MS) || 660_000
 
 export const POST = withCron('score-sweep', async ({ supabase }) => {
   if (process.env.SCORE_SWEEP_DISABLED === 'true') {
@@ -62,9 +79,14 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
   // Set when a systemic API failure (out of credits, auth, rate limit, 5xx,
   // network) is hit — aborts the run so an outage can't burn the whole backlog.
   let apiOutage: string | null = null
+  const startedAt = Date.now()
+  // Set when the soft deadline stops the run early — surfaced in the heartbeat
+  // so a perpetually-truncated sweep is visible rather than looking healthy.
+  let deadlineHit = false
 
   for (const org of orgs as Array<{ id: string }>) {
     if (scored >= MAX_PER_RUN) break
+    if (Date.now() - startedAt > SOFT_DEADLINE_MS) { deadlineHit = true; break }
 
     const budget = Math.min(MAX_PER_ORG, MAX_PER_RUN - scored)
 
@@ -126,6 +148,7 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
 
     for (const lead of leads as Lead[]) {
       if (scored >= MAX_PER_RUN) break
+      if (Date.now() - startedAt > SOFT_DEADLINE_MS) { deadlineHit = true; break }
       try {
         await rescoreAndPersistLead(supabase, lead)
         scored++
@@ -158,14 +181,29 @@ export const POST = withCron('score-sweep', async ({ supabase }) => {
           .eq('id', lead.id)
       }
     }
-    if (apiOutage) break
+    if (apiOutage || deadlineHit) break
   }
+
+  const elapsedS = Math.round((Date.now() - startedAt) / 1000)
 
   return {
     status: apiOutage ? ('failed' as const) : undefined,
-    error: apiOutage ?? undefined,
+    // A deadline stop is not a failure — the run did real work and the remainder
+    // retries next tick — but it must be visible, or a sweep permanently
+    // truncating at 40 of 200 looks identical to one that finished the job.
+    error:
+      apiOutage ??
+      (deadlineHit ? `soft deadline hit after ${elapsedS}s — scored ${scored}/${MAX_PER_RUN}` : undefined),
     items: scored,
-    data: { scored, failed, per_org: perOrg, errors: errors.slice(0, 10), api_outage: apiOutage },
+    data: {
+      scored,
+      failed,
+      elapsed_s: elapsedS,
+      deadline_hit: deadlineHit,
+      per_org: perOrg,
+      errors: errors.slice(0, 10),
+      api_outage: apiOutage,
+    },
   }
 })
 
