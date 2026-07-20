@@ -1102,6 +1102,12 @@ export type PrimaryObjection =
 export type SmartListCriteria = {
   tags?: { ids: string[]; operator: 'and' | 'or' }
   statuses?: string[]
+  /** Statuses to bar from the segment (NOT IN). Used by the Pipeline
+   *  recommendations engine to keep disqualified/unresponsive leads out of
+   *  outreach and stage-move segments while every other status keeps matching.
+   *  An exclusion (vs a `statuses` include-list) stays correct when new status
+   *  values are added. */
+  exclude_statuses?: string[]
   ai_qualifications?: string[]
   conversation_intents?: ConversationIntent[]
   conversation_sentiments?: ConversationSentiment[]

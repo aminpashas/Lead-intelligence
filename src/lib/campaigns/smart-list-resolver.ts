@@ -109,6 +109,13 @@ export function applySmartListCriteria(
     query = query.in('status', criteria.statuses)
   }
 
+  // Status exclusion (NOT IN). Recommendation-built segments bar
+  // disqualified/unresponsive leads this way so every consumer — list view,
+  // counts, mass sends, campaign enrollment — honors the exclusion.
+  if (criteria.exclude_statuses && criteria.exclude_statuses.length > 0) {
+    query = query.not('status', 'in', `(${criteria.exclude_statuses.join(',')})`)
+  }
+
   // AI qualification filter
   if (criteria.ai_qualifications && criteria.ai_qualifications.length > 0) {
     query = query.in('ai_qualification', criteria.ai_qualifications)
