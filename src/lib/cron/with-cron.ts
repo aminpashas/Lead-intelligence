@@ -125,6 +125,7 @@ export function withCron(
  */
 export const EXPECTED_CRONS: Record<string, number> = {
   'backfill-qualification': 90, // hourly :40 + grace
+  'enrich': 40, // every 15 min via batch-15m + grace
   'reconcile-growth-studio-outbox': 40, // every 10 min
   'forward-desk-outbox': 40, // every 10 min
   'dion-inbox-reprocess': 40, // every 10 min + grace

@@ -32,11 +32,18 @@ import type { Lead } from '@/types/database'
 
 export const maxDuration = 800
 
-// Scanning is one indexed query per lead; extracting is a Haiku call plus (on a
-// hit) a Sonnet re-score. The scan cap drains the 42k backlog in ~40 runs while
-// the extract cap bounds spend per tick.
-const MAX_SCAN = Number(process.env.QUALIFICATION_BACKFILL_MAX_SCAN) || 1000
-const MAX_EXTRACT = Number(process.env.QUALIFICATION_BACKFILL_MAX_EXTRACT) || 150
+// Budgeted against maxDuration, not just cost. Per run, worst case:
+//   500 scans × ~80ms message-count query        ≈  40s
+//   100 extracts × ~2s Haiku                     ≈ 200s
+//   100 captures × ~3s Sonnet re-score           ≈ 300s   ← easy to forget:
+//     captureQualificationFromResponse re-scores every lead it updates, so a
+//     "cheap Haiku backfill" is really Haiku + Sonnet on every hit.
+//                                            total ≈ 540s, inside the 800s cap.
+// A timeout would be worse than slow: withCron writes its row in a finally-block,
+// so an overrunning function reports nothing at all and the backfill goes dark
+// exactly the way score-sweep did inside batch-15m.
+const MAX_SCAN = Number(process.env.QUALIFICATION_BACKFILL_MAX_SCAN) || 500
+const MAX_EXTRACT = Number(process.env.QUALIFICATION_BACKFILL_MAX_EXTRACT) || 100
 
 /** Below this, measured yield was zero — not worth a model call. */
 const MIN_MESSAGES = 8

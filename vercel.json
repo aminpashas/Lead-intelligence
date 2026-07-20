@@ -133,6 +133,10 @@
       "schedule": "40 * * * *"
     },
     {
+      "path": "/api/cron/score-sweep",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/voice-live-transfer",
       "schedule": "* * * * *"
     },
