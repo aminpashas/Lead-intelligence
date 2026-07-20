@@ -19,6 +19,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { decryptLeadPII } from '@/lib/encryption'
+import { applyNotOnHold } from '@/lib/leads/hold'
 
 /** How many callable leads a single batch holds. */
 export const DIALER_BATCH_SIZE = 100
@@ -30,7 +31,7 @@ const CONTACT_COOLDOWN_MS = 24 * 60 * 60 * 1000
 // staffer inline context; phone fields are decrypted server-side and reduced to a
 // last-4 before they reach the client.
 const DIALER_SELECT =
-  'id, first_name, last_name, phone, phone_formatted, ai_score, ai_qualification, status, last_contacted_at, city, state, ai_summary, conversation_summary'
+  'id, first_name, last_name, phone, phone_formatted, ai_score, ai_qualification, status, last_contacted_at, city, state, ai_summary, conversation_summary, hold_until'
 
 /** The slim, display-safe lead the dialer walks (never the full number). */
 export type DialerLead = {
@@ -105,6 +106,9 @@ export async function fetchDialerQueue(
     .eq('voice_opt_out', false)
     .not('phone', 'is', null)
     .not('status', 'in', '(lost,disqualified,completed)')
+
+  // Held leads are paused from the dialer until their hold_until passes.
+  query = applyNotOnHold(query)
 
   // Skip anyone already worked within the cooldown (never-contacted always passes).
   if (opts.excludeRecentlyContacted) {

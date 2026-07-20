@@ -19,6 +19,7 @@ export const SEND_BLOCK_MESSAGES: Record<string, string> = {
   us_sms_disabled: 'Blocked: US A2P 10DLC SMS is not enabled for this org.',
   lead_not_found: 'Could not send: lead not found.',
   lookup_failed: 'Could not send: lead lookup failed. Try again.',
+  on_hold: 'Blocked: this lead is on hold.',
   // Meta blocks free-form Page→user messages more than 24h after the contact's
   // last inbound message. Not our gate and not fixable by retrying — the lead
   // has to message first, so the only useful next step is another channel.

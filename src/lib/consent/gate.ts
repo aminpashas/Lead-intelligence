@@ -20,6 +20,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isOnHold } from '@/lib/leads/hold'
 
 export type ConsentChannel = 'sms' | 'email' | 'voice'
 
@@ -35,6 +36,7 @@ export type ConsentDenyReason =
   | 'opted_out'
   | 'do_not_call'
   | 'lookup_failed'
+  | 'on_hold'
 
 type ConsentLeadFields = {
   id: string
@@ -50,6 +52,7 @@ type ConsentLeadFields = {
   sms_consent_status: ConsentStatusValue | null
   email_consent_status: ConsentStatusValue | null
   voice_consent_status: ConsentStatusValue | null
+  hold_until: string | null
 }
 
 const CONSENT_FIELDS = [
@@ -65,6 +68,7 @@ const CONSENT_FIELDS = [
   'sms_consent_status',
   'email_consent_status',
   'voice_consent_status',
+  'hold_until',
 ].join(',')
 
 /**
@@ -86,6 +90,13 @@ export async function assertConsent(
 
   if (error || !lead) {
     return { allowed: false, reason: lead ? 'lookup_failed' : 'lead_not_found', lead: null }
+  }
+
+  // A lead on hold is paused on every channel. Automation callers are denied
+  // here; manual staff sends also hit this gate by design (a hold hard-blocks
+  // until cleared — the UI offers "clear hold" as the override).
+  if (isOnHold(lead)) {
+    return { allowed: false, reason: 'on_hold', lead }
   }
 
   switch (channel) {

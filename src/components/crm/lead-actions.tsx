@@ -35,6 +35,7 @@ import type { Lead } from '@/types/database'
 import { LeadMessaging } from './lead-messaging'
 import { LogCallDialog } from './log-call-dialog'
 import { MarkDeliberating } from './mark-deliberating'
+import { HoldLead } from './hold-lead'
 import { useSoftphone } from '@/components/voice/softphone-provider'
 import { DND_CHANNELS, type DndChannel } from '@/lib/consent/capture'
 
@@ -446,6 +447,10 @@ export function LeadActions({
         (['consultation_completed', 'treatment_presented', 'financing'] as const).includes(
           lead.status as 'consultation_completed' | 'treatment_presented' | 'financing'
         ) && <MarkDeliberating lead={lead} />}
+
+      {/* Hold applies to ANY lead regardless of status — not gated like
+          MarkDeliberating above. Only shown in the full bar. */}
+      {variant !== 'compact' && <HoldLead lead={lead} />}
 
       <DropdownMenu>
         <DropdownMenuTrigger

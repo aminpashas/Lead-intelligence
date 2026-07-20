@@ -38,6 +38,7 @@ const VALID_KINDS = [
   'list_call',
   'manual',
   'follow_up',
+  'callback',
 ]
 
 export async function GET(request: NextRequest) {

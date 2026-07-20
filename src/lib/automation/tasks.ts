@@ -173,6 +173,11 @@ export function taskDedupeKeyForListCall(smartListId: string, leadId: string): s
   return `list_call:${smartListId}:${leadId}`
 }
 
+/** One live callback task per held lead. Cleared when the hold is cleared/expires. */
+export function taskDedupeKeyForHold(leadId: string): string {
+  return `hold:${leadId}`
+}
+
 // ── Priority ─────────────────────────────────────────────────────────
 
 /**
