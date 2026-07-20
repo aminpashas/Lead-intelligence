@@ -100,7 +100,22 @@ export function withCron(
         status,
         items: outcome.items,
         durationMs: Date.now() - started,
-        error: status === 'failed' ? outcomeError(outcome) : undefined,
+        // A run can succeed and still have something the heartbeat must say —
+        // score-sweep returning `ok` but stopping at 42 of 200 on its soft
+        // deadline is the motivating case. Gating on 'failed' dropped that note,
+        // leaving a permanently truncated sweep indistinguishable from one that
+        // finished the job.
+        //
+        // On a non-failed run only the EXPLICIT `outcome.error` is recorded, not
+        // outcomeError()'s data.error/data.errors fallbacks: those exist to
+        // rescue a failed handler that stashed its reason elsewhere, and many
+        // crons carry a non-empty `data.errors` of per-item problems while
+        // legitimately succeeding. Routing those through here would light up
+        // cron_runs.error for most crons and devalue the column.
+        //
+        // Safe for alerting either way: getCronHealth raises only on status
+        // 'failed' or staleness, treating `error` purely as detail.
+        error: status === 'failed' ? outcomeError(outcome) : outcome.error,
       })
       return NextResponse.json({ cron, status, ...(outcome.data ?? {}) })
     } catch (err) {
