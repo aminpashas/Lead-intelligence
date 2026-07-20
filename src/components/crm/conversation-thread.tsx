@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { formatDistanceToNow } from 'date-fns'
 import { useRouter } from 'next/navigation'
 import {
   DEFAULT_PRACTICE_TIMEZONE,
@@ -58,6 +59,7 @@ import { LeadContactField } from './lead-contact-field'
 import { useLiveCall } from '@/lib/hooks/use-live-call'
 import { useConversationPresence } from '@/lib/hooks/use-conversation-presence'
 import { sendBlockMessage } from '@/lib/messaging/send-block-messages'
+import { isWindowedChannel, socialWindowState, suggestFallback } from '@/lib/messaging/social-window'
 import { SlaCountdown } from './sla-countdown'
 import { channelLabel, formatCampaignAttribution } from '@/lib/attribution'
 import { classifyLeadServiceLines, SERVICE_LINES } from '@/lib/leads/service-line'
@@ -404,6 +406,15 @@ export function ConversationThread({
     setPanelWidth(PANEL_DEFAULT_W)
     window.localStorage.setItem('li-insights-width', String(PANEL_DEFAULT_W))
   }
+
+  // Meta's reply window, recomputed whenever the thread grows — an inbound
+  // message arriving over Realtime reopens the window and clears the warning
+  // without a refresh. Null on SMS/email, which have no such constraint.
+  const socialWindow = useMemo(
+    () => (isWindowedChannel(sendChannel) ? socialWindowState(messages) : null),
+    [sendChannel, messages]
+  )
+  const windowFallback = useMemo(() => suggestFallback(contact), [contact])
 
   // Live phone-call state (ongoing-call indicator + streaming transcript).
   const live = useLiveCall(lead.id)
@@ -888,6 +899,39 @@ export function ConversationThread({
           >
             <div className="h-1 w-9 rounded-full bg-aurea-border-strong transition-colors group-hover:bg-aurea-ink-3" />
           </div>
+
+          {/* Meta's 24-hour reply window. Advisory only — the send stays enabled,
+              because our thread copy can lag Meta's and a false block is worse
+              than a rejected send. See src/lib/messaging/social-window.ts. */}
+          {socialWindow && socialWindow.status !== 'open' && (
+            <div className="flex items-start gap-2 rounded-lg border border-aurea-amber/30 bg-aurea-amber/10 px-3 py-2 text-[12px] leading-relaxed text-aurea-ink-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-aurea-amber" strokeWidth={1.75} />
+              <span>
+                {socialWindow.status === 'never_opened' ? (
+                  <>
+                    <strong className="font-medium text-aurea-ink">
+                      {lead.first_name || 'This lead'} hasn’t messaged you yet.
+                    </strong>{' '}
+                    {threadMeta.label} only allows replies within 24 hours of an inbound
+                    message, so this send will likely be rejected.
+                  </>
+                ) : (
+                  <>
+                    <strong className="font-medium text-aurea-ink">
+                      Outside the 24-hour reply window.
+                    </strong>{' '}
+                    {lead.first_name || 'This lead'} last messaged{' '}
+                    {formatDistanceToNow(new Date(socialWindow.lastInboundAt), { addSuffix: true })}.
+                    {threadMeta.label} will likely reject this send.
+                  </>
+                )}{' '}
+                {windowFallback
+                  ? `Try ${windowFallback.label} instead.`
+                  : 'No phone or email on file — add one in the header to follow up.'}
+              </span>
+            </div>
+          )}
+
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { ConversationThread } from '@/components/crm/conversation-thread'
 import type { Conversation, Lead, Message } from '@/types/database'
 
@@ -109,6 +109,86 @@ describe('ConversationThread composer channel lock', () => {
     expect(labels).toContain('Text')
     expect(labels).toContain('Email')
     expect(screen.queryByText(/Reply on Messenger/i)).toBeNull()
+  })
+})
+
+describe('ConversationThread Meta 24-hour reply window', () => {
+  // Both cases are reproductions of live sends that GHL rejected with
+  // CONVERSATIONS_MSG_CHAT_NO_LONGER_ACTIVE on 2026-07-20.
+  const NOW = new Date('2026-07-20T19:00:00.000Z')
+
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW) })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('warns when the lead has never sent an inbound message', () => {
+    // The "Barbara" case: every message on the thread is outbound, so the
+    // window never opened and the send is doomed before it is typed.
+    render(
+      <ConversationThread
+        lead={lead}
+        conversation={conversation('messenger')}
+        messages={[
+          message({ direction: 'outbound', sender_type: 'user', body: 'Where are you located?', created_at: '2026-07-17T21:30:00.000Z' }),
+          message({ id: 'm2', direction: 'outbound', sender_type: 'user', body: 'Please share your email', created_at: '2026-07-19T18:19:00.000Z' }),
+        ]}
+      />
+    )
+    expect(screen.getByText(/hasn’t messaged you yet/i)).toBeDefined()
+  })
+
+  it('warns when the last inbound message is older than 24 hours', () => {
+    // The "Ellen" case: she replied on Jul 17, staff tried again on Jul 20.
+    render(
+      <ConversationThread
+        lead={lead}
+        conversation={conversation('messenger')}
+        messages={[message({ body: 'Thank u Gn', created_at: '2026-07-17T21:36:00.000Z' })]}
+      />
+    )
+    expect(screen.getByText(/Outside the 24-hour reply window/i)).toBeDefined()
+  })
+
+  it('stays quiet while the window is open', () => {
+    render(
+      <ConversationThread
+        lead={lead}
+        conversation={conversation('messenger')}
+        messages={[message({ body: 'still interested!', created_at: '2026-07-20T17:00:00.000Z' })]}
+      />
+    )
+    expect(screen.queryByText(/24-hour reply window/i)).toBeNull()
+    expect(screen.queryByText(/hasn’t messaged you yet/i)).toBeNull()
+  })
+
+  it('never warns on SMS, which has no such window', () => {
+    render(
+      <ConversationThread
+        lead={lead}
+        conversation={conversation('sms')}
+        messages={[message({ channel: 'sms', body: 'hi', created_at: '2026-01-01T00:00:00.000Z' })]}
+      />
+    )
+    expect(screen.queryByText(/24-hour reply window/i)).toBeNull()
+  })
+
+  it('keeps the send button enabled — we warn, we do not block', () => {
+    // Our thread copy can lag Meta's (missed webhook, backfilled history), so a
+    // false block would cost more than a rejected send.
+    render(
+      <ConversationThread
+        lead={lead}
+        conversation={conversation('messenger')}
+        messages={[message({ body: 'Thank u Gn', created_at: '2026-07-17T21:36:00.000Z' })]}
+      />
+    )
+    // The button also guards on an empty draft, so type first — otherwise this
+    // would pass for the wrong reason and never catch a real block.
+    fireEvent.change(screen.getByRole('textbox', { name: '' }) ?? screen.getAllByRole('textbox')[0], {
+      target: { value: 'Hi Ellen, can I get you scheduled this week?' },
+    })
+    const send = screen.getAllByRole('button').find((b) => /^Send/i.test(b.textContent?.trim() || ''))
+    expect(send).toBeDefined()
+    expect((send as HTMLButtonElement).disabled).toBe(false)
   })
 })
 

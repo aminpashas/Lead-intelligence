@@ -96,5 +96,17 @@ export function classifyGhlSendError(raw: string): SendRefusal {
       status: 502,
     }
   }
+  // Meta's 24-hour messaging window. A Page may only send free-form messages
+  // within 24h of the contact's last INBOUND message; after that the send is
+  // refused upstream. This is policy, not a fault — so it must not surface as a
+  // 500 with a raw JSON body. 409 (conflict with current state) over 502,
+  // because nothing is broken: the thread is simply not writable right now.
+  if (/CONVERSATIONS_MSG_CHAT_NO_LONGER_ACTIVE|chat (is )?no longer active/i.test(raw)) {
+    return {
+      error: 'Outside the 24-hour reply window',
+      reason: 'social_window_closed',
+      status: 409,
+    }
+  }
   return { error: raw, reason: 'ghl_send_failed', status: 500 }
 }
