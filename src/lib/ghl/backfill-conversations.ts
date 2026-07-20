@@ -114,7 +114,7 @@ async function writeState(
 }
 
 /** Fetch a conversation's entire message history, oldest-first. */
-async function fetchThread(config: GhlConfig, conversationId: string): Promise<GhlMessage[]> {
+export async function fetchThread(config: GhlConfig, conversationId: string): Promise<GhlMessage[]> {
   const collected: GhlMessage[] = []
   let cursor: string | undefined
   for (let page = 0; page < MAX_MESSAGE_PAGES; page++) {
@@ -250,7 +250,6 @@ export async function backfillGhlConversations(
               organizationId,
               lead,
               normalized,
-              bumpCounters: false,
               conversationCache,
             })
             if (result.status === 'inserted') {
@@ -355,7 +354,7 @@ export async function backfillGhlConversations(
 }
 
 /** Resolve (and cache) the LI lead behind a GHL contact; self-heals the key. */
-async function resolveContactLead(
+export async function resolveContactLead(
   supabase: SupabaseClient,
   organizationId: string,
   config: GhlConfig,

@@ -30,9 +30,21 @@ const SOCIAL_SOURCE: Record<string, { source: string; sourceType: string; utmSou
   instagram: { source: 'Instagram DM', sourceType: 'instagram', utmSource: 'instagram' },
 }
 
-/** Only an INBOUND social DM mints a lead — our own outbound reply must not. */
+/** Any FB/IG message, either direction. */
+export function isSocialMessage(n: NormalizedGhlMessage): boolean {
+  return n.channel !== null && n.channel in SOCIAL_SOURCE
+}
+
+/**
+ * Only an INBOUND social DM mints a lead *and alerts*.
+ *
+ * The webhook uses this: mid-thread it sees one message at a time and can't tell
+ * an outreach thread from a reply, so it stays strict. The poller sees the whole
+ * thread, so it uses `isSocialMessage` to capture outreach too and suppresses the
+ * alert when nothing inbound is present.
+ */
 export function isNewSocialLead(n: NormalizedGhlMessage): boolean {
-  return n.direction === 'inbound' && n.channel !== null && n.channel in SOCIAL_SOURCE
+  return n.direction === 'inbound' && isSocialMessage(n)
 }
 
 export type SocialLeadOptions = {
