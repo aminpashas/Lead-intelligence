@@ -124,6 +124,7 @@ export function withCron(
  * health-checked so they cannot false-alarm before instrumentation.
  */
 export const EXPECTED_CRONS: Record<string, number> = {
+  'backfill-qualification': 90, // hourly :40 + grace
   'reconcile-growth-studio-outbox': 40, // every 10 min
   'forward-desk-outbox': 40, // every 10 min
   'dion-inbox-reprocess': 40, // every 10 min + grace

@@ -129,6 +129,10 @@
       "schedule": "20 * * * *"
     },
     {
+      "path": "/api/cron/backfill-qualification",
+      "schedule": "40 * * * *"
+    },
+    {
       "path": "/api/cron/voice-live-transfer",
       "schedule": "* * * * *"
     },
