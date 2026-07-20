@@ -31,14 +31,14 @@ export async function GET(
     limit: SAMPLE_CAP,
   })
 
-  const empty = { total: 0, eligible: 0, no_consent: 0, opted_out: 0, no_contact: 0 }
+  const empty = { total: 0, eligible: 0, no_consent: 0, opted_out: 0, no_contact: 0, on_hold: 0 }
   if (leadIds.length === 0) {
     return NextResponse.json({ sms: empty, email: empty, list_total: count, sampled: 0, capped: false })
   }
 
   const { data: rows } = await supabase
     .from('leads')
-    .select('sms_consent, sms_opt_out, email_consent, email_opt_out, phone_formatted, email')
+    .select('sms_consent, sms_opt_out, email_consent, email_opt_out, phone_formatted, email, hold_until')
     .in('id', leadIds.slice(0, SAMPLE_CAP))
     .eq('organization_id', orgId)
 
