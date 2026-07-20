@@ -77,8 +77,11 @@ export type SocialLeadOptions = {
  *
  * Consent for sms/email/voice is left UNKNOWN: messaging a social page is not
  * permission to text or call. Speed-to-lead is never armed — there is no
- * consented channel to be fast on, and LI cannot reply in Messenger (GHL owns
- * that inbox), so the staff alert IS the follow-up.
+ * consented channel to be fast on.
+ *
+ * Staff CAN now reply in-channel from LI (the thread composer relays through
+ * GHL via /api/social/send), so the alert points at a thread that can actually
+ * be answered rather than being the whole follow-up on its own.
  */
 export async function createLeadFromSocialDm(
   supabase: SupabaseClient,

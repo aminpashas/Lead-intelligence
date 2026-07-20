@@ -45,6 +45,12 @@ next-env.d.ts
 .env.local
 .env
 
+# One-off probe/dry-run scripts written at the repo root during investigations.
+# These load .env.local and hit prod, so they must never reach a commit — two
+# (.probe-extract.tmp.ts, .dryrun.tmp.ts) were caught mid-stage before this rule.
+*.tmp.ts
+.*.tmp.ts
+
 # supabase CLI scratch state
 supabase/.temp/
 
