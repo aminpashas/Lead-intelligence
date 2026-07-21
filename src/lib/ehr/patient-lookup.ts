@@ -13,6 +13,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// CareStack procedure-status enum (canonical source: ehr/carestack/rollup.ts).
+// Duplicated here as bare constants so this module — dynamically imported on the
+// voice inbound hot path — doesn't drag in the pipeline/rollup dependency chain.
+const PROC_STATUS_ACCEPTED = 3
+const PROC_STATUS_COMPLETED = 8
+
 export type PatientHashMatch = {
   patientId: string
   matchMethod: 'email_hash' | 'phone_hash'
@@ -53,6 +59,96 @@ export async function findExistingPatientByHash(
   }
 
   return null
+}
+
+/**
+ * Inbound-call classification: is this caller a synced patient, and are they in
+ * ACTIVE treatment (vs. a consult/exam/follow-up prospect)?
+ *
+ * "In active treatment" = the EHR (CareStack) says they accepted or completed a
+ * treatment plan — treatment_procedures.status_id ∈ {3 Accepted, 8 Completed}.
+ * That is the ground-truth signal chosen for inbound routing: `is_existing_patient`
+ * alone is too broad (it's true for anyone ever in the EHR, including a one-time
+ * exam years ago), whereas an accepted/completed procedure means they committed
+ * to an implant case and belong with the office manager, not the sales funnel.
+ *
+ * At call time we only have the caller's phone (no email), so pass every phone
+ * hash variant. Best-effort read — callers wrap in try/catch; on any failure the
+ * caller degrades to the normal lead path.
+ */
+export type PatientInboundState = {
+  patientId: string | null
+  isPatient: boolean
+  inActiveTreatment: boolean
+  matchMethod: 'email_hash' | 'phone_hash' | null
+}
+
+const NOT_A_PATIENT: PatientInboundState = {
+  patientId: null,
+  isPatient: false,
+  inActiveTreatment: false,
+  matchMethod: null,
+}
+
+export async function getPatientInboundState(
+  supabase: SupabaseClient,
+  organizationId: string,
+  hashes: { phoneHashes?: (string | null)[]; emailHash?: string | null }
+): Promise<PatientInboundState> {
+  const phoneHashes = [...new Set((hashes.phoneHashes || []).filter(Boolean))] as string[]
+  const emailHash = hashes.emailHash || null
+  if (phoneHashes.length === 0 && !emailHash) return NOT_A_PATIENT
+
+  let patientId: string | null = null
+  let matchMethod: 'email_hash' | 'phone_hash' | null = null
+
+  // email_hash preferred over phone_hash (mirrors ehr/carestack/match.ts confidence order).
+  if (emailHash) {
+    const { data } = await supabase
+      .from('patients')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('email_hash', emailHash)
+      .limit(1)
+      .maybeSingle()
+    if (data) {
+      patientId = (data as { id: string }).id
+      matchMethod = 'email_hash'
+    }
+  }
+
+  if (!patientId && phoneHashes.length > 0) {
+    const { data } = await supabase
+      .from('patients')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .in('phone_hash', phoneHashes)
+      .limit(1)
+      .maybeSingle()
+    if (data) {
+      patientId = (data as { id: string }).id
+      matchMethod = 'phone_hash'
+    }
+  }
+
+  if (!patientId) return NOT_A_PATIENT
+
+  // Ground truth for "in active treatment": any accepted/completed procedure.
+  const { data: proc } = await supabase
+    .from('treatment_procedures')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .eq('patient_id', patientId)
+    .in('status_id', [PROC_STATUS_ACCEPTED, PROC_STATUS_COMPLETED])
+    .limit(1)
+    .maybeSingle()
+
+  return {
+    patientId,
+    isPatient: true,
+    inActiveTreatment: !!proc,
+    matchMethod,
+  }
 }
 
 /**

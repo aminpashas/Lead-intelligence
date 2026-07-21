@@ -73,6 +73,12 @@ export type InboundContext = {
   practiceName: string
   voiceTimezone: string | null
   isNewLead: boolean
+  /** Caller hash-matched a synced EHR patient (any treatment state). */
+  isExistingPatient: boolean
+  /** Caller is a patient with an accepted/completed case — route to the office manager. */
+  inActiveTreatment: boolean
+  /** Matched patients.id, when isExistingPatient. */
+  patientId: string | null
   settings: InboundSettings
   dynamicVariables: Record<string, string>
 }
@@ -109,6 +115,8 @@ export async function buildInboundContext(
     lead_notes: '',
     is_new_lead: 'true',
     is_returning: 'false',
+    is_existing_patient: 'false',
+    in_active_treatment: 'false',
     practice_name: practiceName,
     personality_type: '',
     communication_style: '',
@@ -118,6 +126,9 @@ export async function buildInboundContext(
   let conversationId: string | null = null
   let voiceTimezone: string | null = null
   let isNewLead = false
+  let isExistingPatient = false
+  let inActiveTreatment = false
+  let patientId: string | null = null
   let settings: InboundSettings = DEFAULT_SETTINGS
 
   if (supabase) {
@@ -182,6 +193,20 @@ export async function buildInboundContext(
         const { searchHash } = await import('@/lib/encryption')
         const phoneHashes = [...new Set(phoneVariants.map(p => searchHash(p)).filter(Boolean))] as string[]
 
+        // Existing-patient / active-treatment classification against the EHR
+        // mirror (ground truth). Reuses the phone hashes already computed for the
+        // lead lookup, so it's one extra indexed read. Best-effort — any failure
+        // leaves the caller on the normal lead path.
+        try {
+          const { getPatientInboundState } = await import('@/lib/ehr/patient-lookup')
+          const state = await getPatientInboundState(supabase, orgId, { phoneHashes })
+          isExistingPatient = state.isPatient
+          inActiveTreatment = state.inActiveTreatment
+          patientId = state.patientId
+        } catch (patErr) {
+          console.error('[Voice Inbound] Patient lookup error (non-fatal):', patErr)
+        }
+
         let { data: existingLead } = await supabase
           .from('leads')
           .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile')
@@ -244,6 +269,19 @@ export async function buildInboundContext(
 
         if (lead) {
           leadId = lead.id
+
+          // Existing patient → link the bridge both ways and flag the lead so it
+          // never gets worked as a net-new sales lead (mirrors the ingestion
+          // reconciliation path). Best-effort; never blocks the live call.
+          if (isExistingPatient && patientId) {
+            try {
+              const { markLeadAsExistingPatient } = await import('@/lib/ehr/patient-lookup')
+              await markLeadAsExistingPatient(supabase, lead.id, orgId, patientId)
+            } catch (linkErr) {
+              console.error('[Voice Inbound] Patient link error (non-fatal):', linkErr)
+            }
+          }
+
           const personality = lead.personality_profile as Record<string, unknown> | null
           dynamicVariables = {
             call_direction: 'inbound',
@@ -258,6 +296,10 @@ export async function buildInboundContext(
             lead_notes: (lead.notes || '').slice(0, 500),
             is_new_lead: String(isNewLead),
             is_returning: String(!isNewLead),
+            // Patient signals so a greeting/agent can address them as a patient,
+            // not a prospect (and never pitch a consult to someone mid-treatment).
+            is_existing_patient: String(isExistingPatient),
+            in_active_treatment: String(inActiveTreatment),
             practice_name: practiceName,
             personality_type: (personality?.type as string) || '',
             communication_style: (personality?.communication_style as string) || '',
@@ -327,7 +369,7 @@ export async function buildInboundContext(
   // caller's own number.
   dynamicVariables.callback_number = formatPhoneForSpeech(to)
 
-  return { orgId, leadId, conversationId, practiceName, voiceTimezone, isNewLead, settings, dynamicVariables }
+  return { orgId, leadId, conversationId, practiceName, voiceTimezone, isNewLead, isExistingPatient, inActiveTreatment, patientId, settings, dynamicVariables }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -385,6 +427,34 @@ export async function resolveInboundRingPlan(
   // A window whose targets were all deactivated still means "we're open" —
   // in-hours with nobody to ring falls to the org's no-answer policy.
   return { inHours: true, targets: ordered }
+}
+
+/**
+ * The office-manager transfer target that active-treatment patients ring.
+ *
+ * Designated on the target row via metadata.purpose = 'existing_patient' (a
+ * JSONB tag, so no schema migration and it's configured per-org alongside the
+ * rest of the live-transfer setup). Returns the first active, on-duty match, or
+ * null when none is configured — in which case the caller path falls back to a
+ * patient voicemail + Dion Desk hand-off rather than ringing the sales pool.
+ */
+export async function resolveOfficeManagerTarget(
+  supabase: SupabaseClient,
+  orgId: string
+): Promise<RingTarget | null> {
+  const { data } = await supabase
+    .from('voice_transfer_targets')
+    .select('id, kind, destination, user_id, name, metadata')
+    .eq('organization_id', orgId)
+    .eq('active', true)
+    .eq('on_duty', true)
+    .contains('metadata', { purpose: 'existing_patient' })
+    .limit(1)
+    .maybeSingle()
+
+  if (!data) return null
+  const t = data as RingTarget & { metadata: Record<string, unknown> }
+  return { id: t.id, kind: t.kind, destination: t.destination, user_id: t.user_id, name: t.name }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

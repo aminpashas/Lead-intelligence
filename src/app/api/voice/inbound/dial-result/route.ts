@@ -107,12 +107,25 @@ export async function POST(req: NextRequest) {
 
   const origin = publicOrigin(req)
   const practiceName = (org?.name as string) || 'our practice'
-  const aiOnNoAnswer = org?.inbound_ai_on_no_answer === true
+  // Active-treatment patient ring (patient=1): the office manager didn't pick up.
+  // These callers must NEVER be handed to the sales AI — take a message, and the
+  // voicemail route enqueues the Dion Desk hand-off.
+  const isPatient = req.nextUrl.searchParams.get('patient') === '1'
+  const aiOnNoAnswer = !isPatient && org?.inbound_ai_on_no_answer === true
 
   await supabase
     .from('voice_calls')
     .update({ metadata: { ...metadata, dial_call_status: dialStatus, ring_result: 'no_answer' } })
     .eq('id', call.id)
+
+  if (isPatient) {
+    return xml(voicemailTwiml({
+      greeting: `Thank you for calling ${practiceName}. Our office manager isn't available right now. Please leave your name and a brief message, and we'll get right back to you.`,
+      practiceName,
+      actionUrl: `${origin}/api/voice/inbound/voicemail?vc=${call.id}&patient=1`,
+      transcribeCallbackUrl: `${origin}/api/voice/inbound/voicemail?vc=${call.id}&patient=1&kind=transcript`,
+    }))
+  }
 
   if (aiOnNoAnswer) {
     // Rebuild the caller context (the lead already exists, so this is a fast
