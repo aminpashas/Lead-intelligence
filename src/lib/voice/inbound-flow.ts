@@ -516,7 +516,7 @@ export function voicemailTwiml(params: {
   const greeting = params.greeting?.trim()
     || `Thank you for calling ${params.practiceName}. We can't take your call right now. Please leave your name, number, and a brief message after the beep, and we'll get back to you as soon as possible.`
   return twimlResponse(
-    `\n  <Say>${xmlEscape(greeting)}</Say>\n  <Record maxLength="180" playBeep="true" action="${xmlEscape(params.actionUrl)}" method="POST" transcribe="true" transcribeCallback="${xmlEscape(params.transcribeCallbackUrl)}"/>\n  <Hangup/>\n`
+    `\n  <Say voice="Polly.Joanna-Neural">${xmlEscape(greeting)}</Say>\n  <Record maxLength="180" playBeep="true" action="${xmlEscape(params.actionUrl)}" method="POST" transcribe="true" transcribeCallback="${xmlEscape(params.transcribeCallbackUrl)}"/>\n  <Hangup/>\n`
   )
 }
 

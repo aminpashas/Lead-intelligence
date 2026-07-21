@@ -131,7 +131,7 @@ describe('voicemailTwiml', () => {
       actionUrl: 'https://app.example.com/api/voice/inbound/voicemail?vc=abc',
       transcribeCallbackUrl: 'https://app.example.com/api/voice/inbound/voicemail?vc=abc&kind=transcript',
     })
-    expect(xml).toContain('<Say>Leave a message &amp; we will call back</Say>')
+    expect(xml).toContain('<Say voice="Polly.Joanna-Neural">Leave a message &amp; we will call back</Say>')
     expect(xml).toContain('action="https://app.example.com/api/voice/inbound/voicemail?vc=abc"')
     expect(xml).toContain('transcribeCallback="https://app.example.com/api/voice/inbound/voicemail?vc=abc&amp;kind=transcript"')
     expect(xml).toContain('transcribe="true"')
