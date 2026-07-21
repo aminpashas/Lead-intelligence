@@ -112,11 +112,12 @@ export type Permission =
   | 'connectors:manage'
   | 'agency:console'
 
-// Full practice-side access for practice admin roles. Deliberately EXCLUDES
-// agency-scale outbound (mass SMS/email, campaign/reactivation launches, bulk
-// actions) and AI configuration: those stay with the agency (agency_admin) so
-// a practice can never blast its own book or retune the AI. Practice admins
-// keep full visibility (reads) plus 1:1 outreach via lead detail / call center.
+// Full practice-side access for practice admin roles. Practice admins may build
+// and launch their own campaigns (campaigns:write, 2026-07-21). Still EXCLUDES
+// the heavier agency-scale outbound (mass SMS/email, bulk actions) and AI
+// configuration: those stay with the agency (agency_admin) so a practice can't
+// blast its whole book in one shot or retune the AI. Practice admins keep full
+// visibility (reads) plus 1:1 outreach via lead detail / call center.
 const FULL_PERMISSIONS: Permission[] = [
   'dashboard:view',
   'clinical:read', 'clinical:write',
@@ -124,7 +125,7 @@ const FULL_PERMISSIONS: Permission[] = [
   'leads:read', 'leads:write',
   'conversations:read', 'conversations:write',
   'pipeline:read', 'pipeline:write',
-  'campaigns:read',
+  'campaigns:read', 'campaigns:write',
   'analytics:read',
   'billing:read', 'billing:write',
   'team:read', 'team:manage',
@@ -143,9 +144,10 @@ const FULL_PERMISSIONS: Permission[] = [
 
 // Agency-scale outbound + AI configuration. Only agency_admin carries these;
 // they are the enforcement half of the practice/agency split (SF Dentistry
-// onboarding decision, 2026-07-03).
+// onboarding decision, 2026-07-03). Campaign authoring (campaigns:write) moved
+// to practice admins on 2026-07-21 — it now lives in FULL_PERMISSIONS; the
+// mass-blast + AI-tuning capabilities below stay agency-only.
 const AGENCY_OUTBOUND_PERMISSIONS: Permission[] = [
-  'campaigns:write',
   'reactivation:write',
   'mass_sms:write', 'mass_email:write',
   'bulk_actions:write',

@@ -84,11 +84,26 @@ describe('hasPermission', () => {
     })
   })
 
-  // The agency-outbound half of the split: mass outreach, campaign activation,
-  // bulk actions, and AI tuning belong to agency_admin ONLY. A practice can
-  // never blast its own book or retune the AI.
+  // Practice admins may author + launch their own campaigns (2026-07-21). This
+  // is the one agency-outbound capability that crossed to the practice side;
+  // mass SMS/email, bulk actions, and AI tuning stay agency-only (asserted below).
+  it('practice admins can write campaigns, but still not mass-blast or tune AI', () => {
+    const practiceAdmins: PracticeRole[] = ['doctor_admin', 'office_manager', 'owner', 'admin']
+    practiceAdmins.forEach((role) => {
+      expect(hasPermission(role, 'campaigns:read')).toBe(true)
+      expect(hasPermission(role, 'campaigns:write')).toBe(true)
+      expect(hasPermission(role, 'mass_sms:write')).toBe(false)
+      expect(hasPermission(role, 'mass_email:write')).toBe(false)
+      expect(hasPermission(role, 'ai_control:write')).toBe(false)
+    })
+  })
+
+  // The agency-outbound half of the split: mass outreach, bulk actions, and AI
+  // tuning belong to agency_admin ONLY. A practice can never blast its whole
+  // book in one shot or retune the AI. (campaigns:write moved to practice admins
+  // on 2026-07-21 — asserted separately below — so it's no longer in this set.)
   const agencyOutboundPerms: Permission[] = [
-    'campaigns:write', 'reactivation:write',
+    'reactivation:write',
     'mass_sms:write', 'mass_email:write',
     'bulk_actions:write', 'ai_control:write', 'funnel:write',
   ]

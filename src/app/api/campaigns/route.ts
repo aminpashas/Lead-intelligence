@@ -79,8 +79,10 @@ export async function POST(request: NextRequest) {
   }
 
   const { data: { user } } = await supabase.auth.getUser()
-  // Creating campaigns is agency-side (marketing automation). Practice roles
-  // keep campaigns:read to see what's running; only agency_admin has :write.
+  // Campaign authoring requires campaigns:write. Practice admins (office_manager,
+  // doctor_admin, owner, admin) carry it as of 2026-07-21; clinical roles and
+  // treatment_coordinator keep campaigns:read only. Mass-blast + AI tuning stay
+  // agency-only — see permissions.ts AGENCY_OUTBOUND_PERMISSIONS.
   const guard = await requirePermission(supabase, 'campaigns:write')
   if ('error' in guard) return guard.error
   const { orgId } = guard
