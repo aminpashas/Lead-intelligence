@@ -8,28 +8,18 @@ import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Search, Menu, Building2, LogOut } from 'lucide-react'
-import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { NotificationDropdown } from './notification-dropdown'
 import { AccountMenu } from './account-menu'
+import { LeadSearch } from './lead-search'
 import { cn } from '@/lib/utils'
 
 export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter()
   const { userProfile, organization, actingAsClient } = useOrgStore()
   const role = (userProfile?.role || 'member') as PracticeRole
-  const [search, setSearch] = useState('')
   const [searchSheetOpen, setSearchSheetOpen] = useState(false)
-
-  function handleSearch() {
-    const q = search.trim()
-    if (!q) return
-    // Reuse the existing server-side leads search (?search=) rather than a
-    // second lookup path — see leads/page.tsx.
-    setSearchSheetOpen(false)
-    router.push(`/leads?search=${encodeURIComponent(q)}`)
-  }
 
   async function handleExitAccount() {
     await fetch('/api/agency/active-account', { method: 'DELETE' })
@@ -63,18 +53,13 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
             Hide it rather than offer a broken entry point. */}
         {!isFocusedStaff(role) && (
           <>
+            {/* Desktop: inline typeahead. Live name/email/phone matches drop down
+                as you type; Enter falls through to the full /leads?search= page. */}
             <div className="relative flex-1 hidden sm:block">
-              <Search className="absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-aurea-ink-3" strokeWidth={1.75} />
-              <Input
-                placeholder="Search leads by name, email, or phone..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                className="pl-9 bg-aurea-surface border-aurea-border text-aurea-ink placeholder:text-aurea-ink-3 focus-visible:ring-aurea-primary/30"
-              />
+              <LeadSearch />
             </div>
             {/* Phones: the inline input doesn't fit, so surface the same search
-                in a top sheet. Same handleSearch → /leads?search= path. */}
+                in a top sheet. */}
             <Button
               variant="ghost"
               size="icon"
@@ -87,17 +72,11 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
             <Sheet open={searchSheetOpen} onOpenChange={setSearchSheetOpen}>
               <SheetContent side="top" className="gap-2 p-4 pt-3">
                 <SheetTitle className="text-sm">Search leads</SheetTitle>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-aurea-ink-3" strokeWidth={1.75} />
-                  <Input
-                    autoFocus
-                    placeholder="Name, email, or phone..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    className="pl-9 bg-aurea-surface border-aurea-border text-aurea-ink placeholder:text-aurea-ink-3 focus-visible:ring-aurea-primary/30"
-                  />
-                </div>
+                <LeadSearch
+                  autoFocus
+                  placeholder="Name, email, or phone..."
+                  onNavigate={() => setSearchSheetOpen(false)}
+                />
               </SheetContent>
             </Sheet>
           </>
