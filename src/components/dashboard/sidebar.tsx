@@ -36,6 +36,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AccountMenu } from './account-menu'
 import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_COLLAPSED_ATTR } from './sidebar-collapsed'
+import { useNavBadges } from '@/lib/store/use-nav-badges'
 
 type NavItem = {
   name: string
@@ -192,12 +193,18 @@ function NavLink({
   onNavigate?: () => void
   badgeCount?: number
 }) {
+  const count = badgeCount && badgeCount > 0 ? badgeCount : 0
+  const badgeLabel = count > 99 ? '99+' : String(count)
+  // Screen-reader suffix so the count isn't a silent visual-only signal.
+  const srSuffix = count > 0 ? ` (${count} unread)` : ''
+
   return (
     <Link
       href={item.href}
       onClick={onNavigate}
       aria-current={isActive ? 'page' : undefined}
       title={collapsed ? item.name : undefined}
+      aria-label={collapsed ? `${item.name}${srSuffix}` : undefined}
       className={cn(
         'group flex items-center gap-3 rounded-lg py-2 text-[13.5px] transition-colors duration-150',
         collapsed ? 'justify-center px-2' : 'px-3',
@@ -206,22 +213,30 @@ function NavLink({
           : 'font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
       )}
     >
-      <item.icon
-        className={cn(
-          'h-[17px] w-[17px] shrink-0 transition-colors',
-          isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
+      {/* Icon carries the badge on the collapsed rail (iPhone-style dot). */}
+      <span className="relative shrink-0">
+        <item.icon
+          className={cn(
+            'h-[17px] w-[17px] transition-colors',
+            isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'
+          )}
+          strokeWidth={2}
+        />
+        {collapsed && count > 0 && (
+          <span
+            aria-hidden
+            className="absolute -right-2 -top-2 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground ring-2 ring-card"
+          >
+            {badgeLabel}
+          </span>
         )}
-        strokeWidth={2}
-      />
+      </span>
       {!collapsed && (
         <>
           <span className="flex-1">{item.name}</span>
-          {!!badgeCount && (
-            <Badge
-              variant="outline"
-              className="ml-auto h-4 px-1.5 text-[10px] font-semibold text-muted-foreground"
-            >
-              {badgeCount > 99 ? '99+' : badgeCount}
+          {count > 0 && (
+            <Badge className="ml-auto h-[18px] min-w-[18px] justify-center rounded-full border-transparent bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+              {badgeLabel}
             </Badge>
           )}
         </>
@@ -242,7 +257,7 @@ function SidebarContent({
   const pathname = usePathname()
   const { userProfile } = useOrgStore()
   const role = (userProfile?.role || 'member') as PracticeRole
-  const openTaskCount = useOpenTaskCount()
+  const badges = useNavBadges()
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
 
@@ -326,7 +341,7 @@ function SidebarContent({
                   isActive={isActive(item.href)}
                   collapsed={collapsed}
                   onNavigate={onNavigate}
-                  badgeCount={item.href === '/tasks' ? openTaskCount : undefined}
+                  badgeCount={badges[item.href]}
                 />
               ))}
             </div>
