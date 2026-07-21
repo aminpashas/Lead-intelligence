@@ -33,6 +33,7 @@ import {
 } from './conversations'
 import { persistGhlMessage, type IngestLead } from './ingest-message'
 import { createLeadFromSocialDm, isNewSocialLead } from './social-lead'
+import { shouldAlertInboundReply } from './inbound-reply-alert'
 
 /**
  * Does this conversation look like an FB/IG thread? Read from the conversation
@@ -195,6 +196,9 @@ export async function backfillGhlConversations(
       // skip on error and let the cursor advance past it.
       try {
         let lead = await resolveContactLead(supabase, organizationId, config, conv.contactId, contactCache)
+        // A lead minted in this iteration already alerted via notifyNewLead;
+        // its whole (historical) thread must not also fire per-message pings.
+        let leadCreatedNow = false
 
         // An inbound FB/IG DM from an unknown contact IS the lead event — the
         // sweep must mint it here for the same reason the webhook does (see
@@ -228,7 +232,10 @@ export async function backfillGhlConversations(
                 firstSocial,
                 { caller: 'ghl-backfill-social' },
               )
-              if (lead) socialLeadsCreated += 1
+              if (lead) {
+                socialLeadsCreated += 1
+                leadCreatedNow = true
+              }
             }
           }
         }
@@ -256,6 +263,32 @@ export async function backfillGhlConversations(
               inserted += 1
               affectedLeads.add(lead.id)
               if (result.conversationId) affectedConversations.add(result.conversationId)
+              // Speed-to-reply: the poller is the reliable go-forward ingest,
+              // so the alert has to fire here too — not just on the webhook. The
+              // freshness gate inside shouldAlertInboundReply is what keeps a
+              // historical re-sweep (old timestamps) from blasting stale pings.
+              if (
+                result.conversationId &&
+                shouldAlertInboundReply({
+                  normalized,
+                  persistStatus: result.status,
+                  leadCreatedNow,
+                  now: Date.now(),
+                })
+              ) {
+                const convId = result.conversationId
+                const leadId = lead.id
+                const preview = normalized.body
+                const { notifyInboundMessage } = await import('@/lib/notifications/staff-notify')
+                await notifyInboundMessage(supabase, {
+                  organizationId,
+                  conversationId: convId,
+                  leadId,
+                  messagePreview: preview,
+                }).catch(() => {
+                  /* best-effort — ingest already succeeded */
+                })
+              }
             } else if (result.status === 'call_logged') {
               calls += 1
               affectedLeads.add(lead.id)

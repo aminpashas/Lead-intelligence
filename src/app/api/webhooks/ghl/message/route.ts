@@ -31,6 +31,7 @@ import {
 } from '@/lib/ghl/conversations'
 import { persistGhlMessage, type IngestLead } from '@/lib/ghl/ingest-message'
 import { createLeadFromSocialDm, isNewSocialLead } from '@/lib/ghl/social-lead'
+import { shouldAlertInboundReply } from '@/lib/ghl/inbound-reply-alert'
 import { logger } from '@/lib/logger'
 
 /** Constant-time secret comparison; false on any length/format mismatch. */
@@ -118,6 +119,9 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
   let lead = await resolveLead(supabase, orgId, extracted.contactId)
+  // Whether THIS request created the lead — createLeadFromSocialDm already
+  // fires notifyNewLead, so the speed-to-reply ping below must not double up.
+  let leadCreatedNow = false
 
   if (!lead && isNewSocialLead(normalized)) {
     // An inbound social DM from someone we've never seen IS the lead event —
@@ -125,6 +129,7 @@ export async function POST(request: NextRequest) {
     const config = await getGhlConfig(supabase, orgId)
     if (config) {
       lead = await createLeadFromSocialDm(supabase, orgId, config, extracted.contactId, normalized)
+      leadCreatedNow = Boolean(lead)
     }
   }
 
@@ -147,6 +152,32 @@ export async function POST(request: NextRequest) {
       lead,
       normalized,
     })
+
+    // Speed-to-reply: ping staff when an existing social lead sends a fresh
+    // reply, which reopens Meta's 24h send window nobody was watching. Gated to
+    // fresh, inbound, social, non-new-lead messages so a webhook replay or the
+    // poller's history re-read can't blast stale alerts. notifyInboundMessage
+    // handles recipients, presence suppression, and cooldown; never throws.
+    if (
+      result.conversationId &&
+      shouldAlertInboundReply({
+        normalized,
+        persistStatus: result.status,
+        leadCreatedNow,
+        now: Date.now(),
+      })
+    ) {
+      const { notifyInboundMessage } = await import('@/lib/notifications/staff-notify')
+      await notifyInboundMessage(supabase, {
+        organizationId: orgId,
+        conversationId: result.conversationId,
+        leadId: lead.id,
+        messagePreview: normalized.body,
+      }).catch(() => {
+        /* best-effort — capture already succeeded */
+      })
+    }
+
     return NextResponse.json({ ok: true, action: result.status })
   } catch (err) {
     logger.error('GHL message webhook persist failed', {
