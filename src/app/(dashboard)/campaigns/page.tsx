@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { CampaignsList } from '@/components/crm/campaigns-list'
 import { resolveActiveOrg } from '@/lib/auth/active-org'
+import { hasPermission } from '@/lib/auth/permissions'
 
 export default async function CampaignsPage({
   searchParams,
@@ -11,8 +12,13 @@ export default async function CampaignsPage({
   const { smart_list_id } = await searchParams
 
   // Effective org honors an agency_admin's entered client account.
-  const { orgId } = await resolveActiveOrg(supabase)
+  const { orgId, role } = await resolveActiveOrg(supabase)
   if (!orgId) return null
+
+  // Campaign authoring requires campaigns:write. Read-only roles (e.g.
+  // treatment_coordinator) can view campaigns but must not see create/edit
+  // affordances that would 403 server-side.
+  const canManage = hasPermission(role ?? '', 'campaigns:write')
 
   const { data: campaigns } = await supabase
     .from('campaigns')
@@ -35,6 +41,6 @@ export default async function CampaignsPage({
   }))
 
   return (
-    <CampaignsList campaigns={enriched} initialSmartListId={smart_list_id} stages={stages || []} />
+    <CampaignsList campaigns={enriched} initialSmartListId={smart_list_id} stages={stages || []} canManage={canManage} />
   )
 }

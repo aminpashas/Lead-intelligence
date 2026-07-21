@@ -343,7 +343,7 @@ function ActivationConfirm({ campaign, onClose }: { campaign: Campaign; onClose:
   )
 }
 
-export function CampaignsList({ campaigns: initial, initialSmartListId, stages = [] }: { campaigns: Campaign[]; initialSmartListId?: string; stages?: PipelineStageOption[] }) {
+export function CampaignsList({ campaigns: initial, initialSmartListId, stages = [], canManage = true }: { campaigns: Campaign[]; initialSmartListId?: string; stages?: PipelineStageOption[]; canManage?: boolean }) {
   const [campaigns, setCampaigns] = useState(initial)
   const [deploying, setDeploying] = useState<string | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
@@ -497,16 +497,23 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
             Automated SMS and email sequences that nurture every lead around the clock —
             deploy a proven playbook, or compose one of your own.
           </p>
+          {!canManage && (
+            <p className="mt-2 text-[13px] text-aurea-ink-3">
+              You have view-only access to campaigns. Ask an admin to build or launch one.
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2.5">
-          <a
-            href="/campaigns/setup"
-            className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
-          >
-            <Sparkles className="h-4 w-4" strokeWidth={1.75} />
-            Campaign setup
-          </a>
+          {canManage && (
+            <a
+              href="/campaigns/setup"
+              className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
+            >
+              <Sparkles className="h-4 w-4" strokeWidth={1.75} />
+              Campaign setup
+            </a>
+          )}
           <button
             onClick={() => setViewingPerformance(true)}
             className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink"
@@ -514,7 +521,9 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
             <TrendingUp className="h-4 w-4" strokeWidth={1.75} />
             Performance
           </button>
-          <CampaignBuilder initialSmartListId={initialSmartListId} autoOpen={!!initialSmartListId} stages={stages} />
+          {canManage && (
+            <CampaignBuilder initialSmartListId={initialSmartListId} autoOpen={!!initialSmartListId} stages={stages} />
+          )}
         </div>
       </header>
 
@@ -601,18 +610,20 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
                           strokeWidth={1.75}
                         />
                       </button>
-                      <button
-                        onClick={() => deployTemplate(template.id)}
-                        disabled={isDeploying}
-                        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink disabled:opacity-60"
-                      >
-                        {isDeploying ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-                        )}
-                        {isDeploying ? 'Deploying…' : 'Deploy'}
-                      </button>
+                      {canManage && (
+                        <button
+                          onClick={() => deployTemplate(template.id)}
+                          disabled={isDeploying}
+                          className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-aurea-ink-2 ring-1 ring-inset ring-aurea-border transition-colors hover:bg-aurea-surface-2 hover:text-aurea-ink disabled:opacity-60"
+                        >
+                          {isDeploying ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+                          )}
+                          {isDeploying ? 'Deploying…' : 'Deploy'}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -675,21 +686,23 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
                   </div>
                 )}
 
-                <button
-                  onClick={() => deployTemplate(template.id)}
-                  disabled={isDeploying}
-                  className={`flex items-center gap-1.5 border-t border-aurea-border pt-3.5 text-[12.5px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink disabled:opacity-60 ${isExpanded ? 'mt-3.5' : 'mt-auto'}`}
-                >
-                  {isDeploying ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-                  )}
-                  {isDeploying ? 'Deploying…' : 'Deploy template'}
-                  {!isDeploying && (
-                    <ArrowRight className="ml-auto h-3.5 w-3.5 text-aurea-ink-3 transition-all group-hover:translate-x-0.5 group-hover:text-aurea-primary" />
-                  )}
-                </button>
+                {canManage && (
+                  <button
+                    onClick={() => deployTemplate(template.id)}
+                    disabled={isDeploying}
+                    className={`flex items-center gap-1.5 border-t border-aurea-border pt-3.5 text-[12.5px] font-medium text-aurea-ink-2 transition-colors hover:text-aurea-ink disabled:opacity-60 ${isExpanded ? 'mt-3.5' : 'mt-auto'}`}
+                  >
+                    {isDeploying ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+                    )}
+                    {isDeploying ? 'Deploying…' : 'Deploy template'}
+                    {!isDeploying && (
+                      <ArrowRight className="ml-auto h-3.5 w-3.5 text-aurea-ink-3 transition-all group-hover:translate-x-0.5 group-hover:text-aurea-primary" />
+                    )}
+                  </button>
+                )}
               </div>
             )
           })}
@@ -763,10 +776,12 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
                       )}
                     </div>
 
-                    <PrequalControl
-                      campaignId={campaign.id}
-                      initial={(campaign.playbook?.prequal_mode as PrequalMode) ?? 'inherit'}
-                    />
+                    {canManage && (
+                      <PrequalControl
+                        campaignId={campaign.id}
+                        initial={(campaign.playbook?.prequal_mode as PrequalMode) ?? 'inherit'}
+                      />
+                    )}
 
                     <button
                       onClick={() => setViewingAnalytics(campaign.id)}
@@ -776,28 +791,32 @@ export function CampaignsList({ campaigns: initial, initialSmartListId, stages =
                       <span className="hidden sm:inline">Analytics</span>
                     </button>
 
-                    <button
-                      onClick={() => openEdit(campaign)}
-                      disabled={openingEdit === campaign.id}
-                      aria-label="Edit campaign"
-                      title="Edit campaign"
-                      className="inline-flex items-center text-aurea-ink-3 transition-colors hover:text-aurea-ink disabled:opacity-60"
-                    >
-                      {openingEdit === campaign.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Pencil className="h-4 w-4" strokeWidth={1.75} />
-                      )}
-                    </button>
+                    {canManage && (
+                      <button
+                        onClick={() => openEdit(campaign)}
+                        disabled={openingEdit === campaign.id}
+                        aria-label="Edit campaign"
+                        title="Edit campaign"
+                        className="inline-flex items-center text-aurea-ink-3 transition-colors hover:text-aurea-ink disabled:opacity-60"
+                      >
+                        {openingEdit === campaign.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Pencil className="h-4 w-4" strokeWidth={1.75} />
+                        )}
+                      </button>
+                    )}
 
-                    <button
-                      onClick={() => setDeleting(campaign)}
-                      aria-label="Delete campaign"
-                      title="Delete campaign"
-                      className="inline-flex items-center text-aurea-ink-3 transition-colors hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" strokeWidth={1.75} />
-                    </button>
+                    {canManage && (
+                      <button
+                        onClick={() => setDeleting(campaign)}
+                        aria-label="Delete campaign"
+                        title="Delete campaign"
+                        className="inline-flex items-center text-aurea-ink-3 transition-colors hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" strokeWidth={1.75} />
+                      </button>
+                    )}
 
                     {campaign.status === 'draft' || campaign.status === 'paused' ? (
                       <button
