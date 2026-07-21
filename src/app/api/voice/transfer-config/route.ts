@@ -14,12 +14,48 @@
  * The org toggle is a sensitive gate, so it uses a role check + service client.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { logger } from '@/lib/logger'
 
 const ADMIN_ROLES = ['owner', 'admin', 'doctor_admin', 'office_manager', 'agency_admin']
+
+/**
+ * Designate (or clear) a target as the office-manager route that active-treatment
+ * patients ring — the `metadata.purpose = 'existing_patient'` tag that
+ * resolveOfficeManagerTarget() looks for. Enforces one-per-org: turning it on
+ * first clears the tag from any sibling so the inbound path never has to guess
+ * between two. (Target metadata isn't used for anything else, so clearing it to
+ * {} is safe.)
+ */
+async function applyExistingPatientRoute(
+  client: SupabaseClient,
+  orgId: string,
+  targetId: string,
+  on: boolean
+): Promise<void> {
+  if (on) {
+    await client
+      .from('voice_transfer_targets')
+      .update({ metadata: {} })
+      .eq('organization_id', orgId)
+      .neq('id', targetId)
+      .contains('metadata', { purpose: 'existing_patient' })
+    await client
+      .from('voice_transfer_targets')
+      .update({ metadata: { purpose: 'existing_patient' } })
+      .eq('id', targetId)
+      .eq('organization_id', orgId)
+  } else {
+    await client
+      .from('voice_transfer_targets')
+      .update({ metadata: {} })
+      .eq('id', targetId)
+      .eq('organization_id', orgId)
+  }
+}
 
 export async function GET() {
   const authClient = await createClient()
@@ -129,6 +165,9 @@ export async function POST(request: NextRequest) {
         if (body.id) {
           const { error } = await authClient.from('voice_transfer_targets').update(row).eq('id', body.id).eq('organization_id', orgId)
           if (error) throw error
+          if (typeof body.existing_patient_route === 'boolean') {
+            await applyExistingPatientRoute(authClient, orgId, String(body.id), body.existing_patient_route)
+          }
           return NextResponse.json({ ok: true, id: body.id })
         }
         const { data: created, error } = await authClient.from('voice_transfer_targets').insert(row).select('id').single()
@@ -138,7 +177,18 @@ export async function POST(request: NextRequest) {
           { organization_id: orgId, target_id: created.id, status: 'available' },
           { onConflict: 'target_id', ignoreDuplicates: true }
         )
+        if (body.existing_patient_route === true) {
+          await applyExistingPatientRoute(authClient, orgId, String(created.id), true)
+        }
         return NextResponse.json({ ok: true, id: created.id })
+      }
+
+      case 'set_patient_route': {
+        // Toggle an existing target as the office-manager route for active-treatment
+        // patients (no need to re-supply name/kind/destination).
+        if (!body.target_id) return NextResponse.json({ error: 'target_id required' }, { status: 400 })
+        await applyExistingPatientRoute(authClient, orgId, String(body.target_id), !!body.existing_patient_route)
+        return NextResponse.json({ ok: true })
       }
 
       case 'delete_target': {

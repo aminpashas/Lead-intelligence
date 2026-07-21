@@ -369,6 +369,17 @@ export async function buildInboundContext(
   // caller's own number.
   dynamicVariables.callback_number = formatPhoneForSpeech(to)
 
+  // Patient-aware opening for the AI agent. Reference {{greeting_instruction}} in
+  // the Retell prompt so the agent adapts its first line: a current patient must
+  // never be pitched a consult like a cold lead. (Active-treatment callers are
+  // normally routed to the office manager instead of the AI, but this covers the
+  // AI-answers-patients configuration and existing patients who aren't mid-case.)
+  dynamicVariables.greeting_instruction = inActiveTreatment
+    ? `This caller is a current patient of ${practiceName} in active treatment. Greet them warmly as an existing patient, do NOT pitch a consultation or treatment, and offer to help with their care or connect them to the office.`
+    : isExistingPatient
+      ? `This caller is an existing patient of ${practiceName}. Greet them as a returning patient, not a new prospect; do not pitch a new consultation unless they ask.`
+      : ''
+
   return { orgId, leadId, conversationId, practiceName, voiceTimezone, isNewLead, isExistingPatient, inActiveTreatment, patientId, settings, dynamicVariables }
 }
 

@@ -255,6 +255,7 @@ export function LiveTransferSettings({ canAdmin }: { canAdmin: boolean }) {
         onSave={(t) => mutate({ action: 'save_target', ...t })}
         onDelete={(id) => mutate({ action: 'delete_target', id })}
         onDuty={(target_id, on_duty) => mutate({ action: 'set_duty', target_id, on_duty })}
+        onPatientRoute={(target_id, on) => mutate({ action: 'set_patient_route', target_id, existing_patient_route: on })}
       />
 
       <RoutesCard
@@ -278,16 +279,21 @@ function TargetsCard(props: {
   onSave: (t: Record<string, unknown>) => Promise<boolean>
   onDelete: (id: string) => void
   onDuty: (id: string, onDuty: boolean) => void
+  onPatientRoute: (id: string, on: boolean) => void
 }) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [kind, setKind] = useState('phone')
   const [destination, setDestination] = useState('')
   const [maxConcurrent, setMaxConcurrent] = useState(1)
+  const [patientRoute, setPatientRoute] = useState(false)
+
+  const isPatientRoute = (t: VoiceTransferTarget) =>
+    (t.metadata as { purpose?: string } | null)?.purpose === 'existing_patient'
 
   const submit = async () => {
-    const ok = await props.onSave({ name, kind, destination, max_concurrent: maxConcurrent })
-    if (ok) { setAdding(false); setName(''); setDestination(''); setKind('phone'); setMaxConcurrent(1) }
+    const ok = await props.onSave({ name, kind, destination, max_concurrent: maxConcurrent, existing_patient_route: patientRoute })
+    if (ok) { setAdding(false); setName(''); setDestination(''); setKind('phone'); setMaxConcurrent(1); setPatientRoute(false) }
   }
 
   return (
@@ -306,6 +312,7 @@ function TargetsCard(props: {
                 <div className="flex items-center gap-2">
                   <span className="font-medium truncate">{t.name}</span>
                   <Badge variant="secondary">{KIND_LABEL[t.kind] || t.kind}</Badge>
+                  {isPatientRoute(t) && <Badge>Existing-patient route</Badge>}
                   {p && (
                     <Badge variant={p.status === 'available' ? 'default' : p.status === 'on_call' ? 'destructive' : 'outline'}>
                       {p.status === 'on_call' ? `on call (${p.active_calls})` : p.status}
@@ -317,6 +324,12 @@ function TargetsCard(props: {
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
+                {props.canAdmin && (
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground">Patients</Label>
+                    <Switch checked={isPatientRoute(t)} disabled={props.saving} onCheckedChange={(v) => props.onPatientRoute(t.id, v)} />
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <Label className="text-xs text-muted-foreground">On duty</Label>
                   <Switch checked={t.on_duty} disabled={props.saving} onCheckedChange={(v) => props.onDuty(t.id, v)} />
@@ -356,6 +369,15 @@ function TargetsCard(props: {
               <div className="space-y-1">
                 <Label>Simultaneous calls</Label>
                 <Input type="number" min={1} value={maxConcurrent} onChange={(e) => setMaxConcurrent(parseInt(e.target.value, 10) || 1)} />
+              </div>
+            </div>
+            <div className="flex items-start gap-2 rounded-md border border-dashed p-2">
+              <Switch checked={patientRoute} disabled={props.saving} onCheckedChange={setPatientRoute} />
+              <div className="space-y-0.5">
+                <Label className="text-sm">Office manager for existing patients</Label>
+                <p className="text-xs text-muted-foreground">
+                  Patients already in active treatment who call in ring this person first (instead of the sales AI). Only one target can hold this.
+                </p>
               </div>
             </div>
             <div className="flex gap-2">
