@@ -61,7 +61,13 @@ function getHmacKey(): Buffer {
  * Returns null if input is null/undefined.
  */
 export function encryptField(plaintext: string | null | undefined): string | null {
-  if (plaintext == null || plaintext === '') return plaintext as null
+  // null/undefined pass through unchanged (callers distinguish the two).
+  if (plaintext == null) return plaintext as null
+  // Empty string collapses to NULL: the leads PII CHECK constraint requires each
+  // covered column to be NULL or `enc::`-prefixed, and a bare '' is neither — so
+  // returning '' here (the old `as null` cast lied at runtime) made every manual
+  // save with a blank PII field violate chk_leads_pii_encrypted.
+  if (plaintext === '') return null
   if (plaintext.startsWith(ENCRYPTED_PREFIX)) return plaintext // already encrypted
 
   const key = getKey()

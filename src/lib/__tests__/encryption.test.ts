@@ -25,6 +25,20 @@ describe('encryptField / decryptField', () => {
     expect(decryptField(undefined)).toBeUndefined()
   })
 
+  it('collapses empty string to null (chk_leads_pii_encrypted safety)', () => {
+    // A bare '' is neither NULL nor `enc::`-prefixed, so it would violate the
+    // leads PII CHECK constraint. Blank PII fields must land as NULL.
+    expect(encryptField('')).toBeNull()
+  })
+
+  it('encryptLeadPII never emits a bare empty string for a blank PII field', () => {
+    // Regression: the "Add New Lead" form always posts insurance_provider: '',
+    // which previously reached the insert as '' and broke every manual save.
+    const out = encryptLeadPII({ phone: '4158127278', insurance_provider: '' })
+    expect(out.insurance_provider).toBeNull()
+    expect(out.phone).toMatch(/^enc::/)
+  })
+
   it('does not double-encrypt', () => {
     const encrypted = encryptField('test@test.com')!
     const doubleEncrypted = encryptField(encrypted)
