@@ -44,6 +44,7 @@ import { mapGhlChannel, normalizeGhlMessage, searchConversations, type GhlConver
 import { persistGhlMessage, type IngestLead } from './ingest-message'
 import { fetchThread, resolveContactLead } from './backfill-conversations'
 import { createLeadFromSocialDm, isSocialMessage } from './social-lead'
+import { createLeadFromInboundMessage, isInboundCaptureMessage } from './inbound-lead'
 
 const SETTINGS_KEY_POLL = 'conversation_poll'
 
@@ -58,7 +59,14 @@ export type PollState = {
   /** Newest lastMessageDate (epoch ms) already ingested. */
   watermark?: number
   lastRunAt?: string
-  totals?: { ticks: number; conversations: number; messages: number; calls: number; socialLeads: number }
+  totals?: {
+    ticks: number
+    conversations: number
+    messages: number
+    calls: number
+    socialLeads: number
+    inboundLeads?: number
+  }
 }
 
 export type PollResult = {
@@ -67,6 +75,7 @@ export type PollResult = {
   messagesInserted: number
   callsLogged: number
   socialLeadsCreated: number
+  inboundLeadsCreated: number
   skipped: number
   watermark: number
   /** True when the tick hit its conversation cap — more may remain. */
@@ -148,6 +157,7 @@ export async function pollGhlConversations(
   let calls = 0
   let skipped = 0
   let socialLeadsCreated = 0
+  let inboundLeadsCreated = 0
   let newest = state.watermark ?? 0
   let truncated = false
 
@@ -167,6 +177,7 @@ export async function pollGhlConversations(
       messagesInserted: 0,
       callsLogged: 0,
       socialLeadsCreated: 0,
+      inboundLeadsCreated: 0,
       skipped: 0,
       watermark: primed,
       truncated: false,
@@ -193,24 +204,25 @@ export async function pollGhlConversations(
 
       try {
         let lead = await resolveContactLead(supabase, organizationId, config, conv.contactId, contactCache)
-        const socialCandidate = !lead && isSocialConversation(conv)
-        if (!lead && !socialCandidate) {
-          processed += 1
-          if (date > newest) newest = date
-          continue
-        }
 
+        // For a known lead we just fetch + persist. For an UNKNOWN contact we
+        // still fetch the thread, because a first inbound message should mint a
+        // lead — otherwise a brand-new patient who texts the practice is dropped
+        // and the watermark advances past them, invisible to LI forever. We
+        // can't tell inbound-from-stranger apart from our own outbound blast
+        // without the thread, so the fetch is unavoidable here.
         const thread = await fetchThread(config, conv.id)
 
-        if (socialCandidate) {
-          // A DM thread from a contact LI has never seen becomes a lead. Alert
-          // only when THEY wrote to us: an outbound-only thread is our own
-          // outreach, and pinging staff about their own message is noise.
+        if (!lead) {
           const normalized = thread
             .map(normalizeGhlMessage)
             .filter((n): n is NonNullable<ReturnType<typeof normalizeGhlMessage>> => n != null)
+
           const firstSocial = normalized.find(isSocialMessage)
-          if (firstSocial) {
+          if (isSocialConversation(conv) && firstSocial) {
+            // Social DM (no phone/email): create either direction so outreach
+            // threads still capture the contact, but alert only when THEY wrote
+            // to us — pinging staff about their own outreach is noise.
             const hasInbound = normalized.some((n) => isSocialMessage(n) && n.direction === 'inbound')
             lead = await createLeadFromSocialDm(
               supabase,
@@ -221,6 +233,22 @@ export async function pollGhlConversations(
               { suppressAlert: !hasInbound, caller: 'ghl-poll-social' },
             )
             if (lead) socialLeadsCreated += 1
+          } else {
+            // SMS / email / call / etc.: only a patient reaching out FIRST is a
+            // capture event. An outbound-only thread to a non-lead is our own
+            // nurture blast and must never mint a lead.
+            const firstInbound = normalized.find(isInboundCaptureMessage)
+            if (firstInbound) {
+              lead = await createLeadFromInboundMessage(
+                supabase,
+                organizationId,
+                config,
+                conv.contactId ?? null,
+                firstInbound,
+                { caller: 'ghl-poll-inbound' },
+              )
+              if (lead) inboundLeadsCreated += 1
+            }
           }
         }
 
@@ -283,10 +311,14 @@ export async function pollGhlConversations(
       messages: totals.messages + inserted,
       calls: totals.calls + calls,
       socialLeads: totals.socialLeads + socialLeadsCreated,
+      inboundLeads: (totals.inboundLeads ?? 0) + inboundLeadsCreated,
     },
   })
 
-  log(`tick: ${processed} conversations, +${inserted} messages, +${socialLeadsCreated} social leads`)
+  log(
+    `tick: ${processed} conversations, +${inserted} messages, ` +
+      `+${socialLeadsCreated} social leads, +${inboundLeadsCreated} inbound leads`,
+  )
 
   return {
     status: 'ok',
@@ -294,6 +326,7 @@ export async function pollGhlConversations(
     messagesInserted: inserted,
     callsLogged: calls,
     socialLeadsCreated,
+    inboundLeadsCreated,
     skipped,
     watermark: Math.max(newest, state.watermark),
     truncated,
