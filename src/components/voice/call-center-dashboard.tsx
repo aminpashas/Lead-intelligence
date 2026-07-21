@@ -139,6 +139,9 @@ const outcomeConfig: Record<string, { label: string; color: string; icon: Lucide
   wrong_number: { label: 'Wrong #', icon: AlertCircle, color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
   do_not_call: { label: 'DNC', icon: Ban, color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
   voicemail_left: { label: 'VM Left', icon: Voicemail, color: 'bg-aurea-surface-2 text-aurea-ink-2 border border-aurea-border' },
+  // Inbound: the CALLER left US a message (ring-agents mode, no answer) — a
+  // fresh callback task, so it gets attention-amber rather than neutral gray.
+  voicemail_received: { label: 'VM Received', icon: Voicemail, color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
   no_answer: { label: 'No Answer', icon: PhoneMissed, color: 'bg-aurea-amber/10 text-aurea-amber border border-aurea-amber/20' },
   technical_failure: { label: 'Error', icon: AlertCircle, color: 'bg-aurea-rose/10 text-aurea-rose border border-aurea-rose/20' },
   transferred: { label: 'Transferred', icon: ArrowUpRight, color: 'bg-aurea-primary/10 text-aurea-primary border border-aurea-primary/20' },

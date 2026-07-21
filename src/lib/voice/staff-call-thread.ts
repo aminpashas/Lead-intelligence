@@ -41,6 +41,7 @@ const VOICE_OUTCOME_LABEL: Record<string, string> = {
   wrong_number: 'Wrong number',
   do_not_call: 'Do not call',
   voicemail_left: 'Left voicemail',
+  voicemail_received: 'Voicemail received',
   no_answer: 'No answer',
   technical_failure: 'Technical failure',
   transferred: 'Transferred',

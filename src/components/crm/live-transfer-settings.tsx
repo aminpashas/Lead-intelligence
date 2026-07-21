@@ -25,7 +25,15 @@ import {
 import type { VoiceTransferTarget, VoiceTransferRoute, VoiceAgentPresence } from '@/types/database'
 
 type ConfigResponse = {
-  org: { voice_live_transfer_enabled: boolean; voice_live_transfer_max_hold_seconds: number }
+  org: {
+    voice_live_transfer_enabled: boolean
+    voice_live_transfer_max_hold_seconds: number
+    inbound_call_mode: 'ai' | 'ring_agents'
+    inbound_ai_on_no_answer: boolean
+    inbound_ai_after_hours: boolean
+    inbound_ring_seconds: number
+    inbound_voicemail_greeting: string | null
+  }
   targets: VoiceTransferTarget[]
   routes: VoiceTransferRoute[]
   presence: Pick<VoiceAgentPresence, 'target_id' | 'status' | 'active_calls'>[]
@@ -120,6 +128,122 @@ export function LiveTransferSettings({ canAdmin }: { canAdmin: boolean }) {
               <span className="text-sm text-muted-foreground">sec</span>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Inbound call handling */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Inbound calls</CardTitle>
+          <CardDescription>
+            Who answers when a patient calls the practice number. Ringing uses the people and
+            business-hours routes below; the AI covers whatever you leave to it.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">Answer mode</div>
+              <div className="text-sm text-muted-foreground">
+                {config.org.inbound_call_mode === 'ring_agents'
+                  ? 'Calls ring your team first (in-app softphones and forwarding numbers).'
+                  : 'The AI answers every call immediately.'}
+              </div>
+            </div>
+            <Select
+              value={config.org.inbound_call_mode}
+              disabled={!canAdmin || saving}
+              onValueChange={(v) => { if (v) mutate({ action: 'set_org', inbound_call_mode: v }) }}
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue>
+                  {config.org.inbound_call_mode === 'ring_agents' ? 'Ring the team first' : 'AI answers'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ai">AI answers</SelectItem>
+                <SelectItem value="ring_agents">Ring the team first</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {config.org.inbound_call_mode === 'ring_agents' && (
+            <>
+              <Separator />
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="font-medium">Ring time</div>
+                  <div className="text-sm text-muted-foreground">
+                    How long the team&apos;s phones ring before the fallback takes over.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    className="w-24"
+                    min={5}
+                    max={60}
+                    defaultValue={config.org.inbound_ring_seconds}
+                    disabled={!canAdmin || saving}
+                    onBlur={(e) => {
+                      const v = parseInt(e.target.value, 10)
+                      if (v && v !== config.org.inbound_ring_seconds) {
+                        mutate({ action: 'set_org', inbound_ring_seconds: v })
+                      }
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">sec</span>
+                </div>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">AI takes over when nobody answers</div>
+                  <div className="text-sm text-muted-foreground">
+                    Off = missed calls go to voicemail (manual process).
+                  </div>
+                </div>
+                <Switch
+                  checked={config.org.inbound_ai_on_no_answer}
+                  disabled={!canAdmin || saving}
+                  onCheckedChange={(v) => mutate({ action: 'set_org', inbound_ai_on_no_answer: v })}
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">AI answers after hours</div>
+                  <div className="text-sm text-muted-foreground">
+                    Outside every routing window below. Off = after-hours callers go to voicemail.
+                  </div>
+                </div>
+                <Switch
+                  checked={config.org.inbound_ai_after_hours}
+                  disabled={!canAdmin || saving}
+                  onCheckedChange={(v) => mutate({ action: 'set_org', inbound_ai_after_hours: v })}
+                />
+              </div>
+              <Separator />
+              <div className="space-y-1.5">
+                <Label htmlFor="vm-greeting" className="font-medium">Voicemail greeting</Label>
+                <p className="text-sm text-muted-foreground">
+                  Spoken before the beep. Leave blank for a standard greeting with your practice name.
+                </p>
+                <Input
+                  id="vm-greeting"
+                  placeholder="Thank you for calling… please leave a message."
+                  defaultValue={config.org.inbound_voicemail_greeting ?? ''}
+                  disabled={!canAdmin || saving}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim()
+                    if (v !== (config.org.inbound_voicemail_greeting ?? '')) {
+                      mutate({ action: 'set_org', inbound_voicemail_greeting: v })
+                    }
+                  }}
+                />
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 

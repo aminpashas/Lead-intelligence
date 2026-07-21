@@ -17,9 +17,10 @@ export default async function LiveTransferSettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Live transfer</h1>
+        <h1 className="text-2xl font-semibold">Calls &amp; live transfer</h1>
         <p className="text-sm text-muted-foreground">
-          Let the AI dial leads in bulk and forward each answered call to a live person.
+          Decide who answers inbound calls (your team, the AI, or voicemail), and let the AI
+          dial leads in bulk and forward each answered call to a live person.
         </p>
       </div>
       <LiveTransferSettings canAdmin={canAdmin} />

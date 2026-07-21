@@ -1,24 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateTwilioWebhook } from '@/lib/messaging/twilio'
-import { buildDateDynamicVariables } from '@/lib/ai/datetime-context'
-import { buildLeadContextVariables } from '@/lib/voice/lead-context'
-import { formatPhoneForSpeech } from '@/lib/leads/phone'
+import {
+  buildInboundContext,
+  resolveInboundRingPlan,
+  registerRetellCall,
+  retellSipTwiml,
+  ringAgentsTwiml,
+  voicemailTwiml,
+  sayHangupTwiml,
+  twimlResponse,
+  type InboundContext,
+} from '@/lib/voice/inbound-flow'
 
 /**
  * Twilio Voice Webhook — Inbound Call Handler
  *
- * When someone calls your Twilio number:
- * 1. Twilio hits this webhook with caller info
- * 2. We register the call with Retell (ALWAYS — even if DB fails)
- * 3. We attempt to look up / create lead info (non-blocking)
- * 4. We return TwiML that dials the Retell SIP address
+ * When someone calls the practice's Twilio number, this webhook decides who
+ * answers, per the org's inbound policy (organizations.inbound_call_mode):
  *
- * CRITICAL: This webhook MUST return TwiML quickly. All DB operations
- * are wrapped in try/catch so they never block the call connection.
+ *   'ai' (default)   → register with Retell and bridge immediately — the AI
+ *                      answers every call (previous behavior, unchanged).
+ *   'ring_agents'    → ring the practice's live targets (phones + browser
+ *                      softphones, from the live-transfer config) first:
+ *        in hours, nobody answers → AI takes over (inbound_ai_on_no_answer)
+ *                                   or voicemail (manual process)
+ *        out of hours             → AI answers (inbound_ai_after_hours)
+ *                                   or voicemail
+ *
+ * CRITICAL: This webhook MUST return TwiML quickly. All DB operations are
+ * failure-tolerant so they never block the call connection, and every branch
+ * ends in SOME answer path — never dead air.
  */
-
-const RETELL_API_KEY = process.env.RETELL_API_KEY || ''
-const RETELL_AGENT_ID = 'agent_d5891af66aa9f7a83b9f96fc3a'
 
 function getSupabase() {
   try {
@@ -36,6 +48,104 @@ function getSupabase() {
     console.error('[Voice Inbound] Failed to create Supabase client:', e)
     return null
   }
+}
+
+/** The public origin Twilio should hit for follow-up callbacks (proxy-aware). */
+function publicOrigin(req: NextRequest): string {
+  const url = new URL(req.url)
+  const proto = req.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || url.host
+  return `${proto}://${host}`
+}
+
+function xml(body: string): NextResponse {
+  return new NextResponse(body, { headers: { 'Content-Type': 'text/xml' } })
+}
+
+/**
+ * AI answer path: register with Retell, persist/update the voice_calls row, and
+ * bridge over SIP. `existingCallId` updates a row the ring path already created
+ * instead of inserting a second one. Falls back to voicemail TwiML if Retell is
+ * down (the caller must never hear dead air).
+ */
+async function answerWithAI(
+  supabase: ReturnType<typeof getSupabase>,
+  ctx: InboundContext,
+  params: {
+    from: string
+    to: string
+    callSid: string
+    callerCity: string
+    callerState: string
+    callerCountry: string
+    existingCallId?: string
+    origin: string
+  }
+): Promise<NextResponse> {
+  const { from, to, callSid, existingCallId, origin } = params
+
+  const retellCallId = await registerRetellCall({
+    from,
+    to,
+    twilioCallSid: callSid,
+    dynamicVariables: ctx.dynamicVariables,
+    metadata: {
+      lead_id: ctx.leadId,
+      organization_id: ctx.orgId,
+      conversation_id: ctx.conversationId,
+    },
+  })
+
+  if (!retellCallId) {
+    // Retell down → apologize and take a message. When the ring path already
+    // created a row we route the recording through the voicemail callback so it
+    // still lands on the call record; otherwise keep the legacy bare <Record>.
+    if (existingCallId) {
+      return xml(voicemailTwiml({
+        greeting: `We're sorry, we can't take your call right now. Please leave a message after the beep and we'll get back to you.`,
+        practiceName: ctx.practiceName,
+        actionUrl: `${origin}/api/voice/inbound/voicemail?vc=${existingCallId}`,
+        transcribeCallbackUrl: `${origin}/api/voice/inbound/voicemail?vc=${existingCallId}&kind=transcript`,
+      }))
+    }
+    return xml(twimlResponse(
+      `\n  <Say>We're sorry, our AI assistant is temporarily unavailable. Please try again later or leave a message after the beep.</Say>\n  <Record maxLength="120" transcribe="true" />\n`
+    ))
+  }
+
+  console.log(`[Voice Inbound] Retell call registered: ${retellCallId}`)
+
+  // Log/update the call record (fire-and-forget — must not delay the bridge).
+  if (supabase && ctx.orgId && ctx.leadId) {
+    const write = existingCallId
+      ? supabase.from('voice_calls').update({
+          retell_call_id: retellCallId,
+          status: 'ringing',
+        }).eq('id', existingCallId)
+      : supabase.from('voice_calls').insert({
+          organization_id: ctx.orgId,
+          lead_id: ctx.leadId,
+          conversation_id: ctx.conversationId,
+          direction: 'inbound',
+          status: 'ringing',
+          retell_call_id: retellCallId,
+          from_number: from,
+          to_number: to,
+          started_at: new Date().toISOString(),
+          consent_verified: true,
+          metadata: {
+            twilio_call_sid: callSid,
+            caller_city: params.callerCity,
+            caller_state: params.callerState,
+            caller_country: params.callerCountry,
+          },
+        })
+    write.then(({ error }: { error: unknown }) => {
+      if (error) console.error('[Voice Inbound] Failed to log call:', error)
+    })
+  }
+
+  return xml(retellSipTwiml(retellCallId))
 }
 
 export async function POST(req: NextRequest) {
@@ -69,312 +179,93 @@ export async function POST(req: NextRequest) {
 
   console.log(`[Voice Inbound] Call from ${from} to ${to}, SID: ${callSid}`)
 
-  // ── 1. Attempt DB lookups (non-blocking — wrapped in try/catch) ──
-  let practiceName = 'our practice'
-  let dynamicVariables: Record<string, string> = {
-    call_direction: 'inbound',
-    caller_phone: from,
-    caller_full_name: 'the caller',
-    caller_first_name: '',
-    caller_last_name: '',
-    caller_location: [callerCity, callerState].filter(Boolean).join(', ') || 'unknown',
-    lead_status: 'unknown',
-    lead_score: '0',  // maps from ai_score internally
-    lead_source: 'unknown',
-    lead_notes: '',
-    is_new_lead: 'true',
-    is_returning: 'false',
-    practice_name: practiceName,
-    personality_type: '',
-    communication_style: '',
-  }
-  let leadId: string | null = null
-  let orgId: string | null = null
-  let conversationId: string | null = null
-  let voiceTimezone: string | null = null
-
   const supabase = getSupabase()
-  if (supabase) {
-    try {
-      // ── Get the organization ──
-      const { data: org } = await supabase
-        .from('organizations')
-        .select('id, name, voice_greeting')
-        .eq('voice_outbound_caller_id', to)
+  const ctx = await buildInboundContext(supabase, { from, to, callerCity, callerState, callerName })
+  const origin = publicOrigin(req)
+  const aiParams = { from, to, callSid, callerCity, callerState, callerCountry, origin }
+
+  try {
+    // ── Ring-agents mode ──
+    // Requires full attribution (org + lead) so the follow-up webhooks can act on
+    // a concrete voice_calls row; anything less degrades to the AI path, which
+    // handles unattributed calls gracefully.
+    if (ctx.settings.mode === 'ring_agents' && supabase && ctx.orgId && ctx.leadId) {
+      const plan = await resolveInboundRingPlan(supabase, ctx.orgId)
+
+      // The ring path needs its call row up front: the <Dial>/<Record> callbacks
+      // reference it by id. Insert is awaited (single small write).
+      const { data: callRow, error: insertError } = await supabase
+        .from('voice_calls')
+        .insert({
+          organization_id: ctx.orgId,
+          lead_id: ctx.leadId,
+          conversation_id: ctx.conversationId,
+          direction: 'inbound',
+          status: 'ringing',
+          from_number: from,
+          to_number: to,
+          started_at: new Date().toISOString(),
+          consent_verified: true,
+          // Top-level SID (not just metadata) so the voice-reconcile cron can
+          // query Twilio and self-heal this row if the Dial/Record callbacks
+          // never arrive.
+          twilio_call_sid: callSid,
+          metadata: {
+            twilio_call_sid: callSid,
+            caller_city: callerCity,
+            caller_state: callerState,
+            caller_country: callerCountry,
+            inbound_handling: plan.inHours ? 'ring_agents' : 'after_hours',
+          },
+        })
+        .select('id')
         .single()
 
-      if (org) {
-        orgId = org.id
-        practiceName = org.name || 'our practice'
-        // Practice-timezone clock for the voice agent (see date variables below).
-        const { data: bs } = await supabase
-          .from('booking_settings')
-          .select('timezone')
-          .eq('organization_id', org.id)
-          .maybeSingle()
-        voiceTimezone = (bs?.timezone as string | null) ?? null
-      } else {
-        // Fallback only when genuinely single-tenant. Guessing "first org" in a
-        // multi-tenant deployment would attribute a call (and any created lead /
-        // PHI) to the wrong tenant.
-        const { data: orgs } = await supabase
-          .from('organizations')
-          .select('id, name, voice_greeting')
-          .limit(2)
-        if (orgs && orgs.length === 1) {
-          orgId = orgs[0].id
-          practiceName = orgs[0].name || 'our practice'
-          console.log(`[Voice Inbound] Single-tenant org fallback: ${orgs[0].name}`)
-        } else {
-          console.warn(`[Voice Inbound] No org matched caller-id ${to} and deployment is multi-tenant — not attributing call`)
-        }
+      if (insertError || !callRow) {
+        console.error('[Voice Inbound] Ring-mode call insert failed, degrading to AI:', insertError)
+        return await answerWithAI(supabase, ctx, aiParams)
+      }
+      const vcId = callRow.id as string
+
+      const voicemail = () => xml(voicemailTwiml({
+        greeting: ctx.settings.voicemailGreeting,
+        practiceName: ctx.practiceName,
+        actionUrl: `${origin}/api/voice/inbound/voicemail?vc=${vcId}`,
+        transcribeCallbackUrl: `${origin}/api/voice/inbound/voicemail?vc=${vcId}&kind=transcript`,
+      }))
+
+      if (!plan.inHours) {
+        // Outside every routing window: AI covers the night shift if enabled,
+        // otherwise straight to voicemail (agents aren't there to ring).
+        return ctx.settings.aiAfterHours
+          ? await answerWithAI(supabase, ctx, { ...aiParams, existingCallId: vcId })
+          : voicemail()
       }
 
-      // ── Look up the caller ──
-      if (orgId) {
-        const normalizedPhone = from.replace(/^\+1/, '').replace(/\D/g, '')
-        const phoneVariants = [
-          from,
-          normalizedPhone,
-          `+1${normalizedPhone}`,
-          `(${normalizedPhone.slice(0,3)}) ${normalizedPhone.slice(3,6)}-${normalizedPhone.slice(6)}`,
-        ]
-
-        // leads.phone/phone_formatted are encrypted at rest (enc::…) —
-        // plaintext equality never matches and every caller would be
-        // auto-created as a duplicate. Match on the deterministic phone_hash.
-        const { searchHash } = await import('@/lib/encryption')
-        const phoneHashes = [...new Set(phoneVariants.map(p => searchHash(p)).filter(Boolean))] as string[]
-
-        let { data: existingLead } = await supabase
-          .from('leads')
-          .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile')
-          .eq('organization_id', orgId)
-          .in('phone_hash', phoneHashes)
-          .limit(1)
-          .maybeSingle()
-
-        if (!existingLead) {
-          // Legacy fallback: pre-encryption rows may still hold plaintext.
-          const { data: plainLead } = await supabase
-            .from('leads')
-            .select('id, first_name, last_name, email, phone, status, ai_score, notes, source_type, personality_profile')
-            .eq('organization_id', orgId)
-            .or([
-              ...phoneVariants.map(p => `phone.eq.${p}`),
-              ...phoneVariants.map(p => `phone_formatted.eq.${p}`),
-            ].join(','))
-            .limit(1)
-            .maybeSingle()
-          existingLead = plainLead
-        }
-
-        let lead = existingLead
-        let isNewLead = false
-
-        if (!lead) {
-          // Auto-create lead — encrypt PII the same way the CRUD routes do so
-          // the row is consistent with encryption-at-rest (and future hash
-          // lookups can find it).
-          const { encryptLeadPII } = await import('@/lib/encryption')
-          const displayName = callerName || `Caller ${normalizedPhone.slice(-4)}`
-          const nameParts = displayName.split(' ')
-          const { data: newLead } = await supabase
-            .from('leads')
-            .insert(encryptLeadPII({
-              organization_id: orgId,
-              first_name: nameParts[0] || 'Unknown',
-              last_name: nameParts.slice(1).join(' ') || 'Caller',
-              phone: from,
-              phone_formatted: from,
-              source_type: 'inbound_call',
-              status: 'new',
-              ai_score: 50,
-              notes: `Auto-created from inbound call on ${new Date().toLocaleDateString()}. ${callerCity ? `Location: ${callerCity}, ${callerState}` : ''}`.trim(),
-              voice_consent: true,
-              voice_consent_at: new Date().toISOString(),
-              voice_consent_source: 'inbound_call',
-            }))
-            .select()
-            .single()
-
-          if (newLead) {
-            lead = newLead
-            isNewLead = true
-            console.log(`[Voice Inbound] Created lead: ${newLead.id}`)
-          }
-        } else {
-          console.log(`[Voice Inbound] Found lead: ${lead.first_name} ${lead.last_name}`)
-        }
-
-        if (lead) {
-          leadId = lead.id
-          const personality = lead.personality_profile as Record<string, unknown> | null
-          dynamicVariables = {
-            call_direction: 'inbound',
-            caller_phone: from,
-            caller_first_name: lead.first_name || '',
-            caller_last_name: lead.last_name || '',
-            caller_full_name: `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'the caller',
-            caller_location: [callerCity, callerState].filter(Boolean).join(', ') || 'unknown',
-            lead_status: lead.status || 'unknown',
-            lead_score: String(lead.ai_score || 0),
-            lead_source: lead.source_type || 'unknown',
-            lead_notes: (lead.notes || '').slice(0, 500),
-            is_new_lead: String(isNewLead),
-            is_returning: String(!isNewLead),
-            practice_name: practiceName,
-            personality_type: (personality?.type as string) || '',
-            communication_style: (personality?.communication_style as string) || '',
-          }
-
-          // Returning caller → give the agent its memory: last conversation
-          // summary, recent messages, and appointment history. New leads have
-          // nothing to load. Best-effort: a failure degrades to empty strings
-          // rather than delaying the TwiML response.
-          if (!isNewLead) {
-            try {
-              Object.assign(
-                dynamicVariables,
-                await buildLeadContextVariables(supabase, lead.id, orgId, voiceTimezone)
-              )
-            } catch (ctxErr) {
-              console.error('[Voice Inbound] Lead context error (non-fatal):', ctxErr)
-            }
-          }
-
-          // Create/find conversation
-          try {
-            const { data: conv } = await supabase
-              .from('conversations')
-              .select('id')
-              .eq('organization_id', orgId)
-              .eq('lead_id', lead.id)
-              .eq('channel', 'voice')
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .single()
-
-            if (conv) {
-              conversationId = conv.id
-            } else {
-              const { data: newConv } = await supabase
-                .from('conversations')
-                .insert({
-                  organization_id: orgId,
-                  lead_id: lead.id,
-                  channel: 'voice',
-                  status: 'open',
-                  ai_enabled: true,
-                  last_message_at: new Date().toISOString(),
-                })
-                .select('id')
-                .single()
-              conversationId = newConv?.id || null
-            }
-          } catch (convErr) {
-            console.error('[Voice Inbound] Conversation error (non-fatal):', convErr)
-          }
-        }
+      if (plan.targets.length === 0) {
+        // Open, but nobody to ring (no targets configured / all off-duty) —
+        // same policy as an unanswered ring.
+        return ctx.settings.aiOnNoAnswer
+          ? await answerWithAI(supabase, ctx, { ...aiParams, existingCallId: vcId })
+          : voicemail()
       }
-    } catch (dbError) {
-      console.error('[Voice Inbound] DB error (non-fatal, proceeding to Retell):', dbError)
-    }
-  }
 
-  // Ground the hosted voice agent in the real clock + a dated 2-week calendar so
-  // it never says "next Tuesday" without knowing the date. The Retell prompt must
-  // reference {{current_datetime}} and {{upcoming_dates}}.
-  Object.assign(dynamicVariables, buildDateDynamicVariables(voiceTimezone))
-
-  // The practice number the patient dialed (`to`) is the number they should call
-  // back — expose it so the voicemail/callback prompt speaks our line, never the
-  // caller's own number.
-  dynamicVariables.callback_number = formatPhoneForSpeech(to)
-
-  // ── 2. Register the call with Retell (CRITICAL — must succeed) ──
-  try {
-    const retellRes = await fetch('https://api.retellai.com/v2/register-phone-call', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${RETELL_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        agent_id: RETELL_AGENT_ID,
-        from_number: from,
-        to_number: to,
-        direction: 'inbound',
-        retell_llm_dynamic_variables: dynamicVariables,
-        metadata: {
-          twilio_call_sid: callSid,
-          lead_id: leadId,
-          organization_id: orgId,
-          conversation_id: conversationId,
-        },
-      }),
-    })
-
-    if (!retellRes.ok) {
-      const errText = await retellRes.text()
-      console.error('[Voice Inbound] Retell register failed:', retellRes.status, errText)
-      return new NextResponse(
-        `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say>We're sorry, our AI assistant is temporarily unavailable. Please try again later or leave a message after the beep.</Say>
-  <Record maxLength="120" transcribe="true" />
-</Response>`,
-        { headers: { 'Content-Type': 'text/xml' } }
-      )
+      const leadName = ctx.dynamicVariables.caller_full_name || 'Caller'
+      return xml(ringAgentsTwiml({
+        targets: plan.targets,
+        ringSeconds: ctx.settings.ringSeconds,
+        actionUrl: `${origin}/api/voice/inbound/dial-result?vc=${vcId}`,
+        voiceCallId: vcId,
+        leadId: ctx.leadId,
+        leadName,
+      }))
     }
 
-    const retellData = await retellRes.json()
-    const callId = retellData.call_id
-    console.log(`[Voice Inbound] Retell call registered: ${callId}`)
-
-    // ── 3. Log call to DB (fire-and-forget) ──
-    if (supabase && orgId && leadId) {
-      supabase.from('voice_calls').insert({
-        organization_id: orgId,
-        lead_id: leadId,
-        conversation_id: conversationId,
-        direction: 'inbound',
-        status: 'ringing',
-        retell_call_id: callId,
-        from_number: from,
-        to_number: to,
-        started_at: new Date().toISOString(),
-        consent_verified: true,
-        metadata: {
-          twilio_call_sid: callSid,
-          caller_city: callerCity,
-          caller_state: callerState,
-          caller_country: callerCountry,
-        },
-      }).then(({ error }: { error: unknown }) => {
-        if (error) console.error('[Voice Inbound] Failed to log call:', error)
-      })
-    }
-
-    // ── 4. Return TwiML to bridge to Retell (CRITICAL) ──
-    return new NextResponse(
-      `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Dial>
-    <Sip>sip:${callId}@sip.retellai.com;transport=tcp</Sip>
-  </Dial>
-</Response>`,
-      { headers: { 'Content-Type': 'text/xml' } }
-    )
+    // ── AI mode (default) ──
+    return await answerWithAI(supabase, ctx, aiParams)
   } catch (error) {
     console.error('[Voice Inbound] Fatal error:', error)
-    return new NextResponse(
-      `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say>We're sorry, an error occurred. Please try again later.</Say>
-</Response>`,
-      { headers: { 'Content-Type': 'text/xml' } }
-    )
+    return xml(sayHangupTwiml("We're sorry, an error occurred. Please try again later."))
   }
 }
 

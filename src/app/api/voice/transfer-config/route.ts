@@ -32,7 +32,7 @@ export async function GET() {
   const [{ data: org }, { data: targets }, { data: routes }, { data: presence }] = await Promise.all([
     authClient
       .from('organizations')
-      .select('voice_live_transfer_enabled, voice_live_transfer_max_hold_seconds')
+      .select('voice_live_transfer_enabled, voice_live_transfer_max_hold_seconds, inbound_call_mode, inbound_ai_on_no_answer, inbound_ai_after_hours, inbound_ring_seconds, inbound_voicemail_greeting')
       .eq('id', orgId)
       .maybeSingle(),
     authClient.from('voice_transfer_targets').select('*').eq('organization_id', orgId).order('created_at'),
@@ -41,7 +41,15 @@ export async function GET() {
   ])
 
   return NextResponse.json({
-    org: org || { voice_live_transfer_enabled: false, voice_live_transfer_max_hold_seconds: 120 },
+    org: org || {
+      voice_live_transfer_enabled: false,
+      voice_live_transfer_max_hold_seconds: 120,
+      inbound_call_mode: 'ai',
+      inbound_ai_on_no_answer: false,
+      inbound_ai_after_hours: false,
+      inbound_ring_seconds: 20,
+      inbound_voicemail_greeting: null,
+    },
     targets: targets || [],
     routes: routes || [],
     presence: presence || [],
@@ -76,6 +84,19 @@ export async function POST(request: NextRequest) {
         if (typeof body.enabled === 'boolean') update.voice_live_transfer_enabled = body.enabled
         if (typeof body.max_hold_seconds === 'number') {
           update.voice_live_transfer_max_hold_seconds = Math.max(30, Math.min(600, body.max_hold_seconds))
+        }
+        // Inbound routing policy (who answers an inbound call — see
+        // /api/voice/inbound). Same admin gate: this re-routes live patient calls.
+        if (body.inbound_call_mode === 'ai' || body.inbound_call_mode === 'ring_agents') {
+          update.inbound_call_mode = body.inbound_call_mode
+        }
+        if (typeof body.inbound_ai_on_no_answer === 'boolean') update.inbound_ai_on_no_answer = body.inbound_ai_on_no_answer
+        if (typeof body.inbound_ai_after_hours === 'boolean') update.inbound_ai_after_hours = body.inbound_ai_after_hours
+        if (typeof body.inbound_ring_seconds === 'number') {
+          update.inbound_ring_seconds = Math.max(5, Math.min(60, Math.round(body.inbound_ring_seconds)))
+        }
+        if (typeof body.inbound_voicemail_greeting === 'string') {
+          update.inbound_voicemail_greeting = body.inbound_voicemail_greeting.trim().slice(0, 600) || null
         }
         if (Object.keys(update).length === 0) return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
         const svc = createServiceClient()

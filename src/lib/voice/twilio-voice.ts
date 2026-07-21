@@ -35,8 +35,9 @@ export function identityForUser(userId: string): string {
 
 /**
  * Mint a browser Voice access token for a staff member. Grants OUTGOING calls via
- * our TwiML App only; incoming is disabled (staff don't receive calls on the
- * softphone in Phase 1).
+ * our TwiML App, plus INCOMING calls addressed to the staff identity — inbound
+ * ring-agents mode dials softphone reps as <Client>staff_<uid></Client> (see
+ * lib/voice/inbound-flow.ts `ringAgentsTwiml`).
  */
 export function mintVoiceToken(userId: string): { token: string; identity: string; expiresInSeconds: number } {
   if (!isSoftphoneConfigured()) {
@@ -54,7 +55,7 @@ export function mintVoiceToken(userId: string): { token: string; identity: strin
   token.addGrant(
     new VoiceGrant({
       outgoingApplicationSid: process.env.TWILIO_TWIML_APP_SID!,
-      incomingAllow: false,
+      incomingAllow: true,
     })
   )
 

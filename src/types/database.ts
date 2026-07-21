@@ -1253,7 +1253,7 @@ export type ReactivationOffer = {
 // ── Voice Calling ───────────────────────────────────────────
 
 export type VoiceCallStatus = 'initiated' | 'ringing' | 'in_progress' | 'completed' | 'no_answer' | 'busy' | 'failed' | 'voicemail' | 'canceled'
-export type VoiceCallOutcome = 'appointment_booked' | 'callback_requested' | 'interested' | 'not_interested' | 'wrong_number' | 'do_not_call' | 'voicemail_left' | 'no_answer' | 'technical_failure' | 'transferred'
+export type VoiceCallOutcome = 'appointment_booked' | 'callback_requested' | 'interested' | 'not_interested' | 'wrong_number' | 'do_not_call' | 'voicemail_left' | 'voicemail_received' | 'no_answer' | 'technical_failure' | 'transferred'
 export type VoiceCallReviewStatus = 'pending' | 'clear' | 'flagged' | 'escalated'
 export type VoiceCampaignStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'completed' | 'archived'
 export type VoiceCampaignLeadStatus = 'queued' | 'calling' | 'completed' | 'skipped' | 'failed' | 'do_not_call'
