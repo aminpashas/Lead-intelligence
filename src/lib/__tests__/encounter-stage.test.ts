@@ -106,6 +106,39 @@ describe('nextStageForEncounter', () => {
     })
   })
 
+  describe('no-communication (un-worked intake queue) advances like new', () => {
+    it('inbound sms lifts a No Communication lead to engaged', () => {
+      expect(
+        nextStageForEncounter(input({ channel: 'sms', inbound: true, currentStageSlug: 'no-communication' }))
+      ).toBe('engaged')
+    })
+    it('inbound email lifts a No Communication lead to engaged', () => {
+      expect(
+        nextStageForEncounter(input({ channel: 'email', inbound: true, currentStageSlug: 'no-communication' }))
+      ).toBe('engaged')
+    })
+    it('outbound sms lifts a No Communication lead to contacted', () => {
+      expect(
+        nextStageForEncounter(input({ channel: 'sms', inbound: false, currentStageSlug: 'no-communication' }))
+      ).toBe('contacted')
+    })
+    it('a >60s call lifts a No Communication lead to contacted', () => {
+      expect(
+        nextStageForEncounter(input({ channel: 'voice', durationSeconds: 120, currentStageSlug: 'no-communication' }))
+      ).toBe('contacted')
+    })
+    it('leaves the suppression queue (dnd-sms) alone on a reply', () => {
+      expect(
+        nextStageForEncounter(input({ channel: 'sms', inbound: true, currentStageSlug: 'dnd-sms' }))
+      ).toBeNull()
+    })
+    it('leaves nurturing alone on a reply (own re-engagement flow)', () => {
+      expect(
+        nextStageForEncounter(input({ channel: 'sms', inbound: true, currentStageSlug: 'nurturing' }))
+      ).toBeNull()
+    })
+  })
+
   describe('unknown/advanced current stage → no early-funnel move', () => {
     it('would-be contacted move is suppressed when already qualified', () => {
       expect(

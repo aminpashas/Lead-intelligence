@@ -13,7 +13,15 @@ export type EncounterStageInput = {
 }
 
 // Funnel order for the stages this helper can assign. Higher = further along.
-const RANK: Record<string, number> = { new: 0, contacted: 1, engaged: 2, qualified: 3 }
+// `no-communication` is the un-worked intake queue (imported / non-paid leads
+// land there — see lib/leads/intake-routing.ts). Funnel-wise it sits at the
+// very start, so a reply or first outreach must lift a lead out of it exactly
+// as it would out of `new`. Without this entry the guard in advanceTo() treats
+// it as an "unknown/advanced" stage and never moves a lead that actually
+// started talking — leaving a communicating lead stuck on "No Communication".
+// The other operational stages (dnd-sms, nurturing) are deliberately absent:
+// dnd-sms is a suppression state and nurturing has its own re-engagement flow.
+const RANK: Record<string, number> = { 'no-communication': 0, new: 0, contacted: 1, engaged: 2, qualified: 3 }
 
 export function nextStageForEncounter(input: EncounterStageInput): 'contacted' | 'engaged' | 'qualified' | null {
   const currentRank = input.currentStageSlug != null && input.currentStageSlug in RANK

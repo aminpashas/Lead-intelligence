@@ -4,6 +4,7 @@ import { sendSMS, validateTwilioWebhook } from '@/lib/messaging/twilio'
 import { applyDistributedRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { exitCampaignsOnReply } from '@/lib/campaigns/enrollments'
+import { advanceStageOnInboundReply } from '@/lib/pipeline/advance-on-reply'
 import { searchHash } from '@/lib/encryption'
 import { logger } from '@/lib/logger'
 
@@ -277,6 +278,17 @@ export async function POST(request: NextRequest) {
 
   // Exit campaigns with if_replied exit condition
   await exitCampaignsOnReply(supabase, lead.id, lead.organization_id)
+
+  // A genuine reply must lift the lead out of the un-worked queue ("No
+  // Communication" / "New Lead") into Engaged — the status pill and board read
+  // stage_id, so a stale stage here reads as "never heard from them" while
+  // their messages sit right above it. Opt-out/opt-in (STOP/START) returned
+  // early above, so anything reaching here is a real conversational reply.
+  await advanceStageOnInboundReply(supabase, {
+    leadId: lead.id,
+    organizationId: lead.organization_id,
+    channel: 'sms',
+  })
 
   // Extract financial signals from inbound message (non-blocking)
   import('@/lib/ai/financial-qualifier')

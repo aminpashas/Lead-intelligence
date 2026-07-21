@@ -19,6 +19,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isOptInMessage, isOptOutMessage, type NormalizedGhlMessage } from './conversations'
+import { advanceStageOnInboundReply } from '@/lib/pipeline/advance-on-reply'
 
 export type IngestLead = {
   id: string
@@ -268,6 +269,18 @@ export async function persistGhlMessage(
       await applyConsentKeyword(supabase, organizationId, lead.id, n.createdAt, false)
       consentChanged = true
     }
+  }
+
+  // A real inbound reply must lift the lead out of the un-worked queue ("No
+  // Communication" / "New Lead") into Engaged so the status pill and board stop
+  // reading "never heard from them" while the reply sits in the thread. Skip
+  // consent keywords (STOP/START) — those are opt-out/opt-in, not engagement.
+  if (n.direction === 'inbound' && !consentChanged) {
+    await advanceStageOnInboundReply(supabase, {
+      leadId: lead.id,
+      organizationId,
+      channel,
+    })
   }
 
   return { status: 'inserted', conversationId, consentChanged }
