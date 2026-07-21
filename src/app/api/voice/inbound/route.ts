@@ -258,6 +258,7 @@ export async function POST(req: NextRequest) {
         voiceCallId: vcId,
         leadId: ctx.leadId,
         leadName,
+        greeting: ctx.settings.greeting,
       }))
     }
 

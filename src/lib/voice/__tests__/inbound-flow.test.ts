@@ -30,6 +30,7 @@ describe('inboundSettingsFromOrg', () => {
       inbound_ai_after_hours: true,
       inbound_ring_seconds: 30,
       inbound_voicemail_greeting: 'Hi!',
+      inbound_greeting: 'Welcome!',
     })
     expect(s).toEqual({
       mode: 'ring_agents',
@@ -37,6 +38,7 @@ describe('inboundSettingsFromOrg', () => {
       aiAfterHours: true,
       ringSeconds: 30,
       voicemailGreeting: 'Hi!',
+      greeting: 'Welcome!',
     })
   })
 
@@ -85,6 +87,29 @@ describe('ringAgentsTwiml', () => {
     })
     expect(xml).not.toContain('<Number></Number>')
     expect(xml).toContain('<Number>+14155550100</Number>')
+  })
+
+  it('answers with the greeting before ringing, and drops answerOnBridge so the upstream forward is connected', () => {
+    // The <Say> answers the parent leg immediately — a forwarding carrier
+    // (e.g. GHL) then can't pull the call back to its own voicemail while
+    // agents ring. answerOnBridge would be meaningless on an answered call.
+    const xml = ringAgentsTwiml({
+      ...base,
+      greeting: 'Welcome to Dion Health & friends',
+      targets: [{ id: 't1', kind: 'phone', destination: '+14155550100', user_id: null, name: 'Desk' }],
+    })
+    expect(xml).toContain('<Say voice="Polly.Joanna-Neural">Welcome to Dion Health &amp; friends</Say>')
+    expect(xml.indexOf('<Say')).toBeLessThan(xml.indexOf('<Dial'))
+    expect(xml).not.toContain('answerOnBridge')
+  })
+
+  it('keeps ring-tone passthrough (answerOnBridge) when no greeting is configured', () => {
+    const xml = ringAgentsTwiml({
+      ...base,
+      targets: [{ id: 't1', kind: 'phone', destination: '+14155550100', user_id: null, name: 'Desk' }],
+    })
+    expect(xml).toContain('answerOnBridge="true"')
+    expect(xml).not.toContain('<Say')
   })
 
   it('XML-escapes a lead name that would otherwise break the document', () => {

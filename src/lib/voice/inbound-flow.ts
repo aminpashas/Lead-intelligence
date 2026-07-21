@@ -37,6 +37,7 @@ export type InboundSettings = {
   aiAfterHours: boolean
   ringSeconds: number
   voicemailGreeting: string | null
+  greeting: string | null
 }
 
 const DEFAULT_SETTINGS: InboundSettings = {
@@ -45,6 +46,7 @@ const DEFAULT_SETTINGS: InboundSettings = {
   aiAfterHours: false,
   ringSeconds: 20,
   voicemailGreeting: null,
+  greeting: null,
 }
 
 /** Read the inbound policy off an organizations row (tolerant of missing columns). */
@@ -56,6 +58,7 @@ export function inboundSettingsFromOrg(org: Record<string, unknown> | null): Inb
     aiAfterHours: org.inbound_ai_after_hours === true,
     ringSeconds: Math.max(5, Math.min(60, Number(org.inbound_ring_seconds) || 20)),
     voicemailGreeting: (org.inbound_voicemail_greeting as string | null) || null,
+    greeting: (org.inbound_greeting as string | null) || null,
   }
 }
 
@@ -466,8 +469,13 @@ export function ringAgentsTwiml(params: {
   voiceCallId: string
   leadId: string | null
   leadName: string
+  /** Answered-greeting played before the ring. Also defeats the forwarding
+   *  carrier's no-answer pullback (e.g. GHL voicemail): a <Say> answers the
+   *  parent leg, so the upstream forward is "connected" before agents ring. */
+  greeting?: string | null
 }): string {
   const { targets, ringSeconds, actionUrl, voiceCallId, leadId, leadName } = params
+  const greeting = params.greeting?.trim()
   const legs = targets.map((t) => {
     if (t.kind === 'softphone_user' && t.user_id) {
       return [
@@ -485,8 +493,12 @@ export function ringAgentsTwiml(params: {
     return t.destination ? `    <Number>${xmlEscape(t.destination)}</Number>` : ''
   }).filter(Boolean).join('\n')
 
+  // With a greeting the call is answered before the <Dial>, so answerOnBridge
+  // no longer applies; without one, keep ring-tone passthrough as before.
+  const say = greeting ? `  <Say voice="Polly.Joanna-Neural">${xmlEscape(greeting)}</Say>\n` : ''
+  const bridge = greeting ? '' : ' answerOnBridge="true"'
   return twimlResponse(
-    `\n  <Dial timeout="${ringSeconds}" answerOnBridge="true" action="${xmlEscape(actionUrl)}" method="POST">\n${legs}\n  </Dial>\n`
+    `\n${say}  <Dial timeout="${ringSeconds}"${bridge} action="${xmlEscape(actionUrl)}" method="POST">\n${legs}\n  </Dial>\n`
   )
 }
 
