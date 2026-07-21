@@ -14,6 +14,7 @@
 
 import { ghlFetch, ghlPost } from './client'
 import type { GhlConfig } from './types'
+import { stripEmailUnsubscribeFooter } from '@/lib/messaging/email-cleanup'
 
 /** GHL Conversations API is versioned separately from the opportunities API. */
 const CONVERSATIONS_VERSION = '2021-04-15'
@@ -317,7 +318,10 @@ export function normalizeGhlMessage(msg: GhlMessage): NormalizedGhlMessage | nul
     externalId: `ghl_msg:${msg.id}`,
     channel,
     direction: mapGhlDirection(msg.direction),
-    body,
+    // GHL mirrors the recipient's unsubscribe footer (host services.msgsndr.com)
+    // into the plaintext body; strip it so stored bodies stay clean for the
+    // thread, AI context, and search. No-op on anything but a GHL email.
+    body: stripEmailUnsubscribeFooter(body),
     subject: msg.subject?.trim() || null,
     attachments,
     sourceType: msg.messageType ?? null,

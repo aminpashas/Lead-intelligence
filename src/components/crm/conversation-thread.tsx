@@ -53,6 +53,7 @@ import { toast } from 'sonner'
 // *marketing* channel (paid social, organic…). Import the registry's metadata
 // accessor instead of aliasing, so the two never get confused at a call site.
 import { channelMeta, type ConversationChannel } from '@/lib/channels'
+import { stripEmailUnsubscribeFooter } from '@/lib/messaging/email-cleanup'
 import { ChannelIcon } from '@/components/crm/channel-icon'
 import type { Conversation, Message, Lead, AgentType, VoiceCall, ConversationAnalysis, PatientProfile, PipelineStage } from '@/types/database'
 import { AgentMessageLabel } from './agent-indicator'
@@ -1461,9 +1462,15 @@ function MessageGroup({ messages, lead, timeZone }: { messages: Message[]; lead:
                     {msg.subject}
                   </p>
                 )}
-                {msg.body && (
-                  <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55]">{msg.body}</p>
-                )}
+                {(() => {
+                  // Older GHL-mirrored emails still carry the raw unsubscribe
+                  // footer in their stored body; strip it at render so historic
+                  // rows read cleanly even before the backfill reaches them.
+                  const text = isEmail ? stripEmailUnsubscribeFooter(msg.body) : msg.body
+                  return text ? (
+                    <p className="whitespace-pre-wrap text-[13.5px] leading-[1.55]">{text}</p>
+                  ) : null
+                })()}
                 {/* Attachments — social DMs are often a photo with no text at
                     all (a patient sending a picture of their teeth), so the
                     bubble has to stand on the image alone. */}
