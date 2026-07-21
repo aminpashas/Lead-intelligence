@@ -127,6 +127,21 @@ async function executeOneStep(
   if (step.exit_condition) {
     const shouldExit = evaluateExitCondition(step.exit_condition, lead, enrollment)
     if (shouldExit) {
+      // An active enrollment is also the AI's send authorization
+      // (resolveActiveCampaignPolicy only counts status='active'). For an
+      // AI-enabled campaign, the exit condition firing means the lead engaged —
+      // exactly when the AI setter must keep the conversation. So stop the
+      // step sequence (next_step_at=null → never picked up again) but keep the
+      // enrollment active as the policy carrier.
+      if (campaign.ai_enabled) {
+        await supabase.from('campaign_enrollments').update({
+          next_step_at: null,
+          exit_reason: 'Exit condition met — steps stopped, AI owns the conversation',
+        }).eq('id', enrollment.id)
+
+        return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'completed', detail: 'Exit condition met — enrollment kept active for AI authorization' }
+      }
+
       await supabase.from('campaign_enrollments').update({
         status: 'exited',
         exited_at: new Date().toISOString(),
