@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   inboundSettingsFromOrg,
   ringAgentsTwiml,
   voicemailTwiml,
   retellSipTwiml,
+  resolveOfficeManagerTarget,
 } from '@/lib/voice/inbound-flow'
 
 /**
@@ -153,5 +155,40 @@ describe('retellSipTwiml', () => {
     expect(retellSipTwiml('call_123')).toContain(
       '<Sip>sip:call_123@sip.retellai.com;transport=tcp</Sip>'
     )
+  })
+})
+
+describe('resolveOfficeManagerTarget', () => {
+  // Chainable stub: records filters and yields whatever `row` is set to.
+  function makeSupabase(row: unknown, capture?: (f: Record<string, unknown>) => void): SupabaseClient {
+    const f: Record<string, unknown> = { eq: {}, contains: [] as unknown[] }
+    const b: Record<string, unknown> = {}
+    Object.assign(b, {
+      select: () => b,
+      eq: (col: string, val: unknown) => { (f.eq as Record<string, unknown>)[col] = val; return b },
+      contains: (_c: string, val: unknown) => { (f.contains as unknown[]).push(val); return b },
+      limit: () => b,
+      maybeSingle: () => { capture?.(f); return Promise.resolve({ data: row }) },
+    })
+    return { from: () => b } as unknown as SupabaseClient
+  }
+
+  it('returns the target tagged as the existing-patient route', async () => {
+    let filters: Record<string, unknown> = {}
+    const supabase = makeSupabase(
+      { id: 't-om', kind: 'phone', destination: '+14155559999', user_id: null, name: 'Kirsten', metadata: { purpose: 'existing_patient' } },
+      (f) => { filters = f },
+    )
+    const target = await resolveOfficeManagerTarget(supabase, 'org-1')
+    expect(target).toEqual({ id: 't-om', kind: 'phone', destination: '+14155559999', user_id: null, name: 'Kirsten' })
+    // Must scope to active + on-duty and filter by the metadata purpose tag.
+    expect((filters.eq as Record<string, unknown>).active).toBe(true)
+    expect((filters.eq as Record<string, unknown>).on_duty).toBe(true)
+    expect(filters.contains).toContainEqual({ purpose: 'existing_patient' })
+  })
+
+  it('returns null when no office-manager target is configured', async () => {
+    const supabase = makeSupabase(null)
+    expect(await resolveOfficeManagerTarget(supabase, 'org-1')).toBeNull()
   })
 })
