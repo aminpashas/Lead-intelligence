@@ -117,8 +117,14 @@ export function CampaignBuilder({
   const isEditing = !!editingCampaign
 
   const [saving, setSaving] = useState(false)
-  // Index of the step whose "Send test to me" request is in flight (null = none).
+  // Index of the step whose "Send test" request is in flight (null = none).
   const [testingStep, setTestingStep] = useState<number | null>(null)
+  // Shared test destination — a phone (SMS steps) or email (email steps). Blank
+  // ⇒ the test goes to the logged-in staffer's own profile.
+  const [testRecipient, setTestRecipient] = useState('')
+  // Set when the server flags the typed recipient as a saved lead; drives the
+  // "send to a real patient anyway?" confirm dialog.
+  const [leadMatchConfirm, setLeadMatchConfirm] = useState<{ index: number; message: string } | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [type, setType] = useState<string>('drip')
@@ -237,16 +243,17 @@ export function CampaignBuilder({
     setStageIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
   }
 
-  // Send this step to the logged-in staffer's OWN phone/email as a real preview.
-  // The route derives the recipient server-side from the authenticated user — the
-  // body only carries the step's channel + content, never a recipient — so this
-  // can never be aimed at a patient.
-  async function sendTest(index: number) {
+  // Send this step as a real preview — to the typed test number/email, or, when
+  // that field is blank, to the logged-in staffer's own phone/email. Pass
+  // acknowledgeLeadMatch after the user confirms sending to a number/email that
+  // matches a saved lead (the server otherwise refuses with a 409).
+  async function sendTest(index: number, acknowledgeLeadMatch = false) {
     const step = steps[index]
     if (!step.body_template.trim()) {
       toast.error('Add message content before sending a test')
       return
     }
+    const recipient = testRecipient.trim()
     setTestingStep(index)
     try {
       const res = await fetch('/api/campaigns/test-send', {
@@ -256,19 +263,27 @@ export function CampaignBuilder({
           channel: step.channel,
           subject: step.channel === 'email' ? step.subject : undefined,
           body: step.body_template,
+          recipient: recipient || undefined,
+          acknowledgeLeadMatch: acknowledgeLeadMatch || undefined,
         }),
       })
       const data = await res.json().catch(() => ({}))
+      // Typed recipient matches a saved lead — ask before texting a real patient.
+      if (res.status === 409 && data?.code === 'recipient_matches_lead') {
+        setLeadMatchConfirm({ index, message: data.error })
+        return
+      }
       if (!res.ok) {
         toast.error(data?.error || 'Failed to send test')
         return
       }
       const where = data?.recipient_masked ? ` (${data.recipient_masked})` : ''
       const target = step.channel === 'email' ? 'email' : 'phone'
+      const dest = recipient ? `the test ${target}${where}` : `your ${target}${where}`
       if (data?.delivery === 'suppressed') {
-        toast.success(`Test accepted — sending is in test mode, so nothing was delivered to your ${target}${where}`)
+        toast.success(`Test accepted — test mode is on, so nothing was delivered to ${dest}`)
       } else {
-        toast.success(`Test sent to your ${target}${where}`)
+        toast.success(`Test sent to ${dest}`)
       }
     } catch {
       toast.error('Network error — could not send test')
@@ -318,14 +333,21 @@ export function CampaignBuilder({
         }
       )
 
-      if (!res.ok) throw new Error('Failed to save')
+      if (!res.ok) {
+        // Surface the server's reason (403 permission, tier limit, validation)
+        // instead of a blank "failed" — a silent 403 is what hid this for months.
+        const detail = await res.json().catch(() => null)
+        throw new Error(detail?.error || detail?.message || `Request failed (${res.status})`)
+      }
 
       toast.success(isEditing ? 'Campaign updated!' : 'Campaign created!')
       setSnapshot(currentForm()) // clean — no discard prompt on close
       setOpen(false)
       router.refresh()
-    } catch {
-      toast.error(isEditing ? 'Failed to save campaign' : 'Failed to create campaign')
+    } catch (err) {
+      const base = isEditing ? 'Failed to save campaign' : 'Failed to create campaign'
+      const reason = err instanceof Error ? err.message : ''
+      toast.error(reason && reason !== base ? `${base}: ${reason}` : base)
     } finally {
       setSaving(false)
     }
@@ -581,21 +603,32 @@ export function CampaignBuilder({
                       rows={step.channel === 'sms' ? 3 : 5}
                     />
 
-                    <div className="mt-2 flex items-center justify-end">
+                    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                      <Input
+                        value={testRecipient}
+                        onChange={(e) => setTestRecipient(e.target.value)}
+                        placeholder={step.channel === 'email' ? 'Test email (blank = you)' : 'Test number (blank = you)'}
+                        inputMode={step.channel === 'email' ? 'email' : 'tel'}
+                        className="h-8 w-full max-w-[220px]"
+                      />
                       <Button
                         variant="ghost"
                         size="sm"
                         className="gap-1.5 text-aurea-ink-3"
                         onClick={() => sendTest(index)}
                         disabled={testingStep !== null}
-                        title="Sends this step to your own phone/email as a preview — never to a patient"
+                        title={
+                          testRecipient.trim()
+                            ? 'Sends this step as a [TEST] preview to the number/email above'
+                            : 'Sends this step to your own phone/email as a preview'
+                        }
                       >
                         {testingStep === index ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
                           <Send className="h-3.5 w-3.5" />
                         )}
-                        Send test to me
+                        {testRecipient.trim() ? 'Send test' : 'Send test to me'}
                       </Button>
                     </div>
                 </div>
@@ -628,6 +661,21 @@ export function CampaignBuilder({
       cancelLabel="Keep editing"
       destructive
       onConfirm={() => setOpen(false)}
+    />
+
+    <ConfirmDialog
+      open={!!leadMatchConfirm}
+      onOpenChange={(v) => { if (!v) setLeadMatchConfirm(null) }}
+      title="That's a real lead"
+      description={leadMatchConfirm?.message ?? 'This number/email matches a saved lead.'}
+      confirmLabel="Send anyway"
+      cancelLabel="Cancel"
+      destructive
+      onConfirm={() => {
+        const i = leadMatchConfirm?.index
+        setLeadMatchConfirm(null)
+        if (i != null) sendTest(i, true)
+      }}
     />
     </>
   )
