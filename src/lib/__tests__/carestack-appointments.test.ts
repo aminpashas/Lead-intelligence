@@ -55,7 +55,7 @@ describe('CareStack appointment adapter', () => {
     vi.mocked(searchCsPatients).mockResolvedValue([])
     vi.mocked(createCsPatient).mockResolvedValue({ id: 500 })
     vi.mocked(createCsAppointment).mockResolvedValue({
-      id: 9001, patientId: '500', locationId: '10', providerIds: ['20'], startDateTime: '', duration: 60,
+      id: 9001, patientId: '500', locationId: '10', providerIds: ['20'], dateTime: '', duration: 60,
     })
   })
 
@@ -99,7 +99,9 @@ describe('CareStack appointment adapter', () => {
       locationId: '10', // fallback to first location
       providerIds: ['20'], // fallback to first provider, as an array
       duration: 60,
-      startDateTime: '2026-07-10T15:00:00.000Z',
+      // CareStack reads the time from `dateTime` as naive practice-local wall
+      // clock: 15:00Z on 2026-07-10 → 08:00 America/Los_Angeles (PDT), no Z.
+      dateTime: '2026-07-10T08:00:00',
     })
   })
 

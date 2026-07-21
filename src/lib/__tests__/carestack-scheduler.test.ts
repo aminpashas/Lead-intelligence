@@ -57,7 +57,7 @@ describe('CareStack scheduler API', () => {
     const { api } = installFetchMock({ id: 999 })
     const body = {
       patientId: '5', locationId: '1', providerIds: ['2'],
-      startDateTime: '2026-07-10T15:00:00Z', duration: 60,
+      dateTime: '2026-07-10T10:00:00', duration: 60,
     }
     const res = await createCsAppointment(cfg, body)
     const call = api()

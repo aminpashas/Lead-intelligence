@@ -66,7 +66,7 @@ async function runCareStackLeg(
       if (!lead) return { status: 'failed', error: 'lead not found for CareStack patient' }
       const { data: settings } = await supabase
         .from('booking_settings')
-        .select('carestack_location_id, carestack_provider_id, carestack_operatory_id, carestack_appointment_type')
+        .select('carestack_location_id, carestack_provider_id, carestack_operatory_id, carestack_appointment_type, timezone')
         .eq('organization_id', appt.organization_id)
         .maybeSingle()
       const carestackAppointmentId = await pushAppointmentToCareStack(supabase, config, {

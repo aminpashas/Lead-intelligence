@@ -12,10 +12,21 @@ export type CsAppointmentStatus =
   | 'completed' | 'cancelled' | 'no_show' | 'rescheduled'
 
 /**
- * CareStack appointment. Field names verified against the live /sync/appointments
- * response (v1.0.54): the API carries a start + duration (no explicit end), a
- * providerIds ARRAY, and a numeric productionTypeId — NOT scheduledStart/End,
- * providerId, or appointmentType.
+ * CareStack appointment RESOURCE (the /appointments create + GET shape).
+ *
+ * IMPORTANT — the time field name differs by endpoint:
+ *   • The appointment resource (POST/GET /appointments) uses `dateTime`.
+ *   • The /sync/appointments FEED returns the same value under `startDateTime`.
+ * Sending `startDateTime` to the create endpoint is silently ignored — the row
+ * is created (201) but its time defaults to 0001-01-01, so it never appears on
+ * the schedule. Verified live against the account-10300 API (2026-07-21).
+ *
+ * The value is a NAIVE, location-local wall-clock string ("YYYY-MM-DDTHH:mm:ss",
+ * no `Z`, no offset, no milliseconds) — NOT a UTC ISO string. A `…Z` value also
+ * fails to parse and collapses to 0001-01-01.
+ *
+ * Other field names verified live: providerIds ARRAY (not providerId), numeric
+ * productionTypeId (not appointmentType), duration in minutes (no explicit end).
  */
 export interface CsAppointment {
   id?: string | number
@@ -23,7 +34,7 @@ export interface CsAppointment {
   locationId: string | number
   providerIds: Array<string | number>
   operatoryId?: string | number
-  startDateTime: string            // ISO 8601
+  dateTime: string                 // naive location-local wall clock, YYYY-MM-DDTHH:mm:ss
   duration: number                 // minutes
   productionTypeId?: string | number
   status?: string

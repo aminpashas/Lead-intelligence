@@ -11,6 +11,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { decryptField } from '@/lib/encryption'
+import { getZonedParts } from '@/lib/booking/timezone'
 import type { CareStackConfig } from './client'
 import {
   getCsLocations,
@@ -35,6 +36,22 @@ export type CareStackBookingDefaults = {
   carestack_provider_id?: string | null
   carestack_operatory_id?: string | null
   carestack_appointment_type?: string | null
+  /** Practice IANA timezone (booking_settings.timezone) — the CareStack appointment
+   *  time must be sent as this zone's wall clock, not UTC. */
+  timezone?: string | null
+}
+
+/**
+ * Format a UTC `scheduled_at` as CareStack's expected naive, location-local
+ * wall-clock string ("YYYY-MM-DDTHH:mm:ss"). CareStack's create endpoint reads
+ * the appointment time from `dateTime` in the practice's local zone with no
+ * offset — a UTC ISO string (…Z) is silently dropped and the row lands at
+ * 0001-01-01. Defaults to America/Los_Angeles (all current practices are PT).
+ */
+function toCareStackLocalDateTime(scheduledAtUtc: string, timeZone: string): string {
+  const p = getZonedParts(new Date(scheduledAtUtc), timeZone)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}:00`
 }
 
 function leadPii(lead: LeadRow) {
@@ -159,17 +176,18 @@ export async function pushAppointmentToCareStack(
   ])
   const { patientId, isNew } = await ensureCareStackPatient(supabase, config, appointment.organization_id, lead, locationId)
 
-  const start = new Date(appointment.scheduled_at)
   const duration = appointment.duration_minutes ?? 60
+  // CareStack wants the appointment time as a naive, location-local wall clock in
+  // the `dateTime` field (NOT UTC in `startDateTime` — that silently lands the
+  // row at 0001-01-01). Verified live 2026-07-21.
+  const dateTime = toCareStackLocalDateTime(appointment.scheduled_at, settings.timezone || 'America/Los_Angeles')
 
-  // Field names verified against the live CareStack appointment schema (v1.0.54):
-  // startDateTime + duration (no explicit end), providerIds ARRAY, productionTypeId.
   const created = await createCsAppointment(config, {
     patientId,
     locationId,
     providerIds: [providerId],
     ...(settings.carestack_operatory_id ? { operatoryId: settings.carestack_operatory_id } : {}),
-    startDateTime: start.toISOString(),
+    dateTime,
     duration,
     ...(settings.carestack_appointment_type ? { productionTypeId: settings.carestack_appointment_type } : {}),
     notes: isNew ? 'Online booking (new patient)' : 'Online booking',
