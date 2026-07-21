@@ -77,6 +77,8 @@ export function Softphone() {
     callSeconds,
     endedCall,
     needsContact,
+    acceptIncoming,
+    rejectIncoming,
     hangup,
     toggleMute,
     toggleHold,
@@ -103,11 +105,13 @@ export function Softphone() {
   const [email, setEmail] = useState('')
 
   const inCall = status === 'connecting' || status === 'ringing' || status === 'in_call'
+  const incoming = status === 'incoming'
 
   // Reset the drafts when a brand-new call begins (activeLead flips to a fresh one
-  // while nothing is awaiting disposition).
+  // while nothing is awaiting disposition). Incoming rings count: the lead flips
+  // while status is 'incoming', before the staffer answers.
   useEffect(() => {
-    if (inCall && !endedCall) {
+    if ((inCall || incoming) && !endedCall) {
       setNotes('')
       setNoteLog([])
       setFirstName('')
@@ -227,7 +231,7 @@ export function Softphone() {
   const busy = saving || submittingNote
 
   // Nothing to show when idle and no call is awaiting disposition.
-  if (!inCall && !endedCall) return null
+  if (!inCall && !incoming && !endedCall) return null
 
   const leadName = activeLead
     ? `${activeLead.first_name}${activeLead.last_name ? ` ${activeLead.last_name}` : ''}`
@@ -354,6 +358,38 @@ export function Softphone() {
         expanded ? 'sm:w-[32rem]' : 'sm:w-[22rem]'
       )}
     >
+      {/* ── Incoming call (ring-agents mode) ──────────────────────── */}
+      {incoming && (
+        <div className="p-4">
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/30" />
+              <Phone className="relative h-4 w-4" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-aurea-ink">{leadName}</p>
+              <p className="text-xs text-aurea-ink-3">Incoming call…</p>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              onClick={rejectIncoming}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-red-500 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-red-600"
+            >
+              <PhoneOff className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Decline
+            </button>
+            <button
+              onClick={acceptIncoming}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-600"
+            >
+              <Phone className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Answer
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Live call ─────────────────────────────────────────────── */}
       {inCall && (
         <div className="overflow-y-auto p-4">

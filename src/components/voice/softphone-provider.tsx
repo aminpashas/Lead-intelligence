@@ -36,6 +36,7 @@ function formatDialedNumber(raw: string): string {
 export type SoftphoneStatus =
   | 'offline' // Device not ready (not configured, or still registering)
   | 'idle' // Ready, no active call
+  | 'incoming' // an inbound call is ringing this staffer (ring-agents mode)
   | 'connecting' // prepare + connect in flight
   | 'ringing' // lead's phone ringing
   | 'in_call' // connected
@@ -67,6 +68,10 @@ type SoftphoneContextValue = {
   startCall: (lead: DialableLead) => Promise<void>
   /** Dial an arbitrary typed number (dial-any-number keypad). */
   startCallToNumber: (number: string) => Promise<void>
+  /** Answer the currently ringing inbound call (status === 'incoming'). */
+  acceptIncoming: () => void
+  /** Decline the currently ringing inbound call. */
+  rejectIncoming: () => void
   hangup: () => void
   toggleMute: () => void
   toggleHold: () => void
@@ -105,6 +110,12 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
   // Manual dial to a number with no matching lead → the widget offers a contact form.
   const needsContactRef = useRef(false)
   const activeToNumberRef = useRef<string | null>(null)
+  // Is the current call an INBOUND ring? Unanswered inbound calls (missed, or
+  // answered by a colleague) must not open the mandatory-disposition panel.
+  const incomingRef = useRef(false)
+  // Stable handle so the Device's 'incoming' listener (bound once at device
+  // creation) always calls the latest handler.
+  const handleIncomingRef = useRef<((call: TwilioCall) => void) | null>(null)
   // Mirror of callSeconds so `onEnd` can read the final duration without reaching
   // into a state updater (which can double-run in dev StrictMode).
   const callSecondsRef = useRef(0)
@@ -122,6 +133,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
     setActiveLead(null)
     activeLeadRef.current = null
     answeredRef.current = false
+    incomingRef.current = false
     setMuted(false)
     setHeld(false)
     callSecondsRef.current = 0
@@ -172,6 +184,9 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
       const fresh = await fetchToken()
       if (fresh) device.updateToken(fresh)
     })
+    // Inbound ring-agents mode dials this staffer as a <Client> leg; the SDK
+    // plays its incoming ringtone and we surface Answer/Decline in the widget.
+    device.on('incoming', (call: TwilioCall) => handleIncomingRef.current?.(call))
 
     deviceRef.current = device
     await device.register()
@@ -222,8 +237,13 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         const lead = activeLeadRef.current
         const callId = activeCallIdRef.current
         const answered = answeredRef.current
+        const incoming = incomingRef.current
         const secs = callSecondsRef.current
-        if (lead && callId) {
+        // An inbound ring this staffer never answered (missed, declined, or a
+        // colleague picked up) is not their call to disposition — the server's
+        // dial-result webhook owns that record. Only answered inbound calls (and
+        // every outbound call, as before) open the write-up panel.
+        if (lead && callId && (!incoming || answered)) {
           setEndedCall({
             callId,
             lead,
@@ -240,7 +260,15 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         resetCallState()
       }
       call.on('disconnect', onEnd)
-      call.on('cancel', onEnd)
+      call.on('cancel', () => {
+        // For an inbound ring, 'cancel' means the caller hung up or another
+        // agent won the simultaneous ring — tell the staffer why it vanished.
+        if (incomingRef.current && !answeredRef.current) {
+          const name = activeLeadRef.current?.first_name || 'caller'
+          toast.info(`Call from ${name} ended or was answered by a teammate`)
+        }
+        onEnd()
+      })
       call.on('reject', onEnd)
       call.on('error', (err: { message?: string }) => {
          
@@ -275,6 +303,7 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
       setActiveLead(display)
       activeLeadRef.current = display
       answeredRef.current = false
+      incomingRef.current = false
       needsContactRef.current = false
       setNeedsContact(false)
       activeToNumberRef.current = 'to' in prepareBody ? prepareBody.to : null
@@ -316,6 +345,63 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
     },
     [status, ensureDevice, attachCallListeners, resetCallState]
   )
+
+  /**
+   * An inbound <Client> leg is ringing this staffer. The TwiML's custom
+   * parameters (see ringAgentsTwiml) carry the voice_calls row id + lead info so
+   * an answered call can be dispositioned against the right record.
+   */
+  const handleIncoming = useCallback(
+    (call: TwilioCall) => {
+      // Already on (or ringing on) a call → decline so Twilio moves on without
+      // yanking this staffer's current conversation.
+      if (callRef.current) {
+        call.reject()
+        return
+      }
+      const p = call.customParameters
+      const vcId = p.get('voiceCallId') || null
+      const leadId = p.get('leadId') || null
+      const leadName = p.get('leadName') || ''
+      const fromNumber = (call.parameters as Record<string, string> | undefined)?.From || ''
+      const display: DialableLead = {
+        id: leadId || `incoming:${fromNumber || 'unknown'}`,
+        first_name: leadName || (fromNumber ? formatDialedNumber(fromNumber) : 'Incoming call'),
+        last_name: null,
+      }
+
+      incomingRef.current = true
+      answeredRef.current = false
+      needsContactRef.current = false
+      setNeedsContact(false)
+      activeToNumberRef.current = null
+      activeCallIdRef.current = vcId
+      setEndedCall(null)
+      callRef.current = call
+      setActiveLead(display)
+      activeLeadRef.current = display
+      setStatus('incoming')
+      attachCallListeners(call)
+    },
+    [attachCallListeners]
+  )
+
+  // The Device's 'incoming' listener is bound once at creation; route it through
+  // a ref so it always sees the latest handler (and its fresh closures).
+  useEffect(() => {
+    handleIncomingRef.current = handleIncoming
+  }, [handleIncoming])
+
+  const acceptIncoming = useCallback(() => {
+    if (!incomingRef.current) return
+    callRef.current?.accept()
+  }, [])
+
+  const rejectIncoming = useCallback(() => {
+    if (!incomingRef.current) return
+    // The SDK fires 'reject' on the call, which runs onEnd → resets the widget.
+    callRef.current?.reject()
+  }, [])
 
   const startCall = useCallback(
     (lead: DialableLead) => dial(lead, { lead_id: lead.id }),
@@ -404,6 +490,8 @@ export function SoftphoneProvider({ children }: { children: React.ReactNode }) {
         needsContact,
         startCall,
         startCallToNumber,
+        acceptIncoming,
+        rejectIncoming,
         hangup,
         toggleMute,
         toggleHold,
