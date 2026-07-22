@@ -28,6 +28,16 @@ It ignored the actual referral signals that were present:
 landing path is a referring-doctor form), resolve `channel: "referral"`, not
 `direct`. Confidence can stay modest — the point is the *bucket*.
 
+> ✅ **DONE 2026-07-21** — dion-growth-studio `550143e`. Root cause confirmed at
+> `supabase/functions/resolve-lead-attribution/index.ts`: the referral branch
+> required `medium === "referral"` OR a dotted-domain source, so
+> `doctor_referral` + `"Direct traffic"` matched neither and fell through to the
+> `direct` / 0.30 default. Added a `referr` token check over utm_source +
+> utm_campaign; self-referral guard and paid-branch precedence unchanged.
+> ⚠️ **This is a Supabase edge function — it does NOT take effect until
+> `supabase functions deploy resolve-lead-attribution` is run.** There is no CI
+> workflow deploying it.
+
 > LI mitigation already shipped (commit on `main`): `reconcileChannel` now
 > overrides a **low-confidence (≤ 0.4) `direct`** from DGS when the flat utm
 > signals name something more specific, stamping `source_system:
@@ -41,7 +51,16 @@ UTMs. The rich GHL contact custom fields — **referring doctor, referring
 practice + contact, referral reason, clinical note, DOB** — were dropped, so LI
 had nothing to show or score on.
 
-**Ask:** map the GHL contact custom fields onto the `custom_fields` object in the
+**Confirmed 2026-07-21 by reading the DGS repo — this is deeper than a mapping
+miss.** `lib/bridges/lead-intelligence.ts` has **no `custom_fields` field at all**
+in its payload interface, and DGS stores no GHL custom fields anywhere: the only
+`custom_fields` handling in the repo is in `ingest-whatconverts` (pulling `gclid`
+out of WhatConverts' own `additional_fields`). So the referral detail never
+reaches DGS in the first place. The missing hop is **GHL → DGS ingestion**;
+DGS → LI forwarding is a second step that only helps once the data is there.
+
+**Ask (two parts):** (1) ingest the GHL contact custom fields onto the DGS
+inbound-lead record; (2) map them onto a `custom_fields` object in the
 `/api/v1/leads` body. LI **already accepts and persists** these (allow-listed):
 
 | `custom_fields` key          | Example value                                             |
