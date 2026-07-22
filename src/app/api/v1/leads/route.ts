@@ -43,6 +43,7 @@ import { leadDisplayName } from '@/lib/leads/display-name'
 import { classifyTestOrSpamLead, spamDisqualifiedReason } from '@/lib/leads/test-spam-contact'
 import { routedIntakeStageSlug } from '@/lib/leads/intake-routing'
 import { serviceLineFromIntakeSignals, serviceLineTag } from '@/lib/leads/service-line'
+import { sanitizeCustomFields, mergeCustomFields } from '@/lib/leads/custom-fields'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -493,6 +494,15 @@ export async function POST(request: NextRequest) {
   })
   const intakeServiceTag = intakeServiceLine ? serviceLineTag(intakeServiceLine) : null
 
+  // Referral / clinical custom fields the bridge carries (e.g. a doctor-referral
+  // GHL form: referring dentist, practice, reason, clinical note). Allow-listed,
+  // then merged so the intake-derived service line still wins. Previously these
+  // were dropped, leaving referral leads as blank records.
+  const mergedCustomFields = mergeCustomFields(
+    sanitizeCustomFields((body as Record<string, unknown>)?.custom_fields),
+    intakeServiceLine,
+  )
+
   // Upstream sends `full_name` = the phone number when the contact has no name,
   // and `splitName` above dutifully spreads it across the two name columns —
   // which is how "Hi (925)," reaches a patient. Scrub at the persistence
@@ -536,7 +546,7 @@ export async function POST(request: NextRequest) {
     ...(referrer_url ? { referrer_url } : {}),
     ...(campaignAttribution ? { campaign_attribution: campaignAttribution } : {}),
     ...(external_ref ? { external_ref } : {}),
-    ...(intakeServiceLine ? { custom_fields: { treatment_interest: intakeServiceLine } } : {}),
+    ...(mergedCustomFields ? { custom_fields: mergedCustomFields } : {}),
     ...(nameTags.length ? { tags: nameTags } : {}),
   })
 
