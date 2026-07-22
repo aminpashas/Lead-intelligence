@@ -427,6 +427,10 @@ export function ConversationThread({
   // Live phone-call state (ongoing-call indicator + streaming transcript).
   const live = useLiveCall(lead.id)
 
+  // Nothing to show in the message band at all. Drives the band's alignment:
+  // an empty thread centres its placeholder, a populated one hugs the composer.
+  const threadIsEmpty = messages.length === 0 && calls.length === 0 && live.status === 'idle'
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -805,8 +809,17 @@ export function ConversationThread({
       {conversation && <SlaCountdown conversationId={conversation.id} />}
 
       {/* ── Messages ───────────────────────────────────────── */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto bg-aurea-canvas px-4 py-5 lg:px-6">
-        <div className="mx-auto w-full max-w-[720px] space-y-5">
+      {/* The band is a column flexbox purely so the auto margins below can place
+          a short thread. `mt-auto` (not `justify-end`) does the bottom-anchoring:
+          justify-end on a scroll container makes the overflowed top unreachable
+          in Chrome/Safari, whereas an auto margin collapses to 0 once the content
+          is taller than the band and scrolls normally. */}
+      <div ref={scrollRef} className="flex flex-1 flex-col overflow-y-auto bg-aurea-canvas px-4 py-5 lg:px-6">
+        <div
+          className={`mx-auto w-full max-w-[720px] space-y-5 ${
+            threadIsEmpty ? 'my-auto' : 'mt-auto'
+          }`}
+        >
           {thread.map((item) =>
             item.type === 'day' ? (
               <div key={item.key} className="flex items-center gap-4 pt-2">
@@ -821,7 +834,7 @@ export function ConversationThread({
             )
           )}
 
-          {messages.length === 0 && calls.length === 0 && live.status === 'idle' && (
+          {threadIsEmpty && (
             <div className="flex flex-col items-center py-16 text-center">
               <MessageSquare className="mb-3 h-7 w-7 text-aurea-ink-3" strokeWidth={1.5} />
               <p className="text-[14px] font-medium text-aurea-ink">No messages yet</p>
