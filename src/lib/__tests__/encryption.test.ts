@@ -86,7 +86,12 @@ describe('encryptLeadPII / decryptLeadPII', () => {
     expect(encrypted.email).toMatch(/^enc::/)
     expect(encrypted.phone).toMatch(/^enc::/)
     expect(encrypted.phone_formatted).toMatch(/^enc::/)
-    expect(encrypted.date_of_birth).toMatch(/^enc::/)
+
+    // date_of_birth is the documented exception: `leads.date_of_birth` is a
+    // Postgres `date` column, so it cannot physically hold `enc::` ciphertext —
+    // encrypting it would make the DB reject the write. It passes through as a
+    // plain date (the same exclusion the encryption backfill script applies).
+    expect(encrypted.date_of_birth).toBe('1985-03-15')
 
     // Decrypt roundtrip
     const decrypted = decryptLeadPII(encrypted)
