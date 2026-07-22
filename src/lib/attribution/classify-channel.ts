@@ -103,8 +103,15 @@ export function classifyChannelFromUtm(s: UtmSignals): ClassifiedChannel | null 
   if (/reddit/.test(source)) return hit('social_reddit')
   if (/youtube/.test(source)) return hit('social_youtube')
 
-  // --- Referral: explicit referral medium, or a bare domain as the source. ---
-  if (medium === 'referral' || (/\.[a-z]{2,}(\/|$)/.test(source) && !SEARCH_ENGINE.test(source))) {
+  // --- Referral: explicit referral medium, a "referral" token in the source or
+  //     campaign (doctor-referral web forms arrive as utm_source=doctor_referral
+  //     / utm_campaign=doctor_referral_form, often with medium="Direct traffic" —
+  //     DGS mislabels those `direct`), or a bare domain as the source. ---
+  if (
+    medium === 'referral' ||
+    /referr/.test(hay) ||
+    (/\.[a-z]{2,}(\/|$)/.test(source) && !SEARCH_ENGINE.test(source))
+  ) {
     return hit('referral')
   }
 

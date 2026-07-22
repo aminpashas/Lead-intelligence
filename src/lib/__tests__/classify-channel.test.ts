@@ -67,6 +67,18 @@ describe('classifyChannelFromUtm', () => {
     expect(channelOf({ utm_source: 'sfdentistry.com' })).toBe('referral')
   })
 
+  it('maps a doctor-referral form to referral even when the medium says "Direct traffic"', () => {
+    // Real row: a referring-dentist web form. DGS keyed on utm_medium="Direct
+    // traffic" and mislabelled it `direct`; the referral intent lives in the
+    // utm_source / utm_campaign, which is what we must catch.
+    expect(channelOf({
+      utm_source: 'doctor_referral',
+      utm_medium: 'Direct traffic',
+      utm_campaign: 'doctor_referral_form',
+    })).toBe('referral')
+    expect(channelOf({ utm_campaign: 'doctor_referral_form' })).toBe('referral')
+  })
+
   it('resolves explicit and empty signals to direct', () => {
     expect(channelOf({ utm_source: '(direct)', utm_medium: '(none)' })).toBe('direct')
     expect(channelOf({})).toBe('direct')
