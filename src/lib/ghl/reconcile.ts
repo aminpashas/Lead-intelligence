@@ -22,6 +22,7 @@ import { serviceLineFromPipelineName, serviceLineTag } from '@/lib/leads/service
 // Single source of truth for the "still new?" window — the guard here and the
 // parkAgedNewLeads backstop must agree, or they fight over the same leads.
 import { newLeadMaxAgeDays } from '@/lib/pipeline/unstale-new-stage'
+import { isOffFunnelStage } from '@/lib/pipeline/stage-groups'
 import type { GhlConfig } from './types'
 
 /**
@@ -74,6 +75,22 @@ const PRESERVED: Array<{ slug: LiStageSlug; name: string }> = [
  * buckets are guarded.
  */
 const DEMOTING_SLUGS: ReadonlySet<LiStageSlug> = new Set(['no-communication', 'new', 'contacted'])
+
+/**
+ * True when a GHL stage write would drag a lead OUT of an off-funnel parking
+ * stage (existing-patient / junk) and back into the sales funnel.
+ *
+ * Parking is LI's call on evidence GHL does not have: a CareStack visit that
+ * predates the enquiry, or caller-ID noise. GHL only ever sees its own
+ * opportunity label, so it must not overrule the park. Without this guard the
+ * nightly reconcile un-parks and the hourly off-funnel sweep re-parks the same
+ * rows forever — the identical tug-of-war `resurrectsAged` exists to prevent.
+ *
+ * Pure so the guard is unit-testable without GHL/DB I/O.
+ */
+export function unparksOffFunnel(currentStageSlug: string | null | undefined): boolean {
+  return isOffFunnelStage(currentStageSlug)
+}
 
 /** Engagement signals carried on the lead row (cheap — no join). */
 export type LeadEngagement = {
@@ -283,6 +300,10 @@ export async function reconcileGhlStages(
   const log = opts.log ?? (() => {})
 
   const slugToId = await loadStageMap(supabase, organizationId, dryRun)
+  // Reverse map so the write phase can ask what stage a lead is currently IN
+  // (the off-funnel parking guard needs the source stage, not just the target).
+  const idToSlug = new Map<string, string>()
+  for (const [slug, id] of slugToId) idToSlug.set(id, slug)
 
   // Reconcile ALL pipelines in the location. A stage reconcile only ever maps
   // onto leads that already exist (unmapped stages + unmatched opps are skipped),
@@ -452,9 +473,18 @@ export async function reconcileGhlStages(
     // resurrect an aged lead into New Lead. Without this the reconcile and
     // parkAgedNewLeads tug the same rows back and forth every night.
     const resurrectsAged = effectiveSlug === 'new' && plan.aged
+    // 105 of the 426 parked leads carry a GHL opportunity, so without this they
+    // bounce back into the funnel nightly and the sweep re-parks them hourly.
+    const unparks = unparksOffFunnel(idToSlug.get(plan.currentStageId ?? ''))
     const update: Record<string, unknown> = {}
     let stageSlug: string | undefined
-    if (targetStageId && targetStageId !== plan.currentStageId && !demotesEngaged && !resurrectsAged) {
+    if (
+      targetStageId &&
+      targetStageId !== plan.currentStageId &&
+      !demotesEngaged &&
+      !resurrectsAged &&
+      !unparks
+    ) {
       update.stage_id = targetStageId
       stageSlug = effectiveSlug
       stageChanges += 1
