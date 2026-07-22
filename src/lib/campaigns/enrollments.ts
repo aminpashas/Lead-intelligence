@@ -239,6 +239,21 @@ export async function autoEnrollLeads(
     .in('id', leadIds)
     .not('status', 'in', '("disqualified","lost","completed")')
 
+  // Existing patients are the front desk's, not the sales setter's. This is a
+  // FLOOR, not a per-campaign opt-in: `is_existing_patient` was already an
+  // available criterion, but none of the live campaigns set it, so every
+  // "New Leads — …" AI-setter campaign would happily enroll a patient who is
+  // mid-treatment. A campaign that genuinely targets patients (the "Existing
+  // Patients — Inbound" list) opts back in by asking for them explicitly.
+  //
+  // Note this is enforced here and not in resolveSmartListLeads: that resolver
+  // also backs the Smart List *views*, and silently hiding leads from a list
+  // the user is looking at is a different (and worse) behaviour than declining
+  // to auto-outreach them.
+  if (criteria.is_existing_patient !== true) {
+    safety = safety.eq('is_existing_patient', false)
+  }
+
   // Consent is assumed — the only safety exclusion is a per-channel opt-out (DND).
   if (campaign.channel === 'sms') {
     safety = safety.eq('sms_opt_out', false)

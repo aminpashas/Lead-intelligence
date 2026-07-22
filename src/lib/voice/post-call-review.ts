@@ -265,10 +265,24 @@ export type ReviewCallInput = {
   currentOutcome?: VoiceCallOutcome | null
 }
 
-/** One Claude pass over the transcript. Returns null on any failure — never throws. */
-export async function reviewCallWithAI(input: ReviewCallInput): Promise<CallReview | null> {
+/**
+ * Outcome of one review attempt. The distinction between `failed` and `skipped`
+ * is load-bearing: a call the model never got to look at MUST NOT be recorded as
+ * reviewed-and-clean. Collapsing both into `null` meant an Anthropic outage (or a
+ * spend cap) silently stamped review_status='clear' across every call it touched,
+ * burying real broken_promise findings behind a green check.
+ */
+export type ReviewAttempt =
+  | { status: 'ok'; review: CallReview }
+  /** Nothing to grade — transcript below the review floor. A settled, honest state. */
+  | { status: 'skipped' }
+  /** The model call or its parse failed. The call is UNREVIEWED; retry it later. */
+  | { status: 'failed'; reason: string }
+
+/** One Claude pass over the transcript. Never throws. */
+export async function reviewCallWithAI(input: ReviewCallInput): Promise<ReviewAttempt> {
   const text = (input.transcript || '').trim()
-  if (text.length < MIN_REVIEW_TRANSCRIPT_CHARS) return null
+  if (text.length < MIN_REVIEW_TRANSCRIPT_CHARS) return { status: 'skipped' }
   try {
     const response = await getAnthropic().messages.create({
       model: REVIEW_MODEL,
@@ -289,12 +303,16 @@ export async function reviewCallWithAI(input: ReviewCallInput): Promise<CallRevi
       .filter((c) => c.type === 'text')
       .map((c) => (c.type === 'text' ? c.text : ''))
       .join('\n')
-    return parseCallReview(raw)
+    const parsed = parseCallReview(raw)
+    // Unparseable output is a failed review, not a clean one — the model may well
+    // have found something and simply framed it wrong.
+    return parsed
+      ? { status: 'ok', review: parsed }
+      : { status: 'failed', reason: 'unparseable model output' }
   } catch (err) {
-    logger.warn('PostCallReview: AI review failed', {
-      error: err instanceof Error ? err.message : String(err),
-    })
-    return null
+    const reason = err instanceof Error ? err.message : String(err)
+    logger.warn('PostCallReview: AI review failed', { error: reason })
+    return { status: 'failed', reason }
   }
 }
 
@@ -559,7 +577,7 @@ export async function runPostCallReview(
       return
     }
 
-    const review = await reviewCallWithAI({
+    const attempt = await reviewCallWithAI({
       transcript: input.transcript,
       direction: input.direction,
       durationSeconds: input.durationSeconds,
@@ -567,15 +585,33 @@ export async function runPostCallReview(
       currentOutcome: input.currentOutcome,
     })
 
-    if (!review) {
-      // No AI verdict: mark reviewed-clear only when the deterministic outcome
-      // already classified the call; otherwise leave it pending for the UI.
+    if (attempt.status === 'failed') {
+      // The model never rendered a verdict. Leave the call PENDING — never 'clear'
+      // — so it stays visible as unreviewed and a later sweep can retry it. Marking
+      // it clear here is how an API outage or a spend cap turns into a silent
+      // amnesty on every call it touches.
+      await supabase
+        .from('voice_calls')
+        .update({ review_status: 'pending' })
+        .eq('id', input.callId)
+      logger.warn('PostCallReview: left pending — review did not run', {
+        call_id: input.callId,
+        reason: attempt.reason,
+      })
+      return
+    }
+
+    if (attempt.status === 'skipped') {
+      // Genuinely nothing to grade (transcript below the floor). Settled: mark clear
+      // when the deterministic layer classified it, else leave it for the UI.
       await supabase
         .from('voice_calls')
         .update({ review_status: input.currentOutcome ? 'clear' : 'pending' })
         .eq('id', input.callId)
       return
     }
+
+    const review = attempt.review
 
     const hasCritical = review.issues.some((i) => i.severity === 'critical')
     const reviewStatus = review.issues.length === 0 ? 'clear' : hasCritical ? 'escalated' : 'flagged'

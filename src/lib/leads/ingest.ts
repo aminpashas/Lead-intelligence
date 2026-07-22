@@ -26,6 +26,7 @@ import {
   type LeadIdentity,
 } from '@/lib/leads/identities'
 import { scrubPhoneNames, NAME_UNKNOWN_TAG } from '@/lib/leads/phone-name'
+import { findExistingPatientByHash, hasVisitBefore } from '@/lib/ehr/patient-lookup'
 import { leadDisplayName } from '@/lib/leads/display-name'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
 
@@ -95,7 +96,13 @@ export type IngestResult = {
  */
 export function buildLeadInsert(
   input: IngestInput,
-  ctx: { sourceId: string | null; stageId: string | null; now?: string },
+  ctx: {
+    sourceId: string | null
+    stageId: string | null
+    now?: string
+    /** CareStack patient this contact matched, when they're an existing patient. */
+    matchedPatientId?: string | null
+  },
 ): Record<string, unknown> {
   const phoneRaw = input.phoneRaw?.trim() || null
   const phoneFormatted = input.phoneFormatted ?? (phoneRaw ? formatToE164(phoneRaw) : null)
@@ -134,6 +141,9 @@ export function buildLeadInsert(
     source_id: ctx.sourceId ?? null,
     notes: input.notes ?? null,
     source_type: input.sourceType ?? input.source ?? null,
+    ...(ctx.matchedPatientId
+      ? { is_existing_patient: true, matched_patient_id: ctx.matchedPatientId }
+      : {}),
     ...(input.status ? { status: input.status } : {}),
     ...(tags && tags.length ? { tags } : {}),
     ...(input.externalRef ? { external_ref: input.externalRef } : {}),
@@ -217,8 +227,50 @@ export async function ingestLead(
     sourceId = src?.id ?? null
   }
 
+  // Existing-patient parking, BEFORE the stage falls back to the default.
+  //
+  // WHY HERE: this check used to live inline in api/v1/leads only, so the four
+  // other capture paths that funnel through this helper (GHL inbound SMS/email,
+  // GHL social DM, Meta Lead Ads, Google Ads) minted existing patients straight
+  // into the sales funnel. Putting it in the shared helper makes the guarantee
+  // structural instead of per-route. Deterministic hash match against the
+  // CareStack mirror — no heuristics, so it never mis-parks a real prospect.
+  //
+  // Off-funnel takes precedence over an explicit `stageId`: an existing patient
+  // belongs to the front desk regardless of what the caller intended.
+  let patientMatch: Awaited<ReturnType<typeof findExistingPatientByHash>> = null
+  try {
+    patientMatch = await findExistingPatientByHash(supabase, input.organizationId, {
+      emailHash: email ? searchHash(email) : null,
+      phoneHash: phoneFormatted ? searchHash(phoneFormatted) : null,
+    })
+  } catch {
+    // Non-fatal: reconciliation must never block capture — fall through.
+  }
+
+  // Only an ESTABLISHED patient (one with a visit predating this enquiry) is
+  // parked. A bare mirror match is not enough: CareStack creates the patient
+  // record at BOOKING, so a prospect who books through LI would otherwise be
+  // re-classified as an existing patient on their very next touch. The flag is
+  // still set on any match — it is harmless and it blocks campaign enrolment —
+  // but the lead stays in the funnel for a human to work.
+  const isEstablishedPatient = patientMatch
+    ? await hasVisitBefore(supabase, patientMatch.patientId, now).catch(() => false)
+    : false
+
   // Explicit stage wins; otherwise fall back to the org's default stage.
   let stageId = input.stageId ?? null
+  if (isEstablishedPatient) {
+    const { data: parkingStage } = await supabase
+      .from('pipeline_stages')
+      .select('id')
+      .eq('organization_id', input.organizationId)
+      .eq('slug', 'existing-patient')
+      .maybeSingle()
+    // No parking stage for this org (migration not run) → leave the stage alone
+    // and let the flag alone carry the signal.
+    stageId = parkingStage?.id ?? stageId
+  }
   if (!stageId) {
     const { data: defaultStage } = await supabase
       .from('pipeline_stages')
@@ -229,7 +281,12 @@ export async function ingestLead(
     stageId = defaultStage?.id ?? null
   }
 
-  const plainRow = buildLeadInsert(input, { sourceId, stageId, now })
+  const plainRow = buildLeadInsert(input, {
+    sourceId,
+    stageId,
+    now,
+    matchedPatientId: patientMatch?.patientId ?? null,
+  })
   const insertData = encryptLeadPII(plainRow)
 
   const { data: lead, error } = await supabase
@@ -284,6 +341,44 @@ export async function ingestLead(
   )
 
   const runPostIngest = async () => {
+    // Link the patient bridge for ANY mirror match — cheap, and it's what lets
+    // the lead detail view show the EHR record.
+    if (patientMatch) {
+      try {
+        const { markLeadAsExistingPatient } = await import('@/lib/ehr/patient-lookup')
+        await markLeadAsExistingPatient(
+          supabase,
+          leadId,
+          input.organizationId,
+          patientMatch.patientId,
+        )
+      } catch {
+        // Best-effort: the flag is already on the inserted row.
+      }
+    }
+
+    // An ESTABLISHED patient is not a sales lead: hand off to the front desk and
+    // skip financial qualification + speed-to-lead entirely (same policy
+    // api/v1/leads applies). A merely-registered match falls through and is
+    // processed as a normal lead — it is still flagged, so campaign enrolment
+    // declines it, but a human can work it.
+    if (isEstablishedPatient && patientMatch) {
+      try {
+        const { enqueueDeskExistingPatientContact } = await import('@/lib/bridges/dion-desk')
+        await enqueueDeskExistingPatientContact(supabase, {
+          organizationId: input.organizationId,
+          leadId,
+          patientId: patientMatch.patientId,
+          matchMethod: patientMatch.matchMethod,
+          sourceType: input.sourceType ?? input.source ?? null,
+          channel: opts.socialNameMatch ? 'social_dm' : 'inbound_message',
+        })
+      } catch {
+        // Best-effort: the hourly rematch cron re-enqueues a dropped hand-off.
+      }
+      return
+    }
+
     // Cheap regex-only financial pre-qualification from any free-text note.
     if (input.notes && input.notes.trim()) {
       try {

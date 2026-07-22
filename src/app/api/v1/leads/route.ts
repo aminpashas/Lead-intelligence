@@ -30,7 +30,11 @@ import { formatToE164 } from '@/lib/leads/phone'
 import { safeParseBody } from '@/lib/body-size'
 import { triggerSpeedToLead } from '@/lib/autopilot/speed-to-lead'
 import { deriveConsentFields } from '@/lib/consent/ingest'
-import { findExistingPatientByHash, markLeadAsExistingPatient } from '@/lib/ehr/patient-lookup'
+import {
+  findExistingPatientByHash,
+  markLeadAsExistingPatient,
+  hasVisitBefore,
+} from '@/lib/ehr/patient-lookup'
 import {
   resolveLeadByIdentity,
   recordLeadIdentities,
@@ -465,7 +469,17 @@ export async function POST(request: NextRequest) {
   // staff "test test" records instead of letting them ride the New-Lead funnel
   // (and fire a staff alert). null → looks like a genuine contact.
   const spamCategory = classifyTestOrSpamLead({ first_name, last_name, notes })
-  const route: 'existing_patient' | 'junk' | 'lead' = patientMatch
+  // A mirror match alone does NOT mean established patient: CareStack creates
+  // the record at BOOKING, so a prospect who books through LI would be parked as
+  // an "existing patient" on their next touch. Parking requires a visit that
+  // predates this enquiry; a bare match still sets the flag below (which blocks
+  // campaign enrolment) but leaves the lead in the funnel.
+  const hasPriorVisit = patientMatch
+    ? await hasVisitBefore(supabase, patientMatch.patientId, new Date().toISOString()).catch(
+        () => false,
+      )
+    : false
+  const route: 'existing_patient' | 'junk' | 'lead' = patientMatch && hasPriorVisit
     ? 'existing_patient'
     : isJunk || spamCategory
       ? 'junk'
@@ -527,7 +541,10 @@ export async function POST(request: NextRequest) {
     phone: phoneRaw || null,
     phone_formatted: phoneFormatted ?? undefined,
     stage_id: stageId,
-    ...(route === 'existing_patient' && patientMatch
+    // Flag on ANY mirror match, not just the parked ones — a registered-but-
+    // never-seen contact stays in the funnel yet must still be excluded from
+    // automated campaign enrolment.
+    ...(patientMatch
       ? { is_existing_patient: true, matched_patient_id: patientMatch.patientId }
       : {}),
     ...(route === 'junk'

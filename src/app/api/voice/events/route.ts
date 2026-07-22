@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { processEncounter, extractFromTranscript } from '@/lib/ai/encounter-processor'
 import { normalizeCallOutcome, runPostCallReview } from '@/lib/voice/post-call-review'
 import { verifyRetellWebhook } from '@/lib/voice/retell-client'
+import { enqueueDeskVoiceTranscript } from '@/lib/bridges/dion-desk'
 import { decryptField, searchHash } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
@@ -358,6 +359,27 @@ export async function POST(req: NextRequest) {
     //    duplicate delivery a no-op. Isolated: failures never strand the
     //    finalized record.
     if (event === 'call_analyzed') {
+      // Buffer the transcript for Dion Desk (ticketing/SLA/escalation owner).
+      // Deduped on the call id, so the reconcile sweep enqueueing the same call
+      // cannot open a second ticket; drained by /api/cron/forward-desk-outbox.
+      if (finalizedCallId && orgId) {
+        try {
+          await enqueueDeskVoiceTranscript(supabase, {
+            organizationId: orgId,
+            callId: finalizedCallId,
+            leadId,
+            // Already direction-swapped upstream (see rawPatientNumber above).
+            patientNumber: rawPatientNumber ?? null,
+            practiceNumber: rawPracticeNumber ?? null,
+            transcript,
+            direction,
+            twilioCallSid: (callMetadata.twilio_call_sid as string) || null,
+          })
+        } catch (deskErr) {
+          console.error('[Voice Events] Desk enqueue failed (non-fatal):', deskErr)
+        }
+      }
+
       try {
         let alreadyReviewed = false
         if (finalizedCallId) {

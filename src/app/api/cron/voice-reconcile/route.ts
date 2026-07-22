@@ -12,10 +12,19 @@
  *
  * This sweep is the safety net: for every active-status row older than the grace
  * window, we ask the source of truth (Retell for AI calls, Twilio for softphone
- * calls) whether the call has actually ended, and finalize the record if so. It is
- * deliberately record-only — it does NOT run the encounter processor or send any
- * post-call SMS/email (that path belongs to the live webhook), so re-running it is
- * always safe and idempotent.
+ * calls) whether the call has actually ended, and finalize the record if so.
+ *
+ * It does NOT send patient-facing comms — no encounter processor, no post-call
+ * SMS/email. Those are one-shot side effects that belong to the live webhook, and
+ * re-firing them hours late would text a patient about a finished call.
+ *
+ * It DOES run post-call review. Review is internal-only (outcome refinement, a
+ * human_tasks work item, an admin escalation) and it is the sole producer of the
+ * `broken_promise` / `missed_booking` findings that route a call to a human. When
+ * the webhook never lands, this sweep is the ONLY chance those findings get made:
+ * leaving it out meant a dropped webhook silently swallowed the follow-up work
+ * (every cron-rescued call sat at review_status=null). Late review beats none.
+ * `runPostCallReview` is idempotent-guarded by the review_status check below.
  *
  * Runs every 15 min (see vercel.json).
  */
@@ -24,10 +33,18 @@ import { withCron } from '@/lib/cron/with-cron'
 import { extractFromTranscript } from '@/lib/ai/encounter-processor'
 import { getTwilioRestClient, isTwilioRestConfigured } from '@/lib/messaging/twilio'
 import { mapTwilioStatus } from '@/lib/voice/twilio-voice'
+import { normalizeCallOutcome, runPostCallReview } from '@/lib/voice/post-call-review'
+import { enqueueDeskVoiceTranscript } from '@/lib/bridges/dion-desk'
 
 export const runtime = 'nodejs'
+// Was implicit (platform default) back when this sweep only did two REST fetches
+// per row. It now also runs post-call review — a Haiku call per rescued call — so
+// the budget has to be declared and respected. Matches the other AI-bearing crons.
+export const maxDuration = 300
 
 const RETELL_API_KEY = process.env.RETELL_API_KEY || ''
+/** Stop starting new rows this late into the budget, so in-flight work can finish. */
+const TIME_BUDGET_MS = (maxDuration - 45) * 1000
 
 // Only touch rows at least this old, so a genuinely in-flight call is never
 // prematurely finalized (voice calls can run several minutes).
@@ -44,6 +61,17 @@ type StuckRow = {
   twilio_call_sid: string | null
   started_at: string | null
   status: string
+  // Attribution stamped when the row was created at ring time. Post-call review
+  // needs it to hang a human_task / escalation off the right lead + thread.
+  organization_id: string | null
+  lead_id: string | null
+  conversation_id: string | null
+  direction: string | null
+  review_status: string | null
+  // Wire endpoints, forwarded to Dion Desk so it can route the ticket by the
+  // dialed practice number and key the contact by the patient number.
+  from_number: string | null
+  to_number: string | null
 }
 
 /** 'finalized' — row closed; 'still_active' — genuinely ongoing; 'skipped' — can't reconcile. */
@@ -62,7 +90,11 @@ export const POST = withCron('voice-reconcile', async ({ supabase }) => {
 
   const { data: stuck, error } = await supabase
     .from('voice_calls')
-    .select('id, retell_call_id, twilio_call_sid, started_at, status')
+    .select(
+      'id, retell_call_id, twilio_call_sid, started_at, status, ' +
+        'organization_id, lead_id, conversation_id, direction, review_status, ' +
+        'from_number, to_number'
+    )
     .in('status', ACTIVE_STATUSES)
     .is('ended_at', null)
     .lt('created_at', cutoff)
@@ -77,8 +109,16 @@ export const POST = withCron('voice-reconcile', async ({ supabase }) => {
   let finalized = 0
   let stillActive = 0
   let skipped = 0
+  let deferred = 0
+  const startedAt = Date.now()
 
   for (const row of stuck as StuckRow[]) {
+    // Out of budget — leave the rest stranded for the next tick (15 min) rather
+    // than being killed mid-review with a half-written record.
+    if (Date.now() - startedAt > TIME_BUDGET_MS) {
+      deferred++
+      continue
+    }
     try {
       let outcome: Outcome
       if (row.retell_call_id && retellConfigured) {
@@ -102,7 +142,7 @@ export const POST = withCron('voice-reconcile', async ({ supabase }) => {
   return {
     status: 'ok',
     items: finalized,
-    data: { checked: stuck.length, finalized, still_active: stillActive, skipped },
+    data: { checked: stuck.length, finalized, still_active: stillActive, skipped, deferred },
   }
 })
 
@@ -135,6 +175,21 @@ async function reconcileRetellRow(supabase: DbClient, row: StuckRow): Promise<Ou
   const disconnectionReason = (callData.disconnection_reason || '') as string
   const extracted = extractFromTranscript(transcript)
 
+  // Same normalizer the live webhook uses. The previous code wrote the raw
+  // `disconnectionReason` ('user_hangup', …) straight into `outcome`, which the
+  // voice_calls_outcome_check CHECK rejects — the UPDATE threw, the row returned
+  // 'skipped', and the call stayed stranded forever. It also trusted
+  // extracted.appointmentBooked on its own, which flips true when the agent merely
+  // OFFERS slots, so declined calls were filed as bookings.
+  const normalizedOutcome = normalizeCallOutcome({
+    disconnectionReason,
+    callSuccessful: callAnalysis.call_successful as boolean | null,
+    userSentiment: callAnalysis.user_sentiment as string | null,
+    appointmentBooked: !!extracted.appointmentBooked,
+    durationSeconds: callDuration,
+    hasTranscript: transcript.trim().length > 0,
+  })
+
   const { error: updErr } = await supabase
     .from('voice_calls')
     .update({
@@ -146,11 +201,8 @@ async function reconcileRetellRow(supabase: DbClient, row: StuckRow): Promise<Ou
       recording_url: (callData.recording_url || '') as string,
       transcript: transcript.slice(0, 50000),
       transcript_summary: (callAnalysis.call_summary as string) || null,
-      outcome: extracted.appointmentBooked
-        ? 'appointment_booked'
-        : callAnalysis.call_successful
-          ? 'interested'
-          : disconnectionReason,
+      outcome: normalizedOutcome,
+      review_status: 'pending',
       metadata: {
         call_analysis: callAnalysis,
         extracted_info: extracted,
@@ -165,6 +217,46 @@ async function reconcileRetellRow(supabase: DbClient, row: StuckRow): Promise<Ou
     console.error('[voice-reconcile] retell update failed', row.id, updErr.message)
     return 'skipped'
   }
+
+  // Hand the transcript to Dion Desk, which owns ticketing/SLA/escalation.
+  // No-op unless the bridge is configured; idempotent via metadata.desk_synced_at.
+  // Buffer the transcript for Dion Desk, which owns ticketing/SLA/escalation.
+  // Deduped on the call id, so the webhook path enqueueing the same call is a
+  // no-op; drained by /api/cron/forward-desk-outbox.
+  const isOutbound = row.direction === 'outbound'
+  if (row.organization_id) {
+    await enqueueDeskVoiceTranscript(supabase, {
+      organizationId: row.organization_id,
+      callId: row.id,
+      leadId: row.lead_id,
+      // from/to are wire-level, so which end is the patient flips with direction:
+      // inbound the patient is calling us, outbound we are calling them.
+      patientNumber: isOutbound ? row.to_number : row.from_number,
+      practiceNumber: isOutbound ? row.from_number : row.to_number,
+      transcript,
+      direction: isOutbound ? 'outbound' : 'inbound',
+      twilioCallSid: row.twilio_call_sid,
+    })
+  }
+
+  // The webhook never landed for this call, so its review never ran. Do it here.
+  // Fail-soft by contract (runPostCallReview never throws), and skipped when the
+  // row already carries a settled verdict so repeat sweeps can't double-task.
+  if (!row.review_status || row.review_status === 'pending') {
+    await runPostCallReview(supabase, {
+      callId: row.id,
+      organizationId: row.organization_id,
+      leadId: row.lead_id,
+      conversationId: row.conversation_id,
+      retellCallId: row.retell_call_id!,
+      direction: row.direction === 'outbound' ? 'outbound' : 'inbound',
+      transcript,
+      durationSeconds: callDuration,
+      disconnectionReason,
+      currentOutcome: normalizedOutcome,
+    })
+  }
+
   return 'finalized'
 }
 
