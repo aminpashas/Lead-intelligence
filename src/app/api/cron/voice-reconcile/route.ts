@@ -72,6 +72,10 @@ type StuckRow = {
   // dialed practice number and key the contact by the patient number.
   from_number: string | null
   to_number: string | null
+  // Everything the live webhooks stamped at ring time — ring_result,
+  // dial_call_status, caller_city/state, twilio_call_sid. The finalize updates
+  // below MUST merge onto this, never replace it (see the spreads).
+  metadata: Record<string, unknown> | null
 }
 
 /** 'finalized' — row closed; 'still_active' — genuinely ongoing; 'skipped' — can't reconcile. */
@@ -93,7 +97,7 @@ export const POST = withCron('voice-reconcile', async ({ supabase }) => {
     .select(
       'id, retell_call_id, twilio_call_sid, started_at, status, ' +
         'organization_id, lead_id, conversation_id, direction, review_status, ' +
-        'from_number, to_number'
+        'from_number, to_number, metadata'
     )
     .in('status', ACTIVE_STATUSES)
     .is('ended_at', null)
@@ -203,7 +207,13 @@ async function reconcileRetellRow(supabase: DbClient, row: StuckRow): Promise<Ou
       transcript_summary: (callAnalysis.call_summary as string) || null,
       outcome: normalizedOutcome,
       review_status: 'pending',
+      // Merge, never replace: the ring-time webhooks own ring_result,
+      // dial_call_status and caller_city/state on this same column, and a bare
+      // object literal here erased the entire routing trail on every call the
+      // sweep touched — which is most of them whenever the Retell webhook is
+      // not landing.
       metadata: {
+        ...(row.metadata || {}),
         call_analysis: callAnalysis,
         extracted_info: extracted,
         disconnection_reason: disconnectionReason,
@@ -285,6 +295,7 @@ async function reconcileTwilioRow(supabase: DbClient, row: StuckRow): Promise<Ou
       ended_at: endedAt,
       duration_seconds: Number.isFinite(duration) ? duration : 0,
       metadata: {
+        ...(row.metadata || {}),
         twilio_status: call.status,
         reconciled_by_cron: true,
         reconciled_at: new Date().toISOString(),
