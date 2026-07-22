@@ -49,11 +49,22 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 type Row = { id: string; metadata: Record<string, unknown> }
 
-/** Same provisional test the predicate applies, used to pre-filter before spending API calls. */
+/**
+ * Pre-filter: is this row worth spending a GHL request on?
+ *
+ * Deliberately NARROWER than shouldRefreshCallActivity's provisional test. That
+ * predicate treats any null duration as provisional, which is right for deciding
+ * whether a write is *allowed* — but a no_answer / busy / failed / voicemail call
+ * legitimately has no duration forever, so using it to pick candidates re-fetches
+ * ~1,900 settled rows on every run and never changes one (measured: 1,923
+ * candidates → 3 updates). A row is worth re-fetching only when its outcome is
+ * genuinely unknown, or it answered but somehow carries no duration.
+ */
 function isProvisional(meta: Record<string, unknown>): boolean {
   const s = typeof meta.call_state === 'string' ? meta.call_state : null
   const d = typeof meta.duration_seconds === 'number' ? meta.duration_seconds : null
-  return s === null || s === 'unknown' || d === null
+  if (s === null || s === 'unknown') return true
+  return s === 'answered' && d === null
 }
 
 /** Recompute an activity title from stored metadata — mirrors formatCallTitle. */
