@@ -151,6 +151,10 @@ export type PIIField = typeof PII_FIELDS[number]
 export function encryptLeadPII<T extends Record<string, unknown>>(data: T): T {
   const result: Record<string, unknown> = { ...data }
   for (const field of PII_FIELDS) {
+    // leads.date_of_birth is a `date` column — it cannot hold `enc::` ciphertext,
+    // so it passes through as a plain date (same exclusion as the encryption
+    // backfill script). Encrypting it here would make the DB reject the write.
+    if (field === 'date_of_birth') continue
     if (field in result && result[field] != null) {
       const value = result[field]
       if (typeof value === 'string') {
