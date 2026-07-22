@@ -93,3 +93,82 @@ migrations directory), so it's intentionally left for explicit go-ahead rather
 than automated here.
 
 **Related:** memory `migration-replay-drift`, `docs/SECURITY_AUDIT_STATUS.md`.
+
+---
+
+# Re-sweep 2026-07-22 — still drifted, plus a NEW hazard class
+
+**Counts today** (was 77 / 64 on 2026-06-27):
+
+| | Repo `supabase/migrations/` | Prod `schema_migrations` |
+|---|---|---|
+| Count | **203 files** | **115 tracked versions** |
+
+## 🚨 NEW HAZARD: a local file can be OLDER than the live object
+
+The 2026-06-27 assessment framed drift as "prod has things the repo lacks" — a
+*replay* problem, mostly dormant. This sweep found a sharper, active failure:
+
+**A repo migration whose filename sorts LAST can still be an OLDER definition
+than what is live.** Applying it "to catch prod up" silently regresses prod.
+
+Concrete, hit on 2026-07-22: `reclassify_off_funnel_contacts` had three
+`create or replace` migrations in prod and only the first had a local file.
+
+```
+20260722194758  reclassify_off_funnel_v2              local file (named 20260722120000_…)
+20260722194930  …_status_guard                        NO local file
+20260722200805  …_prior_visit_guard                   NO local file  <- LIVE
+```
+
+Applying the local base v2 would have stripped the live prior-visit guard
+(`exists (select 1 from ehr_appointments …)`), which is what stops a prospect who
+booked through LI from being parked out of the funnel. Captured as `3981fca`.
+
+**RULE: never apply a migration to prod on filename evidence alone.** For any
+`create or replace` / constraint / policy, diff the live definition first:
+
+```sql
+select pg_get_functiondef(oid) from pg_proc where proname = '<fn>';
+select pg_get_constraintdef(oid) from pg_constraint where conname = '<name>';
+```
+
+## Applied in prod with NO local file (20)
+
+Ordered by risk if a fresh environment is ever built from the repo.
+
+**Security / data-integrity — a replay silently produces a LESS SAFE database:**
+- `20260609152808_harden_rls_and_rpc_baseline`
+- `20260609165903_auto_enable_rls_event_trigger`
+- `20260601213616_harden_get_user_org_id_search_path`
+- `20260605152807_enforce_leads_pii_encrypted_lock`
+- `20260408030449_007_fix_rls_policies`, `20260408030954_008_fix_all_rls_recursion`
+- `20260408040622_009_public_lead_insert`
+
+**Behavioural — attribution/source resolution silently differs:**
+- `20260604031317_add_lead_source_resolver_trigger`
+- `20260604031427_add_metadata_match_step_to_resolver`
+- `20260722194930_reclassify_off_funnel_v2_status_guard` *(superseded by 3981fca)*
+
+**Billing:**
+- `20260704172445_usage_invoice_delivery`, `20260704174516_usage_invoice_autocharge`
+- `20260704175931_usage_balance`, `20260704181434_stripe_billing_reconcile_037`
+
+**Auth / app:**
+- `20260712210931_agency_access_levels`
+- `20260713031333_pending_team_invites_signup_trigger`
+- `20260721191309_nav_badge_counts_recent_leads`
+- `20260408005908_004_campaigns_appointments_analytics`
+- `20260408011057_005_signup_function`, `20260408025749_006_auth_trigger_signup`
+
+Each one's exact applied SQL is recoverable verbatim:
+
+```sql
+select array_to_string(statements, E'\n')
+  from supabase_migrations.schema_migrations where version = '<version>';
+```
+
+**Status:** documented, not remediated. Same call as 2026-06-27 — reconciliation
+is a human decision. The lead-source-resolver pair is the most likely to cause a
+confusing bug (it governs `leads.source_id`), and the RLS/PII group is the most
+dangerous to omit.
