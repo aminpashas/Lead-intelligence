@@ -84,24 +84,40 @@ const KIND_META: Record<string, { label: string; icon: typeof MessageSquare }> =
   follow_up: { label: 'Follow-up', icon: CalendarClock },
 }
 
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+/**
+ * Coarsest useful unit plus one level of detail: "5d 21h", "4h 12m", "45m".
+ * Days are the ceiling — a task 136d overdue reads as 136d, matching how the
+ * rest of the app talks about lead age.
+ */
+function formatDuration(ms: number): string {
+  const abs = Math.max(0, ms)
+  if (abs < MINUTE_MS) return '<1m'
+  if (abs < HOUR_MS) return `${Math.floor(abs / MINUTE_MS)}m`
+  if (abs < DAY_MS) {
+    const hours = Math.floor(abs / HOUR_MS)
+    const mins = Math.floor((abs % HOUR_MS) / MINUTE_MS)
+    return mins ? `${hours}h ${mins}m` : `${hours}h`
+  }
+  const days = Math.floor(abs / DAY_MS)
+  const hours = Math.floor((abs % DAY_MS) / HOUR_MS)
+  return hours ? `${days}d ${hours}h` : `${days}d`
+}
+
 /** SLA countdown badge — red once overdue, amber when due within 5 minutes. */
 function DueBadge({ dueAt, now }: { dueAt: string; now: number }) {
   const remainingMs = new Date(dueAt).getTime() - now
   const overdue = remainingMs <= 0
-  const soon = !overdue && remainingMs < 5 * 60 * 1000
-  const abs = Math.abs(remainingMs)
-  const mins = Math.floor(abs / 60_000)
-  const text = overdue
-    ? `overdue ${mins < 1 ? '<1m' : `${mins}m`}`
-    : mins < 1
-      ? `due <1m`
-      : mins < 60
-        ? `due ${mins}m`
-        : `due ${Math.floor(mins / 60)}h ${mins % 60}m`
+  const soon = !overdue && remainingMs < 5 * MINUTE_MS
+  const text = `${overdue ? 'overdue' : 'due'} ${formatDuration(Math.abs(remainingMs))}`
 
   return (
     <Badge
       variant="outline"
+      title={new Date(dueAt).toLocaleString()}
       className={cn(
         'text-[10px] h-4 px-1.5',
         overdue
