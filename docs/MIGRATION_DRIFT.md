@@ -146,8 +146,8 @@ Ordered by risk if a fresh environment is ever built from the repo.
 - `20260408040622_009_public_lead_insert`
 
 **Behavioural — attribution/source resolution silently differs:**
-- `20260604031317_add_lead_source_resolver_trigger`
-- `20260604031427_add_metadata_match_step_to_resolver`
+- ~~`20260604031317_add_lead_source_resolver_trigger`~~ ✅ **captured**
+- ~~`20260604031427_add_metadata_match_step_to_resolver`~~ ✅ **captured** (live definition — verified vs `pg_get_functiondef`)
 - `20260722194930_reclassify_off_funnel_v2_status_guard` *(superseded by 3981fca)*
 
 **Billing:**
