@@ -288,6 +288,35 @@ export function extractGhlCall(msg: GhlMessage): NormalizedGhlCall {
   return { durationSec, state, recordingUrl: recordingUrl || null, raw: (msg.meta as Record<string, unknown>) ?? null }
 }
 
+/**
+ * Should an already-ingested GHL call activity be refreshed from a newer payload?
+ *
+ * A call row is *provisional* while the call is still in flight: the poller
+ * frequently sees the message at ring time (GHL `status:"ringing"` → state
+ * 'unknown', no duration) and GHL only fills in the final status/duration once
+ * the call ends. Ingest dedups on `ghl_message_id`, so without this check the
+ * first snapshot is frozen forever — a 4-minute consult stays recorded as a
+ * ring that never connected, which silently understates call reporting.
+ *
+ * Only overwrites when GHL genuinely knows more than we stored, so a terminal
+ * row is never downgraded by a later, thinner payload. Pure + unit-tested.
+ */
+export function shouldRefreshCallActivity(
+  stored: { call_state?: unknown; duration_seconds?: unknown },
+  incoming: { state: GhlCallState; durationSec: number | null }
+): boolean {
+  const storedState = typeof stored.call_state === 'string' ? stored.call_state : null
+  const storedDuration = typeof stored.duration_seconds === 'number' ? stored.duration_seconds : null
+
+  // Legacy rows carry neither key at all — a missing state or duration is provisional.
+  const provisional = storedState === null || storedState === 'unknown' || storedDuration === null
+  if (!provisional) return false
+
+  const learnedState = incoming.state !== 'unknown' && incoming.state !== storedState
+  const learnedDuration = incoming.durationSec !== null && incoming.durationSec !== storedDuration
+  return learnedState || learnedDuration
+}
+
 /** Attachment URLs off a GHL message, defensively (the key is absent on most). */
 function extractAttachments(msg: GhlMessage): string[] {
   const raw = msg.attachments

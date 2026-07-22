@@ -18,7 +18,12 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isOptInMessage, isOptOutMessage, type NormalizedGhlMessage } from './conversations'
+import {
+  isOptInMessage,
+  isOptOutMessage,
+  shouldRefreshCallActivity,
+  type NormalizedGhlMessage,
+} from './conversations'
 import { advanceStageOnInboundReply } from '@/lib/pipeline/advance-on-reply'
 
 export type IngestLead = {
@@ -190,13 +195,41 @@ export async function persistGhlMessage(
     const ghlId = n.externalId.replace(/^ghl_msg:/, '')
     const { data: existingActivity } = await supabase
       .from('lead_activities')
-      .select('id')
+      .select('id, metadata')
       .eq('lead_id', lead.id)
       .eq('activity_type', 'call_logged')
       .filter('metadata->>ghl_message_id', 'eq', ghlId)
       .limit(1)
       .maybeSingle()
-    if (existingActivity) return { status: 'skipped' }
+
+    const incoming = {
+      state: n.call?.state ?? ('unknown' as const),
+      durationSec: n.call?.durationSec ?? null,
+    }
+
+    // Already logged: refresh it only while it's still provisional (the poller
+    // usually catches a call at ring time, before GHL knows the outcome). Without
+    // this, the first snapshot is frozen and a connected call reads as "ringing".
+    if (existingActivity) {
+      const meta = (existingActivity.metadata ?? {}) as Record<string, unknown>
+      if (!shouldRefreshCallActivity(meta, incoming)) return { status: 'skipped' }
+      await supabase
+        .from('lead_activities')
+        .update({
+          title: formatCallTitle(n),
+          description: n.body || null,
+          metadata: {
+            ...meta,
+            call_state: incoming.state,
+            duration_seconds: incoming.durationSec,
+            recording_url: n.call?.recordingUrl ?? null,
+            raw_call: n.call?.raw ?? null,
+            refreshed_at: new Date().toISOString(),
+          },
+        })
+        .eq('id', existingActivity.id)
+      return { status: 'call_logged' }
+    }
 
     await supabase.from('lead_activities').insert({
       organization_id: organizationId,
