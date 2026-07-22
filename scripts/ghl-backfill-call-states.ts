@@ -30,6 +30,13 @@ import { getGhlConfig } from '../src/lib/ghl/client'
 import { extractGhlCall, shouldRefreshCallActivity } from '../src/lib/ghl/conversations'
 
 const APPLY = process.argv.includes('--apply')
+/**
+ * Re-render titles from already-corrected metadata. The state backfill repairs
+ * metadata, but the activity feed renders `title` — so a corrected call would
+ * still display as a bare "Outbound call (GoHighLevel)". Purely offline (no GHL
+ * requests): recomputes the title from what is already stored.
+ */
+const FIX_TITLES = process.argv.includes('--fix-titles')
 const LIMIT = (() => {
   const i = process.argv.indexOf('--limit')
   return i >= 0 ? Number(process.argv[i + 1]) : Infinity
@@ -49,7 +56,57 @@ function isProvisional(meta: Record<string, unknown>): boolean {
   return s === null || s === 'unknown' || d === null
 }
 
+/** Recompute an activity title from stored metadata — mirrors formatCallTitle. */
+function titleFromMetadata(meta: Record<string, unknown>): string {
+  const dir = meta.direction === 'outbound' ? 'Outbound' : 'Inbound'
+  const LABEL: Record<string, string> = {
+    answered: 'answered', voicemail: 'voicemail', no_answer: 'no answer', busy: 'busy', failed: 'failed',
+  }
+  const parts = [`${dir} call`]
+  const label = typeof meta.call_state === 'string' ? LABEL[meta.call_state] : undefined
+  if (label) parts.push(label)
+  const dur = typeof meta.duration_seconds === 'number' ? meta.duration_seconds : 0
+  if (dur > 0) parts.push(`${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, '0')}`)
+  return `${parts.join(' · ')} (GoHighLevel)`
+}
+
+/** Offline pass: bring titles in line with metadata the state backfill corrected. */
+async function fixTitles() {
+  let scanned = 0, changed = 0
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await sb
+      .from('lead_activities')
+      .select('id, title, metadata')
+      .eq('activity_type', 'call_logged')
+      // Explicit, stable sort: range() pagination over an unordered set shifts
+      // under concurrent UPDATEs, silently skipping rows (it undercounted by ~40%
+      // on the first run). Order by the primary key so paging is deterministic.
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    if (!data || data.length === 0) break
+    for (const r of data) {
+      const meta = (r.metadata ?? {}) as Record<string, unknown>
+      if (meta.source !== 'ghl') continue
+      scanned++
+      const next = titleFromMetadata(meta)
+      if (next === r.title) continue
+      changed++
+      if (APPLY) await sb.from('lead_activities').update({ title: next }).eq('id', r.id as string)
+    }
+    if (data.length < PAGE) break
+  }
+  console.log(`titles scanned: ${scanned}`)
+  console.log(`${APPLY ? 'retitled' : 'would retitle'}: ${changed}`)
+}
+
 async function main() {
+  if (FIX_TITLES) {
+    console.log(APPLY ? 'MODE: FIX TITLES (apply)\n' : 'MODE: FIX TITLES (dry run)\n')
+    await fixTitles()
+    return
+  }
+
   const { data: conn } = await sb
     .from('connector_configs').select('organization_id')
     .eq('connector_type', 'ghl').eq('enabled', true).limit(1).maybeSingle()
@@ -65,6 +122,7 @@ async function main() {
       .from('lead_activities')
       .select('id, metadata')
       .eq('activity_type', 'call_logged')
+      .order('id', { ascending: true })
       .range(from, from + PAGE - 1)
     if (error) throw new Error(error.message)
     if (!data || data.length === 0) break
