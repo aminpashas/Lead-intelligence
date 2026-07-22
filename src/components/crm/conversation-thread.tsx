@@ -428,7 +428,7 @@ export function ConversationThread({
   const live = useLiveCall(lead.id)
 
   // Nothing to show in the message band at all. Drives the band's alignment:
-  // an empty thread centres its placeholder, a populated one hugs the composer.
+  // an empty thread centres its placeholder, a populated one starts at the top.
   const threadIsEmpty = messages.length === 0 && calls.length === 0 && live.status === 'idle'
 
   useEffect(() => {
@@ -809,15 +809,16 @@ export function ConversationThread({
       {conversation && <SlaCountdown conversationId={conversation.id} />}
 
       {/* ── Messages ───────────────────────────────────────── */}
-      {/* The band is a column flexbox purely so the auto margins below can place
-          a short thread. `mt-auto` (not `justify-end`) does the bottom-anchoring:
-          justify-end on a scroll container makes the overflowed top unreachable
-          in Chrome/Safari, whereas an auto margin collapses to 0 once the content
-          is taller than the band and scrolls normally. */}
+      {/* The band is a column flexbox purely so the auto margin below can centre
+          the empty-thread placeholder. Real messages top-align: this pane is the
+          full viewport height on /leads/[id], so bottom-anchoring a short thread
+          (the old `mt-auto`) opened a screen-tall void between the header and the
+          first message. Long threads still land on the newest message — the
+          scrollRef effect drives the scroll, not the layout. */}
       <div ref={scrollRef} className="flex flex-1 flex-col overflow-y-auto bg-aurea-canvas px-4 py-5 lg:px-6">
         <div
           className={`mx-auto w-full max-w-[720px] space-y-5 ${
-            threadIsEmpty ? 'my-auto' : 'mt-auto'
+            threadIsEmpty ? 'my-auto' : ''
           }`}
         >
           {thread.map((item) =>
