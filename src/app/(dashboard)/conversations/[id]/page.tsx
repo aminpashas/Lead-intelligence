@@ -26,24 +26,40 @@ export default async function ConversationDetailPage({
 
   if (!conversation) return notFound()
 
-  const { data: messages } = await supabase
-    .from('messages')
-    .select('*')
-    .eq('conversation_id', id)
-    .order('created_at', { ascending: true })
+  const leadId = (conversation.lead as { id?: string } | null)?.id ?? conversation.lead_id
 
-  // Completed calls for this conversation — rendered as transcript cards in the
-  // timeline. Active calls (ended_at null) are handled live by the client panel,
-  // so we only pull finished ones here to avoid double-rendering.
-  const { data: calls } = await supabase
+  /**
+   * History is scoped to the PATIENT, not this conversation row.
+   *
+   * `conversations` are per-channel here (one row for sms, another for email,
+   * another for voice — 382/48/6 in prod), so keying the thread on
+   * `conversation_id` showed one channel's slice: opening a call-review task
+   * landed on the voice-only row and none of the patient's texts were visible.
+   * `/leads/[id]` has always joined on `lead_id` and shown everything merged;
+   * this page now matches it, so the same patient reads the same either way.
+   *
+   * Sending still targets `conversation` (the row in the URL) — this widening is
+   * purely what gets RENDERED. Orphan conversations with no lead fall back to
+   * the old conversation-scoped query so they don't render empty.
+   */
+  const messagesQuery = supabase.from('messages').select('*').order('created_at', { ascending: true })
+  const { data: messages } = leadId
+    ? await messagesQuery.eq('lead_id', leadId)
+    : await messagesQuery.eq('conversation_id', id)
+
+  // Completed calls only — rendered as transcript cards in the timeline. Active
+  // calls (ended_at null) are handled live by the client panel, so pulling only
+  // finished ones here avoids double-rendering.
+  const callsQuery = supabase
     .from('voice_calls')
     .select('*')
-    .eq('conversation_id', id)
     .not('ended_at', 'is', null)
     .order('created_at', { ascending: true })
+  const { data: calls } = leadId
+    ? await callsQuery.eq('lead_id', leadId)
+    : await callsQuery.eq('conversation_id', id)
 
   // Notes + stage changes for this lead enrich the condensed Timeline view.
-  const leadId = (conversation.lead as { id?: string } | null)?.id ?? conversation.lead_id
   const { data: activities } = await supabase
     .from('lead_activities')
     .select('id, created_at, activity_type, title, description')
