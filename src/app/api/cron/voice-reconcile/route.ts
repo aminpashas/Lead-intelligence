@@ -34,6 +34,7 @@ import { extractFromTranscript } from '@/lib/ai/encounter-processor'
 import { getTwilioRestClient, isTwilioRestConfigured } from '@/lib/messaging/twilio'
 import { mapTwilioStatus } from '@/lib/voice/twilio-voice'
 import { normalizeCallOutcome, runPostCallReview } from '@/lib/voice/post-call-review'
+import { retryStrandedReviews } from '@/lib/voice/review-retry'
 import { enqueueDeskVoiceTranscript } from '@/lib/bridges/dion-desk'
 
 export const runtime = 'nodejs'
@@ -106,9 +107,6 @@ export const POST = withCron('voice-reconcile', async ({ supabase }) => {
     .limit(100)
 
   if (error) throw new Error(`stuck-row query failed: ${error.message}`)
-  if (!stuck || stuck.length === 0) {
-    return { status: 'ok', items: 0, data: { finalized: 0, still_active: 0, skipped: 0, checked: 0 } }
-  }
 
   let finalized = 0
   let stillActive = 0
@@ -116,7 +114,10 @@ export const POST = withCron('voice-reconcile', async ({ supabase }) => {
   let deferred = 0
   const startedAt = Date.now()
 
-  for (const row of stuck as StuckRow[]) {
+  // No early return on an empty sweep: "nothing stuck" is the NORMAL case, and
+  // the review-retry phase below still has work to do on rows finalized in an
+  // earlier tick. Returning here is what would keep stranded reviews stranded.
+  for (const row of (stuck || []) as StuckRow[]) {
     // Out of budget — leave the rest stranded for the next tick (15 min) rather
     // than being killed mid-review with a half-written record.
     if (Date.now() - startedAt > TIME_BUDGET_MS) {
@@ -143,10 +144,28 @@ export const POST = withCron('voice-reconcile', async ({ supabase }) => {
     }
   }
 
+  // Second phase: re-run reviews that failed to render a verdict. Finalizing a
+  // row sets review_status='pending' and hands off to runPostCallReview, but a
+  // failed review leaves it pending and the loop above can never see the row
+  // again (it filters on ACTIVE_STATUSES). Without this the call stays
+  // unreviewed forever and any callback the agent promised is never queued.
+  // Runs on whatever budget the finalize pass left, and only after it — healing
+  // stranded calls outranks re-grading already-finalized ones.
+  const reviewRetry = await retryStrandedReviews(supabase, {
+    budgetMs: TIME_BUDGET_MS - (Date.now() - startedAt),
+  })
+
   return {
     status: 'ok',
     items: finalized,
-    data: { checked: stuck.length, finalized, still_active: stillActive, skipped, deferred },
+    data: {
+      checked: stuck?.length ?? 0,
+      finalized,
+      still_active: stillActive,
+      skipped,
+      deferred,
+      review_retry: reviewRetry,
+    },
   }
 })
 

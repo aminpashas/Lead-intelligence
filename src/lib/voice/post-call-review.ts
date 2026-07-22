@@ -277,7 +277,66 @@ export type ReviewAttempt =
   /** Nothing to grade — transcript below the review floor. A settled, honest state. */
   | { status: 'skipped' }
   /** The model call or its parse failed. The call is UNREVIEWED; retry it later. */
-  | { status: 'failed'; reason: string }
+  | { status: 'failed'; reason: string; kind: ReviewFailureKind }
+
+/**
+ * Whether a failed review says anything about THIS call.
+ *
+ * `systemic` — quota exhausted, rate limited, provider 5xx, network. Every call
+ * fails identically right now, so spending one of a call's finite retry attempts
+ * on it would tombstone the whole backlog for an outage it had no part in. The
+ * retry sweep refunds these.
+ * `call_specific` — this transcript/prompt failed (unparseable output, oversized
+ * input). Retrying it costs money and will probably fail the same way, so it
+ * legitimately burns an attempt.
+ */
+export type ReviewFailureKind = 'systemic' | 'call_specific'
+
+/** Substrings that mark a provider-wide fault rather than a bad call. */
+const SYSTEMIC_ERROR_MARKERS = [
+  'usage limit',
+  'rate limit',
+  'rate_limit',
+  'quota',
+  'credit balance',
+  'overloaded',
+  'insufficient',
+  'timeout',
+  'timed out',
+  // Node's errno spellings elide the space/underscore, so the two above miss them.
+  'etimedout',
+  'econnreset',
+  'econnrefused',
+  'enotfound',
+  'eai_again',
+  'fetch failed',
+  'network',
+  'service unavailable',
+  'internal server error',
+  // Credential/config faults are provider-wide by definition: an unset or revoked
+  // key fails every call identically, so charging one call's retry budget for it
+  // would tombstone the whole backlog over an env var.
+  'api key',
+  'api_key',
+  'environment variable',
+  'authentication',
+  'unauthorized',
+  'permission denied',
+]
+
+export function classifyReviewFailure(reason: string): ReviewFailureKind {
+  const r = (reason || '').toLowerCase()
+  if (SYSTEMIC_ERROR_MARKERS.some((m) => r.includes(m))) return 'systemic'
+  // Any auth/429/5xx status the SDK surfaced in its message is provider-side too.
+  if (/\b(401|403|429|500|502|503|504|529)\b/.test(r)) return 'systemic'
+  return 'call_specific'
+}
+
+/** Outcome of the whole pipeline, so a caller can decide whether to retry. */
+export type PostCallReviewResult =
+  | { status: 'reviewed' }
+  | { status: 'skipped' }
+  | { status: 'failed'; reason: string; kind: ReviewFailureKind }
 
 /** One Claude pass over the transcript. Never throws. */
 export async function reviewCallWithAI(input: ReviewCallInput): Promise<ReviewAttempt> {
@@ -308,11 +367,16 @@ export async function reviewCallWithAI(input: ReviewCallInput): Promise<ReviewAt
     // have found something and simply framed it wrong.
     return parsed
       ? { status: 'ok', review: parsed }
-      : { status: 'failed', reason: 'unparseable model output' }
+      : {
+          status: 'failed',
+          reason: 'unparseable model output',
+          // The model answered; it just answered badly. That is about this call.
+          kind: 'call_specific',
+        }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
     logger.warn('PostCallReview: AI review failed', { error: reason })
-    return { status: 'failed', reason }
+    return { status: 'failed', reason, kind: classifyReviewFailure(reason) }
   }
 }
 
@@ -530,7 +594,7 @@ export type RunPostCallReviewInput = {
 export async function runPostCallReview(
   supabase: SupabaseClient,
   input: RunPostCallReviewInput
-): Promise<void> {
+): Promise<PostCallReviewResult> {
   try {
     const evidence = {
       call_id: input.callId,
@@ -563,7 +627,7 @@ export async function runPostCallReview(
     }
 
     // ── AI review (needs a transcript + an attributed call to act on) ──
-    if (!input.callId || !input.organizationId) return
+    if (!input.callId || !input.organizationId) return { status: 'skipped' }
 
     // Voicemail is a settled outcome, not a defect: the deterministic layer already
     // classified it, and there is no patient conversation to grade. Reviewing it
@@ -574,7 +638,7 @@ export async function runPostCallReview(
     if (isVoicemail) {
       await supabase.from('voice_calls').update({ review_status: 'clear' }).eq('id', input.callId)
       logger.info('PostCallReview: voicemail — skipped AI review', { call_id: input.callId })
-      return
+      return { status: 'skipped' }
     }
 
     const attempt = await reviewCallWithAI({
@@ -597,8 +661,9 @@ export async function runPostCallReview(
       logger.warn('PostCallReview: left pending — review did not run', {
         call_id: input.callId,
         reason: attempt.reason,
+        kind: attempt.kind,
       })
-      return
+      return { status: 'failed', reason: attempt.reason, kind: attempt.kind }
     }
 
     if (attempt.status === 'skipped') {
@@ -608,7 +673,7 @@ export async function runPostCallReview(
         .from('voice_calls')
         .update({ review_status: input.currentOutcome ? 'clear' : 'pending' })
         .eq('id', input.callId)
-      return
+      return { status: 'skipped' }
     }
 
     const review = attempt.review
@@ -652,7 +717,12 @@ export async function runPostCallReview(
         conversation_id: input.conversationId,
         assigned_role: 'admin',
         // Critical issues carry a tight SLA so the takeover cron notices too.
-        due_at: hasCritical ? new Date(Date.now() + 30 * 60 * 1000).toISOString() : null,
+        // `undefined`, not null, on a warning: createHumanTask applies any value
+        // that isn't undefined, so passing null here would REFRESH an existing
+        // task by stripping a deadline someone else set — dropping it out of the
+        // overdue views and out of the SLA takeover sweep. A warning has no
+        // opinion about the deadline; it should leave whatever is there alone.
+        due_at: hasCritical ? new Date(Date.now() + 30 * 60 * 1000).toISOString() : undefined,
         dedupe_key: `call_review:${input.callId}`,
         metadata: { call_id: input.callId, retell_call_id: input.retellCallId, issues: review.issues },
       })
@@ -700,10 +770,13 @@ export async function runPostCallReview(
       issues: review.issues.length,
       technical_findings: review.technical_findings.length + systemFindings.length,
     })
+    return { status: 'reviewed' }
   } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
     logger.warn('PostCallReview: runPostCallReview threw (non-fatal)', {
       retell_call_id: input.retellCallId,
-      error: err instanceof Error ? err.message : String(err),
+      error: reason,
     })
+    return { status: 'failed', reason, kind: classifyReviewFailure(reason) }
   }
 }
