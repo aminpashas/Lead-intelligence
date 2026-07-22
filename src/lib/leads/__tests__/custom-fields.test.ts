@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeCustomFields, mergeCustomFields, customFieldsDedupPatch } from '@/lib/leads/custom-fields'
+import { sanitizeCustomFields, mergeCustomFields, customFieldsDedupPatch, CUSTOM_FIELD_KEYS } from '@/lib/leads/custom-fields'
+
+// TRIPWIRE — this allow-list is one half of a CROSS-REPO contract. The other
+// half is GHL_REFERRAL_FIELD_IDS in dion-growth-studio
+// (supabase/functions/ingest-gohighlevel/index.ts), which maps GHL custom-field
+// ids onto these exact key names. A key present in one list but not the other is
+// silently DROPPED — no error, the field just never appears on the lead. This
+// test fails loudly on any edit so the DGS side gets updated in the same change.
+describe('CUSTOM_FIELD_KEYS cross-repo contract', () => {
+  it('matches dion-growth-studio GHL_REFERRAL_FIELD_IDS (update BOTH or fields vanish)', () => {
+    expect([...CUSTOM_FIELD_KEYS].sort()).toEqual([
+      'patient_dob',
+      'referral_notes',
+      'referral_reason',
+      'referral_urgency',
+      'referring_doctor_email',
+      'referring_doctor_name',
+      'referring_doctor_npi',
+      'referring_doctor_phone',
+      'referring_practice',
+      'treatment_interest', // LI-derived, no DGS counterpart
+    ])
+  })
+})
 
 describe('sanitizeCustomFields', () => {
   it('keeps allow-listed referral fields from a doctor-referral form', () => {
