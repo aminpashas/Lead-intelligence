@@ -124,3 +124,46 @@ export function classifyChannelFromUtm(s: UtmSignals): ClassifiedChannel | null 
   // leave for DGS/human rather than guessing wrong.
   return null
 }
+
+/**
+ * Reconcile an incoming DGS attribution with the utm fallback classifier. DGS
+ * is authoritative when it resolves a channel confidently, but two cases warrant
+ * a utm-derived correction:
+ *
+ *  1. NO channel — DGS's resolver missed it entirely; fill from utm (existing
+ *     behavior). Confidence/source_system already on the blob are preserved.
+ *  2. Low-confidence `direct` (<= FALLBACK_CONFIDENCE) — DGS's ambiguous
+ *     catch-all when it couldn't tie a click to a campaign. If the flat utm
+ *     signals name something more specific (e.g. a doctor referral DGS keyed to
+ *     `direct` off utm_medium="Direct traffic"), prefer that. Stamped
+ *     `li_utm_override` at FALLBACK_CONFIDENCE, so a genuine DGS re-sync (>=0.85)
+ *     still wins later via mergeAttributionOnDedup.
+ *
+ * A confidently-resolved channel (anything not weak `direct`) is never touched.
+ * Returns the attribution to store (possibly the same object).
+ */
+export function reconcileChannel(
+  attribution: Record<string, string | number> | null,
+  utm: UtmSignals,
+): Record<string, string | number> | null {
+  const channel = attribution?.channel
+  const conf = Number(attribution?.attribution_confidence ?? 0)
+  const missing = !channel
+  const weakDirect = channel === 'direct' && conf <= FALLBACK_CONFIDENCE
+  if (!missing && !weakDirect) return attribution
+
+  const fb = classifyChannelFromUtm(utm)
+  // Nothing better to offer, or the override wouldn't change the channel.
+  if (!fb || (weakDirect && fb.channel === 'direct')) return attribution
+
+  return {
+    ...(attribution ?? {}),
+    channel: fb.channel,
+    attribution_confidence: missing
+      ? (attribution?.attribution_confidence ?? fb.confidence)
+      : fb.confidence,
+    source_system: missing
+      ? ((attribution?.source_system as string) ?? 'li_utm_fallback')
+      : 'li_utm_override',
+  }
+}

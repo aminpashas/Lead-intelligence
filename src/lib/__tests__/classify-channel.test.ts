@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyChannelFromUtm, FALLBACK_CONFIDENCE } from '@/lib/attribution/classify-channel'
+import { classifyChannelFromUtm, reconcileChannel, FALLBACK_CONFIDENCE } from '@/lib/attribution/classify-channel'
 
 // Every case below is drawn from real null-channel leads observed in prod
 // (the WhatConverts/GHL source labels DGS's resolver failed to classify).
@@ -96,5 +96,60 @@ describe('classifyChannelFromUtm', () => {
     const r = classifyChannelFromUtm({ utm_source: 'google', utm_medium: 'cpc' })
     expect(r?.confidence).toBe(FALLBACK_CONFIDENCE)
     expect(FALLBACK_CONFIDENCE).toBeLessThan(0.85)
+  })
+})
+
+describe('reconcileChannel', () => {
+  const utmReferral = { utm_source: 'doctor_referral', utm_medium: 'Direct traffic', utm_campaign: 'doctor_referral_form' }
+
+  it('overrides a low-confidence DGS "direct" with a specific utm channel', () => {
+    const out = reconcileChannel(
+      { channel: 'direct', attribution_confidence: 0.3, source_system: 'dion_growth_studio' },
+      utmReferral,
+    )
+    expect(out?.channel).toBe('referral')
+    expect(out?.attribution_confidence).toBe(FALLBACK_CONFIDENCE)
+    expect(out?.source_system).toBe('li_utm_override')
+  })
+
+  it('does NOT touch a confidently-resolved DGS channel', () => {
+    const dgs = { channel: 'ppc_google', attribution_confidence: 0.95, source_system: 'dion_growth_studio' }
+    expect(reconcileChannel({ ...dgs }, { utm_source: 'doctor_referral' })).toEqual(dgs)
+  })
+
+  it('does NOT touch a high-confidence "direct"', () => {
+    const dgs = { channel: 'direct', attribution_confidence: 0.9 }
+    expect(reconcileChannel({ ...dgs }, utmReferral)).toEqual(dgs)
+  })
+
+  it('leaves weak direct unchanged when utm has nothing better', () => {
+    const dgs = { channel: 'direct', attribution_confidence: 0.3 }
+    expect(reconcileChannel({ ...dgs }, { utm_source: 'Mother Line Tracking Number' })).toEqual(dgs)
+    // utm also resolves to direct → no improvement
+    expect(reconcileChannel({ ...dgs }, {})).toEqual(dgs)
+  })
+
+  it('fills a missing channel from utm (preserving existing confidence/source)', () => {
+    const out = reconcileChannel(
+      { attribution_confidence: 0.2, source_system: 'dion_growth_studio' } as Record<string, string | number>,
+      utmReferral,
+    )
+    expect(out?.channel).toBe('referral')
+    expect(out?.attribution_confidence).toBe(0.2)
+    expect(out?.source_system).toBe('dion_growth_studio')
+  })
+
+  it('fills from utm with fallback stamp when attribution is null', () => {
+    const out = reconcileChannel(null, { utm_source: 'google', utm_medium: 'cpc' })
+    expect(out?.channel).toBe('ppc_google')
+    expect(out?.source_system).toBe('li_utm_fallback')
+    expect(out?.attribution_confidence).toBe(FALLBACK_CONFIDENCE)
+  })
+
+  it('returns null unchanged when there is no attribution and no utm signal', () => {
+    // classifyChannelFromUtm({}) resolves to direct, so a null attribution
+    // becomes a direct fallback — acceptable (no worse than the old default).
+    const out = reconcileChannel(null, {})
+    expect(out?.channel).toBe('direct')
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeCustomFields, mergeCustomFields } from '@/lib/leads/custom-fields'
+import { sanitizeCustomFields, mergeCustomFields, customFieldsDedupPatch } from '@/lib/leads/custom-fields'
 
 describe('sanitizeCustomFields', () => {
   it('keeps allow-listed referral fields from a doctor-referral form', () => {
@@ -57,5 +57,39 @@ describe('mergeCustomFields', () => {
 
   it('returns null when there is nothing to store', () => {
     expect(mergeCustomFields(null, null)).toBeNull()
+  })
+})
+
+describe('customFieldsDedupPatch', () => {
+  it('adds only the keys the existing lead is missing', () => {
+    expect(customFieldsDedupPatch(
+      { treatment_interest: 'tmj' },
+      { referring_doctor: 'Dr. Manali Rathod', referral_reason: 'TMJ' },
+    )).toEqual({ treatment_interest: 'tmj', referring_doctor: 'Dr. Manali Rathod', referral_reason: 'TMJ' })
+  })
+
+  it('never clobbers a value already set', () => {
+    expect(customFieldsDedupPatch(
+      { referring_doctor: 'Dr. Existing' },
+      { referring_doctor: 'Dr. New', referral_reason: 'TMJ' },
+    )).toEqual({ referring_doctor: 'Dr. Existing', referral_reason: 'TMJ' })
+  })
+
+  it('treats blank/undefined existing values as fillable', () => {
+    expect(customFieldsDedupPatch(
+      { referring_doctor: '' },
+      { referring_doctor: 'Dr. New' },
+    )).toEqual({ referring_doctor: 'Dr. New' })
+  })
+
+  it('returns null when nothing new would be added', () => {
+    expect(customFieldsDedupPatch({ referring_doctor: 'Dr. X' }, { referring_doctor: 'Dr. Y' })).toBeNull()
+    expect(customFieldsDedupPatch({ a: 1 }, null)).toBeNull()
+    expect(customFieldsDedupPatch({ a: 1 }, {})).toBeNull()
+  })
+
+  it('handles a null/absent existing custom_fields', () => {
+    expect(customFieldsDedupPatch(null, { referring_doctor: 'Dr. X' }))
+      .toEqual({ referring_doctor: 'Dr. X' })
   })
 })

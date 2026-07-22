@@ -36,14 +36,14 @@ import {
   recordLeadIdentities,
   type LeadIdentity,
 } from '@/lib/leads/identities'
-import { classifyChannelFromUtm } from '@/lib/attribution/classify-channel'
+import { reconcileChannel } from '@/lib/attribution/classify-channel'
 import { isJunkCallerContact } from '@/lib/leads/junk-contact'
 import { scrubPhoneNames, NAME_UNKNOWN_TAG } from '@/lib/leads/phone-name'
 import { leadDisplayName } from '@/lib/leads/display-name'
 import { classifyTestOrSpamLead, spamDisqualifiedReason } from '@/lib/leads/test-spam-contact'
 import { routedIntakeStageSlug } from '@/lib/leads/intake-routing'
 import { serviceLineFromIntakeSignals, serviceLineTag } from '@/lib/leads/service-line'
-import { sanitizeCustomFields, mergeCustomFields } from '@/lib/leads/custom-fields'
+import { sanitizeCustomFields, mergeCustomFields, customFieldsDedupPatch } from '@/lib/leads/custom-fields'
 
 function asBool(v: unknown): boolean | undefined {
   return typeof v === 'boolean' ? v : undefined
@@ -84,10 +84,12 @@ interface DedupRow extends Partial<Record<AttrUtmCol, string | null>> {
   id: string
   external_ref: string | null
   campaign_attribution: Record<string, unknown> | null
+  custom_fields: Record<string, unknown> | null
 }
 
 interface IncomingAttribution extends Partial<Record<AttrUtmCol, string | null>> {
   campaign_attribution: Record<string, string | number> | null
+  custom_fields: Record<string, string> | null
 }
 
 /**
@@ -120,6 +122,10 @@ async function mergeAttributionOnDedup(
   for (const k of ATTR_UTM_COLS) {
     if (!existing[k] && incoming[k]) patch[k] = incoming[k]
   }
+  // Back-fill referral custom fields onto a lead first captured bare (a DGS
+  // re-sync of a doctor referral). Key-level fill only — never clobbers set values.
+  const cfPatch = customFieldsDedupPatch(existing.custom_fields, incoming.custom_fields)
+  if (cfPatch) patch.custom_fields = cfPatch
   if (Object.keys(patch).length === 0) return false
   const { error } = await supabase.from('leads').update(patch).eq('id', existing.id)
   return !error
@@ -277,19 +283,19 @@ export async function POST(request: NextRequest) {
   // still lands in the right channel. A later DGS re-sync (0.85–1.0) overrides
   // it via mergeAttributionOnDedup, and the low confidence never inflates the
   // paid-ad KPI off a weak signal (see classify-channel.ts).
-  if (!campaignAttribution?.channel) {
-    const fb = classifyChannelFromUtm({ utm_source, utm_medium, utm_campaign, gclid, fbclid })
-    if (fb) {
-      campaignAttribution = {
-        ...(campaignAttribution ?? {}),
-        channel: fb.channel,
-        attribution_confidence: campaignAttribution?.attribution_confidence ?? fb.confidence,
-        source_system: (campaignAttribution?.source_system as string) ?? 'li_utm_fallback',
-      }
-    }
-  }
+  // Fill a missing channel from utm, OR correct a low-confidence DGS `direct`
+  // (its catch-all when it can't attribute a click) when the utm signals name
+  // something more specific — e.g. a doctor referral keyed to `direct` off
+  // utm_medium="Direct traffic". A confident DGS channel is left untouched.
+  campaignAttribution = reconcileChannel(campaignAttribution, {
+    utm_source, utm_medium, utm_campaign, gclid, fbclid,
+  })
+  // Sanitized once here so both the dedup back-fill (raw incoming) and the
+  // insert path (merged with the derived service line) reuse it.
+  const incomingCustomFields = sanitizeCustomFields((body as Record<string, unknown>)?.custom_fields)
   const incomingAttribution: IncomingAttribution = {
     campaign_attribution: campaignAttribution,
+    custom_fields: incomingCustomFields,
     utm_source, utm_medium, utm_campaign, utm_term, utm_content,
     gclid, fbclid, landing_page_url, referrer_url,
   }
@@ -335,7 +341,7 @@ export async function POST(request: NextRequest) {
   const emailHash = email ? searchHash(email) : null
   const phoneHash = (phoneFormatted || phoneRaw) ? searchHash(phoneFormatted || phoneRaw) : null
   const DEDUP_COLS =
-    'id, external_ref, campaign_attribution, ' + ATTR_UTM_COLS.join(', ')
+    'id, external_ref, campaign_attribution, custom_fields, ' + ATTR_UTM_COLS.join(', ')
 
   // Dedup pass 0: exact correlation id. A re-POST with the same external_ref
   // is an update-intent call (DGS re-syncs attribution after its resolver
@@ -498,10 +504,7 @@ export async function POST(request: NextRequest) {
   // GHL form: referring dentist, practice, reason, clinical note). Allow-listed,
   // then merged so the intake-derived service line still wins. Previously these
   // were dropped, leaving referral leads as blank records.
-  const mergedCustomFields = mergeCustomFields(
-    sanitizeCustomFields((body as Record<string, unknown>)?.custom_fields),
-    intakeServiceLine,
-  )
+  const mergedCustomFields = mergeCustomFields(incomingCustomFields, intakeServiceLine)
 
   // Upstream sends `full_name` = the phone number when the contact has no name,
   // and `splitName` above dutifully spreads it across the two name columns —

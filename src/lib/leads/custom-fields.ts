@@ -64,3 +64,31 @@ export function mergeCustomFields(
   }
   return Object.keys(merged).length ? merged : null
 }
+
+/**
+ * Dedup-hit back-fill: a re-POST of an existing lead (e.g. DGS re-syncs a
+ * referral after its resolver runs) can enrich a lead that was first captured
+ * bare. Add only the incoming keys the existing row is MISSING or has blank —
+ * never clobber a value already set (mirrors the utm-column "fill when null"
+ * policy). Returns the FULL object to write to `custom_fields`, or null when
+ * nothing new would be added (so the caller skips the update).
+ */
+export function customFieldsDedupPatch(
+  existing: Record<string, unknown> | null | undefined,
+  incoming: Record<string, string> | null | undefined,
+): Record<string, string> | null {
+  if (!incoming || !Object.keys(incoming).length) return null
+  const base = (existing && typeof existing === 'object' && !Array.isArray(existing))
+    ? (existing as Record<string, unknown>)
+    : {}
+  const merged: Record<string, unknown> = { ...base }
+  let added = false
+  for (const [k, v] of Object.entries(incoming)) {
+    const cur = base[k]
+    if (cur === undefined || cur === null || cur === '') {
+      merged[k] = v
+      added = true
+    }
+  }
+  return added ? (merged as Record<string, string>) : null
+}
