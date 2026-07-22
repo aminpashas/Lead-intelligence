@@ -14,15 +14,32 @@
  * Extend the list when a new referral/clinical field genuinely needs to flow.
  */
 
+/**
+ * Keys mirror the GHL custom-field definitions on the Dion Health location
+ * (`GET /locations/tCQuem…/customFields`, read 2026-07-21) so the contract is
+ * the source schema rather than a guess:
+ *
+ *   Referring Doctor Name   -> referring_doctor_name
+ *   NPI                     -> referring_doctor_npi
+ *   Doctor Phone            -> referring_doctor_phone   (the DOCTOR's, not the practice's)
+ *   Doctor Email            -> referring_doctor_email   (ditto)
+ *   Name of practice        -> referring_practice
+ *   Reason for Referral     -> referral_reason
+ *   Urgency Level           -> referral_urgency
+ *   Referral Notes          -> referral_notes
+ *   Patient DOB             -> patient_dob
+ */
 export const CUSTOM_FIELD_KEYS = [
   'treatment_interest',
-  'referring_doctor',
+  'referring_doctor_name',
+  'referring_doctor_npi',
+  'referring_doctor_phone',
+  'referring_doctor_email',
   'referring_practice',
-  'referring_practice_phone',
-  'referring_practice_email',
   'referral_reason',
-  'referral_priority',
-  'referral_clinical_note',
+  'referral_urgency',
+  'referral_notes',
+  'patient_dob',
 ] as const
 
 const MAX_VALUE_LEN = 2000
