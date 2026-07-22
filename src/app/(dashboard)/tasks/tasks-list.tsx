@@ -40,6 +40,11 @@ type Task = {
   conversation_id: string | null
   source: string
   created_at: string
+  /**
+   * The patient, resolved by the API from the lead row at request time rather
+   * than from the frozen `title` string. Null when the task has no lead.
+   */
+  lead: { id: string; name: string } | null
 }
 
 /** Bulk work deliberately kept out of the queue — see lib/automation/task-sweep.ts. */
@@ -145,6 +150,12 @@ function TaskRow({
 }) {
   const meta = KIND_META[task.kind] ?? { label: task.kind, icon: ListTodo }
   const Icon = meta.icon
+  // Swept titles already read "Re-engage <name> — gone quiet", so repeating the
+  // patient would be noise. Other producers write titles about the WORK ("Call
+  // review: caller agreed to arrange transport") and never name who it concerns,
+  // which left the queue unscannable — those get the name appended.
+  const patient =
+    task.lead && !task.title.includes(task.lead.name) ? task.lead.name : null
   const openLink = task.conversation_id
     ? `/conversations/${task.conversation_id}`
     : task.lead_id
@@ -166,6 +177,9 @@ function TaskRow({
               {meta.label}
             </Badge>
             <span className="text-[13px] font-medium text-aurea-ink">{task.title}</span>
+            {patient && (
+              <span className="text-[12px] text-aurea-ink-2">· {patient}</span>
+            )}
             <PriorityBadge priority={task.priority} />
             {task.due_at && <DueBadge dueAt={task.due_at} now={now} />}
             {task.status === 'claimed' && (

@@ -5,6 +5,9 @@ import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { createHumanTask } from '@/lib/automation/tasks'
+import { renderSweptTask, type SweepLead } from '@/lib/automation/task-sweep'
+import { decryptLeadPII } from '@/lib/encryption'
+import { leadDisplayName } from '@/lib/leads/display-name'
 
 /**
  * GET /api/tasks — List human tasks for the caller's org (Workstream D2).
@@ -117,6 +120,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  const hydrated = await hydrateLeadNames(supabase, tasks ?? [])
+
   // Org-wide live count for the sidebar badge (independent of filters).
   const { count: openCount } = await supabase
     .from('human_tasks')
@@ -127,12 +132,81 @@ export async function GET(request: NextRequest) {
   const backlog = await loadBacklog(supabase, orgId)
 
   return NextResponse.json({
-    tasks: tasks || [],
+    tasks: hydrated,
     total: count || 0,
     openCount: openCount || 0,
     backlog,
     limit,
     offset,
+  })
+}
+
+/**
+ * Attach each task's lead label, and re-render swept titles from live lead data.
+ *
+ * `human_tasks.title` is frozen at mint time but the lead under it keeps moving,
+ * so the queue accumulated names that were true once and are wrong now. The
+ * loudest case was patients listed as phone numbers: a lead whose phone had been
+ * parsed into `first_name` minted as "Re-engage -408 724-0003 — gone quiet", and
+ * the later phone-name scrub cleaned the lead but could not reach into the task
+ * title. Same story for a name a receptionist fixed by hand, or one recovered
+ * from GHL/CareStack.
+ *
+ * Swept tasks carry `metadata.rule`, and every sweep rule's title/detail is a
+ * pure function of the lead — so they are simply re-run against the current row
+ * (see `renderSweptTask`). Tasks from other producers keep their stored title
+ * and just gain `lead.name`, which the UI shows alongside it.
+ *
+ * Best-effort: a failure here costs a nicer label, never the queue.
+ */
+type TaskRow = Record<string, unknown> & {
+  lead_id?: string | null
+  title?: string | null
+  detail?: string | null
+  metadata?: Record<string, unknown> | null
+}
+
+async function hydrateLeadNames(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tasks: TaskRow[]
+): Promise<TaskRow[]> {
+  const leadIds = [...new Set(tasks.map((t) => t.lead_id).filter(Boolean))] as string[]
+  if (leadIds.length === 0) return tasks
+
+  const { data: leadRows } = await supabase
+    .from('leads')
+    .select(
+      'id, first_name, last_name, phone, phone_formatted, last_contacted_at, last_responded_at, created_at, closing_follow_up_at'
+    )
+    .in('id', leadIds)
+
+  if (!leadRows) return tasks
+
+  // PII is encrypted at rest — `leadDisplayName` must be handed plaintext or it
+  // would render the `enc::…` envelope as the patient's name.
+  const byId = new Map<string, SweepLead & { id: string }>()
+  for (const row of leadRows as Record<string, string | null>[]) {
+    const decrypted = decryptLeadPII(row)
+    byId.set(row.id as string, {
+      id: row.id as string,
+      name: leadDisplayName(decrypted),
+      last_contacted_at: decrypted.last_contacted_at ?? null,
+      last_responded_at: decrypted.last_responded_at ?? null,
+      created_at: decrypted.created_at as string,
+      closing_follow_up_at: decrypted.closing_follow_up_at ?? null,
+    })
+  }
+
+  return tasks.map((task) => {
+    const lead = task.lead_id ? byId.get(task.lead_id) : undefined
+    if (!lead) return task
+
+    const rerendered = renderSweptTask(task.metadata?.rule as string | undefined, lead)
+    return {
+      ...task,
+      ...(rerendered ?? {}),
+      lead: { id: lead.id, name: lead.name },
+    }
   })
 }
 

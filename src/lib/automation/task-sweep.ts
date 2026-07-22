@@ -157,6 +157,32 @@ export function sweepDedupeKey(rule: SweepRuleKey, leadId: string): string {
   return `sweep:${rule}:${leadId}`
 }
 
+const RULES_BY_KEY = new Map<string, SweepRule>(SWEEP_RULES.map((r) => [r.key, r]))
+
+/**
+ * Re-render a swept task's title/detail from the lead as it looks RIGHT NOW.
+ *
+ * `human_tasks.title` is a string frozen at mint time, and the lead underneath
+ * it keeps changing. The visible cost was patients showing up in the queue as
+ * phone numbers: a lead whose phone had been parsed into `first_name` was minted
+ * as "Re-engage -408 724-0003 — gone quiet", and when the phone-name scrub later
+ * cleaned that lead row the task kept its stale copy forever. Names edited by
+ * staff, or recovered from GHL/CareStack, went stale the same way.
+ *
+ * Because every rule's `title`/`detail` is already a pure function of the lead,
+ * /tasks can just re-run it against fresh data rather than carrying a second
+ * source of truth. Returns null for anything this rulebook didn't mint, so the
+ * caller falls back to the stored string.
+ */
+export function renderSweptTask(
+  ruleKey: string | null | undefined,
+  lead: SweepLead,
+): { title: string; detail: string } | null {
+  const rule = ruleKey ? RULES_BY_KEY.get(ruleKey) : undefined
+  if (!rule) return null
+  return { title: rule.title(lead), detail: rule.detail(lead) }
+}
+
 export type SweepResult = { minted: number; closed: number; skipped: number }
 
 /** Candidate leads for a cohort-backed rule, via the Action Queue's own RPC. */
@@ -175,12 +201,37 @@ async function cohortLeads(
     logger.warn('TaskSweep: cohort rpc failed', { orgId, cohort, error: error.message })
     return []
   }
-  const rows = (data as { leads?: unknown[] } | null)?.leads ?? []
-  return (rows as Record<string, unknown>[]).map((r) => ({
+  const rows = ((data as { leads?: unknown[] } | null)?.leads ?? []) as Record<string, unknown>[]
+  if (rows.length === 0) return []
+
+  // The RPC's `name` is deliberately NOT used. It concatenates the name columns
+  // behind its own `coalesce(…, 'Unknown')` and never selects a phone, so a lead
+  // with no name reaches us as the literal string "Unknown" with nothing left to
+  // fall back to — that's where "Book Unknown — ready, not scheduled" came from.
+  // Re-read the raw columns here so `leadDisplayName` can run its real
+  // name → phone → Unknown ladder, the same one every other surface uses.
+  const ids = rows.map((r) => r.id as string)
+  const { data: nameRows } = await supabase
+    .from('leads')
+    .select('id, first_name, last_name, phone_formatted, phone')
+    .in('id', ids)
+
+  const names = new Map<string, string>()
+  for (const row of (nameRows ?? []) as Record<string, string | null>[]) {
+    names.set(
+      row.id as string,
+      leadDisplayName({
+        first_name: decryptField(row.first_name),
+        last_name: decryptField(row.last_name),
+        phone_formatted: decryptField(row.phone_formatted),
+        phone: decryptField(row.phone),
+      }),
+    )
+  }
+
+  return rows.map((r) => ({
     id: r.id as string,
-    // The RPC concatenates raw name columns; decrypt in case this org stores PII
-    // encrypted (`enc::` prefix). Plaintext passes through untouched.
-    name: decryptField(r.name as string) || 'this lead',
+    name: names.get(r.id as string) ?? 'this lead',
     last_contacted_at: (r.last_contacted_at as string) ?? null,
     last_responded_at: (r.last_responded_at as string) ?? null,
     created_at: r.created_at as string,

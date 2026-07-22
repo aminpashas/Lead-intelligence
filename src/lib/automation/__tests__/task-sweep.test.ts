@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { SWEEP_RULES, sweepDedupeKey, type SweepLead } from '@/lib/automation/task-sweep'
+import {
+  SWEEP_RULES,
+  sweepDedupeKey,
+  renderSweptTask,
+  type SweepLead,
+} from '@/lib/automation/task-sweep'
 
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
@@ -42,6 +47,37 @@ describe('sweepDedupeKey', () => {
     expect(sweepDedupeKey('engaged_gone_quiet', 'lead-1')).not.toBe(
       sweepDedupeKey('ready_to_book_stale', 'lead-1')
     )
+  })
+})
+
+/**
+ * `human_tasks.title` is frozen at mint time while the lead underneath keeps
+ * changing, so /tasks re-runs the rule against the live lead instead of trusting
+ * the stored string. In prod this queue was showing patients as phone numbers
+ * ("Re-engage -408 724-0003 — gone quiet"): the phone had been parsed into
+ * `first_name` when the task was minted, and the later phone-name scrub cleaned
+ * the lead but could not reach into the title.
+ */
+describe('renderSweptTask', () => {
+  it('re-renders title and detail from the CURRENT lead, not the stored title', () => {
+    const rendered = renderSweptTask('engaged_gone_quiet', lead({ name: 'Michael Marshall' }))
+    expect(rendered?.title).toBe('Re-engage Michael Marshall — gone quiet')
+    expect(rendered?.detail).toContain('Michael Marshall')
+  })
+
+  it('covers every rule in the book', () => {
+    // A rule whose key is missing here would silently keep serving stale titles.
+    for (const r of SWEEP_RULES) {
+      expect(renderSweptTask(r.key, lead()), `rule ${r.key}`).not.toBeNull()
+    }
+  })
+
+  it('returns null for tasks this rulebook did not mint', () => {
+    // The allocation engine and post-call review write their own titles; the
+    // caller must fall back to the stored string rather than blanking them.
+    expect(renderSweptTask('call_review', lead())).toBeNull()
+    expect(renderSweptTask(undefined, lead())).toBeNull()
+    expect(renderSweptTask(null, lead())).toBeNull()
   })
 })
 
