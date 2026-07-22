@@ -14,7 +14,6 @@ import {
   GraduationCap,
   Loader2,
   NotebookPen,
-  Sparkles,
   X,
 } from 'lucide-react'
 import type { VoiceCall } from '@/types/database'
@@ -165,109 +164,6 @@ function TrainingControl({ call }: { call: VoiceCall }) {
       {state.phase === 'error' && (
         <p className="mt-1.5 text-[11px] text-aurea-rose">{state.message}</p>
       )}
-    </div>
-  )
-}
-
-// ── Coaching output renderers ───────────────────────────────────────────────
-// The shape shared by a fresh conversation-analyst result and a persisted
-// conversation_analyses row (the coach route returns whichever it has).
-type CoachData = {
-  coaching_notes?: string | null
-  things_done_well?: string[] | null
-  improvement_areas?: string[] | null
-}
-
-function PointList({ title, items, tone }: { title: string; items: string[]; tone: 'primary' | 'amber' }) {
-  return (
-    <div>
-      <div className={`aurea-eyebrow mb-1.5 ${tone === 'primary' ? '!text-aurea-primary' : '!text-aurea-amber'}`}>
-        {title}
-      </div>
-      <ul className="space-y-1 text-[12px] leading-relaxed text-aurea-ink-2">
-        {items.map((p, i) => (
-          <li key={i} className="flex gap-2">
-            <span className="text-aurea-ink-3">&mdash;</span>
-            <span>{p}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function CoachingResult({ data }: { data: CoachData }) {
-  const doneWell = data.things_done_well ?? []
-  const improve = data.improvement_areas ?? []
-  return (
-    <div className="mt-3 space-y-3 rounded-lg border border-aurea-border bg-aurea-canvas px-3 py-3">
-      {data.coaching_notes && (
-        <div className="border-l-2 border-aurea-gold py-0.5 pl-3">
-          <div className="aurea-eyebrow mb-1">Coaching Notes</div>
-          <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-aurea-ink-2">
-            {data.coaching_notes}
-          </p>
-        </div>
-      )}
-      {(doneWell.length > 0 || improve.length > 0) && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {doneWell.length > 0 && <PointList title="Done Well" items={doneWell} tone="primary" />}
-          {improve.length > 0 && <PointList title="Improve" items={improve} tone="amber" />}
-        </div>
-      )}
-    </div>
-  )
-}
-
-type CoachState =
-  | { phase: 'idle' }
-  | { phase: 'working' }
-  | { phase: 'ready'; data: CoachData }
-  | { phase: 'error'; message: string }
-
-/**
- * "Coach this call" — runs the conversation analyst over a HUMAN call's stored
- * transcript and shows what the staffer did well + where to improve. Only
- * rendered for staff calls that actually have a transcript (AI calls already get
- * graded turn-by-turn in the Conversations "Analyze" flow).
- */
-function CoachingControl({ call }: { call: VoiceCall }) {
-  const [state, setState] = useState<CoachState>({ phase: 'idle' })
-
-  const run = async () => {
-    setState({ phase: 'working' })
-    try {
-      const res = await fetch(`/api/voice/calls/${call.id}/coach`, { method: 'POST' })
-      const body = await res.json().catch(() => ({}))
-      if (res.ok && body.analysis) {
-        setState({ phase: 'ready', data: body.analysis as CoachData })
-      } else {
-        setState({ phase: 'error', message: body.error || 'Something went wrong — try again.' })
-      }
-    } catch {
-      setState({ phase: 'error', message: 'Network error — try again.' })
-    }
-  }
-
-  return (
-    <div className="mt-3">
-      {state.phase !== 'ready' && (
-        <button
-          type="button"
-          onClick={run}
-          disabled={state.phase === 'working'}
-          className="inline-flex items-center gap-1.5 rounded-full border border-aurea-border bg-aurea-canvas px-2.5 py-1 text-[11px] font-medium text-aurea-ink-2 transition-colors enabled:hover:bg-aurea-surface-2 disabled:opacity-60"
-        >
-          {state.phase === 'working' ? (
-            <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.75} />
-          ) : (
-            <Sparkles className="h-3 w-3" strokeWidth={1.75} />
-          )}
-          {state.phase === 'working' ? 'Coaching this call…' : 'Coach this call'}
-        </button>
-      )}
-      {state.phase === 'ready' && <CoachingResult data={state.data} />}
-      {state.phase === 'error' && <p className="mt-1.5 text-[11px] text-aurea-rose">{state.message}</p>}
     </div>
   )
 }
@@ -482,10 +378,6 @@ export function CallCard({ call, canTrainAi = false }: { call: VoiceCall; canTra
                 />
               </div>
             )}
-
-            {/* Coach a human call from its transcript. AI calls are graded
-                turn-by-turn in the Conversations "Analyze" flow already. */}
-            {human && lines.length >= 2 && <CoachingControl call={call} />}
 
             {canTrainAi && <TrainingControl call={call} />}
           </div>
