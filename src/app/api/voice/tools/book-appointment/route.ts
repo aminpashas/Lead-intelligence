@@ -11,8 +11,15 @@
  * until a qualifying call has happened, but a live voice call IS that call.
  *
  * Retell → POST { call: { metadata: { lead_id, organization_id, conversation_id } },
- *                 args: { date: 'YYYY-MM-DD', time: 'HH:MM' } }
+ *                 args: { date: 'YYYY-MM-DD', time: 'HH:MM',
+ *                         date_of_birth?: 'YYYY-MM-DD' | 'declined' } }
  * Response → { success, message }  (the LLM reads `message`).
+ *
+ * date_of_birth: CareStack needs a real DOB to register the patient, so
+ * create_booking refuses when the lead has none on file and none is passed —
+ * the returned message tells the agent to collect it and retry. The Retell
+ * LLM's book_appointment function schema must declare date_of_birth or the
+ * hosted agent cannot send it (dashboard/API config, not code).
  */
 
 import { NextRequest } from 'next/server'
@@ -29,7 +36,7 @@ export async function POST(request: NextRequest) {
     const result = await executeAgentTool(
       supabase,
       'create_booking',
-      { date: args.date, time: args.time },
+      { date: args.date, time: args.time, date_of_birth: args.date_of_birth },
       {
         organization_id: organizationId,
         lead_id: leadId,

@@ -37,6 +37,7 @@ import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/trea
 import { getOrCreateFinancingShareLink } from '@/lib/financing/share-link'
 import { buildQualificationStatus, isDiscoveryComplete } from '@/lib/ai/agent-types'
 import { escapeHtml } from '@/lib/utils'
+import { logger } from '@/lib/logger'
 import { executeStageTransition } from '@/lib/funnel/executor'
 import { ensureContractDraftForCase } from '@/lib/contracts/orchestrator'
 import type { Lead, LeadStatus } from '@/types/database'
@@ -205,7 +206,7 @@ export const SETTER_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_booking',
-    description: 'Book a consultation appointment for the patient. Call this after the patient has confirmed a date and time.',
+    description: 'Book a consultation appointment for the patient. Call this after the patient has confirmed a date and time. The practice\'s records system needs the patient\'s date of birth to register the appointment — if it is not already on file, ask for it when confirming the booking and pass it as date_of_birth.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -216,6 +217,10 @@ export const SETTER_TOOLS: Anthropic.Tool[] = [
         time: {
           type: 'string',
           description: 'The appointment time in HH:MM format (24-hour).',
+        },
+        date_of_birth: {
+          type: 'string',
+          description: 'The patient\'s date of birth in YYYY-MM-DD format, needed to register the appointment in the practice\'s records system. Ask for it when confirming the booking (skip if already on file). If the patient declines to share it, pass "declined" and staff will collect it at the visit.',
         },
       },
       required: ['date', 'time'],
@@ -453,7 +458,7 @@ async function dispatchAgentTool(
       return executeCheckAvailability(supabase, context.organization_id, toolInput.preferred_day as string | undefined, context.lead_id)
 
     case 'create_booking':
-      return executeCreateBooking(supabase, context, toolInput.date as string, toolInput.time as string)
+      return executeCreateBooking(supabase, context, toolInput.date as string, toolInput.time as string, toolInput.date_of_birth as string | undefined)
 
     case 'check_financing_status':
       return executeCheckFinancingStatus(supabase, context.lead_id)
@@ -832,6 +837,27 @@ async function executeCheckAvailability(
   }
 }
 
+/**
+ * Sanity-check a patient-stated DOB before persisting it. Returns an error
+ * message for the agent to act on, or null when the value is usable. Guards
+ * against transcription artifacts (voice) and format drift, not clinical truth.
+ */
+export function validatePatientDob(dob: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    return 'The date of birth must be in YYYY-MM-DD format. Confirm the patient\'s birth date (month, day, and year) and try again.'
+  }
+  const parsed = new Date(`${dob}T00:00:00Z`)
+  const [y, m, d] = dob.split('-').map(Number)
+  const isRealDate =
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.getUTCFullYear() === y && parsed.getUTCMonth() + 1 === m && parsed.getUTCDate() === d
+  const age = (Date.now() - parsed.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+  if (!isRealDate || age < 0 || age > 120) {
+    return `"${dob}" does not look like a valid date of birth — it may have been heard or transcribed wrong. Read it back to the patient to confirm, then try again.`
+  }
+  return null
+}
+
 async function executeCreateBooking(
   supabase: SupabaseClient,
   context: {
@@ -842,7 +868,8 @@ async function executeCreateBooking(
     channel?: string
   },
   date: string,
-  time: string
+  time: string,
+  dateOfBirth?: string
 ): Promise<ToolResult> {
   // Validate date format
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
@@ -891,6 +918,42 @@ async function executeCreateBooking(
           'This practice books consultations by phone, not by text. Do NOT create a booking now. ' +
           'Instead, warmly offer to set up a quick phone call with a coordinator to go over their situation ' +
           'and answer questions, and ask for the best time to reach them.',
+      }
+    }
+  }
+
+  // DOB gate: CareStack needs a real date of birth to register the patient —
+  // without one the EHR sync falls back to a 1900-01-01 stub that staff must
+  // chase down later. Collect it at booking time, where the patient is already
+  // confirming details. "declined" is the explicit escape hatch so a privacy-
+  // conscious patient never loses their slot over it.
+  if (dateOfBirth && dateOfBirth !== 'declined') {
+    const dobError = validatePatientDob(dateOfBirth)
+    if (dobError) return { success: false, data: {}, message: dobError }
+    // Plain write: leads.date_of_birth is a `date` column (never encrypted).
+    const { error: dobWriteError } = await supabase
+      .from('leads')
+      .update({ date_of_birth: dateOfBirth })
+      .eq('id', context.lead_id)
+      .eq('organization_id', context.organization_id)
+    if (dobWriteError) {
+      logger.error('create_booking failed to save date_of_birth', { lead_id: context.lead_id }, new Error(dobWriteError.message))
+    }
+  } else if (!dateOfBirth) {
+    // Read fresh — context.lead can be stale mid-conversation.
+    const { data: dobRow } = await supabase
+      .from('leads')
+      .select('date_of_birth')
+      .eq('id', context.lead_id)
+      .single()
+    if (!dobRow?.date_of_birth) {
+      return {
+        success: false,
+        data: { requires_date_of_birth: true },
+        message:
+          'Before booking, ask the patient for their date of birth — the practice needs it to set up their appointment in the records system. ' +
+          'Then call create_booking again with the same date and time plus date_of_birth (YYYY-MM-DD). ' +
+          'If the patient prefers not to share it, reassure them that\'s fine and call create_booking again with date_of_birth set to "declined" — staff will collect it at the visit.',
       }
     }
   }
