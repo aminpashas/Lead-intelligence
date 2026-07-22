@@ -138,10 +138,10 @@ select pg_get_constraintdef(oid) from pg_constraint where conname = '<name>';
 Ordered by risk if a fresh environment is ever built from the repo.
 
 **Security / data-integrity — a replay silently produces a LESS SAFE database:**
-- `20260609152808_harden_rls_and_rpc_baseline`
-- `20260609165903_auto_enable_rls_event_trigger`
-- `20260601213616_harden_get_user_org_id_search_path`
-- `20260605152807_enforce_leads_pii_encrypted_lock`
+- ~~`20260609152808_harden_rls_and_rpc_baseline`~~ ✅ **captured** (verified: 0 public tables without RLS)
+- ~~`20260609165903_auto_enable_rls_event_trigger`~~ ✅ **captured** (event trigger live)
+- ~~`20260601213616_harden_get_user_org_id_search_path`~~ ✅ **captured** (verified vs proconfig)
+- ~~`20260605152807_enforce_leads_pii_encrypted_lock`~~ ✅ **captured** (constraint live)
 - `20260408030449_007_fix_rls_policies`, `20260408030954_008_fix_all_rls_recursion`
 - `20260408040622_009_public_lead_insert`
 
