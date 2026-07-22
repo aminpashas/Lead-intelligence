@@ -47,7 +47,9 @@ const BUSINESS_KEYWORDS =
 const BUSINESS_TRUNCATIONS = / (den|dd)$/
 
 /** Carrier / telco placeholder names a caller ID returns when there's no name. */
-const PLACEHOLDER_NAMES = new Set([
+/** Carrier/telco strings that occupy a name field without naming anyone. Shared
+ *  with the name-recovery path so it can't "recover" a name of "Unknown". */
+export const PLACEHOLDER_NAMES = new Set([
   'unknown','anonymous','restricted','private','unavailable','no name',
   'wireless caller','wireless','cell phone','toll free','tollfree','spam',
   'spam risk','scam likely','potential spam','v mail','voicemail','no caller id',

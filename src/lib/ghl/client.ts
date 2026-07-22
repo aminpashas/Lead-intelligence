@@ -224,6 +224,28 @@ export async function getContact(config: GhlConfig, contactId: string): Promise<
 }
 
 /**
+ * Fetch a single opportunity by id. Returns null on any failure (best-effort).
+ *
+ * `leads.external_ref` stores `ghl_opp:<id>` — an OPPORTUNITY id, not a contact
+ * id — so anything walking back from a lead to its GHL contact has to come
+ * through here first, then `resolveOpportunityContact`.
+ */
+export async function getOpportunity(
+  config: GhlConfig,
+  opportunityId: string,
+): Promise<GhlOpportunity | null> {
+  try {
+    const data = await ghlFetch<{ opportunity?: GhlOpportunity }>(
+      config,
+      `/opportunities/${opportunityId}`,
+    )
+    return data.opportunity ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
  * True when an opportunity's inline contact lacks the email AND phone we need,
  * so we must fetch the full contact record. Pure predicate (unit-tested).
  */
