@@ -26,6 +26,7 @@ import {
   type LeadIdentity,
 } from '@/lib/leads/identities'
 import { scrubPhoneNames, NAME_UNKNOWN_TAG } from '@/lib/leads/phone-name'
+import { reconcileStoredName } from '@/lib/leads/recover-name'
 import { findExistingPatientByHash, hasVisitBefore } from '@/lib/ehr/patient-lookup'
 import { leadDisplayName } from '@/lib/leads/display-name'
 import { auditPHIWrite } from '@/lib/hipaa-audit'
@@ -173,7 +174,12 @@ export async function ingestLead(
   // signal there is: Meta supplies a display name and a PSID, so `email` and
   // `phone` are both null and pass 2 can never fire. Without this, every DM
   // from a known person minted a duplicate.
+  // Track HOW we matched: a correlation-id or contact-hash hit is proof of the
+  // same person; the display-name pass is a fuzzy guess. Only the strong hits
+  // earn the right to overwrite the stored name (see the refresh below).
+  let matchedBy: 'identity' | 'hash' | 'name' | null = null
   let existingId = await resolveLeadByIdentity(supabase, input.organizationId, identities)
+  if (existingId) matchedBy = 'identity'
 
   // Pass 2 — contact hash.
   if (!existingId) {
@@ -181,6 +187,7 @@ export async function ingestLead(
       { email, phone_formatted: phoneFormatted },
     ])
     existingId = matches.get(0)?.id ?? null
+    if (existingId) matchedBy = 'hash'
   }
 
   // Pass 3 — display name. The weakest signal by far, so it is opt-in, runs
@@ -198,6 +205,7 @@ export async function ingestLead(
       input.lastName ?? null,
     )
     existingId = pickNameMatch(normalizeName(input.firstName, input.lastName ?? null), candidates)
+    if (existingId) matchedBy = 'name'
   }
 
   if (existingId) {
@@ -207,6 +215,26 @@ export async function ingestLead(
         .update({ external_ref: input.externalRef })
         .eq('id', existingId)
         .is('external_ref', null)
+    }
+    // Repair a stale name from an earlier capture. The same person can arrive as
+    // a second upstream contact whose name is spelled correctly ("vrrna"→"Verna")
+    // — only trust it on a strong-signal match, and let `reconcileStoredName`
+    // refuse anything phone/placeholder-shaped so we never re-break a good name.
+    if (matchedBy === 'identity' || matchedBy === 'hash') {
+      const { data: current } = await supabase
+        .from('leads')
+        .select('first_name, last_name')
+        .eq('id', existingId)
+        .maybeSingle()
+      if (current) {
+        const rename = reconcileStoredName(
+          { first: current.first_name, last: current.last_name },
+          { source: opts.caller, first: input.firstName, last: input.lastName ?? null },
+        )
+        if (rename) {
+          await supabase.from('leads').update(rename).eq('id', existingId)
+        }
+      }
     }
     // Attach any ids this event carried that the lead didn't already have, so a
     // later event arriving on a DIFFERENT id still resolves to this same lead.
