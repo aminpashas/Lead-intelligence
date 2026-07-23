@@ -28,6 +28,7 @@ import { buildPricingIntegrityBlock } from './pricing-integrity'
 import { buildCurrentDateBlock } from './datetime-context'
 import { captureQualificationFromResponse } from './qualification-capture'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
+import { INSURANCE_HANDLING_BLOCK } from './insurance-handling'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
 import { buildDiscoveryPromptBlock } from '@/lib/ai/discovery-script'
 import { formatAssessmentForPrompt } from './technique-tracker'
@@ -283,6 +284,8 @@ You have NOT confirmed the person on the other end is this patient. Until you do
 - Do NOT make medical claims, diagnoses, or specific treatment promises
 - Do NOT use aggressive sales tactics or false urgency
 - If the patient seems disqualified or uninterested, gracefully disengage
+
+${INSURANCE_HANDLING_BLOCK}
 
 ═══ CROSS-CHANNEL CAPABILITIES ═══
 

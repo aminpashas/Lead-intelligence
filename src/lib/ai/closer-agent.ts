@@ -22,6 +22,7 @@ import { formatPatientPsychologyForPrompt, buildQualificationStatus, isDiscovery
 import { buildPricingIntegrityBlock } from './pricing-integrity'
 import { buildCurrentDateBlock } from './datetime-context'
 import { getTechniquesForAgent, formatTechniquesForPrompt } from './sales-techniques'
+import { INSURANCE_HANDLING_BLOCK } from './insurance-handling'
 import { formatAssessmentForPrompt } from './technique-tracker'
 import { getActiveProtocol, composeSystemPrompt } from '@/lib/agents/protocol-resolver'
 import { formatFinancingContextForPrompt } from './financial-coach'
@@ -70,6 +71,8 @@ const OBJECTION_PLAYBOOK = `
 - All types: Offer to connect with past patients, share reviews, provide doctor credentials.
 - Analytical: Data and credentials matter most.
 - Amiable: Personal stories and testimonials matter most.
+
+${INSURANCE_HANDLING_BLOCK}
 `
 
 // ════════════════════════════════════════════════════════════════
