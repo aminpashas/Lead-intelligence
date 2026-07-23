@@ -9,6 +9,8 @@ import { isFocusedStaff } from '@/lib/auth/permissions'
 import { decryptLeadsPII, searchHash } from '@/lib/encryption'
 import { serviceLineOrFilter } from '@/lib/leads/service-line'
 import { resolveLeadDateRange } from '@/lib/leads/date-range'
+import { decodeFilterParam } from '@/lib/leads/filter-param'
+import { resolveFilterTree } from '@/lib/campaigns/filter-tree'
 import { PAID_AD_CHANNEL_OR_FILTER } from '@/lib/attribution'
 import {
   applyDerivedFilter,
@@ -204,6 +206,22 @@ export default async function LeadsPage({
           </div>
         )
       }
+    }
+  }
+
+  // Advanced search — a nested AND/OR filter tree carried in the `af` URL param
+  // (base64url JSON). Decode + validate against the field registry, resolve to
+  // matching lead IDs via the shared engine, and intersect (same `.in('id', …)`
+  // pattern as the tag filter above). A tampered/stale param fails closed to
+  // null and is ignored rather than throwing.
+  if (params.af) {
+    const tree = decodeFilterParam(params.af)
+    if (tree) {
+      const treeSet = await resolveFilterTree(supabase, orgId, tree)
+      const ids = [...treeSet].slice(0, 1000)
+      // Empty match → a sentinel that matches nothing, so the list is empty
+      // instead of silently unfiltered.
+      query = query.in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000'])
     }
   }
 
