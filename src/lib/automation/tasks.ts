@@ -40,6 +40,9 @@ export type HumanTaskKind =
   // A dated callback the rep committed to; minted when a lead is put on hold.
   // due_at is the hold date. See src/lib/automation/hold-tasks.ts.
   | 'callback'
+  // A cluster of likely-duplicate leads the sweep found, for an admin to review
+  // and merge. One live task per cluster. See src/lib/leads/duplicate-review-sweep.ts.
+  | 'duplicate_review'
 
 /** Manual-task urgency. Allocation-created tasks keep the 'normal' default. */
 export type HumanTaskPriority = 'low' | 'normal' | 'high' | 'urgent'

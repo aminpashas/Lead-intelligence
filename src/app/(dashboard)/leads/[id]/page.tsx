@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { getOwnProfile } from '@/lib/auth/active-org'
 import { isAdminRole } from '@/lib/auth/permissions'
+import { findDuplicateCandidates } from '@/lib/leads/duplicate-detection'
+import { leadDisplayName } from '@/lib/leads/display-name'
 import { LeadDetail } from '@/components/crm/lead-detail'
 import { buildTimeline, TIMELINE_ACTIVITY_TYPES } from '@/lib/timeline/build-timeline'
 import { fetchLeadNotes } from '@/lib/timeline/lead-notes'
@@ -178,6 +180,30 @@ export default async function LeadDetailPage({
 
   const canTrainAi = !!ownProfile && isAdminRole(ownProfile.role)
 
+  // Possible duplicates of this lead (medium+ confidence), for the banner. Read
+  // it here so the merge control is server-authorized-consistent (canMerge) and
+  // there's no client fetch waterfall. Best-effort — a detection hiccup must
+  // never break the lead page.
+  const duplicateCandidates = await findDuplicateCandidates(
+    supabase,
+    lead.organization_id,
+    id,
+    { minConfidence: 'medium' },
+  ).catch(() => [])
+  const duplicates = duplicateCandidates.map((c) => ({
+    id: c.id,
+    name: leadDisplayName({
+      first_name: c.first_name,
+      last_name: c.last_name,
+      phone_formatted: null,
+    }),
+    status: c.status,
+    created_at: c.created_at,
+    signals: c.pair.signals,
+    confidence: c.pair.confidence,
+    score: c.pair.score,
+  }))
+
   // Lead's tags (via the lead_tags join), so the Tags card renders populated.
   const initialTags: Tag[] = (leadTagRows || [])
     .map((row) => row.tag as any as Tag | null)
@@ -205,6 +231,8 @@ export default async function LeadDetailPage({
       notes={notes}
       currentUserId={ownProfile?.id ?? null}
       tasks={leadTasks || []}
+      duplicates={duplicates}
+      canMergeDuplicates={canTrainAi}
     />
   )
 }

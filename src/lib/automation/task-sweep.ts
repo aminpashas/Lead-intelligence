@@ -36,6 +36,7 @@ import { decryptField } from '@/lib/encryption'
 import { leadDisplayName } from '@/lib/leads/display-name'
 import { createHumanTask, resolveAssignee, type HumanTaskPriority } from './tasks'
 import { clearLeadHold } from './hold-tasks'
+import { sweepDuplicateReviews } from '@/lib/leads/duplicate-review-sweep'
 
 /** Most rows one rule may mint in a single run (backstop against a rule going wide). */
 const PER_RULE_CAP = 200
@@ -443,6 +444,20 @@ export async function sweepOrg(supabase: SupabaseClient, orgId: string): Promise
     total.closed += clearedHolds
   } catch (err) {
     logger.warn('TaskSweep: expireHolds threw', {
+      orgId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
+  // Surface likely-duplicate clusters as review tasks (separate kind + dedupe
+  // namespace, so it can never collide with the follow_up rules above).
+  try {
+    const dup = await sweepDuplicateReviews(supabase, orgId)
+    total.minted += dup.minted
+    total.closed += dup.closed
+    total.skipped += dup.skipped
+  } catch (err) {
+    logger.warn('TaskSweep: duplicate-review sweep threw', {
       orgId,
       error: err instanceof Error ? err.message : String(err),
     })

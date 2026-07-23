@@ -19,6 +19,7 @@ import { EngagementMeter } from './engagement-meter'
 import { TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
 import { LeadTaskCard, type LeadTask } from './lead-task-card'
+import { DuplicateBanner, type DuplicateCandidateView } from './duplicate-banner'
 import { LeadNotesPanel, type LeadNote } from './lead-notes-panel'
 import { StageSelect } from './stage-select'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
@@ -85,6 +86,8 @@ export function LeadDetail({
   notes = [],
   currentUserId = null,
   tasks = [],
+  duplicates = [],
+  canMergeDuplicates = false,
 }: {
   lead: Lead
   activities: LeadActivity[]
@@ -113,6 +116,10 @@ export function LeadDetail({
   currentUserId?: string | null
   /** Live (open/claimed) human_tasks for this lead, server-fetched. */
   tasks?: LeadTask[]
+  /** Possible duplicates of this lead (medium+ confidence), server-detected. */
+  duplicates?: DuplicateCandidateView[]
+  /** Whether the viewer may merge (admin roles). API enforces the same gate. */
+  canMergeDuplicates?: boolean
 }) {
   const [lead, setLead] = useState(initialLead)
   const [scoring, setScoring] = useState(false)
@@ -265,6 +272,14 @@ export function LeadDetail({
             </Button>
           </div>
         </div>
+
+        {/* Possible-duplicate heads-up, above tasks. Renders nothing when the
+            lead has no medium+ confidence duplicate candidate. */}
+        <DuplicateBanner
+          leadId={lead.id}
+          initialCandidates={duplicates}
+          canMerge={canMergeDuplicates}
+        />
 
         {/* Live tasks for this lead, pinned above the thread so they can't rot.
             Renders nothing when the lead has no open/claimed task. */}
