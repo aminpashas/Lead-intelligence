@@ -26,6 +26,7 @@ import {
   getRescheduleUrl,
 } from '@/lib/campaigns/reminder-templates'
 import { formatAppointmentDateTime, type ReminderResult } from '@/lib/campaigns/reminders'
+import { isProtectedPatient } from '@/lib/appointments/upcoming'
 import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
 import { initiateConfirmationCall } from '@/lib/campaigns/confirmation-call'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
@@ -192,6 +193,9 @@ async function executeAppointmentStep(
 
   const confirmUrl = getConfirmationUrl(apt.id, orgId)
   const rescheduleUrl = getRescheduleUrl(apt.id, orgId)
+  // Post-consult / mid-treatment patients don't get a reschedule offer — a change
+  // to a committed appointment goes through the office, not a self-serve link.
+  const patientProtected = isProtectedPatient(lead.status as string | null | undefined)
 
   if (step.channel === 'sms') {
     // Consent is assumed — only skip when there's no phone or the lead opted out (DND).
@@ -202,7 +206,7 @@ async function executeAppointmentStep(
       step.template_body?.replace(/\{first(_name)?\}/g, firstName) ??
       (legacyTag === '1h_sms'
         ? generate1hSmsTemplate({ firstName, appointmentTime: dateTime, practiceName })
-        : generate24hSmsTemplate({ firstName, appointmentType: apt.type, dateTime, practiceName }))
+        : generate24hSmsTemplate({ firstName, appointmentType: apt.type, dateTime, practiceName, protected: patientProtected }))
     const sendRes = await sendSMSToLead({
       supabase,
       leadId: apt.lead_id,
@@ -220,8 +224,8 @@ async function executeAppointmentStep(
   }
   const tpl =
     legacyTag === '72h'
-      ? generate72hEmailTemplate({ firstName, appointmentType: apt.type, dateTime, location: apt.location, practiceName, confirmUrl, rescheduleUrl })
-      : generate24hEmailTemplate({ firstName, appointmentType: apt.type, dateTime, location: apt.location, practiceName, confirmUrl, rescheduleUrl })
+      ? generate72hEmailTemplate({ firstName, appointmentType: apt.type, dateTime, location: apt.location, practiceName, confirmUrl, rescheduleUrl, protected: patientProtected })
+      : generate24hEmailTemplate({ firstName, appointmentType: apt.type, dateTime, location: apt.location, practiceName, confirmUrl, rescheduleUrl, protected: patientProtected })
   const subject = step.template_subject || tpl.subject
   const body = step.template_body?.replace(/\{first(_name)?\}/g, firstName)
   const result = await sendEmail({

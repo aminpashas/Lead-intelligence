@@ -35,6 +35,7 @@ import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
 import { resolvePracticeContact, formatPracticeContactBlock } from '@/lib/ai/practice-contact'
+import { getActiveUpcomingAppointment, buildAlreadyBookedBlock, isProtectedPatient } from '@/lib/appointments/upcoming'
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -254,7 +255,7 @@ RE-CLOSE STAGE: ${reCloseStage.toUpperCase()}
 ${reCloseApproach}
 
 CRITICAL STRATEGY:
-- ALWAYS offer to reschedule a follow-up consultation or virtual call: "Would you like to come back in for a quick follow-up? Sometimes a second visit helps people feel more confident."
+- You may INVITE them to an ADDITIONAL follow-up visit or virtual call as a NEW step forward: "Would you like to come back in for a quick follow-up? Sometimes a second visit helps people feel more confident." This is additive only — never frame it as moving, canceling, or replacing any appointment they already hold, and never suggest they reschedule an existing visit.
 - Use cross-channel tools proactively — text them a testimonial video or before/after photos WITHOUT waiting for them to ask
 - If they re-engage, immediately offer a concrete next step (schedule follow-up, send financing link, etc.)
 - Reference specifics from their consultation if available in conversation history
@@ -658,7 +659,7 @@ export async function closerAgentRespond(
   // Inject the org's trained memories + knowledge base into the LIVE closer, so
   // trained guidance governs real conversations (not just the playground).
   const latestInbound = [...context.conversation_history].reverse().find((m) => m.role === 'user')?.content ?? ''
-  const [knowledgeBlock, personaBlock, bookingSettings, rulesBlock, playbookBlock, profileBlock, brandBlock, practiceContact] = await Promise.all([
+  const [knowledgeBlock, personaBlock, bookingSettings, rulesBlock, playbookBlock, profileBlock, brandBlock, practiceContact, upcomingAppointment] = await Promise.all([
     buildLiveAgentKnowledgeBlock(supabase, context.organization_id, latestInbound),
     buildAgencyPersonaBlock(supabase),
     supabase
@@ -678,6 +679,15 @@ export async function closerAgentRespond(
     // Real practice phone/address/hours — without these in the prompt the
     // model invented literal "[practice phone]" text in patient SMS.
     resolvePracticeContact(supabase, context.organization_id),
+    // Booking awareness for the protected cohort: the closer owns every
+    // post-consult status, and these patients (often with a signed agreement +
+    // non-refundable deposit) must never be nudged to cancel/reschedule an
+    // existing appointment. Best-effort — never block a reply on it.
+    getActiveUpcomingAppointment(
+      supabase,
+      context.organization_id,
+      context.lead.id as string
+    ).catch(() => null),
   ])
   const contactBlock = formatPracticeContactBlock(practiceContact)
   // The practice's OWN contact info is public, not patient PHI — exempt it
@@ -707,7 +717,19 @@ export async function closerAgentRespond(
     hasRealFinancingData,
   })
 
-  const systemPrompt = [composedPrompt, brandBlock, dateBlock, contactBlock, pricingBlock, personaBlock, rulesBlock, playbookBlock, profileBlock, knowledgeBlock].filter(Boolean).join('\n\n')
+  // Every status the closer handles is post-consult (see STAGE_AGENT_MAP), so
+  // the closer's patients are the protected cohort. When they hold a live
+  // upcoming appointment, prepend the hard "do NOT re-schedule or cancel"
+  // guard (protected variant: no self-serve link, warm handoff, never imply a
+  // change is done). Empty string when they have no upcoming appointment.
+  const alreadyBookedBlock = buildAlreadyBookedBlock(
+    upcomingAppointment,
+    bookingSettings.data?.timezone as string | null | undefined,
+    { protected: isProtectedPatient(context.lead_status) }
+  )
+
+  // alreadyBookedBlock goes right after the base role so its directive dominates.
+  const systemPrompt = [composedPrompt, alreadyBookedBlock, brandBlock, dateBlock, contactBlock, pricingBlock, personaBlock, rulesBlock, playbookBlock, profileBlock, knowledgeBlock].filter(Boolean).join('\n\n')
 
   // Scrub PHI from conversation history AND wrap every untrusted (user-role) turn
   // in delimiters. The autopilot's injection scan only neutralized the NEWEST
@@ -758,6 +780,7 @@ export async function closerAgentRespond(
       conversation_id: context.conversation_id,
       channel: context.channel,
       disclose_phi: context.disclose_phi,
+      preview: context.preview,
     },
   })
 

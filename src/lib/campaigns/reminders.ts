@@ -40,6 +40,7 @@ import { BookingReminder } from '@/emails/BookingReminder'
 import { logger } from '@/lib/logger'
 import { decryptLeadPII } from '@/lib/encryption'
 import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
+import { isProtectedPatient } from '@/lib/appointments/upcoming'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -75,6 +76,8 @@ type AppointmentWithLead = {
     id: string
     first_name: string
     last_name: string | null
+    // Pipeline status — drives the protected-cohort reschedule suppression.
+    status: string | null
     phone: string | null
     phone_formatted: string | null
     email: string | null
@@ -202,7 +205,7 @@ async function send72hReminders(
 
   const { data: appointments } = await supabase
     .from('appointments')
-    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
+    .select('*, lead:leads(id, first_name, last_name, status, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
     .eq('organization_id', orgId)
     .in('status', ['scheduled', 'confirmed'])
     .eq('reminder_sent_72h', false)
@@ -230,6 +233,7 @@ async function send72hReminders(
       practiceName,
       confirmUrl,
       rescheduleUrl,
+      protected: isProtectedPatient(lead.status),
       logisticsHtml: logistics.emailHtml,
       logisticsText: logistics.emailText,
     })
@@ -300,7 +304,7 @@ async function send24hReminders(
 
   const { data: appointments } = await supabase
     .from('appointments')
-    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
+    .select('*, lead:leads(id, first_name, last_name, status, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
     .eq('organization_id', orgId)
     .in('status', ['scheduled', 'confirmed'])
     .eq('reminder_sent_24h', false)
@@ -316,6 +320,9 @@ async function send24hReminders(
     const confirmUrl = getConfirmationUrl(apt.id, orgId)
     const rescheduleUrl = getRescheduleUrl(apt.id, orgId)
     const practiceName = brandNameFor(lead)
+    // Post-consult / mid-treatment patients don't get a reschedule offer — a
+    // change to a committed appointment goes through the office.
+    const patientProtected = isProtectedPatient(lead.status)
 
     // ── Send SMS ── (consent assumed; only a phone + no DND required)
     if (lead.phone && !lead.sms_opt_out) {
@@ -324,6 +331,7 @@ async function send24hReminders(
         appointmentType: apt.type,
         dateTime,
         practiceName,
+        protected: patientProtected,
       })
 
       try {
@@ -385,7 +393,9 @@ async function send24hReminders(
           durationMinutes: apt.duration_minutes,
           location: apt.location || undefined,
           window: '24h',
-          rescheduleUrl,
+          // Protected patients get no self-serve reschedule link — the React
+          // template hides the "reschedule online" line when this is undefined.
+          rescheduleUrl: patientProtected ? undefined : rescheduleUrl,
           logistics: brandLogistics,
         })
       )
@@ -457,7 +467,7 @@ async function send2hConfirmationCalls(
 
   const { data: appointments } = await supabase
     .from('appointments')
-    .select('*, lead:leads(id, first_name, last_name, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
+    .select('*, lead:leads(id, first_name, last_name, status, phone, phone_formatted, email, voice_consent, voice_opt_out, do_not_call, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution)')
     .eq('organization_id', orgId)
     .in('status', ['scheduled', 'confirmed'])
     .eq('reminder_sent_2h', false)

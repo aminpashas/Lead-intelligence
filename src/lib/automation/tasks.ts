@@ -51,6 +51,10 @@ export type HumanTaskStatus =
   | 'expired'
   | 'taken_by_ai'
   | 'dismissed'
+  // A human working the queue handed this task to the AI, reviewed the exact
+  // outbound text, and the AI sent it. Distinct from the clock-driven
+  // 'taken_by_ai' SLA takeover. See src/lib/tasks/delegation.ts.
+  | 'delegated_to_ai'
 
 /** Row of human_tasks. */
 export type HumanTask = {

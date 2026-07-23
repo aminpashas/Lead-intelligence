@@ -41,7 +41,7 @@ import { buildPracticeProfileBlock } from '@/lib/campaigns/practice-profile'
 import { buildBrandIdentityBlock } from '@/lib/branding/prompt-block'
 import { analyzeTextingStyle, formatTextingStyleBlock } from './texting-style'
 import { resolvePracticeContact, formatPracticeContactBlock } from '@/lib/ai/practice-contact'
-import { getActiveUpcomingAppointment, buildAlreadyBookedBlock } from '@/lib/appointments/upcoming'
+import { getActiveUpcomingAppointment, buildAlreadyBookedBlock, isProtectedPatient } from '@/lib/appointments/upcoming'
 import { getRescheduleUrl } from '@/lib/campaigns/reminder-templates'
 
 function getAnthropic() {
@@ -462,15 +462,23 @@ export async function setterAgentRespond(
     context.organization_id,
     context.lead.id as string
   ).catch(() => null)
+  // Protected patients (post-consult / mid-treatment) must NEVER get the
+  // self-serve reschedule link — a change to their appointment is a human
+  // coordinator's call. Normally these leads route to the closer, but the
+  // confirmation-call flow drives protected patients through the setter, so
+  // guard here too. Pre-consult leads keep the self-serve link (a reschedule
+  // beats a no-show).
+  const isProtected = isProtectedPatient(context.lead_status)
   // Hand the patient the self-serve reschedule link if they want to change the
   // time — the agent pastes it into its own reply (one text, no booking tool).
-  const rescheduleUrl = upcomingAppointment
-    ? getRescheduleUrl(upcomingAppointment.id, context.organization_id)
-    : null
+  const rescheduleUrl =
+    upcomingAppointment && !isProtected
+      ? getRescheduleUrl(upcomingAppointment.id, context.organization_id)
+      : null
   const alreadyBookedBlock = buildAlreadyBookedBlock(
     upcomingAppointment,
     bs?.timezone as string | null | undefined,
-    { rescheduleUrl }
+    { rescheduleUrl, protected: isProtected }
   )
 
   const discoveryBlock = buildDiscoveryPromptBlock({
@@ -547,6 +555,7 @@ export async function setterAgentRespond(
       conversation_id: context.conversation_id,
       channel: context.channel,
       disclose_phi: context.disclose_phi,
+      preview: context.preview,
     },
   })
 
