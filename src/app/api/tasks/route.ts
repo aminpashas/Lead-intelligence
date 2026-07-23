@@ -66,6 +66,11 @@ export async function GET(request: NextRequest) {
   const kindParam = url.searchParams.get('kind')
   const kind = kindParam && VALID_KINDS.includes(kindParam) ? kindParam : null
   const assignee = url.searchParams.get('assignee') === 'me' ? 'me' : 'all'
+  // Optional lead scoping (the lead detail page). Malformed ids are ignored
+  // rather than erroring, matching how status/kind degrade to defaults.
+  const leadIdParam = url.searchParams.get('lead_id')
+  const leadId =
+    leadIdParam && z.string().uuid().safeParse(leadIdParam).success ? leadIdParam : null
 
   const rawLimit = parseInt(url.searchParams.get('limit') || '50', 10)
   const limit = Math.min(Math.max(Number.isNaN(rawLimit) ? 50 : rawLimit, 1), 100)
@@ -89,6 +94,8 @@ export async function GET(request: NextRequest) {
       claimed_by,
       claimed_at,
       completed_at,
+      reviewed_at,
+      reviewed_by,
       source,
       created_by,
       lead_id,
@@ -106,6 +113,7 @@ export async function GET(request: NextRequest) {
     query = query.eq('status', status)
   }
   if (kind) query = query.eq('kind', kind)
+  if (leadId) query = query.eq('lead_id', leadId)
   if (assignee === 'me') {
     query = query.or(`assigned_to.eq.${profile.id},claimed_by.eq.${profile.id}`)
   }
