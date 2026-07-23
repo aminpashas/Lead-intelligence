@@ -18,6 +18,7 @@ import { LeadContactField } from './lead-contact-field'
 import { EngagementMeter } from './engagement-meter'
 import { TimelineFeed } from './lead-timeline'
 import { ConversationThread } from './conversation-thread'
+import { LeadTaskCard, type LeadTask } from './lead-task-card'
 import { LeadNotesPanel, type LeadNote } from './lead-notes-panel'
 import { StageSelect } from './stage-select'
 import { LeadIntelligencePanel } from './lead-intelligence-panel'
@@ -83,6 +84,7 @@ export function LeadDetail({
   canTrainAi = false,
   notes = [],
   currentUserId = null,
+  tasks = [],
 }: {
   lead: Lead
   activities: LeadActivity[]
@@ -109,6 +111,8 @@ export function LeadDetail({
   notes?: LeadNote[]
   /** Viewer's user id — notes expose edit/delete only on the author's own rows. */
   currentUserId?: string | null
+  /** Live (open/claimed) human_tasks for this lead, server-fetched. */
+  tasks?: LeadTask[]
 }) {
   const [lead, setLead] = useState(initialLead)
   const [scoring, setScoring] = useState(false)
@@ -261,6 +265,15 @@ export function LeadDetail({
             </Button>
           </div>
         </div>
+
+        {/* Live tasks for this lead, pinned above the thread so they can't rot.
+            Renders nothing when the lead has no open/claimed task. */}
+        <LeadTaskCard
+          leadId={lead.id}
+          initialTasks={tasks}
+          teamMembers={teamMembers}
+          lastContactedAt={lead.last_contacted_at}
+        />
 
         {/* Body — the chat thread (the same messenger as /conversations, with
             Text/Email/Call in one composer) or its condensed timeline. The

@@ -62,6 +62,7 @@ export default async function LeadDetailPage({
     // Admins get the per-call "Use for AI training" control on call cards.
     { data: ownProfile },
     { data: leadTagRows },
+    { data: leadTasks },
   ] = await Promise.all([
     // Audit trail for the Details panel — every activity type, most recent first.
     supabase
@@ -135,6 +136,19 @@ export default async function LeadDetailPage({
       .select('tag:tags(*)')
       .eq('lead_id', id)
       .eq('organization_id', lead.organization_id),
+    // Live (open/claimed) tasks for this lead — surfaced by LeadTaskCard so they
+    // don't go stale. First read to use the human_tasks_lead_idx index.
+    supabase
+      .from('human_tasks')
+      .select(
+        'id, kind, title, detail, status, priority, due_at, assigned_to, reviewed_at, created_at'
+      )
+      .eq('lead_id', id)
+      .eq('organization_id', lead.organization_id)
+      .in('status', ['open', 'claimed'])
+      .order('due_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .limit(20),
   ])
 
   // The most recently active conversation is the one the embedded chat opens on.
@@ -190,6 +204,7 @@ export default async function LeadDetailPage({
       canTrainAi={canTrainAi}
       notes={notes}
       currentUserId={ownProfile?.id ?? null}
+      tasks={leadTasks || []}
     />
   )
 }

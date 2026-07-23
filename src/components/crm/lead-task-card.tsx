@@ -211,10 +211,11 @@ export function LeadTaskCard({
                     Still relevant
                   </Button>
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="sm" variant="ghost" disabled={isBusy} className="h-7 gap-0.5 px-2 text-[11px]">
-                        Snooze <ChevronDown className="h-3 w-3" strokeWidth={1.75} />
-                      </Button>
+                    <DropdownMenuTrigger
+                      disabled={isBusy}
+                      className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md px-2 text-[11px] text-aurea-ink transition-colors hover:bg-aurea-surface-2 disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      Snooze <ChevronDown className="h-3 w-3" strokeWidth={1.75} />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       {SNOOZE_PRESETS.map((p) => (
