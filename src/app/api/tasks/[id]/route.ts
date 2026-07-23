@@ -19,9 +19,19 @@ import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
  * can't be claimed again (409).
  */
 
-const taskPatchSchema = z.object({
-  action: z.enum(['claim', 'complete', 'dismiss']),
-})
+const taskPatchSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('claim') }),
+  z.object({ action: z.literal('complete') }),
+  z.object({ action: z.literal('dismiss') }),
+  z.object({ action: z.literal('review') }),
+  z.object({
+    action: z.literal('snooze'),
+    // Exactly one of the two must be supplied (refined in the handler, since the
+    // future-date check needs runtime Date.now()).
+    snooze_days: z.number().int().min(1).max(90).optional(),
+    due_at: z.string().datetime({ offset: true }).optional(),
+  }),
+])
 
 export async function PATCH(
   request: NextRequest,
@@ -61,7 +71,8 @@ export async function PATCH(
       { status: 400 }
     )
   }
-  const { action } = parsed.data
+  const data = parsed.data
+  const action = data.action
 
   // Verify the task belongs to the caller's org and read its current state.
   const { data: task } = await supabase
@@ -115,6 +126,43 @@ export async function PATCH(
       updates.status = 'dismissed'
       updates.completed_at = now
       break
+    case 'review':
+      if (task.status !== 'open' && task.status !== 'claimed') {
+        return NextResponse.json(
+          { error: `Cannot review a task in status "${task.status}"` },
+          { status: 409 }
+        )
+      }
+      updates.reviewed_at = now
+      updates.reviewed_by = profile.id
+      break
+    case 'snooze': {
+      if (task.status !== 'open' && task.status !== 'claimed') {
+        return NextResponse.json(
+          { error: `Cannot snooze a task in status "${task.status}"` },
+          { status: 409 }
+        )
+      }
+      let nextDue: string
+      if (data.action === 'snooze' && data.due_at) {
+        if (new Date(data.due_at).getTime() <= Date.now()) {
+          return NextResponse.json({ error: 'due_at must be in the future' }, { status: 400 })
+        }
+        nextDue = data.due_at
+      } else if (data.action === 'snooze' && typeof data.snooze_days === 'number') {
+        nextDue = new Date(Date.now() + data.snooze_days * 24 * 60 * 60 * 1000).toISOString()
+      } else {
+        return NextResponse.json(
+          { error: 'snooze requires snooze_days or a future due_at' },
+          { status: 400 }
+        )
+      }
+      updates.due_at = nextDue
+      // Snoozing is a review — record that a human looked at this.
+      updates.reviewed_at = now
+      updates.reviewed_by = profile.id
+      break
+    }
   }
 
   const { data: updated, error } = await supabase
