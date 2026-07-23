@@ -13,6 +13,7 @@ import { escapeHtml } from '@/lib/utils'
 import { syncAppointmentToEhr } from '@/lib/booking/ehr-sync'
 import { fetchEhrBusyAsAppointments } from '@/lib/booking/ehr-busy'
 import { getBrandingForOrg } from '@/lib/branding/store'
+import { parseBranding } from '@/lib/branding/schema'
 import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
 import { renderVisitLogistics } from '@/lib/branding/visit-logistics'
 
@@ -66,8 +67,12 @@ export async function POST(
   // NOT self-confirm a consultation. Capture the lead + their preferred time as
   // a call request; staff will call to qualify and book.
   if (settings.require_call_before_booking) {
-    const { data: gateOrg } = await supabase.from('organizations').select('name').eq('id', orgId).single()
-    const gateOrgName = gateOrg?.name || 'Our Practice'
+    const { data: gateOrg } = await supabase.from('organizations').select('name, settings').eq('id', orgId).single()
+    // A booking-form lead carries no service-line signal yet, so this resolves to
+    // the org's default (house) brand — SF Dentistry — which is what a walk-in
+    // should see and matches the Google/physical listing.
+    const gateBranding = parseBranding((gateOrg?.settings as Record<string, unknown> | null)?.branding)
+    const gateOrgName = resolveBrandForContext(gateBranding, gateOrg?.name || 'Our Practice', {}).practiceName
 
     // Never overwrite an existing lead's identity or consent from this
     // unauthenticated route (same safety rule as the booking path below).

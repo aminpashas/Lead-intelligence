@@ -8,6 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getTransitionRules, type TransitionAction } from './automations'
 import { processTemplate, buildTemplateContext, type TemplateContext } from '../campaigns/template'
+import { parseBranding } from '@/lib/branding/schema'
 import { decryptField } from '@/lib/encryption'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
@@ -46,17 +47,19 @@ export async function executeStageTransition(
 
   const results: AutomationResult[] = []
 
-  // Get org name for templates
+  // Get org name + branding for templates (per-service-line DBA resolution)
   const { data: org } = await supabase
     .from('organizations')
-    .select('name')
+    .select('name, settings')
     .eq('id', params.organizationId)
     .single()
 
+  const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
   const templateCtx = buildTemplateContext(
     params.lead as any,
     org?.name || 'Our Practice',
-    params.organizationId
+    params.organizationId,
+    branding
   )
 
   for (const rule of rules) {

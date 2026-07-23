@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentContext, ConversationMessage } from '@/lib/ai/agent-types'
 import type { PatientProfile, ConversationChannel, LeadStatus, FinancingContext } from '@/types/database'
 import { processTemplate, buildTemplateContext } from './template'
+import { parseBranding } from '@/lib/branding/schema'
 import { checkSendWindow } from './send-window'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmailToLead } from '@/lib/messaging/resend'
@@ -130,13 +131,14 @@ export async function executeNurtureStep(
     return { ...base, action: 'deferred', detail: 'Outside send window' }
   }
 
-  // Resolve org name + conversation up-front (needed for context, escalation, storage).
-  const { data: org } = await supabase.from('organizations').select('name').eq('id', orgId).single()
+  // Resolve org name + branding + conversation up-front (needed for context, escalation, storage).
+  const { data: org } = await supabase.from('organizations').select('name, settings').eq('id', orgId).single()
   const orgName = org?.name || 'Our Practice'
+  const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
   const conversationId = await getOrCreateConversation(supabase, orgId, lead.id, step.channel)
 
-  // Compose the message.
-  const ctx = buildTemplateContext(lead, orgName, orgId)
+  // Compose the message — practice_name resolves to the lead's brand, not raw org name.
+  const ctx = buildTemplateContext(lead, orgName, orgId, branding)
   let messageBody = processTemplate(step.body_template, ctx)
   const subject = step.subject ? processTemplate(step.subject, ctx) : `A note from ${orgName}`
   let confidence = 1 // fixed templates are trusted

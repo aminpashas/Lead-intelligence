@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { processTemplate, buildTemplateContext } from './template'
+import { parseBranding } from '@/lib/branding/schema'
 import { checkSendWindow } from './send-window'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
@@ -175,15 +176,17 @@ async function executeOneStep(
     return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'deferred', detail: 'Outside send window' }
   }
 
-  // Get organization name
+  // Get organization name + branding (per-service-line DBA resolution)
   const { data: org } = await supabase
     .from('organizations')
-    .select('name')
+    .select('name, settings')
     .eq('id', campaign.organization_id)
     .single()
 
-  // Process template
-  const ctx = buildTemplateContext(lead, org?.name || 'Our Practice', campaign.organization_id)
+  const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
+
+  // Process template — practice_name resolves to the lead's brand, not raw org name
+  const ctx = buildTemplateContext(lead, org?.name || 'Our Practice', campaign.organization_id, branding)
   let messageBody = processTemplate(step.body_template, ctx)
   const subject = step.subject ? processTemplate(step.subject, ctx) : undefined
 
@@ -338,7 +341,7 @@ async function executeOneStep(
       leadId: lead.id,
       organizationId: campaign.organization_id,
       caller: `campaign:${campaign.name}:step_${step.step_number}`,
-      dynamicVariables: { practice_name: org?.name || 'our practice' },
+      dynamicVariables: { practice_name: ctx.practice_name },
     })
     if (!result.placed) {
       // No-consent / DNC are exits, not retries. Other failures are errors so cron retries.

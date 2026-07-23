@@ -12,6 +12,7 @@ import { FUNNEL_STAGES, type StageAction } from '@/lib/funnel/stages'
 import { processTriggerCampaigns, type TriggerEvent } from './triggers'
 import { exitAllCampaigns } from './enrollments'
 import { processTemplate, buildTemplateContext, type TemplateContext } from './template'
+import { parseBranding } from '@/lib/branding/schema'
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
@@ -71,12 +72,13 @@ export async function onStageChange(
 
       const { data: org } = await supabase
         .from('organizations')
-        .select('name')
+        .select('name, settings')
         .eq('id', organizationId)
         .single()
 
       const orgName = org?.name || 'Our Practice'
-      const templateCtx = buildTemplateContext(decryptedLead, orgName, organizationId)
+      const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
+      const templateCtx = buildTemplateContext(decryptedLead, orgName, organizationId, branding)
 
       // Allocation policy gate (Workstream D1, dormant by default): only
       // resolved when this stage actually has outbound (sms/email) entry

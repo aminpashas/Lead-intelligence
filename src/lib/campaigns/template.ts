@@ -1,4 +1,6 @@
 import type { Lead } from '@/types/database'
+import type { Branding } from '@/lib/branding/schema'
+import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
 
 export type TemplateContext = {
   lead: Partial<Lead>
@@ -39,15 +41,25 @@ export function processTemplate(template: string, ctx: TemplateContext): string 
 
 /**
  * Build a template context from a lead and organization data.
+ *
+ * When `branding` is supplied, `practice_name` resolves to the lead's
+ * per-service-line DBA (implants → Dion Health, TMJ/sleep → TMJ center, else →
+ * SF Dentistry) instead of the raw org name — so a {{practice_name}} merge in a
+ * template blast brands each recipient correctly. Omitting `branding` keeps the
+ * legacy behaviour (raw org name) for callers that have no lead/brand context.
  */
 export function buildTemplateContext(
   lead: Partial<Lead>,
   orgName: string,
-  orgId: string
+  orgId: string,
+  branding?: Branding
 ): TemplateContext {
+  const practice_name = branding
+    ? resolveBrandForContext(branding, orgName, { lead: lead as Lead }).practiceName
+    : orgName
   return {
     lead,
-    practice_name: orgName,
+    practice_name,
     org_id: orgId,
     app_url: process.env.NEXT_PUBLIC_APP_URL || 'https://lead-intelligence-jet.vercel.app',
   }
