@@ -39,10 +39,12 @@ export async function POST(req: NextRequest) {
   const kind = req.nextUrl.searchParams.get('kind')
   if (!vcId) return xml(hangupTwiml())
 
+  const isPatient = req.nextUrl.searchParams.get('patient') === '1'
+
   const supabase = createServiceClient()
   const { data: call } = await supabase
     .from('voice_calls')
-    .select('id, conversation_id, transcript_summary, metadata')
+    .select('id, organization_id, lead_id, conversation_id, transcript_summary, metadata')
     .eq('id', vcId)
     .maybeSingle()
 
@@ -96,6 +98,27 @@ export async function POST(req: NextRequest) {
       .from('conversations')
       .update({ last_message_at: new Date().toISOString(), status: 'open' })
       .eq('id', call.conversation_id)
+  }
+
+  // Active-treatment patient couldn't reach the office manager live → hand off to
+  // Dion Desk so Kirsten sees the missed patient call and calls back. Best-effort;
+  // idempotent on (leadId, event) so it never double-files.
+  if (isPatient && call.organization_id && call.lead_id) {
+    const patientId = (metadata.patient_id as string | undefined) || null
+    if (patientId) {
+      try {
+        const { enqueueDeskExistingPatientContact } = await import('@/lib/bridges/dion-desk')
+        await enqueueDeskExistingPatientContact(supabase, {
+          organizationId: call.organization_id as string,
+          leadId: call.lead_id as string,
+          patientId,
+          matchMethod: 'phone_hash',
+          sourceType: 'inbound_call',
+        })
+      } catch (deskErr) {
+        console.error('[Voice Voicemail] Dion Desk hand-off failed (non-fatal):', deskErr)
+      }
+    }
   }
 
   if (!recordingUrl) return xml(hangupTwiml())

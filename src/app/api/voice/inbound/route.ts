@@ -3,6 +3,7 @@ import { validateTwilioWebhook } from '@/lib/messaging/twilio'
 import {
   buildInboundContext,
   resolveInboundRingPlan,
+  resolveOfficeManagerTarget,
   registerRetellCall,
   retellSipTwiml,
   ringAgentsTwiml,
@@ -148,6 +149,88 @@ async function answerWithAI(
   return xml(retellSipTwiml(retellCallId))
 }
 
+/**
+ * Active-treatment patient path: an existing patient with an accepted/completed
+ * case is calling. They bypass the org's sales AI/ring policy entirely and go to
+ * the office manager (Kirsten) — ring her live if a target is configured, else
+ * take a message. Either way the no-answer/voicemail path carries `patient=1` so
+ * the follow-up webhooks skip AI-takeover and enqueue a Dion Desk hand-off.
+ */
+async function routeExistingPatientToOfficeManager(
+  supabase: NonNullable<ReturnType<typeof getSupabase>>,
+  ctx: InboundContext,
+  params: {
+    from: string
+    to: string
+    callSid: string
+    callerCity: string
+    callerState: string
+    callerCountry: string
+    origin: string
+  }
+): Promise<NextResponse | null> {
+  const { from, to, callSid, callerCity, callerState, callerCountry, origin } = params
+  if (!ctx.orgId || !ctx.leadId) return null
+
+  const { data: callRow, error: insertError } = await supabase
+    .from('voice_calls')
+    .insert({
+      organization_id: ctx.orgId,
+      lead_id: ctx.leadId,
+      conversation_id: ctx.conversationId,
+      direction: 'inbound',
+      status: 'ringing',
+      from_number: from,
+      to_number: to,
+      started_at: new Date().toISOString(),
+      consent_verified: true,
+      twilio_call_sid: callSid,
+      metadata: {
+        twilio_call_sid: callSid,
+        caller_city: callerCity,
+        caller_state: callerState,
+        caller_country: callerCountry,
+        inbound_handling: 'existing_patient',
+        patient_id: ctx.patientId,
+      },
+    })
+    .select('id')
+    .single()
+
+  if (insertError || !callRow) {
+    // Couldn't create the row the callbacks need — degrade to the caller's normal
+    // path rather than dead-air, by signalling "not handled".
+    console.error('[Voice Inbound] Existing-patient call insert failed, degrading:', insertError)
+    return null
+  }
+  const vcId = callRow.id as string
+
+  const patientVoicemail = () => xml(voicemailTwiml({
+    greeting: `Thank you for calling ${ctx.practiceName}. Our office manager isn't available right now. Please leave your name and a brief message, and we'll get right back to you.`,
+    practiceName: ctx.practiceName,
+    actionUrl: `${origin}/api/voice/inbound/voicemail?vc=${vcId}&patient=1`,
+    transcribeCallbackUrl: `${origin}/api/voice/inbound/voicemail?vc=${vcId}&patient=1&kind=transcript`,
+  }))
+
+  const target = await resolveOfficeManagerTarget(supabase, ctx.orgId)
+  if (!target) {
+    // No office-manager target configured — take a message + Dion Desk hand-off.
+    return patientVoicemail()
+  }
+
+  const leadName = ctx.dynamicVariables.caller_full_name || 'Patient'
+  return xml(ringAgentsTwiml({
+    targets: [target],
+    ringSeconds: ctx.settings.ringSeconds,
+    // patient=1 → dial-result sends no-answer to the patient voicemail (never AI).
+    actionUrl: `${origin}/api/voice/inbound/dial-result?vc=${vcId}&patient=1`,
+    voiceCallId: vcId,
+    leadId: ctx.leadId,
+    leadName,
+    greeting: `Thanks for calling ${ctx.practiceName}. One moment while I connect you with our office manager.`,
+  }))
+}
+
 export async function POST(req: NextRequest) {
   // Validate the Twilio signature over the raw form body BEFORE trusting any
   // field — otherwise anyone can forge an inbound call, plant a consented lead,
@@ -185,6 +268,18 @@ export async function POST(req: NextRequest) {
   const aiParams = { from, to, callSid, callerCity, callerState, callerCountry, origin }
 
   try {
+    // ── Active-treatment patient → office manager ──
+    // Overrides the org's sales AI/ring policy. Requires full attribution (org +
+    // lead) so the follow-up webhooks have a concrete voice_calls row; if the
+    // handler can't set that up it returns null and the call falls through to the
+    // normal path below rather than dead-airing.
+    if (ctx.inActiveTreatment && supabase && ctx.orgId && ctx.leadId) {
+      const handled = await routeExistingPatientToOfficeManager(supabase, ctx, {
+        from, to, callSid, callerCity, callerState, callerCountry, origin,
+      })
+      if (handled) return handled
+    }
+
     // ── Ring-agents mode ──
     // Requires full attribution (org + lead) so the follow-up webhooks can act on
     // a concrete voice_calls row; anything less degrades to the AI path, which
