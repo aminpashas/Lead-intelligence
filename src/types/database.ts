@@ -1,6 +1,10 @@
 // Auto-generated types should come from `supabase gen types` in production.
 // These manual types provide IDE support during development.
 
+// Type-only import (erased at runtime, so no circular dependency even though
+// filter-tree transitively references the Lead type defined below).
+import type { FilterNode } from '@/lib/campaigns/filter-tree'
+
 export type Organization = {
   id: string
   name: string
@@ -1171,6 +1175,10 @@ export type SmartListCriteria = {
    *  when it matches the criteria — and out of every consumer (list view,
    *  counts, mass sends, campaign enrollment). Max 1000. */
   excluded_lead_ids?: string[]
+  /** Advanced search: a nested AND/OR filter tree resolved to a lead-ID set and
+   *  intersected with the flat criteria above (same pattern as tags/keywords).
+   *  See src/lib/campaigns/filter-tree.ts. */
+  filter?: FilterNode
 }
 
 export type SmartList = {

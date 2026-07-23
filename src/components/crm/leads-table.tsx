@@ -22,6 +22,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { TagBadgeList } from './tag-badge'
+import { AdvancedSearchButton } from './advanced-search-dialog'
 import { formatCampaignAttribution, displaySourceLabel } from '@/lib/attribution'
 import type { Lead, PipelineStage, Tag } from '@/types/database'
 import { LeadActions } from './lead-actions'
@@ -98,7 +99,7 @@ export function LeadsTable({
   }
 
   // Which filters are currently narrowing the list (search included).
-  const FILTER_KEYS = ['search', 'range', 'qualification', 'status', 'service', 'source', 'credit', 'campaign', 'tag']
+  const FILTER_KEYS = ['search', 'range', 'qualification', 'status', 'service', 'source', 'credit', 'campaign', 'tag', 'af']
   const activeFilterCount = FILTER_KEYS.filter((k) => searchParams.get(k)).length
 
   // Reset every filter but keep the current sort — a clean slate, not a reload.
@@ -361,6 +362,11 @@ export function LeadsTable({
             }))}
           />
         )}
+
+        {/* Advanced search — the shared AND/OR filter builder + Save as Smart
+            List. Carries its tree in the `af` URL param (in FILTER_KEYS above,
+            so it counts toward active filters and clears with the rest). */}
+        <AdvancedSearchButton stages={stages} />
 
         {/* Clear all — only once something is actually narrowing the list. */}
         {activeFilterCount > 0 && (

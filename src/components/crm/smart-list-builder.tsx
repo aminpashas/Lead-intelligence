@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,8 +20,10 @@ import {
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { TagSelector } from './tag-selector'
+import { AdvancedFilterBuilder } from './advanced-filter-builder'
+import { pruneFilterTree, type FilterNode } from '@/lib/campaigns/filter-tree'
 import {
-  Plus, Loader2, Users, Sparkles, Filter,
+  Loader2, Users, Sparkles, Filter, SlidersHorizontal,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -135,6 +137,11 @@ export function SmartListBuilder({
   const [sentiments, setSentiments] = useState<string[]>(initialValues?.criteria.conversation_sentiments || [])
   const [objections, setObjections] = useState<string[]>(initialValues?.criteria.primary_objections || [])
   const [redFlagOnly, setRedFlagOnly] = useState(initialValues?.criteria.conversation_red_flag ?? false)
+  // Advanced AND/OR filter tree (shared builder). Pruned on save so a
+  // half-built condition never blocks validation.
+  const [advancedFilter, setAdvancedFilter] = useState<FilterNode | null>(
+    initialValues?.criteria.filter ?? null
+  )
 
   function buildCriteria(): SmartListCriteria {
     const criteria: SmartListCriteria = {}
@@ -163,36 +170,34 @@ export function SmartListBuilder({
     if (sentiments.length > 0) criteria.conversation_sentiments = sentiments as ConversationSentiment[]
     if (objections.length > 0) criteria.primary_objections = objections as PrimaryObjection[]
     if (redFlagOnly) criteria.conversation_red_flag = true
+    if (advancedFilter) {
+      const pruned = pruneFilterTree(advancedFilter)
+      if (pruned) criteria.filter = pruned
+    }
     return criteria
   }
 
   const refreshPreview = useCallback(async () => {
     setPreviewLoading(true)
     try {
-      // Use the smart list leads count endpoint via a POST to /api/smart-lists with countOnly
-      // For preview, we'll use a simplified approach
+      // Count matching leads without persisting anything (read-only). Replaces
+      // the old create-a-__preview__-list-then-delete-it hack.
       const criteria = buildCriteria()
-      const res = await fetch('/api/smart-lists', {
+      const res = await fetch('/api/smart-lists/preview-count', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: '__preview__',
-          criteria,
-          color,
-        }),
+        body: JSON.stringify({ criteria }),
       })
       if (res.ok) {
-        const { smart_list } = await res.json()
-        setPreviewCount(smart_list.lead_count)
-        // Delete the preview list
-        await fetch(`/api/smart-lists/${smart_list.id}`, { method: 'DELETE' })
+        const { count } = await res.json()
+        setPreviewCount(count)
       }
     } catch {
       // Ignore preview errors
     } finally {
       setPreviewLoading(false)
     }
-  }, [tagIds, statuses, qualifications, scoreRange, stageIds, sourceTypes, hasPhone, hasEmail, smsConsent, tagOperator, color, keywordTerms, keywordMatch, keywordScopes, intents, sentiments, objections, redFlagOnly])
+  }, [tagIds, statuses, qualifications, scoreRange, stageIds, sourceTypes, hasPhone, hasEmail, smsConsent, tagOperator, color, keywordTerms, keywordMatch, keywordScopes, intents, sentiments, objections, redFlagOnly, advancedFilter])
 
   function toggleArrayValue(arr: string[], val: string, setter: (v: string[]) => void) {
     if (arr.includes(val)) {
@@ -246,7 +251,8 @@ export function SmartListBuilder({
   const hasCriteria = tagIds.length > 0 || statuses.length > 0 || qualifications.length > 0 ||
     scoreRange[0] > 0 || scoreRange[1] < 100 || stageIds.length > 0 ||
     sourceTypes.length > 0 || hasPhone || hasEmail || smsConsent || keywordTerms.length > 0 ||
-    intents.length > 0 || sentiments.length > 0 || objections.length > 0 || redFlagOnly
+    intents.length > 0 || sentiments.length > 0 || objections.length > 0 || redFlagOnly ||
+    !!pruneFilterTree(advancedFilter ?? { type: 'group', op: 'and', children: [] })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -306,6 +312,19 @@ export function SmartListBuilder({
             <div className="flex items-center gap-2">
               <Filter className="h-[17px] w-[17px] text-aurea-primary" strokeWidth={1.75} />
               <p className="aurea-eyebrow">Filter Criteria</p>
+            </div>
+
+            {/* Advanced AND/OR filter builder — the shared engine. Nests
+                conditions across pipeline, demographics, location, conversation
+                date range, treatment, etc. ANDs with the quick filters below. */}
+            <div className="space-y-2 rounded-lg border border-aurea-border bg-aurea-surface p-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="h-[15px] w-[15px] text-aurea-primary" strokeWidth={1.75} />
+                <p className="text-[11px] font-medium uppercase tracking-wide text-aurea-ink-3">
+                  Advanced filters (AND / OR)
+                </p>
+              </div>
+              <AdvancedFilterBuilder value={advancedFilter} onChange={setAdvancedFilter} stages={stages} />
             </div>
 
             {/* Tags Filter */}
