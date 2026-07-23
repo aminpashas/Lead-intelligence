@@ -342,6 +342,21 @@ const PHI_GATED_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * Tools that are SAFE to run during a preview/dry-run (task delegation): pure
+ * read-only lookups with no patient-facing effect. Anything not on this
+ * allowlist is refused in preview (see executeAgentTool) — allowlist, not
+ * denylist, so a newly added tool is treated as unsafe until vetted rather than
+ * silently firing during a preview. (`verify_identity` writes the conversation's
+ * verified flag, so it is deliberately excluded.)
+ */
+const PREVIEW_SAFE_TOOLS: ReadonlySet<string> = new Set([
+  'check_availability',
+  'check_financing_status',
+  'check_closing_progress',
+  'check_contract_status',
+])
+
+/**
  * verify_identity — compare the caller's stated DOB against the encrypted DOB on
  * file and, on a match, mark the conversation verified for the TTL window.
  */
@@ -384,8 +399,28 @@ export async function executeAgentTool(
     channel?: string // The current channel the agent is on
     agent_role?: 'setter' | 'closer' // Attributes downstream message inserts
     disclose_phi?: boolean // HIPAA gate: false until identity is verified
+    preview?: boolean // Dry-run: refuse all side-effecting tools (see below)
   }
 ): Promise<ToolResult> {
+  // Preview/dry-run gate (task delegation): the model is drafting a reply for a
+  // human to review, not actually replying. Only read-only lookups may run;
+  // every side-effecting tool is refused so nothing reaches the patient and no
+  // state is mutated before the human hits Send. The refusal is phrased to make
+  // the model INLINE the information into its written reply rather than claim it
+  // sent something separately — otherwise the delegated reply could read
+  // "Sent! Check your messages" for a message that was never sent.
+  if (context.preview === true && !PREVIEW_SAFE_TOOLS.has(toolName)) {
+    return {
+      success: false,
+      data: { preview: true },
+      message:
+        'Preview mode: outbound actions (texts, emails, bookings, stage changes) ' +
+        'are disabled while a teammate reviews your reply. Do NOT say you sent or ' +
+        'scheduled anything. Instead, put any address, link, or detail directly ' +
+        'into your written reply so it is self-contained.',
+    }
+  }
+
   // HIPAA gate: tools that surface the patient's own case data are blocked until
   // identity is verified. This is enforcement in code — it holds even if the
   // model ignores the prompt. verify_identity itself is always allowed.

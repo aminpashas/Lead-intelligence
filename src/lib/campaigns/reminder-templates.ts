@@ -67,11 +67,19 @@ export function generate72hEmailTemplate(params: {
   practiceName: string
   confirmUrl: string
   rescheduleUrl: string
+  /**
+   * Protected (post-consult / mid-treatment) patients don't get a self-serve
+   * reschedule path — a change to a committed appointment goes through the
+   * office, so we drop the Reschedule button and the "cancel or reschedule"
+   * footer and keep only the confirm ask. See isProtectedPatient().
+   */
+  protected?: boolean
   /** Shared "Getting here / What to expect" blocks from renderVisitLogistics(). */
   logisticsHtml?: string
   logisticsText?: string
 }): { subject: string; html: string; text: string } {
   const { firstName, appointmentType, dateTime, location, practiceName, confirmUrl, rescheduleUrl, logisticsHtml, logisticsText } = params
+  const showReschedule = !params.protected
 
   const subject = `Your ${appointmentType} at ${practiceName} — Confirm Your Appointment`
 
@@ -111,7 +119,7 @@ export function generate72hEmailTemplate(params: {
 
     <div style="text-align: center; margin: 28px 0;">
       <a href="${confirmUrl}" style="${emailStyles.confirmBtn}">✅ Confirm Appointment</a>
-      <a href="${rescheduleUrl}" style="${emailStyles.rescheduleBtn}">📅 Reschedule</a>
+      ${showReschedule ? `<a href="${rescheduleUrl}" style="${emailStyles.rescheduleBtn}">📅 Reschedule</a>` : ''}
     </div>
 
     <hr style="${emailStyles.divider}" />
@@ -140,7 +148,9 @@ export function generate72hEmailTemplate(params: {
   <div style="${emailStyles.footer}">
     <p style="${emailStyles.footerText}">
       ${practiceName}<br>
-      If you need to cancel or reschedule, please let us know at least 24 hours in advance.
+      ${showReschedule
+        ? 'If you need to cancel or reschedule, please let us know at least 24 hours in advance.'
+        : 'Questions about your visit? Just reply to this email or give the office a call.'}
     </p>
   </div>
 </div>`
@@ -153,7 +163,7 @@ Your ${appointmentType} at ${practiceName} is coming up!
 ${location ? `📍 Location: ${location}` : ''}
 ${logisticsText ? `\n${logisticsText}\n` : ''}
 Please confirm by visiting: ${confirmUrl}
-Need to reschedule? ${rescheduleUrl}
+${showReschedule ? `Need to reschedule? ${rescheduleUrl}` : 'Questions about your visit? Just reply to this email or give the office a call.'}
 
 What to bring:
 - Photo ID
@@ -180,11 +190,14 @@ export function generate24hEmailTemplate(params: {
   practiceName: string
   confirmUrl: string
   rescheduleUrl: string
+  /** See generate72hEmailTemplate — drops the reschedule path for the protected cohort. */
+  protected?: boolean
   /** Shared "Getting here / What to expect" blocks from renderVisitLogistics(). */
   logisticsHtml?: string
   logisticsText?: string
 }): { subject: string; html: string; text: string } {
   const { firstName, appointmentType, dateTime, location, practiceName, confirmUrl, rescheduleUrl, logisticsHtml, logisticsText } = params
+  const showReschedule = !params.protected
 
   const subject = `⏰ Tomorrow: Your ${appointmentType} at ${practiceName}`
 
@@ -223,8 +236,8 @@ export function generate24hEmailTemplate(params: {
 
     <div style="text-align: center; margin: 28px 0;">
       <a href="${confirmUrl}" style="${emailStyles.confirmBtn}">✅ Yes, I'll Be There!</a>
-      <br style="display: block; margin: 4px 0;" />
-      <a href="${rescheduleUrl}" style="${emailStyles.rescheduleBtn}">I Need to Reschedule</a>
+      ${showReschedule ? `<br style="display: block; margin: 4px 0;" />
+      <a href="${rescheduleUrl}" style="${emailStyles.rescheduleBtn}">I Need to Reschedule</a>` : ''}
     </div>
 
     <p style="font-size: 14px; color: #6b7280; text-align: center; margin: 16px 0 0 0;">
@@ -247,7 +260,7 @@ Quick reminder — your ${appointmentType} at ${practiceName} is TOMORROW!
 ${location ? `📍 ${location}` : ''}
 ${logisticsText ? `\n${logisticsText}\n` : ''}
 Please confirm: ${confirmUrl}
-Need to reschedule? ${rescheduleUrl}
+${showReschedule ? `Need to reschedule? ${rescheduleUrl}` : 'Questions? Just reply or give the office a call.'}
 
 — ${practiceName}`
 
@@ -342,8 +355,17 @@ export function generate24hSmsTemplate(params: {
   appointmentType: string
   dateTime: string
   practiceName: string
+  /**
+   * Protected (post-consult / mid-treatment) patients: drop the reschedule
+   * offer. Keep the confirm ask (it feeds no-show risk scoring). See
+   * isProtectedPatient().
+   */
+  protected?: boolean
 }): string {
-  return `Hi ${params.firstName}! 👋 Friendly reminder: your ${params.appointmentType} at ${params.practiceName} is tomorrow, ${params.dateTime}. We're excited to see you! Reply YES to confirm or call us to reschedule.`
+  const closer = params.protected
+    ? 'Reply YES to confirm — we look forward to seeing you!'
+    : 'Reply YES to confirm or call us to reschedule.'
+  return `Hi ${params.firstName}! 👋 Friendly reminder: your ${params.appointmentType} at ${params.practiceName} is tomorrow, ${params.dateTime}. We're excited to see you! ${closer}`
 }
 
 export function generate1hSmsTemplate(params: {

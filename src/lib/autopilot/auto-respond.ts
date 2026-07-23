@@ -51,7 +51,7 @@ import { getActiveRuleSetStamp } from '@/lib/ai/learning/rule-stamp'
 import { logger } from '@/lib/logger'
 
 export type AutoResponseResult = {
-  action: 'sent' | 'escalated' | 'skipped' | 'stopped' | 'rate_limited' | 'held_for_human'
+  action: 'sent' | 'escalated' | 'skipped' | 'stopped' | 'rate_limited' | 'held_for_human' | 'preview'
   message?: string
   confidence?: number
   agent?: string
@@ -84,9 +84,17 @@ export async function processAutoResponse(
     channel: 'sms' | 'email'
     sender_contact: string // phone number or email
   },
-  opts?: { takeover?: boolean }
+  opts?: { takeover?: boolean; dryRun?: boolean }
 ): Promise<AutoResponseResult> {
   const { organization_id, conversation_id, lead_id, lead, conversation, inbound_message, channel, sender_contact } = params
+
+  // Dry-run (task delegation preview): run every gate and GENERATE the reply,
+  // but never send, never create escalation/task rows, and never text the
+  // patient a holding ack. A blocking gate still returns its 'escalated'/
+  // 'skipped'/... action + reason so the UI can show "AI can't send this" — it
+  // just skips the side effect. The final send at step 8 returns action:'preview'
+  // carrying the exact message the human will review.
+  const dryRun = opts?.dryRun === true
 
   // 1. Load autopilot config
   const config = await getAutopilotConfig(supabase, organization_id)
@@ -130,7 +138,7 @@ export async function processAutoResponse(
   // and after the conversation/lead AI gates above. With zero policy rows and
   // the org human-first toggle off this always resolves to 'ai' (legacy path).
   // Skipped entirely on an SLA takeover (D3): the hold already ran its course.
-  const allocation = opts?.takeover
+  const allocation = opts?.takeover || dryRun
     ? null
     : await resolveAutomationOwner(supabase, {
         organizationId: organization_id,
@@ -211,6 +219,7 @@ export async function processAutoResponse(
     organization_id,
     channel,
     history,
+    preview: dryRun,
   })
 
   // 6. Route to agent and get response.
@@ -242,6 +251,12 @@ export async function processAutoResponse(
       { conversation_id, lead_id, outage },
       error instanceof Error ? error : undefined
     )
+
+    // Dry-run: report the failure to the previewing human; no escalation row,
+    // no holding text to the patient.
+    if (dryRun) {
+      return { action: 'escalated', reason: outage ? 'ai_service_outage' : 'agent_failure' }
+    }
 
     // An outage is not this patient's problem and not this thread's problem — it
     // is every thread's problem. Mark it 'urgent' so staff notify renders it as
@@ -305,6 +320,18 @@ export async function processAutoResponse(
   // a non-clinical holding acknowledgment so they aren't left hanging.
   const medical = await medicalCheckPromise
   if (medical.isClinicalQuestion) {
+    // Dry-run: a clinical question can never be auto-answered — surface that to
+    // the previewing human (with the draft, for context) without creating an
+    // escalation row or texting a holding ack.
+    if (dryRun) {
+      return {
+        action: 'escalated',
+        message: agentResponse.message,
+        confidence: agentResponse.confidence,
+        agent: agentResponse.agent,
+        reason: 'medical_question_detected',
+      }
+    }
     const priority = severityToPriority(medical.severity)
     const escalationId = await createEscalation(supabase, {
       organization_id,
@@ -378,6 +405,17 @@ export async function processAutoResponse(
   })
 
   if (!decision.allowed) {
+    // Dry-run: the auto-send heuristic would block (low confidence, quiet hours,
+    // first-message rule). Report it with the draft; no escalation row.
+    if (dryRun) {
+      return {
+        action: 'escalated',
+        message: agentResponse.message,
+        confidence: agentResponse.confidence,
+        agent: agentResponse.agent,
+        reason: decision.reason,
+      }
+    }
     // Escalate with the AI's draft so a human can review and send
     const escalationId = await createEscalation(supabase, {
       organization_id,
@@ -404,6 +442,17 @@ export async function processAutoResponse(
   // per-lead 'assist_only' override OR the per-conversation ai_mode='assist'
   // toggle (resolved into aiGate above).
   if (aiGate === 'assist') {
+    if (dryRun) {
+      return {
+        action: 'escalated',
+        message: agentResponse.message,
+        confidence: agentResponse.confidence,
+        agent: agentResponse.agent,
+        reason: conversationAiMode === 'assist' && leadOverride !== 'assist_only'
+          ? 'conversation_ai_mode_assist'
+          : 'lead_assist_only_override',
+      }
+    }
     const source =
       conversationAiMode === 'assist' && leadOverride !== 'assist_only'
         ? 'Conversation AI mode is set to "assist"'
@@ -435,6 +484,18 @@ export async function processAutoResponse(
   // have been auto-sent, but outreach is suppressed (LI running beside GHL).
   // Route the draft to a human via escalation instead of sending — no double-text.
   if (config.outreach_suppressed) {
+    // Shadow mode is an org-wide "not sending right now" (running beside GHL
+    // during cutover). A human-authorized delegation must not punch through it —
+    // report blocked so no delegated text double-texts the patient.
+    if (dryRun) {
+      return {
+        action: 'escalated',
+        message: agentResponse.message,
+        confidence: agentResponse.confidence,
+        agent: agentResponse.agent,
+        reason: 'outreach_suppressed',
+      }
+    }
     const escalationId = await createEscalation(supabase, {
       organization_id,
       conversation_id,
@@ -470,6 +531,17 @@ export async function processAutoResponse(
     })
     return {
       action: 'sent',
+      message: agentResponse.message,
+      confidence: agentResponse.confidence,
+      agent: agentResponse.agent,
+    }
+  }
+
+  // Dry-run stops here: the reply passed every gate and WOULD be sent. Return it
+  // for the human to review — the delegation commit sends this exact text.
+  if (dryRun) {
+    return {
+      action: 'preview',
       message: agentResponse.message,
       confidence: agentResponse.confidence,
       agent: agentResponse.agent,
@@ -567,9 +639,11 @@ async function buildAgentContext(
     organization_id: string
     channel: 'sms' | 'email'
     history: ConversationMessage[]
+    /** Dry-run: generate a draft for human review without any side effects. */
+    preview?: boolean
   }
 ): Promise<AgentContext> {
-  const { lead, conversation, conversation_id, organization_id, channel, history } = params
+  const { lead, conversation, conversation_id, organization_id, channel, history, preview } = params
 
   // Fetch patient profile, handoff history, and financing context in parallel
   const [patientProfileRaw, handoffHistory, financingCtx] = await Promise.all([
@@ -614,13 +688,19 @@ async function buildAgentContext(
     financing_context: financingCtx,
     competitor_context: competitorContext && competitorContext.length > 0 ? competitorContext : undefined,
     negotiation_levers: negotiationLevers && negotiationLevers.length > 0 ? negotiationLevers : undefined,
+    preview: preview === true ? true : undefined,
   }
 }
 
 /**
  * Send the agent's response via the appropriate channel and store it.
+ *
+ * Exported so human-initiated task delegation (src/lib/tasks/delegation.ts) can
+ * deliver a reviewed AI reply through the exact same consent-gated path as the
+ * autopilot, with `extraMetadata` carrying the delegation provenance and
+ * `skipPacing` sending immediately (the delegating human is waiting on it).
  */
-async function sendAgentResponse(
+export async function sendAgentResponse(
   supabase: SupabaseClient,
   params: {
     organization_id: string
@@ -632,9 +712,13 @@ async function sendAgentResponse(
     agentResponse: AgentResponse
     /** D3: this send is an SLA takeover — stamped on the message metadata. */
     takeover?: boolean
+    /** Bypass human send-pacing and deliver inline (used by task delegation). */
+    skipPacing?: boolean
+    /** Extra keys merged into the stored message's metadata (e.g. delegation provenance). */
+    extraMetadata?: Record<string, unknown>
   }
 ): Promise<void> {
-  const { organization_id, conversation_id, lead_id, lead, channel, sender_contact, agentResponse, takeover } = params
+  const { organization_id, conversation_id, lead_id, lead, channel, sender_contact, agentResponse, takeover, skipPacing, extraMetadata } = params
   let externalId: string | undefined
 
   // CRIT-1: TCPA consent check enforced inside sendSMSToLead / sendEmailToLead.
@@ -646,7 +730,7 @@ async function sendAgentResponse(
     // The drain-outbound-sms cron delivers it and records it on the thread. Falls
     // back to the inline send below if pacing is off OR enqueue fails, so pacing
     // can never drop a reply. Skipped on SLA takeovers — those are already late.
-    if (!takeover) {
+    if (!takeover && !skipPacing) {
       try {
         const { isFlagEnabled } = await import('@/lib/org/flags')
         if (await isFlagEnabled(supabase, organization_id, 'sms_human_pacing')) {
@@ -728,6 +812,7 @@ async function sendAgentResponse(
       autopilot: true,
       ...(takeover ? { sla_takeover: true } : {}),
       ...(ruleStamp ? { rule_set: ruleStamp } : {}),
+      ...(extraMetadata ?? {}),
     },
   })
 

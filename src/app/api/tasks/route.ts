@@ -8,6 +8,7 @@ import { createHumanTask } from '@/lib/automation/tasks'
 import { renderSweptTask, type SweepLead } from '@/lib/automation/task-sweep'
 import { decryptLeadPII } from '@/lib/encryption'
 import { leadDisplayName } from '@/lib/leads/display-name'
+import { taskAiCapability, type DelegableTask } from '@/lib/tasks/delegation'
 
 /**
  * GET /api/tasks — List human tasks for the caller's org (Workstream D2).
@@ -29,7 +30,7 @@ import { leadDisplayName } from '@/lib/leads/display-name'
  * escalations (which own their own lifecycle in settings/ai).
  */
 
-const VALID_STATUSES = ['open', 'claimed', 'done', 'expired', 'taken_by_ai', 'dismissed', 'active']
+const VALID_STATUSES = ['open', 'claimed', 'done', 'expired', 'taken_by_ai', 'dismissed', 'delegated_to_ai', 'active']
 const VALID_KINDS = [
   'inbound_reply',
   'first_touch',
@@ -122,6 +123,14 @@ export async function GET(request: NextRequest) {
 
   const hydrated = await hydrateLeadNames(supabase, tasks ?? [])
 
+  // Annotate each row with whether the AI can take it over (reply-shaped, live,
+  // has a conversation). The UI offers a "let the AI do it" action on capable
+  // rows; the delegate route re-checks server-side before acting.
+  const withCapability = hydrated.map((t) => ({
+    ...t,
+    ai_capability: taskAiCapability(t as unknown as DelegableTask),
+  }))
+
   // Org-wide live count for the sidebar badge (independent of filters).
   const { count: openCount } = await supabase
     .from('human_tasks')
@@ -132,7 +141,7 @@ export async function GET(request: NextRequest) {
   const backlog = await loadBacklog(supabase, orgId)
 
   return NextResponse.json({
-    tasks: hydrated,
+    tasks: withCapability,
     total: count || 0,
     openCount: openCount || 0,
     backlog,
