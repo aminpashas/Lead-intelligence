@@ -73,6 +73,8 @@ export type HumanTask = {
   claimed_by: string | null
   claimed_at: string | null
   completed_at: string | null
+  reviewed_at: string | null
+  reviewed_by: string | null
   source: string
   dedupe_key: string | null
   metadata: Record<string, unknown>
