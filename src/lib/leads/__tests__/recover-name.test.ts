@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evaluateCandidate, recoverLeadName } from '../recover-name'
+import { evaluateCandidate, recoverLeadName, reconcileStoredName } from '../recover-name'
 
 /**
  * The rejections matter more than the acceptances here. This module exists to
@@ -104,5 +104,77 @@ describe('recoverLeadName', () => {
 
   it('returns null for no candidates at all', () => {
     expect(recoverLeadName([])).toBeNull()
+  })
+})
+
+/**
+ * The dedup-time name repair. The motivating case: the same patient arrives as a
+ * second GHL contact spelled correctly ("Verna") after the first visit stored a
+ * caller-ID typo ("vrrna"). This must fix the typo WITHOUT ever re-introducing a
+ * phone number, blanking a surname the new capture omits, or churning on a no-op.
+ */
+describe('reconcileStoredName', () => {
+  it('repairs a mistyped first name from a strong-match re-ingest', () => {
+    expect(
+      reconcileStoredName(
+        { first: 'vrrna', last: 'guyton' },
+        { source: 'ghl-sync', first: 'Verna', last: 'Guyton' },
+      ),
+    ).toEqual({ first_name: 'Verna', last_name: 'Guyton' })
+  })
+
+  it('is a no-op when the incoming name matches (case/space-insensitive)', () => {
+    expect(
+      reconcileStoredName(
+        { first: 'Verna', last: 'Guyton' },
+        { source: 'ghl-sync', first: '  verna ', last: 'guyton' },
+      ),
+    ).toBeNull()
+  })
+
+  it('never blanks a stored surname the incoming capture omits', () => {
+    expect(
+      reconcileStoredName(
+        { first: 'vrrna', last: 'Guyton' },
+        { source: 'ghl-sync', first: 'Verna', last: null },
+      ),
+    ).toEqual({ first_name: 'Verna', last_name: 'Guyton' })
+  })
+
+  it('refuses to overwrite a real name with a phone number', () => {
+    expect(
+      reconcileStoredName(
+        { first: 'Verna', last: 'Guyton' },
+        { source: 'ghl-sync', first: '(925)', last: '497-0821' },
+      ),
+    ).toBeNull()
+  })
+
+  it('refuses a placeholder ("Unknown") as an overwrite', () => {
+    expect(
+      reconcileStoredName(
+        { first: 'Verna', last: 'Guyton' },
+        { source: 'ghl-sync', full: 'Unknown' },
+      ),
+    ).toBeNull()
+  })
+
+  it('fills in a name when the stored lead had none', () => {
+    expect(
+      reconcileStoredName(
+        { first: '', last: null },
+        { source: 'ghl-sync', first: 'Verna', last: 'Guyton' },
+      ),
+    ).toEqual({ first_name: 'Verna', last_name: 'Guyton' })
+  })
+
+  it('recovers a surname-only correction without a first name', () => {
+    // "5103315182 boyer" scrubs to a surname only; it must not wipe the first.
+    expect(
+      reconcileStoredName(
+        { first: 'Verna', last: 'guyten' },
+        { source: 'ghl-sync', first: '5103315182', last: 'Guyton' },
+      ),
+    ).toEqual({ first_name: 'Verna', last_name: 'Guyton' })
   })
 })

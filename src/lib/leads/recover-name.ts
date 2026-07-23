@@ -112,3 +112,48 @@ export function recoverLeadName(candidates: NameCandidate[]): RecoveredName | nu
   }
   return null
 }
+
+/**
+ * Reconcile the name already stored on a lead with the name a fresh capture
+ * carries, on a dedup hit where we are CERTAIN it is the same person (matched by
+ * correlation id or contact hash — never the fuzzy display-name pass).
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * The same person can arrive twice as two separate upstream contacts — e.g. one
+ * GHL contact created off caller-ID with a mistyped "vrrna guyton", then a
+ * second, hand-typed "Verna Guyton" on a different pipeline. Dedup correctly
+ * collapses them onto one lead, but the ingest path that follows only backfilled
+ * ids and external_ref — it kept the FIRST visit's name, so the corrected
+ * spelling never won and the lead stayed findable only under the typo.
+ *
+ * THE RULES
+ * ---------
+ *   • The incoming name is run through `evaluateCandidate`, so a phone number,
+ *     placeholder, or email in the name box can NEVER overwrite a real name —
+ *     the exact regression `scrub-phone-names` exists to prevent.
+ *   • Merge field-by-field: a blank incoming field never clears a stored one
+ *     ("Verna" with no surname must not wipe "Guyton"). Only a differing,
+ *     non-blank incoming value replaces what is stored.
+ *   • Returns the columns to write, or null when nothing should change — so the
+ *     caller skips the UPDATE entirely on the common no-op path.
+ *
+ * Gating to strong-signal matches is the CALLER's responsibility: this pure
+ * helper assumes same-person and only decides the name.
+ */
+export function reconcileStoredName(
+  stored: { first: string | null; last: string | null },
+  incoming: NameCandidate,
+): { first_name: string; last_name: string | null } | null {
+  const recovered = evaluateCandidate(incoming)
+  if (!recovered) return null
+
+  // Field-by-field merge — a blank incoming field keeps what's stored.
+  const first = recovered.first ?? stored.first ?? ''
+  const last = recovered.last ?? stored.last ?? null
+
+  const unchanged = norm(first) === norm(stored.first) && norm(last) === norm(stored.last)
+  if (unchanged) return null
+
+  return { first_name: first, last_name: last }
+}
