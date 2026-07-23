@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { filterNodeSchema } from '@/lib/campaigns/filter-tree'
 
 export const KEYWORD_SCOPES = ['conversation', 'lead_fields', 'inbound_sms', 'tags'] as const
 
@@ -34,6 +35,11 @@ export const smartListCriteriaSchema = z.object({
   score_min: z.number().min(0).max(100).optional(),
   score_max: z.number().min(0).max(100).optional(),
   stages: z.array(z.string().uuid()).optional(),
+  /** Treatment/service line (implants, cosmetic, tmj, sleep_apnea, lanap).
+   *  Not a column — resolved via serviceLineOrFilter (implants is the residual
+   *  default). Single-select, matching the /leads filter + blueprint criteria.
+   *  Long present in the resolver + TS type; validation added with the tree. */
+  service_line: z.string().optional(),
   source_types: z.array(z.string()).optional(),
   engagement_min: z.number().optional(),
   engagement_max: z.number().optional(),
@@ -71,4 +77,10 @@ export const smartListCriteriaSchema = z.object({
    *  no matter what the other filters match. Empty array allowed (clears all
    *  removals). Same 1000 cap as lead_ids (PostgREST not-in limit). */
   excluded_lead_ids: z.array(z.string().uuid()).max(1000).optional(),
+  /** Advanced search: a nested AND/OR filter tree (the shared engine behind the
+   *  Leads-page advanced search and the Smart List builder). Resolved to a lead
+   *  ID set and intersected with the flat criteria above, so a saved advanced
+   *  search stays fully compatible with every existing consumer. Validated
+   *  against the field registry — only known, safely-typed fields are accepted. */
+  filter: filterNodeSchema.optional(),
 })

@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SmartListCriteria } from '@/types/database'
 import { combineTermMatches, sanitizeTerm } from './keyword-match'
 import { serviceLineOrFilter } from '@/lib/leads/service-line'
+import { resolveFilterTree } from './filter-tree'
 import { applyNotOnHold } from '@/lib/leads/hold'
 
 const LEAD_TEXT_COLUMNS = [
@@ -320,6 +321,21 @@ export async function resolveSmartListLeads(
       } else {
         tagFilteredLeadIds = [...kwSet]
       }
+    }
+  }
+
+  // Advanced filter tree (same pattern again): resolve the AND/OR tree to a lead
+  // ID set and intersect. The tree is the shared engine behind the Leads-page
+  // advanced search and the Smart List builder; intersecting here keeps it
+  // fully compatible with the flat criteria and every downstream consumer.
+  if (criteria.filter) {
+    const treeSet = await resolveFilterTree(supabase, organizationId, criteria.filter)
+    if (treeSet.size === 0) return { leadIds: [], count: 0 }
+    if (tagFilteredLeadIds !== null) {
+      tagFilteredLeadIds = tagFilteredLeadIds.filter((id) => treeSet.has(id))
+      if (tagFilteredLeadIds.length === 0) return { leadIds: [], count: 0 }
+    } else {
+      tagFilteredLeadIds = [...treeSet]
     }
   }
 
