@@ -31,6 +31,13 @@ export interface AgentToolContext {
   agent_role?: 'setter' | 'closer'
   /** HIPAA gate: when false, PHI-revealing tools refuse until verify_identity succeeds. */
   disclose_phi?: boolean
+  /**
+   * Preview/dry-run: the caller is generating a draft for a human to review
+   * (task delegation preview), NOT actually replying. Side-effecting tools
+   * (every send, booking, stage move) are refused so preview never contacts the
+   * patient or mutates state; only read-only lookups run. See executeAgentTool.
+   */
+  preview?: boolean
 }
 
 export interface AgentLoopResult {

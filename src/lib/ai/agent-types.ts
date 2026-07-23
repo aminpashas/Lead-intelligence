@@ -109,6 +109,13 @@ export type AgentContext = {
    * the patient unless disclose_phi is true.
    */
   appointment_summary?: string | null
+  /**
+   * Preview/dry-run: this run generates a draft for a human to review (task
+   * delegation preview), not an actual reply. Propagated to the tool loop so
+   * side-effecting tools are refused and nothing reaches the patient. See
+   * AgentToolContext.preview and executeAgentTool.
+   */
+  preview?: boolean
 }
 
 export type CompetitorContext = {

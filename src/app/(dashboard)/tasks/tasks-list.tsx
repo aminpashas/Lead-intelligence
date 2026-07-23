@@ -19,10 +19,14 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { CreateTaskDialog } from '@/components/crm/create-task-dialog'
+import { DelegateAiDialog } from '@/components/crm/delegate-ai-dialog'
 import { useOrgStore } from '@/lib/store/use-org'
 import { cn } from '@/lib/utils'
 
 type Priority = 'low' | 'normal' | 'high' | 'urgent'
+
+/** Whether the AI can take a task over — mirrors the API's taskAiCapability. */
+type AiCapability = { capable: true; kind: 'reply'; label: string } | { capable: false }
 
 type Task = {
   id: string
@@ -45,6 +49,8 @@ type Task = {
    * than from the frozen `title` string. Null when the task has no lead.
    */
   lead: { id: string; name: string } | null
+  /** Whether the AI can draft & send this task's reply (server-computed). */
+  ai_capability?: AiCapability
 }
 
 /** Bulk work deliberately kept out of the queue — see lib/automation/task-sweep.ts. */
@@ -142,11 +148,13 @@ function TaskRow({
   now,
   acting,
   onAction,
+  onReload,
 }: {
   task: Task
   now: number
   acting: boolean
   onAction: (id: string, action: 'claim' | 'complete' | 'dismiss') => void
+  onReload: () => void
 }) {
   const meta = KIND_META[task.kind] ?? { label: task.kind, icon: ListTodo }
   const Icon = meta.icon
@@ -216,6 +224,14 @@ function TaskRow({
               Open
             </Link>
           )}
+          {task.ai_capability?.capable && (
+            <DelegateAiDialog
+              taskId={task.id}
+              taskTitle={task.title}
+              patientName={task.lead?.name ?? null}
+              onDelegated={onReload}
+            />
+          )}
           {task.status === 'open' && (
             <Button
               variant="outline"
@@ -256,12 +272,14 @@ function Section({
   now,
   actingId,
   onAction,
+  onReload,
 }: {
   label: string
   tasks: Task[]
   now: number
   actingId: string | null
   onAction: (id: string, action: 'claim' | 'complete' | 'dismiss') => void
+  onReload: () => void
 }) {
   return (
     <div>
@@ -284,6 +302,7 @@ function Section({
                   now={now}
                   acting={actingId === t.id}
                   onAction={onAction}
+                  onReload={onReload}
                 />
               ))}
             </ul>
@@ -445,15 +464,16 @@ export function TasksList() {
         <CreateTaskDialog onCreated={load} />
       </div>
       {backlog && <BacklogBanner backlog={backlog} />}
-      <Section label="Mine" tasks={mine} now={now} actingId={actingId} onAction={onAction} />
+      <Section label="Mine" tasks={mine} now={now} actingId={actingId} onAction={onAction} onReload={load} />
       <Section
         label="Unassigned"
         tasks={unassigned}
         now={now}
         actingId={actingId}
         onAction={onAction}
+        onReload={load}
       />
-      <Section label="All open" tasks={allOpen} now={now} actingId={actingId} onAction={onAction} />
+      <Section label="All open" tasks={allOpen} now={now} actingId={actingId} onAction={onAction} onReload={load} />
     </div>
   )
 }
