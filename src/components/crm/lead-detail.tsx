@@ -30,7 +30,7 @@ import { TagBadge } from './tag-badge'
 import { channelLabel, displaySourceLabel } from '@/lib/attribution'
 import { TagSelector } from './tag-selector'
 import { PersonalityProfileCard } from './personality-profile-card'
-import { HoldBadge } from './hold-badge'
+import { FollowUpDate } from './follow-up-date'
 import { AuditTimeline } from '@/components/audit/AuditTimeline'
 import {
   ArrowLeft,
@@ -347,8 +347,8 @@ export function LeadDetail({
                       <span className="font-mono tabular-nums">{lead.ai_score}/100</span>
                       <span className="capitalize">· {lead.ai_qualification}</span>
                     </span>
-                    <HoldBadge lead={lead} />
                   </span>
+                  <FollowUpDate lead={lead} />
                 </div>
               </div>
 

@@ -6,7 +6,7 @@
  * task on /tasks. Clearing removes the hold and completes that task.
  * PUT/DELETE /api/leads/[id]/hold.
  */
-import { useState } from 'react'
+import { useState, type ReactElement } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,7 +38,7 @@ const PRESETS: { label: string; days: number }[] = [
   { label: '+1 month', days: 30 },
 ]
 
-export function HoldLead({ lead }: { lead: Lead }) {
+export function HoldLead({ lead, trigger }: { lead: Lead; trigger?: ReactElement }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const alreadyHeld = !!lead.hold_until && new Date(lead.hold_until).getTime() > Date.now()
@@ -91,10 +91,12 @@ export function HoldLead({ lead }: { lead: Lead }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="outline" size="sm">
-            <PauseCircle className="h-4 w-4" strokeWidth={1.75} />
-            {alreadyHeld ? 'On hold' : 'Hold'}
-          </Button>
+          trigger ?? (
+            <Button variant="outline" size="sm">
+              <PauseCircle className="h-4 w-4" strokeWidth={1.75} />
+              {alreadyHeld ? 'On hold' : 'Hold'}
+            </Button>
+          )
         }
       />
       <DialogContent>
