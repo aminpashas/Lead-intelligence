@@ -4,6 +4,8 @@ import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
 import { decryptLeadPII } from '@/lib/encryption'
 import { formatAppointmentDateTime } from '@/lib/campaigns/reminders'
 import { resolvePracticeTimeZone } from '@/lib/time/practice-timezone'
+import { parseBranding } from '@/lib/branding/schema'
+import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
 
 /**
  * GET /api/appointments/reminders?appointment_id=xxx
@@ -65,10 +67,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Get appointment with lead
+  // Get appointment with lead (incl. the columns that classify its service line).
   const { data: apt } = await supabase
     .from('appointments')
-    .select('*, lead:leads(id, first_name, last_name, phone, email)')
+    .select('*, lead:leads(id, first_name, last_name, phone, email, tags, custom_fields, utm_campaign, utm_source, campaign_attribution, landing_page_url)')
     .eq('id', appointment_id)
     .eq('organization_id', orgId)
     .single()
@@ -104,14 +106,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Lead not found for appointment' }, { status: 404 })
   }
 
-  // Get org name
+  // Get org name + branding, then resolve the lead's per-service-line DBA so this
+  // manual reminder matches the branded cron path (campaigns/reminders.ts).
   const { data: org } = await supabase
     .from('organizations')
-    .select('name')
+    .select('name, settings')
     .eq('id', orgId)
     .single()
 
-  const practiceName = org?.name || 'our office'
+  const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
+  const practiceName = resolveBrandForContext(branding, org?.name || 'our office', {
+    lead: lead as never,
+  }).practiceName
 
   // Pin the human-readable time to the practice's zone — the server runs in
   // UTC on Vercel, so an unzoned toLocaleString would shift the stated time.

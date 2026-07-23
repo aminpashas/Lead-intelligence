@@ -15,6 +15,8 @@ import { formatAssetForSMS, formatAssetForEmail } from '@/lib/content/delivery-t
 import { sendSMSToLead } from '@/lib/messaging/twilio'
 import { sendEmail } from '@/lib/messaging/resend'
 import { decryptField } from '@/lib/encryption'
+import { parseBranding } from '@/lib/branding/schema'
+import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
 
 function getServiceClient() {
   return createClient(
@@ -64,10 +66,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Content asset not found' }, { status: 404 })
   }
 
-  // Get lead contact info
+  // Get lead contact info + the columns that classify its service line.
   const { data: lead } = await supabase
     .from('leads')
-    .select('first_name, phone_formatted, email, sms_consent, sms_opt_out, email_consent, email_opt_out')
+    .select('first_name, phone_formatted, email, sms_consent, sms_opt_out, email_consent, email_opt_out, tags, custom_fields, utm_campaign, utm_source, campaign_attribution, landing_page_url')
     .eq('id', lead_id)
     .eq('organization_id', organization_id)
     .single()
@@ -76,14 +78,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
   }
 
-  // Get org name
+  // Get org name + branding, then resolve the lead's per-service-line DBA so the
+  // asset is signed with the right brand (Dion Health / TMJ center / SF Dentistry).
   const { data: org } = await supabase
     .from('organizations')
-    .select('name')
+    .select('name, settings')
     .eq('id', organization_id)
     .single()
 
-  const orgName = org?.name || 'our practice'
+  const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
+  const orgName = resolveBrandForContext(branding, org?.name || 'our practice', {
+    lead: lead as never,
+  }).practiceName
   const leadName = decryptField(lead.first_name) || lead.first_name || ''
 
   // Opt-out (DND) check — consent is assumed unless the lead opted out.

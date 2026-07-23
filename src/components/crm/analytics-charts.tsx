@@ -64,6 +64,12 @@ type AnalyticsData = {
   appointments: {
     scheduled: number; completed: number; noShow: number; showRate: number
   }
+  appointmentsByServiceLine?: Array<{
+    serviceLine: string
+    scheduled: number; completed: number; noShow: number
+    showRate: number; noShowRate: number
+  }>
+
   financingBreakdown: Array<{ type: string; count: number }>
   budgetBreakdown: Array<{ range: string; count: number }>
   responseTime?: {
@@ -108,6 +114,16 @@ const QUAL_COLORS: Record<string, string> = {
   unqualified: 'var(--aurea-border)',
   unscored: 'var(--aurea-border)',
 }
+
+const SERVICE_LINE_LABELS: Record<string, string> = {
+  implants: 'Implants',
+  tmj: 'TMJ',
+  sleep_apnea: 'Sleep Apnea',
+  cosmetic: 'Cosmetic',
+  lanap: 'LANAP',
+  unknown: 'Other',
+}
+const serviceLineLabel = (key: string) => SERVICE_LINE_LABELS[key] ?? key
 
 const SOURCE_LABELS: Record<string, string> = {
   google_ads: 'Google Ads',
@@ -620,6 +636,24 @@ export function AnalyticsDashboard() {
                 <p className="text-xs text-muted-foreground mb-1">Show Rate</p>
                 <p className="text-2xl font-bold">{(data.appointments.showRate ?? 0).toFixed(0)}%</p>
               </div>
+              {data.appointmentsByServiceLine && data.appointmentsByServiceLine.some((s) => s.completed + s.noShow > 0) && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground mb-2">No-Show by Service Line</p>
+                  <div className="space-y-2">
+                    {data.appointmentsByServiceLine
+                      .filter((s) => s.completed + s.noShow > 0)
+                      .map((s) => (
+                        <div key={s.serviceLine} className="flex items-center justify-between text-sm">
+                          <span className="text-aurea-ink-2">{serviceLineLabel(s.serviceLine)}</span>
+                          <span className="flex items-center gap-3">
+                            <span className="font-semibold text-aurea-rose">{s.noShowRate.toFixed(0)}% no-show</span>
+                            <span className="text-xs text-aurea-ink-3">{s.noShow}/{s.completed + s.noShow}</span>
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

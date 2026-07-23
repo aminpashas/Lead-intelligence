@@ -4,6 +4,7 @@ import { applyRateLimit } from '@/lib/webhooks/verify'
 import { RATE_LIMITS } from '@/lib/rate-limit'
 import { NextRequest } from 'next/server'
 import { requirePermission } from '@/lib/auth/active-org'
+import { primaryServiceLine } from '@/lib/leads/service-line'
 
 // GET /api/analytics — Aggregated analytics data for the dashboard
 export async function GET(request: NextRequest) {
@@ -56,10 +57,11 @@ export async function GET(request: NextRequest) {
       .eq('organization_id', orgId)
       .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
 
-    // Appointments
+    // Appointments — join the lead columns that classify service line so we can
+    // break show/no-show down by implants vs TMJ vs sleep apnea vs other.
     supabase
       .from('appointments')
-      .select('id, status, type, scheduled_at')
+      .select('id, status, type, scheduled_at, lead:leads(tags, custom_fields, utm_campaign, utm_source, campaign_attribution, landing_page_url)')
       .eq('organization_id', orgId),
   ])
 
@@ -236,6 +238,34 @@ export async function GET(request: NextRequest) {
   const completedAppts = appointments.filter((a: any) => a.status === 'completed').length
   const noShowAppts = appointments.filter((a: any) => a.status === 'no_show').length
 
+  // Per-service-line appointment outcomes (implants vs TMJ vs sleep apnea vs
+  // other). Each appointment's lead is classified with the SAME logic the /leads
+  // table and pipeline chips use (primaryServiceLine → implants is the residual
+  // default), so a no-show % is comparable across the app. Show/no-show rate
+  // denominator is completed + no_show — upcoming appts are excluded, matching
+  // the org-wide showRate below.
+  const apptLineMap: Record<string, { scheduled: number; completed: number; noShow: number }> = {}
+  for (const a of appointments as any[]) {
+    const key = a.lead ? primaryServiceLine(a.lead) : 'unknown'
+    const bucket = (apptLineMap[key] ??= { scheduled: 0, completed: 0, noShow: 0 })
+    if (['scheduled', 'confirmed'].includes(a.status)) bucket.scheduled++
+    else if (a.status === 'completed') bucket.completed++
+    else if (a.status === 'no_show') bucket.noShow++
+  }
+  const appointmentsByServiceLine = Object.entries(apptLineMap)
+    .map(([serviceLine, c]) => {
+      const resolved = c.completed + c.noShow
+      return {
+        serviceLine,
+        scheduled: c.scheduled,
+        completed: c.completed,
+        noShow: c.noShow,
+        showRate: resolved > 0 ? (c.completed / resolved * 100) : 0,
+        noShowRate: resolved > 0 ? (c.noShow / resolved * 100) : 0,
+      }
+    })
+    .sort((a, b) => (b.completed + b.noShow) - (a.completed + a.noShow))
+
   // Financing & budget breakdowns (computed here in JS — no server-side RPC)
   const financingMap: Record<string, number> = {}
   const budgetMap: Record<string, number> = {}
@@ -366,6 +396,10 @@ export async function GET(request: NextRequest) {
       showRate: (completedAppts + noShowAppts) > 0
         ? (completedAppts / (completedAppts + noShowAppts) * 100) : 0,
     },
+    // Show / no-show broken out by service line (implants vs TMJ vs sleep apnea
+    // vs other), so the practice can see e.g. what % of implant consults no-show
+    // vs TMJ. Sorted by resolved-appointment volume.
+    appointmentsByServiceLine,
     financingBreakdown: Object.entries(financingMap).map(([type, count]) => ({ type, count })),
     budgetBreakdown: Object.entries(budgetMap).map(([range, count]) => ({ range, count })),
     responseTime,

@@ -33,6 +33,8 @@ import { auditPHIWrite, auditPHITransmission } from '@/lib/hipaa-audit'
 import { getAssetsByType, getRandomAssets, getPracticeInfo, incrementUsage, recordDelivery } from '@/lib/content/practice-assets'
 import { formatAssetForSMS, formatAssetForEmail, formatCustomSMS, formatCustomEmail } from '@/lib/content/delivery-templates'
 import { resolveBrandIdentity } from '@/lib/branding/prompt-block'
+import { parseBranding } from '@/lib/branding/schema'
+import { resolveBrandForContext } from '@/lib/branding/resolve-brand'
 import { getTreatmentClosing, getClosingProgress, advanceStep } from '@/lib/treatment/treatment-closing'
 import { getOrCreateFinancingShareLink } from '@/lib/financing/share-link'
 import { buildQualificationStatus, isDiscoveryComplete } from '@/lib/ai/agent-types'
@@ -1077,11 +1079,16 @@ async function executeCreateBooking(
   if ((phone && typeof phone === 'string') || (email && typeof email === 'string')) {
     const { data: org } = await supabase
       .from('organizations')
-      .select('name')
+      .select('name, settings')
       .eq('id', context.organization_id)
       .single()
 
-    const orgName = org?.name || 'our practice'
+    // Brand the confirmation by the lead's service line (Dion Health / TMJ center
+    // / SF Dentistry), not the raw org name.
+    const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
+    const orgName = resolveBrandForContext(branding, org?.name || 'our practice', {
+      lead: context.lead as never,
+    }).practiceName
     const displayDate = new Date(scheduledAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: settings.timezone })
     const displayTime = formatTimeDisplay(time)
 
@@ -1338,11 +1345,19 @@ async function getCrossChannelContext(
 
   const { data: org } = await supabase
     .from('organizations')
-    .select('name')
+    .select('name, settings')
     .eq('id', context.organization_id)
     .single()
 
-  return { phone, email, leadName, orgName: org?.name || 'our practice' }
+  // `orgName` here is the lead's resolved per-service-line DBA (implants → Dion
+  // Health, TMJ/sleep → TMJ center, else → SF Dentistry), NOT the raw org name —
+  // every patient-facing consumer of this helper brands by service line.
+  const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
+  const orgName = resolveBrandForContext(branding, org?.name || 'our practice', {
+    lead: context.lead as never,
+  }).practiceName
+
+  return { phone, email, leadName, orgName }
 }
 
 /**
@@ -2052,6 +2067,18 @@ async function executeSendPreopInstructions(
   const decryptedPhone = phone ? decryptField(phone) : null
   const decryptedEmail = email ? decryptField(email) : null
 
+  // Sign off with the lead's resolved DBA (pre-op is implant-surgery content, so
+  // this is almost always Dion Health San Francisco — but never hardcode it).
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('name, settings')
+    .eq('id', context.organization_id)
+    .single()
+  const branding = parseBranding((org?.settings as Record<string, unknown> | null)?.branding)
+  const brandName = resolveBrandForContext(branding, org?.name || 'our practice', {
+    lead: context.lead as never,
+  }).practiceName
+
   const preOpSMS = `${firstName}, here are your pre-op instructions for surgery day:\n\n🚫 Nothing to eat or drink 8 hours before\n🚗 Arrange a ride home (no driving after sedation)\n💊 Take prescribed meds as directed\n👕 Wear comfortable, loose clothing\n⏰ Arrive 15 min early\n🪪 Bring ID & insurance card\n🚭 No smoking 48 hours before\n\nPost-op care instructions will follow. Questions? Just text or call us!`
 
   const preOpEmail = `<h2>Pre-Operative Instructions</h2>
@@ -2080,7 +2107,7 @@ async function executeSendPreopInstructions(
 </ul>
 
 <p><strong>Questions?</strong> Call or text us anytime. We're here for you!</p>
-<p>— The Team at Dion Health</p>`
+<p>— The Team at ${brandName}</p>`
 
   const sentVia: string[] = []
 
