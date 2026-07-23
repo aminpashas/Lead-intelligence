@@ -87,8 +87,12 @@ describe('needsReviewRetry', () => {
     }
   })
 
-  it('skips rows whose review never started (null), not just failed', () => {
-    expect(needsReviewRetry(row({ review_status: null }))).toBe(false)
+  it('retries a review that never started (null), not just one that failed (pending)', () => {
+    // A call finalized by a path that skips review — a pre-fix reconcile, or a
+    // deploy lag where prod still runs the old reconciler — lands at null with a
+    // transcript in hand. That is exactly as stranded as a failed 'pending', and
+    // its broken_promise finding is exactly as lost, so the sweep must grade it.
+    expect(needsReviewRetry(row({ review_status: null }))).toBe(true)
   })
 
   it('skips staff calls — the rubric grades an AI agent that was never on the call', () => {
@@ -160,6 +164,7 @@ describe('retryStrandedReviews — outage safety', () => {
         const qb: Record<string, unknown> = {
           select: () => qb,
           eq: () => qb,
+          or: () => qb,
           not: () => qb,
           gte: () => qb,
           order: () => qb,

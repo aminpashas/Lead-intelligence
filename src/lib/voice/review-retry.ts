@@ -80,15 +80,33 @@ export function transcriptToPromptText(row: Pick<ReviewRetryRow, 'transcript'>):
 }
 
 /**
+ * Review statuses that are NOT yet settled, so a call carrying one still needs a
+ * verdict. `clear` / `flagged` / `escalated` are terminal. Both of these mean
+ * "no verdict yet" and both must be swept:
+ *   • `pending` — a review was attempted and left no verdict (model failure).
+ *   • `null`    — a review never even started. This happens when a call is
+ *                 finalized by a path that doesn't hand off to review (a
+ *                 pre-fix reconcile, or a deploy lag where prod still runs the
+ *                 old reconciler). Excluding null stranded exactly these calls:
+ *                 finalized, transcript in hand, broken_promise ungraded, and
+ *                 invisible to the only sweep that could grade them.
+ */
+const UNSETTLED_REVIEW_STATUSES: (string | null)[] = ['pending', null]
+
+function isUnsettledReview(status: string | null): boolean {
+  return UNSETTLED_REVIEW_STATUSES.includes(status)
+}
+
+/**
  * True when a stranded review is worth spending another model call on:
- *   • still `pending` (clear/flagged/escalated are settled; null was never started),
+ *   • not yet settled (pending OR null — see UNSETTLED_REVIEW_STATUSES),
  *   • an AI call — staff calls carry no agent to grade, and the review rubric
  *     judges "the agent", so grading a human's call would manufacture findings,
  *   • holds enough transcript for the reviewer to have an opinion, and
  *   • hasn't burned its attempt budget.
  */
 export function needsReviewRetry(row: ReviewRetryRow): boolean {
-  if (row.review_status !== 'pending') return false
+  if (!isUnsettledReview(row.review_status)) return false
   if (!row.retell_call_id) return false
   if (readReviewMeta(row.metadata).review_attempts >= MAX_REVIEW_ATTEMPTS) return false
   return transcriptToPromptText(row).trim().length >= MIN_REVIEW_TRANSCRIPT_CHARS
@@ -137,7 +155,11 @@ export async function retryStrandedReviews(
         'id, organization_id, lead_id, conversation_id, retell_call_id, direction, ' +
           'outcome, review_status, duration_seconds, transcript, metadata'
       )
-      .eq('review_status', 'pending')
+      // Unsettled = pending OR null; both mean "no verdict yet" (see
+      // UNSETTLED_REVIEW_STATUSES). Keep this in lockstep with needsReviewRetry —
+      // widening one without the other either never fetches the row or fetches
+      // then silently drops it.
+      .or('review_status.is.null,review_status.eq.pending')
       .not('ended_at', 'is', null)
       .gte('ended_at', since)
       .order('ended_at', { ascending: false })
