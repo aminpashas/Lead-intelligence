@@ -8,7 +8,7 @@
  * a new smart_lists.criteria.filter — where all bulk actions already apply.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
-import { SlidersHorizontal, Loader2, Bookmark } from 'lucide-react'
+import { SlidersHorizontal, Loader2, Bookmark, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { AdvancedFilterBuilder } from './advanced-filter-builder'
@@ -31,8 +31,37 @@ export function AdvancedSearchButton({ stages }: { stages: PipelineStage[] }) {
   const [tree, setTree] = useState<FilterNode | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveName, setSaveName] = useState('')
+  const [count, setCount] = useState<number | null>(null)
+  const [counting, setCounting] = useState(false)
 
   const active = !!searchParams.get('af')
+
+  // Live match-count preview: debounce edits, then count leads matching the
+  // pruned tree (read-only, no persistence). Aborts stale requests so a fast
+  // edit sequence can't land an out-of-order result.
+  useEffect(() => {
+    if (!open) return
+    const pruned = tree ? pruneFilterTree(tree) : null
+    if (!pruned) { setCount(null); setCounting(false); return }
+    const ctrl = new AbortController()
+    setCounting(true)
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/smart-lists/preview-count', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ criteria: { filter: pruned } }),
+          signal: ctrl.signal,
+        })
+        if (res.ok) setCount((await res.json()).count ?? null)
+      } catch {
+        // aborted or network error — leave the last count in place
+      } finally {
+        if (!ctrl.signal.aborted) setCounting(false)
+      }
+    }, 450)
+    return () => { ctrl.abort(); clearTimeout(t) }
+  }, [tree, open])
 
   function openDialog() {
     // Sync the builder to whatever the URL currently carries.
@@ -120,7 +149,17 @@ export function AdvancedSearchButton({ stages }: { stages: PipelineStage[] }) {
                 </Button>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex items-center gap-3">
+                {counting ? (
+                  <span className="flex items-center gap-1.5 text-[12px] text-aurea-ink-3">
+                    <Loader2 className="h-[13px] w-[13px] animate-spin" /> counting…
+                  </span>
+                ) : count !== null ? (
+                  <span className="flex items-center gap-1.5 font-mono text-[12px] tabular-nums text-aurea-ink-2">
+                    <Users className="h-[13px] w-[13px]" strokeWidth={1.75} />
+                    {count.toLocaleString()} match
+                  </span>
+                ) : null}
                 <Button variant="ghost" size="sm" onClick={() => setTree(null)}>Reset</Button>
                 <Button size="sm" onClick={apply}>Apply search</Button>
               </div>

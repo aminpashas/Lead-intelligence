@@ -180,23 +180,17 @@ export function SmartListBuilder({
   const refreshPreview = useCallback(async () => {
     setPreviewLoading(true)
     try {
-      // Use the smart list leads count endpoint via a POST to /api/smart-lists with countOnly
-      // For preview, we'll use a simplified approach
+      // Count matching leads without persisting anything (read-only). Replaces
+      // the old create-a-__preview__-list-then-delete-it hack.
       const criteria = buildCriteria()
-      const res = await fetch('/api/smart-lists', {
+      const res = await fetch('/api/smart-lists/preview-count', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: '__preview__',
-          criteria,
-          color,
-        }),
+        body: JSON.stringify({ criteria }),
       })
       if (res.ok) {
-        const { smart_list } = await res.json()
-        setPreviewCount(smart_list.lead_count)
-        // Delete the preview list
-        await fetch(`/api/smart-lists/${smart_list.id}`, { method: 'DELETE' })
+        const { count } = await res.json()
+        setPreviewCount(count)
       }
     } catch {
       // Ignore preview errors
