@@ -86,7 +86,7 @@ export function MarkDeliberating({ lead }: { lead: Lead }) {
         }),
       })
       if (!res.ok) throw new Error(String(res.status))
-      toast.success('Marked deliberating — will resurface on the follow-up date')
+      toast.success('Marked deliberating — automation paused until the follow-up date')
       setOpen(false)
       router.refresh()
     } catch {
@@ -138,7 +138,8 @@ export function MarkDeliberating({ lead }: { lead: Lead }) {
               onChange={(e) => setDate(e.target.value)}
             />
             <p className="text-[11px] text-aurea-ink-3">
-              Until then this deal is muted from the live queue.
+              Until then this deal is muted from the live queue and all automated
+              texts, calls, and emails are paused. You can still reach out manually.
             </p>
           </div>
 

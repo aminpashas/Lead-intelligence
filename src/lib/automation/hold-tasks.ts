@@ -56,6 +56,48 @@ export function buildHoldTaskInput(params: {
   }
 }
 
+/**
+ * A follow-up date is a promise to leave the patient alone until then, so when a
+ * deal's closing state changes we sync a lead hold to it: a deliberating deal
+ * with a future follow-up date is held (pausing all outbound automation via the
+ * hold choke point), and a deal that leaves deliberating — or clears its date —
+ * releases that hold.
+ */
+export type FollowUpHoldAction =
+  | { action: 'set'; holdUntil: string }
+  | { action: 'clear' }
+  | { action: 'none' }
+
+/**
+ * Pure decision for the follow-up ⇒ do-not-disturb sync. Extracted so its one
+ * subtle rule is unit-tested: we only ever release a hold THIS flow placed for a
+ * follow-up (`oldHoldUntil === oldFollowUpAt`); an unrelated manual hold a rep
+ * set for another reason must be left alone.
+ */
+export function decideFollowUpHold(params: {
+  newTemperature: string | null
+  newFollowUpAt: string | null
+  oldHoldUntil: string | null
+  oldFollowUpAt: string | null
+  now?: Date
+}): FollowUpHoldAction {
+  const now = params.now ?? new Date()
+
+  const wantHold =
+    params.newTemperature === 'deliberating' &&
+    !!params.newFollowUpAt &&
+    new Date(params.newFollowUpAt).getTime() > now.getTime()
+  if (wantHold) return { action: 'set', holdUntil: params.newFollowUpAt! }
+
+  const holdWasTrackingFollowUp =
+    !!params.oldHoldUntil &&
+    !!params.oldFollowUpAt &&
+    params.oldHoldUntil === params.oldFollowUpAt
+  if (holdWasTrackingFollowUp) return { action: 'clear' }
+
+  return { action: 'none' }
+}
+
 /** Set (or update) a hold on a lead, minting/refreshing its callback task. */
 export async function setLeadHold(
   supabase: SupabaseClient,

@@ -12,13 +12,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getOwnProfile, resolveActiveOrg } from '@/lib/auth/active-org'
+import { decryptField } from '@/lib/encryption'
+import { setLeadHold, clearLeadHold, decideFollowUpHold } from '@/lib/automation/hold-tasks'
+import { leadDisplayName } from '@/lib/leads/display-name'
+import { logger } from '@/lib/logger'
 
 const bodySchema = z
   .object({
     temperature: z.enum(['hot', 'warm', 'cold', 'stalled', 'deliberating']).nullable().optional(),
     nextStep: z.string().max(2000).nullable().optional(),
     // When a deal is marked 'deliberating', the date the closer agreed to circle
-    // back. Mutes the deal from the live queue until then (see closingQueueState).
+    // back. Mutes the deal from the live queue until then (see closingQueueState)
+    // AND pauses all outbound automation until then via a lead hold (below), so no
+    // automated text/call/email reaches the patient before the follow-up date.
     followUpAt: z.string().datetime().nullable().optional(),
     // Why they paused — reuses the conversation-analysis objection vocabulary.
     reason: z
@@ -58,9 +64,11 @@ export async function PATCH(
   }
 
   // Confirm the lead exists in this org (RLS + explicit scope = defense in depth).
+  // We also read the pre-update hold/follow-up state so the auto-hold below can
+  // tell a hold IT placed for this follow-up from an unrelated manual hold.
   const { data: lead } = await supabase
     .from('leads')
-    .select('id, organization_id')
+    .select('id, organization_id, first_name, last_name, phone_formatted, hold_until, closing_follow_up_at')
     .eq('id', id)
     .eq('organization_id', orgId)
     .single()
@@ -94,6 +102,52 @@ export async function PATCH(
 
   if (error) {
     return NextResponse.json({ error: 'Update failed' }, { status: 500 })
+  }
+
+  // ── Follow-up ⇒ Do-Not-Disturb ────────────────────────────────────────────
+  // A follow-up date is a promise to leave the patient alone until then, so a
+  // deliberating deal with a future follow-up date is put on hold: the hold
+  // choke point (src/lib/leads/hold.ts) then suppresses every automated dial,
+  // text, and email until that date, while manual outreach and inbound still
+  // flow. task-sweep clears the hold when the date passes, at which point the
+  // deliberating_due follow-up task comes due and outreach resumes.
+  //
+  // We only clear a hold this flow itself placed (hold_until === the old
+  // follow-up date); a manual hold a rep set for another reason is never touched.
+  try {
+    const decision = decideFollowUpHold({
+      newTemperature: updated.closing_temperature as string | null,
+      newFollowUpAt: updated.closing_follow_up_at as string | null,
+      oldHoldUntil: (lead as { hold_until: string | null }).hold_until,
+      oldFollowUpAt: (lead as { closing_follow_up_at: string | null }).closing_follow_up_at,
+    })
+
+    if (decision.action === 'set') {
+      const leadName = leadDisplayName({
+        first_name: decryptField((lead as { first_name: string | null }).first_name),
+        last_name: decryptField((lead as { last_name: string | null }).last_name),
+        phone_formatted: decryptField((lead as { phone_formatted: string | null }).phone_formatted),
+      })
+      await setLeadHold(supabase, {
+        organizationId: orgId,
+        leadId: id,
+        leadName,
+        holdUntil: decision.holdUntil,
+        reason: (updated.closing_next_step as string | null) ?? 'Deliberating — paused until follow-up',
+        userId: profile.id,
+      })
+    } else if (decision.action === 'clear') {
+      // Left deliberating, or the follow-up date was cleared: release the hold
+      // we placed so the reactivated deal is no longer muted from automation.
+      await clearLeadHold(supabase, { organizationId: orgId, leadId: id, via: 'manual', userId: profile.id })
+    }
+  } catch (err) {
+    // The closing edit already committed; a hold-sync failure must not fail the
+    // request. Log and move on — the rep can set/clear the hold manually.
+    logger.warn('Closing: follow-up hold sync failed', {
+      leadId: id,
+      error: err instanceof Error ? err.message : String(err),
+    })
   }
 
   return NextResponse.json({ lead: updated })
