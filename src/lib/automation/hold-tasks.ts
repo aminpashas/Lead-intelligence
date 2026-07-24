@@ -79,11 +79,17 @@ export function decideFollowUpHold(params: {
   newFollowUpAt: string | null
   oldHoldUntil: string | null
   oldFollowUpAt: string | null
+  // Whether this follow-up should pause automation. Defaults to true (a
+  // follow-up means "leave them alone until then"), but a rep can opt out for a
+  // specific follow-up, in which case we place no hold — and release one we had.
+  pauseAutomation?: boolean
   now?: Date
 }): FollowUpHoldAction {
   const now = params.now ?? new Date()
+  const pauseAutomation = params.pauseAutomation ?? true
 
   const wantHold =
+    pauseAutomation &&
     params.newTemperature === 'deliberating' &&
     !!params.newFollowUpAt &&
     new Date(params.newFollowUpAt).getTime() > now.getTime()

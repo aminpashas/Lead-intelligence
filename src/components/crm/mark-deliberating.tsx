@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Clock, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Lead } from '@/types/database'
@@ -64,6 +65,16 @@ export function MarkDeliberating({ lead }: { lead: Lead }) {
     lead.closing_follow_up_at ? lead.closing_follow_up_at.slice(0, 10) : dateInputValue(14)
   )
   const [note, setNote] = useState<string>(lead.closing_next_step ?? '')
+  // Pause all automated outreach until the follow-up date. Defaults on ("a
+  // follow-up means leave them alone until then"). If the lead already has a
+  // follow-up date but no matching hold, they were previously opted out — respect that.
+  const currentlyPaused =
+    !!lead.hold_until &&
+    !!lead.closing_follow_up_at &&
+    lead.hold_until === lead.closing_follow_up_at
+  const [pauseAutomation, setPauseAutomation] = useState<boolean>(
+    lead.closing_follow_up_at ? currentlyPaused : true,
+  )
   const [saving, setSaving] = useState(false)
 
   async function save() {
@@ -83,10 +94,15 @@ export function MarkDeliberating({ lead }: { lead: Lead }) {
           followUpAt,
           reason,
           nextStep: note.trim() || null,
+          pauseAutomation,
         }),
       })
       if (!res.ok) throw new Error(String(res.status))
-      toast.success('Marked deliberating — automation paused until the follow-up date')
+      toast.success(
+        pauseAutomation
+          ? 'Marked deliberating — automation paused until the follow-up date'
+          : 'Marked deliberating — automation still active',
+      )
       setOpen(false)
       router.refresh()
     } catch {
@@ -138,9 +154,23 @@ export function MarkDeliberating({ lead }: { lead: Lead }) {
               onChange={(e) => setDate(e.target.value)}
             />
             <p className="text-[11px] text-aurea-ink-3">
-              Until then this deal is muted from the live queue and all automated
-              texts, calls, and emails are paused. You can still reach out manually.
+              Until then this deal is muted from the closer&apos;s live queue.
             </p>
+          </div>
+
+          <div className="flex items-start justify-between gap-3 rounded-md border border-aurea-line p-3">
+            <div className="space-y-0.5">
+              <Label htmlFor="pause-automation">Pause automated outreach</Label>
+              <p className="text-[11px] text-aurea-ink-3">
+                No automated texts, calls, or emails until the follow-up date. You
+                can still reach out manually. Turn off to keep automation running.
+              </p>
+            </div>
+            <Switch
+              id="pause-automation"
+              checked={pauseAutomation}
+              onCheckedChange={setPauseAutomation}
+            />
           </div>
 
           <div className="space-y-1.5">

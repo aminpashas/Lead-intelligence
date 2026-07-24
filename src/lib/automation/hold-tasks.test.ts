@@ -107,4 +107,41 @@ describe('decideFollowUpHold', () => {
     })
     expect(d).toEqual({ action: 'set', holdUntil: later })
   })
+
+  it('defaults to pausing automation when the flag is omitted', () => {
+    const d = decideFollowUpHold({
+      newTemperature: 'deliberating',
+      newFollowUpAt: future,
+      oldHoldUntil: null,
+      oldFollowUpAt: null,
+      now,
+    })
+    expect(d.action).toBe('set')
+  })
+
+  it('places NO hold when the rep opts out of pausing automation', () => {
+    const d = decideFollowUpHold({
+      newTemperature: 'deliberating',
+      newFollowUpAt: future,
+      oldHoldUntil: null,
+      oldFollowUpAt: null,
+      pauseAutomation: false,
+      now,
+    })
+    expect(d.action).toBe('none')
+  })
+
+  it('releases an existing follow-up hold when the rep turns pausing off', () => {
+    // Deal was paused (hold tracked the follow-up date); rep unchecks pause on
+    // re-edit → the hold we placed is released so automation resumes.
+    const d = decideFollowUpHold({
+      newTemperature: 'deliberating',
+      newFollowUpAt: future,
+      oldHoldUntil: future,
+      oldFollowUpAt: future,
+      pauseAutomation: false,
+      now,
+    })
+    expect(d.action).toBe('clear')
+  })
 })

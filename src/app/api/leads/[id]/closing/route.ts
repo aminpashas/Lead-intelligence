@@ -31,6 +31,9 @@ const bodySchema = z
       .enum(['cost', 'financing', 'fear_anxiety', 'timing', 'trust', 'medical', 'logistics', 'spouse_approval', 'none', 'other'])
       .nullable()
       .optional(),
+    // Whether this follow-up pauses outbound automation until the date. Defaults
+    // to true; a rep can uncheck it to keep automation running for this lead.
+    pauseAutomation: z.boolean().optional(),
   })
   .refine(
     (b) =>
@@ -120,6 +123,7 @@ export async function PATCH(
       newFollowUpAt: updated.closing_follow_up_at as string | null,
       oldHoldUntil: (lead as { hold_until: string | null }).hold_until,
       oldFollowUpAt: (lead as { closing_follow_up_at: string | null }).closing_follow_up_at,
+      pauseAutomation: parsed.data.pauseAutomation ?? true,
     })
 
     if (decision.action === 'set') {
