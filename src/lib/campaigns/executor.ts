@@ -13,6 +13,54 @@ import { checkCompliance } from '@/lib/ai/compliance-filter'
 import { createEscalation } from '@/lib/autopilot/escalation'
 import { resolveAutomationOwner } from '@/lib/automation/allocation'
 import { enqueueCampaignReviewDraft } from '@/lib/campaigns/review-drafts'
+import { normalizeTargetCriteria } from './enrollments'
+import { shouldSuppressBookedLead } from './prospecting-guard'
+import type { SmartListCriteria } from '@/types/database'
+
+/**
+ * Prospecting guard (per-send): return an exit reason when this campaign must
+ * NOT message this lead because the lead's live board stage is at-or-past a
+ * booked consult and the campaign targets top-of-funnel leads. Returns null to
+ * proceed. Fail-open: any lookup error proceeds (never blocks a legit send).
+ */
+async function evaluateProspectingSuppression(
+  supabase: SupabaseClient,
+  campaign: { id: string; organization_id: string; smart_list_id?: string | null; target_criteria?: Record<string, unknown> | null },
+  lead: { stage_id?: string | null }
+): Promise<string | null> {
+  try {
+    if (!lead.stage_id) return null
+
+    // Resolve the campaign's audience criteria (smart list takes precedence,
+    // else inline target_criteria — same precedence as autoEnrollLeads).
+    let criteria: SmartListCriteria | null = null
+    if (campaign.smart_list_id) {
+      const { data: sl } = await supabase
+        .from('smart_lists')
+        .select('criteria')
+        .eq('id', campaign.smart_list_id)
+        .eq('organization_id', campaign.organization_id)
+        .maybeSingle<{ criteria: SmartListCriteria }>()
+      criteria = sl?.criteria ?? null
+    }
+    if (!criteria && campaign.target_criteria && Object.keys(campaign.target_criteria).length > 0) {
+      criteria = normalizeTargetCriteria(campaign.target_criteria)
+    }
+
+    const { data: stage } = await supabase
+      .from('pipeline_stages')
+      .select('slug')
+      .eq('id', lead.stage_id)
+      .maybeSingle<{ slug: string }>()
+
+    if (shouldSuppressBookedLead({ stageSlug: stage?.slug ?? null, criteria })) {
+      return `Suppressed: lead already booked/beyond prospecting (stage '${stage?.slug}')`
+    }
+    return null
+  } catch {
+    return null
+  }
+}
 
 export type ExecutionResult = {
   enrollment_id: string
@@ -76,6 +124,20 @@ async function executeOneStep(
   // send path (closer composition, financing-aware skips, co-signer link).
   if (campaign.metadata?.system_key === POST_CONSULT_NURTURE_KEY) {
     return executeNurtureStep(supabase, enrollment)
+  }
+
+  // Prospecting guard: never fire net-new outreach at a lead the board already
+  // considers booked/beyond. Keys off the live board stage because leads.status
+  // is frozen at 'new' in GHL-migrated orgs. Runs before any PII decrypt / AI
+  // composition so a mis-targeted touch is cheap to stop.
+  const suppression = await evaluateProspectingSuppression(supabase, campaign, lead)
+  if (suppression) {
+    await supabase.from('campaign_enrollments').update({
+      status: 'exited',
+      exited_at: new Date().toISOString(),
+      exit_reason: suppression,
+    }).eq('id', enrollment.id)
+    return { enrollment_id: enrollment.id, lead_id: lead.id, action: 'exited', detail: suppression }
   }
 
   // Decrypt PII fields for sending

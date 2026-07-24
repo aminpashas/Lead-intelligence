@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SmartListCriteria } from '@/types/database'
 import { computeReplyStepIncrements } from './reply-attribution'
 import { resolveSmartListLeads } from './smart-list-resolver'
+import { AT_OR_PAST_CONSULT_SLUGS, campaignOptsIntoBookedStages } from './prospecting-guard'
 
 // ════════════════════════════════════════════════════════════════
 // CAMPAIGN EXIT ON REPLY
@@ -234,7 +235,7 @@ export async function autoEnrollLeads(
   // campaigns are gated per-channel by the executor at send time.)
   let safety = supabase
     .from('leads')
-    .select('id')
+    .select('id, stage_id')
     .eq('organization_id', campaign.organization_id)
     .in('id', leadIds)
     .not('status', 'in', '("disqualified","lost","completed")')
@@ -250,6 +251,23 @@ export async function autoEnrollLeads(
   const { data: matchingLeads } = await safety
   if (!matchingLeads || matchingLeads.length === 0) return 0
 
+  // Prospecting guard: never enroll a lead the board already considers
+  // booked/beyond a consult. leads.status is frozen at 'new' in GHL-migrated
+  // orgs, so a booked patient still matches a status:['new'] audience — key off
+  // the live board stage instead. A campaign that deliberately targets
+  // booked/later leads opts out via its criteria (naming those stages/statuses).
+  let eligibleLeads = matchingLeads
+  if (!campaignOptsIntoBookedStages(criteria)) {
+    const { data: bookedStages } = await supabase
+      .from('pipeline_stages')
+      .select('id')
+      .eq('organization_id', campaign.organization_id)
+      .in('slug', [...AT_OR_PAST_CONSULT_SLUGS])
+    const bookedStageIds = new Set((bookedStages || []).map((s) => s.id))
+    eligibleLeads = matchingLeads.filter((l) => !l.stage_id || !bookedStageIds.has(l.stage_id))
+    if (eligibleLeads.length === 0) return 0
+  }
+
   // Get already enrolled lead IDs for this campaign
   const { data: existingEnrollments } = await supabase
     .from('campaign_enrollments')
@@ -259,7 +277,7 @@ export async function autoEnrollLeads(
   const enrolledIds = new Set((existingEnrollments || []).map((e) => e.lead_id))
 
   // Filter out already enrolled
-  const newLeads = matchingLeads.filter((l) => !enrolledIds.has(l.id))
+  const newLeads = eligibleLeads.filter((l) => !enrolledIds.has(l.id))
   if (newLeads.length === 0) return 0
 
   // Calculate first step send time

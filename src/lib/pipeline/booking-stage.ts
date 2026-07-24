@@ -45,7 +45,7 @@ export const CONSULT_STAGE_SLUG = 'consultation-scheduled'
  * pipeline_stages.is_won / is_lost flags, which are more reliable than slugs for
  * custom org boards.)
  */
-const AT_OR_PAST_CONSULT = new Set<string>([
+export const AT_OR_PAST_CONSULT = new Set<string>([
   'consultation-scheduled',
   'consultation-completed',
   'treatment-presented',
@@ -55,6 +55,16 @@ const AT_OR_PAST_CONSULT = new Set<string>([
   'completed',
   'lost',
 ])
+
+/**
+ * True when a lead's board stage is at or past a booked consultation (or lost).
+ * Shared with the campaign prospecting guard so net-new outreach never targets a
+ * lead the board already considers booked/beyond — see
+ * `lib/campaigns/prospecting-guard.ts`.
+ */
+export function isAtOrPastConsultStage(slug: string | null | undefined): boolean {
+  return !!slug && AT_OR_PAST_CONSULT.has(slug)
+}
 
 /**
  * Off-funnel parking stages (existing patients / caller-ID junk). These are not
