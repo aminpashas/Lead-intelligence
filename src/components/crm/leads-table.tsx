@@ -83,6 +83,9 @@ export function LeadsTable({
   const searchParams = useSearchParams()
   const [search, setSearch] = useState(searchParams.get('search') || '')
 
+  // Changing a filter always drops you back to page 1 — page 7 of the old
+  // result set means nothing once the set changes. Never route page changes
+  // through here: the reset below would swallow them.
   function updateFilters(key: string, value: string | null) {
     const params = new URLSearchParams(searchParams.toString())
     if (value && value !== 'all') {
@@ -91,6 +94,13 @@ export function LeadsTable({
       params.delete(key)
     }
     params.set('page', '1')
+    router.push(`/leads?${params.toString()}`)
+  }
+
+  // Paging keeps the current filters and only moves the page cursor.
+  function goToPage(next: number) {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('page', String(next))
     router.push(`/leads?${params.toString()}`)
   }
 
@@ -625,7 +635,8 @@ export function LeadsTable({
               variant="outline"
               size="sm"
               disabled={page <= 1}
-              onClick={() => updateFilters('page', String(page - 1))}
+              aria-label="Previous page"
+              onClick={() => goToPage(page - 1)}
             >
               <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
             </Button>
@@ -636,7 +647,8 @@ export function LeadsTable({
               variant="outline"
               size="sm"
               disabled={page >= totalPages}
-              onClick={() => updateFilters('page', String(page + 1))}
+              aria-label="Next page"
+              onClick={() => goToPage(page + 1)}
             >
               <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
             </Button>
