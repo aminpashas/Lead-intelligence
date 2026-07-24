@@ -22,6 +22,7 @@ import { serviceLineFromPipelineName, serviceLineTag } from '@/lib/leads/service
 // Single source of truth for the "still new?" window — the guard here and the
 // parkAgedNewLeads backstop must agree, or they fight over the same leads.
 import { newLeadMaxAgeDays } from '@/lib/pipeline/unstale-new-stage'
+import { advancedStatusForStage } from '@/lib/pipeline/stage-status-map'
 import type { GhlConfig } from './types'
 
 /** Most-advanced-wins priority when a lead has multiple opportunities. */
@@ -188,6 +189,8 @@ export type ReconcileReport = {
   allChannelSuppressed: number
   /** Service-line tags stamped onto leads from their GHL pipeline name. */
   serviceTagsStamped: number
+  /** leads.status brought forward to match a booked/funnel stage (flag-gated). */
+  statusSynced: number
   /** stage slug -> projected/applied count, for observability. */
   afterDistribution: Record<string, number>
 }
@@ -283,7 +286,7 @@ export async function reconcileGhlStages(
     return {
       status: 'skipped', fetched: 0, mapped: 0, noContact: 0, unmapped: 0, matched: 0,
       unmatched: 0, leadsAffected: 0, stageChanges: 0, smsSuppressed: 0, allChannelSuppressed: 0,
-      serviceTagsStamped: 0, afterDistribution: {},
+      serviceTagsStamped: 0, statusSynced: 0, afterDistribution: {},
     }
   }
 
@@ -424,6 +427,13 @@ export async function reconcileGhlStages(
   let smsSuppressed = 0
   let allChannelSuppressed = 0
   let serviceTagsStamped = 0
+  let statusSynced = 0
+  // Bring leads.status forward to match the board when reconcile advances a lead
+  // into the funnel. GHL only carries the stage label, so without this a booked
+  // lead stays status='new' and keeps matching new-lead campaign audiences,
+  // mis-scoring, and skewing funnel counts. Forward-only + flag-gated (default
+  // off) so it ships dark for review — see lib/pipeline/stage-status-map.ts.
+  const syncStatus = process.env.GHL_STATUS_SYNC_ENABLED === 'true'
 
   for (const plan of plans.values()) {
     // A stale GHL "No Communication"/"New" must not overwrite a lead LI has
@@ -448,6 +458,17 @@ export async function reconcileGhlStages(
       update.stage_id = targetStageId
       stageSlug = effectiveSlug
       stageChanges += 1
+
+      // Keep leads.status in lockstep with the board (forward-only). Only when
+      // the flag is on: this reclassifies status across the GHL population, so
+      // it deploys dark until explicitly enabled.
+      if (syncStatus) {
+        const nextStatus = advancedStatusForStage({ currentStatus: plan.liStatus, targetSlug: effectiveSlug })
+        if (nextStatus && nextStatus !== plan.liStatus) {
+          update.status = nextStatus
+          statusSynced += 1
+        }
+      }
     }
     if ((plan.smsDnd || plan.allChannelDnd) && plan.smsCurrent !== 'declined') {
       update.sms_consent_status = 'declined'
@@ -497,6 +518,7 @@ export async function reconcileGhlStages(
     smsSuppressed,
     allChannelSuppressed,
     serviceTagsStamped,
+    statusSynced,
     afterDistribution,
   }
   if (dryRun) return report
