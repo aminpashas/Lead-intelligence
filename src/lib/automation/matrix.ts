@@ -152,7 +152,7 @@ export const CRON_SCHEDULES: Record<string, string> = {
   'existing-patient-rematch': 'Hourly',
   'a2p-status': 'Every 6 hours',
   reengagement: 'Hourly',
-  'carestack-sync': 'Daily 04:30 UTC',
+  'ehr-daily-sync': 'Daily 04:30 UTC',
   'ghl-sync': 'Every 15 min',
   'voice-reconcile': 'Every 15 min',
   'windsor-sync': 'Daily 05:00 UTC',

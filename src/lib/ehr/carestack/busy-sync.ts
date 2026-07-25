@@ -1,7 +1,7 @@
 /**
  * Pull CareStack appointment occupancy into ehr_busy_slots so LI's availability
  * engine won't offer a chair that's actually booked in the PMS. Runs from the
- * carestack-sync cron (per org, only when CareStack is configured).
+ * ehr-daily-sync cron (per org, only when CareStack is configured).
  *
  * The /sync/appointments endpoint is incremental (modifiedSince) and returns start
  * + duration (no explicit end). Field names mirror the sibling MDRCM import.

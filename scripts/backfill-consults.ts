@@ -14,7 +14,7 @@ loadEnv({ path: '.env.local' })
 import { createClient } from '@supabase/supabase-js'
 import { getCareStackConfig } from '../src/lib/ehr/carestack/client'
 import { syncCareStackAppointments } from '../src/lib/ehr/carestack/sync'
-import { rollupConsultOutcomes } from '../src/lib/ehr/carestack/rollup'
+import { rollupConsultOutcomes } from '../src/lib/ehr/rollup'
 
 function req(n: string): string {
   const v = process.env[n]

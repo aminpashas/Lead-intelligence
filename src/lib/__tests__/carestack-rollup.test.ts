@@ -1,23 +1,42 @@
+/**
+ * The rollup is now vendor-neutral and consumes a normalized vocabulary, but
+ * these fixtures still start from RAW CareStack values and run them through
+ * CareStack's own normalizer. That is deliberate: every assertion below is
+ * unchanged from when the rollup read `status_id === 3` directly, so if the
+ * mapping in carestack/status.ts is wrong, these fail. The test proves the
+ * refactor preserved behaviour rather than just re-stating the new shape.
+ */
 import { describe, it, expect } from 'vitest'
 import {
   computeLeadOutcome,
   computeConsultOutcome,
   type ProcedureForRollup,
   type AppointmentForConsult,
-} from '@/lib/ehr/carestack/rollup'
+} from '@/lib/ehr/rollup'
+import { normalizeProcedureStatus, normalizeAppointmentStatus } from '@/lib/ehr/carestack/status'
 
-function appt(o: Partial<AppointmentForConsult>): AppointmentForConsult {
-  return { status: 'Scheduled', start_at: null, ...o }
+/** Build a consult row from a RAW CareStack status string. */
+function appt(o: { status?: string; start_at?: string | null }): AppointmentForConsult {
+  return {
+    outcome: normalizeAppointmentStatus(o.status ?? 'Scheduled'),
+    start_at: o.start_at ?? null,
+  }
 }
 
-function proc(o: Partial<ProcedureForRollup>): ProcedureForRollup {
+/** Build a procedure row from a RAW CareStack status_id. */
+function proc(o: {
+  status_id?: number
+  patient_estimate?: number | null
+  insurance_estimate?: number | null
+  date_of_service?: string | null
+  proposed_date?: string | null
+}): ProcedureForRollup {
   return {
-    status_id: 3,
-    patient_estimate: 0,
-    insurance_estimate: 0,
-    date_of_service: null,
-    proposed_date: null,
-    ...o,
+    status: normalizeProcedureStatus(o.status_id ?? 3),
+    patient_estimate: o.patient_estimate ?? 0,
+    insurance_estimate: o.insurance_estimate ?? 0,
+    date_of_service: o.date_of_service ?? null,
+    proposed_date: o.proposed_date ?? null,
   }
 }
 
@@ -108,5 +127,35 @@ describe('computeConsultOutcome', () => {
   it('is case-insensitive on status', () => {
     const r = computeConsultOutcome([appt({ status: 'checked out', start_at: '2026-05-01T00:00:00Z' })])
     expect(r.consult_completed_at).toBe('2026-05-01T00:00:00Z')
+  })
+})
+
+describe('CareStack status normalization', () => {
+  it('maps only 3/8 to money-bearing statuses', () => {
+    expect(normalizeProcedureStatus(3)).toBe('accepted')
+    expect(normalizeProcedureStatus(8)).toBe('completed')
+    for (const other of [0, 1, 2, 4, 5, 6, 7, 9, 10]) {
+      expect(normalizeProcedureStatus(other)).toBe('other')
+    }
+  })
+
+  it('tolerates string and null status ids', () => {
+    expect(normalizeProcedureStatus('3')).toBe('accepted')
+    expect(normalizeProcedureStatus(null)).toBe('other')
+    expect(normalizeProcedureStatus(undefined)).toBe('other')
+  })
+
+  it('maps the appointment statuses seen live', () => {
+    expect(normalizeAppointmentStatus('Scheduled')).toBe('scheduled')
+    expect(normalizeAppointmentStatus('Confirmed')).toBe('scheduled')
+    expect(normalizeAppointmentStatus('Checked Out')).toBe('completed')
+    expect(normalizeAppointmentStatus('Missed')).toBe('no_show')
+    expect(normalizeAppointmentStatus('Cancelled')).toBe('ignored')
+    expect(normalizeAppointmentStatus('Blocked')).toBe('ignored')
+  })
+
+  it('defaults an unknown status to scheduled rather than dropping the visit', () => {
+    expect(normalizeAppointmentStatus('Some New Status')).toBe('scheduled')
+    expect(normalizeAppointmentStatus(null)).toBe('scheduled')
   })
 })

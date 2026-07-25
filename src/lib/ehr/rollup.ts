@@ -1,32 +1,32 @@
 /**
- * Lead revenue rollup — the "last mile" of the CareStack closed loop.
+ * Lead outcome rollup — the "last mile" of the EHR closed loop.
  *
- * The sync writes `treatment_procedures` rows and emits per-status events, but
- * the entire downstream — Google/Meta offline conversions, GA4, Slack, and every
- * dashboard in `goals/actuals.ts` — reads the value off the LEAD:
+ * The sync writes `treatment_procedures` / `ehr_appointments` rows and emits
+ * per-status events, but the entire downstream — Google/Meta offline conversions,
+ * GA4, Slack, and every dashboard in `goals/actuals.ts` — reads the value off the
+ * LEAD:
  *   leads.treatment_value   (accepted case value)
  *   leads.actual_revenue    (delivered/collected)
  *   leads.converted_at      (became a paying case)
  *
- * Nothing populated those columns, so dashboards showed $0 and conversions
- * shipped to the ad platforms with a blank value. This module aggregates each
- * lead-linked patient's procedures and stamps the summary back onto the lead.
- *
  * Idempotent: only writes when a computed value actually differs from what's
  * stored, so it's safe to run on every sync + as a one-off backfill.
  *
- * Value semantics (CareStack procedure status enum):
- *   3 = Accepted, 8 = Completed.
- *   treatment_value = Σ(patient_estimate + insurance_estimate) for Accepted OR Completed
- *   actual_revenue  = Σ(patient_estimate + insurance_estimate) for Completed only
- *   converted_at    = earliest (date_of_service ?? proposed_date) among Accepted/Completed
+ * Vendor-neutral. It reads the `ehr_*` tables, which have always carried an
+ * `ehr_source` discriminator, and asks that source's adapter to translate its
+ * status codes into our vocabulary (see lib/ehr/port.ts). Rows from an EMR with
+ * no registered adapter are skipped rather than silently miscounted.
+ *
+ * Value semantics:
+ *   treatment_value = Σ(patient_estimate + insurance_estimate) for accepted OR completed
+ *   actual_revenue  = Σ(patient_estimate + insurance_estimate) for completed only
+ *   converted_at    = earliest (date_of_service ?? proposed_date) among those
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { moveLeadToNoShowStage } from '@/lib/pipeline/no-show-stage'
-
-export const PROC_STATUS_ACCEPTED = 3
-export const PROC_STATUS_COMPLETED = 8
+import { getAdapter } from './registry'
+import type { NormalizedProcedureStatus, NormalizedApptOutcome } from './port'
 
 /**
  * Lead statuses we're allowed to advance from. A lead further along (or terminal:
@@ -39,9 +39,9 @@ const EARLY_STATUSES = new Set<string | null>([
   'unresponsive', 'dormant',
 ])
 
-/** One procedure row, trimmed to the fields the rollup needs. */
+/** One procedure row, trimmed to the fields the rollup needs, already normalized. */
 export type ProcedureForRollup = {
-  status_id: number | null
+  status: NormalizedProcedureStatus
   patient_estimate: number | null
   insurance_estimate: number | null
   date_of_service: string | null
@@ -64,12 +64,11 @@ export function computeLeadOutcome(procedures: ProcedureForRollup[]): LeadOutcom
   let convertedAt: string | null = null
 
   for (const p of procedures) {
-    const status = p.status_id
-    if (status !== PROC_STATUS_ACCEPTED && status !== PROC_STATUS_COMPLETED) continue
+    if (p.status !== 'accepted' && p.status !== 'completed') continue
 
     const value = (p.patient_estimate ?? 0) + (p.insurance_estimate ?? 0)
     treatmentValue += value
-    if (status === PROC_STATUS_COMPLETED) actualRevenue += value
+    if (p.status === 'completed') actualRevenue += value
 
     const when = p.date_of_service ?? p.proposed_date
     if (when && (convertedAt === null || when < convertedAt)) convertedAt = when
@@ -84,6 +83,21 @@ export function computeLeadOutcome(procedures: ProcedureForRollup[]): LeadOutcom
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+/**
+ * Translate a raw vendor status via that row's adapter. Rows from a source with
+ * no registered adapter return null and are dropped by the caller — better to
+ * under-count than to guess another vendor's enum.
+ */
+function normalizeProcedure(source: unknown, statusId: unknown): NormalizedProcedureStatus | null {
+  const adapter = getAdapter(source)
+  return adapter ? adapter.normalizeProcedureStatus(statusId) : null
+}
+
+function normalizeAppointment(source: unknown, status: unknown): NormalizedApptOutcome | null {
+  const adapter = getAdapter(source)
+  return adapter ? adapter.normalizeAppointmentStatus(status) : null
 }
 
 export type RollupResult = {
@@ -101,7 +115,8 @@ export type RollupResult = {
 }
 
 /**
- * Roll CareStack procedure dollars up onto the matched leads for one org.
+ * Roll accepted/completed procedure dollars up onto the matched leads for one org,
+ * across every EMR the org has synced.
  *
  * @param dryRun when true, computes and returns the planned changes but writes nothing.
  */
@@ -142,7 +157,7 @@ export async function rollupLeadOutcomes(
     for (let from = 0; ; from += 1000) {
       const { data, error } = await supabase
         .from('treatment_procedures')
-        .select('patient_id, status_id, patient_estimate, insurance_estimate, date_of_service, proposed_date')
+        .select('patient_id, ehr_source, status_id, patient_estimate, insurance_estimate, date_of_service, proposed_date')
         .eq('organization_id', organizationId)
         .eq('is_deleted', false)
         .range(from, from + 999)
@@ -151,8 +166,16 @@ export async function rollupLeadOutcomes(
       for (const row of data) {
         const leadId = patientToLead.get(row.patient_id as string)
         if (!leadId) continue
+        const status = normalizeProcedure(row.ehr_source, row.status_id)
+        if (!status) continue
         const list = byLead.get(leadId) ?? []
-        list.push(row as ProcedureForRollup)
+        list.push({
+          status,
+          patient_estimate: (row.patient_estimate as number) ?? null,
+          insurance_estimate: (row.insurance_estimate as number) ?? null,
+          date_of_service: (row.date_of_service as string) ?? null,
+          proposed_date: (row.proposed_date as string) ?? null,
+        })
         byLead.set(leadId, list)
       }
       if (data.length < 1000) break
@@ -262,20 +285,19 @@ export async function rollupLeadOutcomes(
 // ── Consult rollup (appointments → lead show / no-show / consult dates) ──────
 
 export type AppointmentForConsult = {
-  status: string | null
+  outcome: NormalizedApptOutcome
   start_at: string | null
 }
 
 export type ConsultOutcome = {
-  consultation_date: string | null   // earliest kept/booked visit
-  consult_completed_at: string | null // earliest 'Checked Out' (they showed)
+  consultation_date: string | null    // earliest kept/booked visit
+  consult_completed_at: string | null // earliest visit they actually showed for
   no_show_count: number
 }
 
 /**
- * Pure aggregation — a lead's CareStack appointments → consult outcome columns.
- * CareStack statuses seen live: Scheduled, Confirmed, Checked Out, Missed,
- * Cancelled, Blocked (Blocked never reaches here — no patient). Exported for tests.
+ * Pure aggregation — a lead's appointments → consult outcome columns.
+ * Exported for tests; no I/O.
  */
 export function computeConsultOutcome(appts: AppointmentForConsult[]): ConsultOutcome {
   let consultationDate: string | null = null
@@ -283,13 +305,12 @@ export function computeConsultOutcome(appts: AppointmentForConsult[]): ConsultOu
   let noShow = 0
 
   for (const a of appts) {
-    const s = (a.status ?? '').trim().toLowerCase()
-    if (s === 'cancelled' || s === 'rescheduled' || s === 'blocked') continue
-    if (s === 'missed') { noShow++; continue }
+    if (a.outcome === 'ignored' || a.outcome === 'cancelled') continue
+    if (a.outcome === 'no_show') { noShow++; continue }
 
     const when = a.start_at
     if (when && (consultationDate === null || when < consultationDate)) consultationDate = when
-    if (s === 'checked out' && when && (consultCompletedAt === null || when < consultCompletedAt)) {
+    if (a.outcome === 'completed' && when && (consultCompletedAt === null || when < consultCompletedAt)) {
       consultCompletedAt = when
     }
   }
@@ -308,9 +329,9 @@ export type ConsultRollupResult = {
 }
 
 /**
- * Roll CareStack appointment outcomes onto the matched leads: sets
- * consultation_date / consult_completed_at / no_show_count so the dashboards'
- * consult + show-rate metrics stop reading null. Idempotent.
+ * Roll appointment outcomes onto the matched leads: sets consultation_date /
+ * consult_completed_at / no_show_count so the dashboards' consult + show-rate
+ * metrics stop reading null. Idempotent.
  */
 export async function rollupConsultOutcomes(
   supabase: SupabaseClient,
@@ -346,7 +367,7 @@ export async function rollupConsultOutcomes(
     for (let from = 0; ; from += 1000) {
       const { data, error } = await supabase
         .from('ehr_appointments')
-        .select('patient_id, status, start_at')
+        .select('patient_id, ehr_source, status, start_at')
         .eq('organization_id', organizationId)
         .range(from, from + 999)
       if (error) throw new Error(`appointments read failed: ${error.message}`)
@@ -354,8 +375,10 @@ export async function rollupConsultOutcomes(
       for (const row of data) {
         const leadId = row.patient_id ? patientToLead.get(row.patient_id as string) : undefined
         if (!leadId) continue
+        const outcome = normalizeAppointment(row.ehr_source, row.status)
+        if (!outcome) continue
         const list = byLead.get(leadId) ?? []
-        list.push({ status: (row.status as string) ?? null, start_at: (row.start_at as string) ?? null })
+        list.push({ outcome, start_at: (row.start_at as string) ?? null })
         byLead.set(leadId, list)
       }
       if (data.length < 1000) break
@@ -416,7 +439,7 @@ export async function rollupConsultOutcomes(
       updated++
 
       // Board sync for EHR-detected no-shows, so a card the practice can see
-      // matches what CareStack already knows. Gated on this rollup being the
+      // matches what the PMS already knows. Gated on this rollup being the
       // thing that just flipped the status, which bounds it to real transitions
       // instead of re-moving every historical no-show on every run.
       //

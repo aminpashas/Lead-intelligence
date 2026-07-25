@@ -4,21 +4,25 @@
  * The single place a booking create/cancel fans out to the outside world. Called
  * fire-and-forget from every write-site (public booking route, AI booking tool,
  * appointment status endpoint). It NEVER throws and NEVER blocks the booking —
- * a federation / CareStack / Slack failure must not stop a confirmed consult.
+ * a federation / PMS / Slack failure must not stop a confirmed consult.
  *
  * Legs (independent — one failing doesn't skip the others):
  *   1. Dion Clinical — emit appointment.booked / appointment.cancelled to the EMR bus.
- *   2. CareStack     — create / cancel the appointment in the PMS (gated by config).
+ *   2. EHR adapters  — create / cancel in every configured PMS (see lib/ehr/registry).
  *   3. Slack / connectors — on `book`, dispatch consultation.scheduled (staff notify).
  *
  * Per-leg status is stored on the appointment row; the ehr-appointment-sync cron
  * re-drives any leg left 'pending'/'failed'.
+ *
+ * Multi-EMR: leg 2 loops the org's enabled adapters. An adapter without the
+ * 'appointment.write' capability is `skipped`, not failed — read-only aggregator
+ * tiers are a real configuration, not a bug.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { emitAppointmentBooked, emitAppointmentCancelled, type DionEmitResult } from '@/lib/bridges/dion-clinical'
 import { dispatchConnectorEvent, buildConnectorLeadData } from '@/lib/connectors'
-import { getCareStackConfig } from '@/lib/ehr/carestack/client'
-import { pushAppointmentToCareStack, cancelAppointmentInCareStack } from '@/lib/ehr/carestack/appointments'
+import { getEnabledAdapters, type ResolvedAdapter } from '@/lib/ehr/registry'
+import type { EhrCtx } from '@/lib/ehr/port'
 import type { EhrSyncStatus } from '@/types/database'
 
 export type EhrSyncAction = 'book' | 'cancel'
@@ -37,53 +41,73 @@ type AppointmentRow = {
   duration_minutes: number | null
   ehr_sync_attempts: number | null
   carestack_appointment_id: string | null
+  ehr_external_ids: Record<string, string> | null
 }
 
 type LegResult = { status: EhrSyncStatus; error?: string }
-type CareStackLegResult = LegResult & { carestackAppointmentId?: string }
+type AdapterLegResult = LegResult & { source: string; externalId?: string }
 
 function dionStatus(result: DionEmitResult): EhrSyncStatus {
   if (result.skipped) return 'skipped'
   return result.ok ? 'synced' : 'failed'
 }
 
-async function runCareStackLeg(
+/**
+ * The external id we already hold for this source, if any. Reads the multi-EMR
+ * map first and falls back to the legacy CareStack column so the short-circuit
+ * still works on rows written before the jsonb column existed.
+ */
+function existingExternalId(appt: AppointmentRow, source: string): string | null {
+  const fromMap = appt.ehr_external_ids?.[source]
+  if (fromMap) return fromMap
+  if (source === 'carestack') return appt.carestack_appointment_id
+  return null
+}
+
+async function runAdapterLeg(
   supabase: SupabaseClient,
   appt: AppointmentRow,
   lead: Record<string, unknown> | null,
   opts: EhrSyncOptions,
-): Promise<CareStackLegResult> {
-  const config = await getCareStackConfig(supabase, appt.organization_id)
-  if (!config) return { status: 'skipped' }
+  { adapter, config }: ResolvedAdapter,
+): Promise<AdapterLegResult> {
+  const source = adapter.source
+  if (!adapter.capabilities.has('appointment.write')) return { source, status: 'skipped' }
+
+  const ctx: EhrCtx = { supabase, organizationId: appt.organization_id, config }
+  const existing = existingExternalId(appt, source)
 
   try {
     if (opts.action === 'book') {
       // Idempotent: if we already created it (e.g. a retry where only the Dion leg
-      // failed), don't create a second CareStack appointment.
-      if (appt.carestack_appointment_id) {
-        return { status: 'synced', carestackAppointmentId: appt.carestack_appointment_id }
-      }
-      if (!lead) return { status: 'failed', error: 'lead not found for CareStack patient' }
-      const { data: settings } = await supabase
-        .from('booking_settings')
-        .select('carestack_location_id, carestack_provider_id, carestack_operatory_id, carestack_appointment_type, timezone')
-        .eq('organization_id', appt.organization_id)
-        .maybeSingle()
-      const carestackAppointmentId = await pushAppointmentToCareStack(supabase, config, {
+      // failed), don't create a second appointment in the PMS.
+      if (existing) return { source, status: 'synced', externalId: existing }
+      if (!lead) return { source, status: 'failed', error: `lead not found for ${source} patient` }
+      const { externalId } = await adapter.createAppointment(ctx, {
         appointment: appt,
         lead,
-        settings: settings ?? {},
       })
-      return { status: 'synced', carestackAppointmentId }
+      return { source, status: 'synced', externalId }
     }
-    // cancel — only meaningful if we actually created it in CareStack
-    if (appt.carestack_appointment_id) {
-      await cancelAppointmentInCareStack(config, appt.carestack_appointment_id)
-    }
-    return { status: 'synced' }
+    // cancel — only meaningful if we actually created it in this PMS
+    if (existing) await adapter.cancelAppointment(ctx, existing, opts.reasonCode)
+    return { source, status: 'synced' }
   } catch (err) {
-    return { status: 'failed', error: err instanceof Error ? err.message : 'carestack error' }
+    return { source, status: 'failed', error: err instanceof Error ? err.message : `${source} error` }
   }
+}
+
+/**
+ * Worst-of across every EHR leg, stored in the vendor-neutral `ehr_sync_status`
+ * column so the retry cron can select on one indexable text field instead of a
+ * jsonb predicate. Ordering: failed > pending > synced > skipped.
+ */
+function aggregateStatus(legs: AdapterLegResult[]): EhrSyncStatus {
+  if (legs.length === 0) return 'skipped'
+  if (legs.some((l) => l.status === 'failed')) return 'failed'
+  if (legs.some((l) => l.status === 'pending')) return 'pending'
+  if (legs.some((l) => l.status === 'synced')) return 'synced'
+  return 'skipped'
 }
 
 export async function syncAppointmentToEhr(
@@ -94,7 +118,7 @@ export async function syncAppointmentToEhr(
   try {
     const { data: appt } = await supabase
       .from('appointments')
-      .select('id, organization_id, lead_id, scheduled_at, duration_minutes, ehr_sync_attempts, carestack_appointment_id')
+      .select('id, organization_id, lead_id, scheduled_at, duration_minutes, ehr_sync_attempts, carestack_appointment_id, ehr_external_ids')
       .eq('id', appointmentId)
       .single()
     if (!appt) return
@@ -107,7 +131,7 @@ export async function syncAppointmentToEhr(
       .single()
     const dionPracticeId: string | null = org?.dion_practice_id ?? null
 
-    // Lead is only needed on `book` (Slack card + CareStack patient resolution).
+    // Lead is only needed on `book` (Slack card + PMS patient resolution).
     let lead: Record<string, unknown> | null = null
     if (opts.action === 'book') {
       const { data } = await supabase.from('leads').select('*').eq('id', appointment.lead_id).single()
@@ -120,25 +144,51 @@ export async function syncAppointmentToEhr(
         ? await emitAppointmentBooked({ appointmentId: appointment.id, startsAt: appointment.scheduled_at, dionPracticeId })
         : await emitAppointmentCancelled({ appointmentId: appointment.id, reasonCode: opts.reasonCode, dionPracticeId })
 
-    // ── Leg 2: CareStack ──────────────────────────────────────────────────
-    const cs = await runCareStackLeg(supabase, appointment, lead, opts)
+    // ── Leg 2: every configured EHR ───────────────────────────────────────
+    // Sequential on purpose: these are low-volume writes to third-party PMSs,
+    // and a serial loop keeps failure attribution and rate-limit behaviour simple.
+    const adapters = await getEnabledAdapters(supabase, appointment.organization_id)
+    const legs: AdapterLegResult[] = []
+    for (const resolved of adapters) {
+      legs.push(await runAdapterLeg(supabase, appointment, lead, opts, resolved))
+    }
 
     // Single combined row update.
     const dion_sync_status = dionStatus(dionResult)
-    const errorParts = [dionResult.ok ? null : dionResult.error, cs.status === 'failed' ? cs.error : null].filter(Boolean)
+    const errorParts = [
+      dionResult.ok ? null : dionResult.error,
+      ...legs.filter((l) => l.status === 'failed').map((l) => `${l.source}: ${l.error}`),
+    ].filter(Boolean)
+
+    const carestackLeg = legs.find((l) => l.source === 'carestack')
     const update: Record<string, unknown> = {
       dion_sync_status,
-      carestack_sync_status: cs.status,
       ehr_sync_attempts: (appointment.ehr_sync_attempts ?? 0) + 1,
       ehr_sync_error: errorParts.length ? errorParts.join(' | ') : null,
+      // Legacy CareStack mirrors — kept for one release so the retry cron and any
+      // reader of these columns keep working. Dropped once nothing reads them.
+      carestack_sync_status: carestackLeg?.status ?? 'skipped',
     }
-    if (cs.carestackAppointmentId) update.carestack_appointment_id = cs.carestackAppointmentId
+    if (carestackLeg?.externalId) update.carestack_appointment_id = carestackLeg.externalId
     await supabase.from('appointments').update(update).eq('id', appointment.id)
+
+    // Multi-EMR link state, written separately so that on a pre-migration schema
+    // (where these columns don't exist yet) the update above still lands.
+    const externalIds = { ...(appointment.ehr_external_ids ?? {}) }
+    for (const leg of legs) {
+      if (leg.externalId) externalIds[leg.source] = leg.externalId
+    }
+    await supabase
+      .from('appointments')
+      .update({ ehr_external_ids: externalIds, ehr_sync_status: aggregateStatus(legs) })
+      .eq('id', appointment.id)
 
     // Failure activity log per failed leg (best-effort, non-blocking).
     const failures: Array<{ leg: string; error?: string }> = []
     if (!dionResult.ok && !dionResult.skipped) failures.push({ leg: 'dion', error: dionResult.error })
-    if (cs.status === 'failed') failures.push({ leg: 'carestack', error: cs.error })
+    for (const l of legs) {
+      if (l.status === 'failed') failures.push({ leg: l.source, error: l.error })
+    }
     for (const f of failures) {
       await supabase.from('lead_activities').insert({
         organization_id: appointment.organization_id,

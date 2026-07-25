@@ -15,7 +15,7 @@ import { config as loadEnv } from 'dotenv'
 loadEnv({ path: '.env.local' })
 
 import { createClient } from '@supabase/supabase-js'
-import { rollupLeadOutcomes } from '../src/lib/ehr/carestack/rollup'
+import { rollupLeadOutcomes } from '../src/lib/ehr/rollup'
 import { rematchUnlinkedPatients } from '../src/lib/ehr/carestack/rematch'
 
 function req(n: string): string {

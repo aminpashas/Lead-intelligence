@@ -612,8 +612,14 @@ export type Appointment = {
   no_show_fee_charged_at: string | null
   no_show_fee_payment_intent_id: string | null
 
-  // EHR sync (CareStack write-back + Dion Clinical event bus)
+  // EHR sync (PMS write-back + Dion Clinical event bus)
+  /** Per-EHR external appointment ids, keyed by ehr_source. e.g. {"carestack":"12345"} */
+  ehr_external_ids: Record<string, string>
+  /** Worst-of status across all EHR legs (failed > pending > synced > skipped). */
+  ehr_sync_status: EhrSyncStatus
+  /** @deprecated mirrored from ehr_external_ids/ehr_sync_status for one release. */
   carestack_appointment_id: string | null
+  /** @deprecated mirrored from ehr_external_ids/ehr_sync_status for one release. */
   carestack_sync_status: EhrSyncStatus
   dion_sync_status: EhrSyncStatus
   ehr_sync_attempts: number
@@ -1985,7 +1991,7 @@ export type TreatmentPlan = {
   id: string
   organization_id: string
   patient_id: string
-  ehr_treatment_plan_id: number
+  ehr_treatment_plan_id: string
   ehr_source: EhrSource
   name: string | null
   status_id: EhrTreatmentStatusId
@@ -2021,13 +2027,13 @@ export type TreatmentProcedure = {
   organization_id: string
   patient_id: string | null
   treatment_plan_id: string | null
-  ehr_procedure_id: number
+  ehr_procedure_id: string
   ehr_source: EhrSource
-  ehr_treatment_plan_id: number | null
-  ehr_treatment_plan_phase_id: number | null
-  ehr_appointment_id: number | null
-  ehr_provider_id: number | null
-  ehr_location_id: number | null
+  ehr_treatment_plan_id: string | null
+  ehr_treatment_plan_phase_id: string | null
+  ehr_appointment_id: string | null
+  ehr_provider_id: string | null
+  ehr_location_id: string | null
   procedure_code_id: number | null
   tooth: string | null
   surfaces: Record<string, number> | null
@@ -2049,13 +2055,13 @@ export type Invoice = {
   id: string
   organization_id: string
   patient_id: string | null
-  ehr_invoice_id: number
+  ehr_invoice_id: string
   ehr_invoice_number: number | null
   ehr_source: EhrSource
   amount: number
   unapplied_amount: number | null
-  ehr_provider_id: number | null
-  ehr_location_id: number | null
+  ehr_provider_id: string | null
+  ehr_location_id: string | null
   payment_category: string | null
   invoice_type: number | null
   invoice_source: number | null
