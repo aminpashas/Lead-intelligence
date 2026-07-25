@@ -147,7 +147,7 @@ export const EXPECTED_CRONS: Record<string, number> = {
   'existing-patient-rematch': 90, // hourly + grace
   'a2p-status': 8 * 60, // every 6h + grace
   'reengagement': 90, // hourly + grace
-  'carestack-sync': 26 * 60, // daily 04:30 UTC
+  'ehr-daily-sync': 26 * 60, // daily 04:30 UTC
   'ghl-sync': 40, // every 15 min + grace
   'voice-reconcile': 40, // every 15 min + grace
   'voice-transcribe': 40, // every 15 min (offset :07/:22/:37/:52) + grace

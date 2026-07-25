@@ -1,5 +1,11 @@
 # EhrAdapter refactor plan — making the second EMR cheap
 
+> **STATUS: implemented.** Code is merged on the branch and green (231 test files,
+> 2161 tests, clean `tsc` + `eslint` + `next build`). **Neither migration has been
+> applied to production** — see "What is left" at the bottom. Where the build
+> diverged from this plan, the plan text below has been left as written and the
+> differences are recorded in "Deviations".
+
 ## Context
 
 Competitors advertise "integrates with 40+ EMRs". The research in
@@ -255,3 +261,54 @@ Keep the old route path as a thin forwarder for one deploy so the Vercel cron en
 Adding EMR #2 requires: one new directory under `src/lib/ehr/`, one line in `registry.ts`, one
 `connector_type` value in the check constraint, and one webhook route if the vendor pushes.
 **No changes to `ehr-sync.ts`, the cron, the rollup, or any table schema.**
+
+---
+
+## Deviations from the plan as built
+
+1. **Cron is `ehr-daily-sync`, not `ehr-sync`.** `ehr-sync` would have sat next to the existing
+   `ehr-appointment-sync` retry cron and read as the same thing. Renamed in `vercel.json`,
+   `with-cron.ts`, `automation/matrix.ts` and its test; the old route path re-exports the new
+   handler for one deploy. Note the cron-health history restarts under the new name.
+2. **The port exposes `runSync(ctx)` returning `SyncRun[]`**, rather than separate
+   `syncBusySlots`/`syncOutcomes`. Runner *ordering* is vendor-specific — CareStack must refresh
+   patients before procedures so patient→lead links resolve — so the adapter owns it. The
+   capability set still distinguishes `busy.sync` from `outcomes.sync`.
+3. **`ehr_sync_status` is a `text` worst-of column, not jsonb.** The retry cron needs to select
+   rows with a leg still pending; that is a plain indexed predicate on text and an awkward one on
+   jsonb. Per-source ids still live in `ehr_external_ids jsonb`.
+4. **Status normalization happens at read time, not write time.** The rollup reads persisted rows
+   that already carry `ehr_source`, so it resolves that row's adapter and normalizes on the way
+   in. Writing a normalized column instead would have meant backfilling 217k rows for no gain.
+5. **`rollup.ts` moved** from `lib/ehr/carestack/` to `lib/ehr/` — it only ever touched
+   vendor-neutral tables. Import sites updated (cron, `scripts/rollup-lead-revenue.ts`,
+   `scripts/backfill-consults.ts`).
+6. **The rollup skips rows whose `ehr_source` has no registered adapter** rather than guessing.
+   Under-counting is recoverable; miscounting another vendor's enum silently is not.
+
+## What is left
+
+**Neither migration has been applied.** The code was written to work correctly either way —
+external ids are coerced to text at the adapter boundary (`toExternalId`), and the multi-EMR
+link write is a separate statement so a pre-migration schema still gets the legacy write. So
+CareStack behaviour is unchanged today, applied or not.
+
+Before a second EMR goes live, in this order:
+
+1. Apply `20260725000000_ehr_multi_adapter_appointment_links.sql` — additive and reversible.
+2. Apply `20260725000100_ehr_widen_external_ids.sql` — **rewrites 4 tables under an ACCESS
+   EXCLUSIVE lock** (217k rows on `ehr_appointments`). Maintenance window. Column types in it
+   were verified against the live DB on 2026-07-24, not the repo files, per
+   [`MIGRATION_DRIFT.md`](./MIGRATION_DRIFT.md) — re-verify before running, since prod moves
+   independently of this directory.
+3. Widen the retry cron's filter to `ehr_sync_status.in.(pending,failed)` — flagged with a `⚠`
+   comment in `src/app/api/cron/ehr-appointment-sync/route.ts`. **Until this is done a failed
+   non-CareStack leg is never retried.** It is deliberately not done in advance because
+   referencing a column that does not exist yet errors the whole query and would silently stop
+   all retries.
+4. Drop the legacy `appointments.carestack_appointment_id` / `carestack_sync_status` columns and
+   the `booking_settings.carestack_*` columns once nothing reads them.
+
+`booking_settings.carestack_*` were **not** collapsed into a per-source blob — nothing needed it
+yet, and the CareStack adapter now owns reading them, which is the seam that matters. Do it when
+adapter #2 needs its own booking defaults.

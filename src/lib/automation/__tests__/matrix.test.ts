@@ -165,7 +165,7 @@ describe('buildRegistryRows', () => {
 
   it('marks never-run, ok, stale and failing crons', () => {
     const rows = buildRegistryRows(
-      { 'sla-takeover': 10, 'ghl-sync': 40, 'brex-sync': 26 * 60, 'carestack-sync': 26 * 60 },
+      { 'sla-takeover': 10, 'ghl-sync': 40, 'brex-sync': 26 * 60, 'ehr-daily-sync': 26 * 60 },
       {
         'sla-takeover': {
           status: 'ok',
@@ -193,7 +193,7 @@ describe('buildRegistryRows', () => {
     expect(byName['ghl-sync'].health).toBe('stale')
     expect(byName['brex-sync'].health).toBe('failing')
     expect(byName['brex-sync'].lastError).toBe('boom')
-    expect(byName['carestack-sync'].health).toBe('never_ran')
+    expect(byName['ehr-daily-sync'].health).toBe('never_ran')
     // Schedules resolve from the static map.
     expect(byName['sla-takeover'].schedule).toBe('Every minute')
   })
